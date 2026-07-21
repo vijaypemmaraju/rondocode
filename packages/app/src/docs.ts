@@ -120,9 +120,19 @@ async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
     edit.href = shareUrl(location.origin, '/', payload)
   }
 
-  const docEd = createDocEditor(body, src, () => player.now(), () => {
-    void refreshEditLink(docEd.getDoc())
-  })
+  const docEd = createDocEditor(
+    body,
+    src,
+    () => player.now(),
+    () => {
+      void refreshEditLink(docEd.getDoc())
+    },
+    () => {
+      // a widget/scrub rewrote the code — hot-patch the sound if THIS block is
+      // the one currently playing (otherwise the edit just updates the text).
+      if (current?.btn === play) player.update(docEd.getDoc())
+    },
+  )
   await refreshEditLink(src)
 
   play.addEventListener('click', () => {

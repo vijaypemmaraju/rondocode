@@ -1,10 +1,8 @@
 import { EditorState } from '@codemirror/state'
-import { EditorView, keymap, drawSelection } from '@codemirror/view'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { javascript } from '@codemirror/lang-javascript'
+import { EditorView } from '@codemirror/view'
 import type { SchedulerEvent } from '@rondocode/pattern'
-import { synthTheme } from '../editor/theme'
-import { flashExtension, EventFlasher } from '../editor/flash'
+import { EventFlasher } from '../editor/flash'
+import { codeEditingExtensions } from '../editor/setup'
 
 /* ------------------------------------------------------------------------- *
  * A small, self-contained CodeMirror editor for a docs example: the same
@@ -12,6 +10,12 @@ import { flashExtension, EventFlasher } from '../editor/flash'
  * wired for the flash decoration that lights mini-notation atoms as they
  * fire. It carries its own EventFlasher; the docs page points the shared
  * PreviewPlayer's events at whichever editor is currently playing.
+ *
+ * It also carries the full editor affordances so an example behaves like the
+ * real thing: WGSL syntax highlighting inside visual(`…`) templates, the
+ * slider/toggle/pick/xy inline widgets, and drag-to-scrub on any number.
+ * A widget/scrub edit rewrites the doc and calls `requestEval` — the docs
+ * page hot-patches the snippet live when it is the one currently playing.
  * ------------------------------------------------------------------------- */
 
 export interface DocEditor {
@@ -31,6 +35,9 @@ export function createDocEditor(
   doc: string,
   now: () => number,
   onDocChange?: () => void,
+  /** A widget/scrub rewrote the doc — re-eval the snippet. `immediate` for
+   *  discrete changes (toggle/pick), false for debounced drags. */
+  requestEval?: (immediate: boolean) => void,
 ): DocEditor {
   let lastGood = doc
   const view = new EditorView({
@@ -38,13 +45,11 @@ export function createDocEditor(
     state: EditorState.create({
       doc,
       extensions: [
-        javascript(), // the grammar the HighlightStyle colors
-        synthTheme, // theme chrome + syntaxHighlighting
-        flashExtension, // renders .cm-flash decorations
-        EditorView.lineWrapping,
-        drawSelection(),
-        history(),
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        // The exact editing stack the main editor uses (widgets, WGSL, DSL
+        // intellisense, multicursor…) — one shared source so the two never
+        // drift. `gutter: false` drops line numbers so small snippets stay
+        // clean; every interactive feature is identical to the editor.
+        ...codeEditingExtensions({ requestEval: (imm) => requestEval?.(imm), gutter: false }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onDocChange?.()
         }),

@@ -1,24 +1,8 @@
 import { EditorState, Prec } from '@codemirror/state'
 import type { Text } from '@codemirror/state'
-import {
-  EditorView,
-  drawSelection,
-  highlightActiveLine,
-  highlightSpecialChars,
-  keymap,
-  lineNumbers,
-} from '@codemirror/view'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import {
-  highlightSelectionMatches,
-  selectNextOccurrence,
-  selectSelectionMatches,
-} from '@codemirror/search'
-import { autocompletion } from '@codemirror/autocomplete'
-import { bracketMatching, indentOnInput } from '@codemirror/language'
+import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
 import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
-import { javascript } from '@codemirror/lang-javascript'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
@@ -30,17 +14,10 @@ import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
-import { synthTheme } from './theme'
-import { EventFlasher, FLASH_MS, flashExtension } from './flash'
-import { rondocodeCompletionSource } from './complete'
-import { wgslHighlight, wgslCompletionSource } from './wgsl'
+import { EventFlasher, FLASH_MS } from './flash'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
-import { gotoDefExtension } from './gotodef'
-import { noteHover } from './notehover'
-import { dslHover } from './hover'
-import { widgetExtension } from './widgets/widgets'
-import { scrubExtension } from './widgets/scrub'
+import { codeEditingExtensions } from './setup'
 import { synthMeters } from './meters'
 
 /* ------------------------------------------------------------------------- *
@@ -395,61 +372,26 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     state: EditorState.create({
       doc: initialDoc,
       extensions: [
-        // multi-cursor: CM6 collapses multi-range selections to one unless this
-        // is enabled — it's what makes Cmd-D / Cmd-Shift-L actually stick.
-        EditorState.allowMultipleSelections.of(true),
+        // Transport keys live with the editor (docs blocks have their own ▶).
+        // Highest precedence so nothing steals Mod-Enter / Mod-.
         Prec.highest(
           keymap.of([
             { key: 'Mod-Enter', run },
             { key: 'Mod-.', run: stop },
-            // VS Code / Cursor multi-cursor: Cmd-D adds the next occurrence of
-            // the selection (or word under cursor) to the selection; Cmd-Shift-L
-            // selects every occurrence at once. preventDefault stops the browser
-            // bookmark (Cmd-D) firing when there's nothing left to select.
-            { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
-            { key: 'Mod-Shift-l', run: selectSelectionMatches },
           ]),
         ),
-        lineNumbers(),
-        highlightSpecialChars(),
-        history(),
-        drawSelection(),
-        indentOnInput(),
-        bracketMatching(),
-        highlightActiveLine(),
-        highlightSelectionMatches(), // underline other occurrences of the selection
-
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-        javascript(),
-        // DSL intellisense: context-aware completions (docs-driven, silent
-        // inside mini-notation strings) + hover docs. Tooltips mount inside
-        // view.dom (the default parent) and CM flips them above the cursor
-        // when the space below is short, so they never sit over the
-        // transport bar; maxRenderedOptions keeps the list phone-sized.
-        autocompletion({
-          override: [wgslCompletionSource, rondocodeCompletionSource],
-          activateOnTyping: true,
-          maxRenderedOptions: 20,
-        }),
-        wgslHighlight(), // WGSL syntax highlighting inside visual(`…`) templates
-        dslHover,
-        noteHover(), // hover a note/chord → a piano-keyboard hovercard
+        // The shared rondocode editing stack — grammar, highlighting (incl.
+        // WGSL), DSL intellisense/hover/note-cards/go-to-def, inline widgets +
+        // drag-to-scrub, multicursor, theme. Kept byte-identical to the docs
+        // examples via editor/setup.ts so the two can never drift.
+        ...codeEditingExtensions({ requestEval }),
+        // ---- host-only: things the docs page has no analogue for ----
         // LLM ghost text: DEV-ONLY (a local authoring convenience, not part of
         // the shipped product). On idle, asks the bridge's /complete endpoint
         // to continue the code; Tab accepts, Esc dismisses. `[]` in production
         // builds means the extension is simply never installed.
         import.meta.env.DEV ? ghostCompletion() : [],
-        gotoDefExtension(), // Cmd/Ctrl-click a symbol → jump to its definition
-        EditorView.lineWrapping, // phones: wrap, never horizontal-scroll
-        synthTheme,
-        flashExtension,
-        // Widgets-in-code: slider()/toggle()/pick()/xy() calls render as
-        // inline controls; any plain number is Alt-drag (long-press on
-        // touch) scrubbable. Both rewrite the doc, then re-eval via
-        // requestEval above. See widgets/*.ts for the full design notes.
-        widgetExtension({ requestEval }),
-        scrubExtension({ requestEval }),
-        meters.extension,
+        meters.extension, // per-synth meter gutter (audio-driven)
         EditorView.updateListener.of((u) => {
           if (!u.docChanged) return
           const doc = u.state.doc.toString()

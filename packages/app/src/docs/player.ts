@@ -103,6 +103,15 @@ export class PreviewPlayer {
     return { ok: true }
   }
 
+  /** Live-update the currently-playing snippet without restarting the
+   *  transport — the hot-patch path a widget/scrub drag uses. A failed eval is
+   *  ignored (last-good contract), and it's a no-op before the engine boots or
+   *  when nothing is playing. */
+  update(code: string): void {
+    if (!this.session || !this.playing) return
+    this.session.evalCode(code, { live: true })
+  }
+
   /** Stop playback (panic all-notes-off) and notify listeners. */
   stop(): void {
     this.session?.transport('stop')

@@ -151,7 +151,7 @@ describe('WavetableKernel: bounded and finite', () => {
         }
       }
     }
-  })
+  }, 20_000) // heavy parameter sweep (~140k asserts); don't rely on the 5s default
 
   it('recovers from a NaN freq block within one clean block', () => {
     const k = new WavetableKernel('basic', ctx)

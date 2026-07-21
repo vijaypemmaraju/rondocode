@@ -121,6 +121,20 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   let activeId: string = active.id
   setActiveId(activeId)
 
+  // Pending debounced autosave (see the autosave wiring below), captured with
+  // the project id it belongs to. flushSave() writes it immediately — called
+  // before every project switch and on dispose so no edit is lost or misfiled.
+  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingSave: { id: string; code: string } | undefined
+  const flushSave = (): void => {
+    clearTimeout(saveTimer)
+    saveTimer = undefined
+    if (pendingSave !== undefined) {
+      void store.saveCode(pendingSave.id, pendingSave.code)
+      pendingSave = undefined
+    }
+  }
+
   // ---- top-bar control -------------------------------------------------------
   const projectBtn = el('button', 'btn project-btn')
   projectBtn.type = 'button'
@@ -166,6 +180,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
 
   // Switch the editor to a project's working code and mark it active.
   const switchTo = async (p: Project): Promise<void> => {
+    // Persist the OUTGOING project's edits before loading the new one: a switch
+    // made before the autosave debounce fired must neither drop those edits nor
+    // let the pending save (bound to the old id) clobber the incoming project.
+    flushSave()
     activeId = p.id
     active = p
     setActiveId(p.id)
@@ -417,10 +435,14 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   }
 
   // ---- autosave + snapshot wiring --------------------------------------------
-  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  // Debounced autosave of the working buffer into the active project. The save
+  // is bound to the project id at SCHEDULE time (captured in pendingSave), NOT
+  // read when the timer fires: a fast project switch must never let an edit made
+  // in one project land in another. switchTo flushes this before loading.
   const offDoc = editor.onDoc((code) => {
+    pendingSave = { id: activeId, code }
     clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => void store.saveCode(activeId, code), SAVE_DEBOUNCE_MS)
+    saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS)
   })
   const offEval = editor.onEval(({ code, ok }) => {
     if (!ok) return
@@ -445,7 +467,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   const dispose = (): void => {
     offDoc()
     offEval()
-    clearTimeout(saveTimer)
+    flushSave() // persist any debounced edit before tearing down
     document.removeEventListener('keydown', onKey)
     backdrop.remove()
     projectBtn.remove()

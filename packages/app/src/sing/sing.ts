@@ -6,9 +6,9 @@
  * them). Segmentation is energy-nucleus + force-to-count, ported from the
  * offline prototype; Whisper word-alignment is a later robustness upgrade.
  * ------------------------------------------------------------------------- */
-import { psola, estimateF0 } from './psola'
+import { psola, estimateF0, olaStretch } from './psola'
 import type { SupertonicEngine } from './supertonic'
-import { parseLyrics } from './lyrics'
+import { parseLyrics, type ParsedLyrics } from './lyrics'
 import { loadAligner, alignWords } from './align'
 
 /** One melody note: MIDI number + duration in seconds. */
@@ -105,20 +105,170 @@ function segmentToN(x: Float32Array, sr: number, n: number): Float32Array[] {
   return segs.map((s) => x.slice(s.from, s.to))
 }
 
-/** Retune+retime a syllable onto a note (PSOLA) with a per-note amp envelope. */
+/** Target per-note RMS: every syllable is scaled toward this so no single note
+ *  (a plosive onset, a loud vowel) dominates the phrase. Gain is clamped so a
+ *  quiet/unvoiced syllable isn't boosted into noise. */
+const NOTE_RMS = 0.16
+
+/** RMS of a signal's voiced core: the loudest contiguous ~60% by energy, so
+ *  leading/trailing quiet doesn't drag the estimate down (used for level-evening
+ *  so every note lands at a similar loudness). */
+function coreRms(x: Float32Array): number {
+  const n = x.length
+  if (n < 8) {
+    let s = 0
+    for (let i = 0; i < n; i++) s += x[i]! * x[i]!
+    return Math.sqrt(s / Math.max(1, n))
+  }
+  // prefix energy → energy in a sliding 60%-width window, keep the max
+  const w = Math.max(1, Math.floor(n * 0.6))
+  const pre = new Float32Array(n + 1)
+  for (let i = 0; i < n; i++) pre[i + 1] = pre[i]! + x[i]! * x[i]!
+  let best = 0
+  for (let i = 0; i + w <= n; i++) best = Math.max(best, pre[i + w]! - pre[i]!)
+  return Math.sqrt(best / w)
+}
+
+/** Beyond this stretch, uniform PSOLA time-stretch turns to static-grain buzz
+ *  (and smears any consonant in the syllable). Past it we hold the note by
+ *  looping the vowel instead — see sustainVowel(). */
+const MAX_UNIFORM_STRETCH = 2.4
+
+/** The voiced vowel nucleus of a (pitched) syllable: the loudest ~period-stable
+ *  run. Returns [start,end) sample indices — the region safe to loop for a
+ *  sustain (consonants live outside it). */
+function vowelNucleus(x: Float32Array, sr: number, f0: number): [number, number] {
+  const P = Math.max(1, Math.floor(sr / f0))
+  const win = Math.max(2 * P, Math.floor(0.03 * sr))
+  const e = envelope(x, win)
+  let peak = 0
+  let pi = 0
+  for (let i = 0; i < e.length; i++)
+    if (e[i]! > peak) {
+      peak = e[i]!
+      pi = i
+    }
+  // grow outward from the energy peak while we stay above 55% of it
+  const th = peak * 0.55
+  let a = pi
+  let b = pi
+  while (a > 0 && e[a - 1]! > th) a--
+  while (b < x.length - 1 && e[b + 1]! > th) b++
+  return [a, b + 1]
+}
+
+/** Hold a pitched syllable out to `target` samples by looping its vowel nucleus
+ *  (period-aligned, equal-power crossfades) between the natural onset and coda —
+ *  so consonants keep their length and only the vowel sustains. Avoids the
+ *  static-grain buzz of stretching the whole syllable uniformly. */
+function sustainVowel(x: Float32Array, sr: number, target: number, f0: number): Float32Array {
+  const n = x.length
+  if (n >= target) return x.slice(0, target)
+  const P = Math.max(2, Math.floor(sr / f0))
+  const [ns, ne] = vowelNucleus(x, sr, f0)
+  // The loop source is strictly INSIDE the nucleus [ns, ne) — never past it (that
+  // was reading zeros/coda). Need at least ~2 periods to loop cleanly.
+  const nucLen = ne - ns
+  if (nucLen < 3 * P) {
+    // nucleus too short to loop — fall back to a plain OLA stretch (no buzz-repeat)
+    return olaStretch(x, target, sr)
+  }
+  const periods = Math.max(2, Math.min(6, Math.floor(nucLen / P) - 1))
+  const loopLen = Math.min(nucLen - P, periods * P) // fits inside nucleus
+  const loopStart = ne - loopLen // loop the END of the vowel (steadiest)
+  const coda = Math.min(n - ne, Math.floor(0.05 * sr))
+  const xf = Math.min(P, loopLen >> 1)
+  const out = new Float32Array(target)
+  // 1) everything up to the loop region, verbatim (onset consonant + vowel start)
+  let w = Math.min(loopStart, target)
+  for (let i = 0; i < w; i++) out[i] = x[i]!
+  // 2) loop the steady vowel tail (period-aligned, equal-power crossfade at seams)
+  const codaRoom = Math.max(w + 1, target - coda)
+  let guard = 0
+  while (w < codaRoom && guard++ < 100000) {
+    const start = w - xf
+    for (let i = 0; i < loopLen && start + i < target; i++) {
+      const s = x[loopStart + i]! // guaranteed in-bounds: loopStart+loopLen = ne ≤ n
+      const oi = start + i
+      if (oi < 0) continue
+      if (i < xf && oi < w) out[oi] = out[oi]! * Math.cos((Math.PI / 2) * (i / xf)) + s * Math.sin((Math.PI / 2) * (i / xf))
+      else out[oi] = s
+    }
+    w = start + loopLen
+  }
+  // 3) crossfade the natural coda back on at the very end
+  const codaSrc = n - coda
+  const cStart = target - coda
+  for (let i = 0; i < coda && cStart + i < target; i++) {
+    const s = x[codaSrc + i]!
+    const oi = cStart + i
+    if (oi < 0) continue
+    if (i < xf) out[oi] = out[oi]! * Math.cos((Math.PI / 2) * (i / xf)) + s * Math.sin((Math.PI / 2) * (i / xf))
+    else out[oi] = s
+  }
+  return out
+}
+
+/** Retune+retime a syllable onto a note, rendered exactly `note.dur` long. Up to
+ *  a moderate stretch, uniform PSOLA; for long held notes, pitch to natural
+ *  length then loop the vowel (sustainVowel) so consonants don't smear and the
+ *  sustain doesn't buzz. Then level-even and articulate. */
 function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: number): Float32Array {
   const f0in = estimateF0(seg, sr) || globalF0
+  const f0out = mtof(note.midi)
   const target = Math.floor(note.dur * sr)
-  const y = psola(seg, sr, target / Math.max(1, seg.length), mtof(note.midi), f0in)
-  const out = y.length >= target ? y.slice(0, target) : (() => {
-    const p = new Float32Array(target)
-    p.set(y)
-    return p
-  })()
-  const a = Math.floor(0.02 * sr)
-  const r = Math.floor(0.05 * sr)
+  const stretch = target / Math.max(1, seg.length)
+  let y: Float32Array
+  if (stretch <= MAX_UNIFORM_STRETCH) {
+    y = psola(seg, sr, target / Math.max(1, seg.length), f0out, f0in)
+  } else {
+    // pitch to ~natural length, then hold the vowel out to the note length
+    const natural = psola(seg, sr, 1, f0out, f0in)
+    y = sustainVowel(natural, sr, target, f0out)
+  }
+  const out = new Float32Array(target)
+  out.set(y.length >= target ? y.subarray(0, target) : y)
+  // even the level: scale toward NOTE_RMS measured over the VOICED CORE (the
+  // loudest run), so a syllable's quiet edges/silence don't skew the estimate.
+  // Clamped so a near-unvoiced syllable isn't boosted into noise.
+  const rms = coreRms(out)
+  if (rms > 1e-4) {
+    const g = Math.min(8, Math.max(0.12, NOTE_RMS / rms))
+    for (let i = 0; i < out.length; i++) out[i]! *= g
+  }
+  // articulate
+  const a = Math.min(Math.floor(0.008 * sr), out.length >> 1)
+  const r = Math.min(Math.floor(0.04 * sr), out.length >> 1)
   for (let i = 0; i < a; i++) out[i]! *= i / a
   for (let i = 0; i < r; i++) out[out.length - 1 - i]! *= i / r
+  return out
+}
+
+/** Place each note at its EXACT cumulative onset (∑dur, so nothing drifts). Notes
+ *  abut rather than overlap — each already attacks from and releases to zero, so
+ *  the joins are click-free without a crossfade that would blur articulation.
+ *  Final pass peak-normalizes the whole phrase. */
+function placeNotes(parts: Float32Array[], durs: number[], sr: number): Float32Array {
+  const onsets: number[] = []
+  let acc = 0
+  for (let i = 0; i < durs.length; i++) {
+    onsets.push(Math.round(acc * sr))
+    acc += durs[i]!
+  }
+  const total = Math.round(acc * sr)
+  const out = new Float32Array(Math.max(1, total))
+  for (let k = 0; k < parts.length; k++) {
+    const p = parts[k]!
+    const base = onsets[k]!
+    for (let i = 0; i < p.length; i++) {
+      const oi = base + i
+      if (oi >= 0 && oi < out.length) out[oi]! += p[i]!
+    }
+  }
+  let peak = 0
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]!))
+  const norm = peak > 1e-6 ? 0.9 / peak : 1
+  for (let i = 0; i < out.length; i++) out[i]! *= norm
   return out
 }
 
@@ -140,32 +290,6 @@ function splitK(seg: Float32Array, sr: number, k: number): Float32Array[] {
   return b.slice(0, -1).map((_, i) => seg.slice(b[i]!, b[i + 1]!))
 }
 
-/** Equal-power crossfade concat + peak-normalize. */
-function concatNormalize(parts: Float32Array[], sr: number): Float32Array {
-  const xf = Math.floor(0.02 * sr)
-  let total = 0
-  for (const p of parts) total += p.length
-  total -= xf * Math.max(0, parts.length - 1)
-  const out = new Float32Array(Math.max(1, total))
-  let pos = 0
-  for (let k = 0; k < parts.length; k++) {
-    const p = parts[k]!
-    for (let i = 0; i < p.length; i++) {
-      let g = 1
-      if (k > 0 && i < xf) g = i / xf
-      if (k < parts.length - 1 && i > p.length - xf) g = (p.length - i) / xf
-      const oi = pos + i
-      if (oi < out.length) out[oi]! += p[i]! * g
-    }
-    pos += p.length - xf
-  }
-  let peak = 0
-  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]!))
-  const norm = peak > 1e-6 ? 0.9 / peak : 1
-  for (let i = 0; i < out.length; i++) out[i]! *= norm
-  return out
-}
-
 /** Sing lyrics (mini-notation, see lyrics.ts) on a melody using Whisper word
  *  alignment: Supertonic speaks the words → Whisper places each word → split it
  *  into its hyphen-specified syllables → PSOLA each onto its note (melisma holds
@@ -174,7 +298,13 @@ export async function singWithLyrics(
   engine: SupertonicEngine,
   lyrics: string,
   melody: Note[],
-  opts: { voice?: string; onProgress?: (p: { phase: string; done: number; total: number }) => void } = {},
+  opts: {
+    voice?: string
+    onProgress?: (p: { phase: string; done: number; total: number }) => void
+    /** DEV: capture the (non-deterministic) TTS + alignment result so the pure
+     *  DSP stage can be re-run on the SAME spoken audio while tuning. */
+    capture?: (c: AlignedSpeech) => void
+  } = {},
 ): Promise<{ audio: Float32Array; sr: number }> {
   const parsed = parseLyrics(lyrics)
   if (parsed.slots.length !== melody.length) {
@@ -185,9 +315,26 @@ export async function singWithLyrics(
   const gf0 = estimateF0(spoken, sr) || 180
   await loadAligner()
   const words = await alignWords(spoken, sr)
+  const cap: AlignedSpeech = { spoken, words, gf0, sr }
+  opts.capture?.(cap)
+  return { audio: renderSung(cap, parsed, melody), sr }
+}
 
-  // audio per slot: split each word (Whisper-bounded) into its syllables;
-  // melisma slots hold the last real syllable's audio.
+/** A captured TTS+alignment result — everything the pure DSP stage needs, so it
+ *  can be re-rendered deterministically (TTS + Whisper are non-deterministic). */
+export interface AlignedSpeech {
+  spoken: Float32Array
+  words: { text: string; start: number; end: number }[]
+  gf0: number
+  sr: number
+}
+
+/** Pure, deterministic DSP stage: slice each Whisper-bounded word into its
+ *  hyphen syllables → PSOLA each onto its note (melisma holds, ~ is silent) →
+ *  place at exact onsets. Split out from singWithLyrics so it can be re-run on a
+ *  captured `AlignedSpeech` while tuning, with no fresh TTS/alignment noise. */
+export function renderSung(cap: AlignedSpeech, parsed: ParsedLyrics, melody: Note[]): Float32Array {
+  const { spoken, words, gf0, sr } = cap
   const slotAudio: (Float32Array | null)[] = new Array(parsed.slots.length).fill(null)
   for (let wi = 0; wi < parsed.words.length; wi++) {
     const w = parsed.words[wi]!
@@ -206,13 +353,12 @@ export async function singWithLyrics(
       }
     }
   }
-
   const parts = melody.map((note, i) => {
     const seg = slotAudio[i]
     if (parsed.slots[i]!.rest || !seg || seg.length < 8) return new Float32Array(Math.floor(note.dur * sr))
     return singSyllable(seg, sr, note, gf0)
   })
-  return { audio: concatNormalize(parts, sr), sr }
+  return placeNotes(parts, melody.map((n) => n.dur), sr)
 }
 
 /** Speak `text`, then sing it on `melody` (one syllable per note). Returns a mono
@@ -229,5 +375,5 @@ export async function sing(
   const segs = segmentToN(spoken, sr, melody.length)
 
   const parts = melody.map((note, i) => singSyllable(segs[i]!, sr, note, globalF0))
-  return { audio: concatNormalize(parts, sr), sr }
+  return { audio: placeNotes(parts, melody.map((n) => n.dur), sr), sr }
 }

@@ -40,6 +40,8 @@ const ICONS: Record<string, string> = {
   record: '<circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/>',
   // dots — overflow "more" menu
   dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+  // midi — a little keyboard
+  midi: '<rect x="3" y="7" width="18" height="10" rx="1.5"/><path d="M8 7v6M12 7v6M16 7v6"/>',
 }
 
 export function icon(name: string): string {

@@ -1554,3 +1554,35 @@ body.shaderviz-on .cm-content {
     display: inline-flex;
   }
 }
+
+/* MIDI input popover (editor/midi.ts) — shares the export popover styles */
+.midi-pop {
+  position: fixed;
+  z-index: 45;
+  min-width: 240px;
+  max-width: min(320px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.midi-pop.hidden {
+  display: none;
+}
+.midi-status {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.midi-pick {
+  padding: var(--sp-1) var(--sp-2);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}

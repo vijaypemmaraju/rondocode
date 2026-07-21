@@ -33,7 +33,11 @@ class RondocodeProcessor extends AudioWorkletProcessor {
     if (!l) return true // no output wired yet: keep the processor alive
     const r = out[1] ?? this.scratch // mono fallback: play the L leg only
     this.engine.process(l, r, currentFrame)
-    if (++this.blocks % METER_EVERY === 0) this.port.postMessage(this.engine.collectMeters())
+    if (++this.blocks % METER_EVERY === 0) {
+      this.port.postMessage(this.engine.collectMeters())
+      const probe = this.engine.collectProbes() // null unless the editor set probes
+      if (probe !== null) this.port.postMessage(probe)
+    }
     return true
   }
 }

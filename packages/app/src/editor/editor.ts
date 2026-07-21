@@ -6,7 +6,7 @@ import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
-import type { SessionState } from '../session/Session'
+import type { SessionState, ProbeTarget } from '../session/Session'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
@@ -126,6 +126,11 @@ export interface EditorHandle {
    *  hit_<name> channels). Replays immediately on subscribe. Returns
    *  an unsubscribe function. */
   onVisual(fn: (wgsl: string | null, synths: string[]) => void): () => void
+  /** Subscribe to value-probe targets: every modulation expression the last
+   *  good eval tagged (synth + node id + source char-range). The live-readout
+   *  feature picks which to show and calls session.setProbes. Replays the last
+   *  set on subscribe. Returns an unsubscribe function. */
+  onProbeTargets(fn: (targets: ProbeTarget[]) => void): () => void
   /** Current editor text. */
   getDoc(): string
   /** Replace the whole buffer (loading a project or restoring a version):
@@ -458,6 +463,16 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     return () => visualListeners.delete(fn)
   }
 
+  // Value-probe targets fanout: the Session fires onProbes on each good eval
+  // with every tagged modulation expression; the live-readout feature subscribes.
+  const probeListeners = new Set<(targets: ProbeTarget[]) => void>()
+  let lastProbes: ProbeTarget[] = []
+  const subscribeProbes = (fn: (targets: ProbeTarget[]) => void): (() => void) => {
+    probeListeners.add(fn)
+    fn(lastProbes)
+    return () => probeListeners.delete(fn)
+  }
+
   // Meter: latest master RMS, painted at most once per animation frame.
   let meterLevel = 0
   let meterQueued = false
@@ -529,6 +544,16 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         }
       }
     },
+    onProbes: (targets) => {
+      lastProbes = targets
+      for (const fn of probeListeners) {
+        try {
+          fn(targets)
+        } catch (e) {
+          console.warn('[editor] probe listener failed', e)
+        }
+      }
+    },
   })
 
   // ---- controls ------------------------------------------------------
@@ -576,6 +601,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     onState: subscribeState,
     onPatternEvents: subscribePatternEvents,
     onVisual: subscribeVisual,
+    onProbeTargets: subscribeProbes,
     getDoc: () => view.state.doc.toString(),
     loadCode,
     rewrite: (change, immediate) => {

@@ -67,6 +67,16 @@ export interface SessionState {
   lastError?: string
 }
 
+/** One value-probe target: a modulation expression the evaluator tagged, so the
+ *  editor can show its live value inline. `node` is the voice-graph node id
+ *  (what setProbes / probe events use); [from, to) is its source char-range. */
+export interface ProbeTarget {
+  synth: string
+  node: number
+  from: number
+  to: number
+}
+
 type SetIntervalImpl = (fn: () => void, ms: number) => unknown
 type ClearIntervalImpl = (handle: unknown) => void
 
@@ -91,6 +101,12 @@ export interface SessionOpts {
    *  — the GPU visualizer generates per-synth hit_<name> channels from them and
    *  recompiles live. Not fired on a failed eval (last-good). */
   onVisual?: (wgsl: string | null, synths: string[]) => void
+  /** Fired on every SUCCESSFUL eval with the value-probe targets: every
+   *  modulation expression the evaluator tagged (synth + voice-graph node id +
+   *  source char-range). The editor picks which to show as live readouts and
+   *  calls setProbes; `[]` when the program has none. Not fired on a failed
+   *  eval (last-good). */
+  onProbes?: (targets: ProbeTarget[]) => void
   /** Timer injection for tests; provide BOTH or NEITHER (defaults to
    *  globalThis timers). */
   setIntervalImpl?: SetIntervalImpl
@@ -122,6 +138,7 @@ export class Session {
   private readonly onEngineEvent: ((ev: EngineEvent) => void) | undefined
   private readonly onPatternEvents: ((evs: SchedulerEvent[]) => void) | undefined
   private readonly onVisual: ((wgsl: string | null, synths: string[]) => void) | undefined
+  private readonly onProbes: ((targets: ProbeTarget[]) => void) | undefined
   private readonly setIntervalImpl: SetIntervalImpl | undefined
   private readonly clearIntervalImpl: ClearIntervalImpl | undefined
   private readonly scheduler: Scheduler
@@ -168,6 +185,7 @@ export class Session {
     this.onEngineEvent = opts.onEngineEvent
     this.onPatternEvents = opts.onPatternEvents
     this.onVisual = opts.onVisual
+    this.onProbes = opts.onProbes
     this.setIntervalImpl = opts.setIntervalImpl
     this.clearIntervalImpl = opts.clearIntervalImpl
 
@@ -225,6 +243,20 @@ export class Session {
     // when the effective shader changed, so firing on every successful eval
     // (including live widget scrubs) is safe.
     this.onVisual?.(result.visual ?? null, [...result.synths.keys()])
+
+    // Value-probe targets: every modulation expression the evaluator tagged
+    // (SynthDef.nodeLocs). The editor filters these to the ones worth a live
+    // readout and calls setProbes. Cheap; fired on every successful eval so the
+    // spans track edits/scrubs.
+    if (this.onProbes !== undefined) {
+      const targets: ProbeTarget[] = []
+      for (const [synth, def] of result.synths) {
+        const locs = def.nodeLocs
+        if (locs === undefined) continue
+        for (const [id, span] of Object.entries(locs)) targets.push({ synth, node: Number(id), from: span[0], to: span[1] })
+      }
+      this.onProbes(targets)
+    }
 
     // Synths: hot-patch when only input constants changed (live sweep, no
     // rebuild); else defineSynth (new/structural/config change); remove
@@ -409,6 +441,13 @@ export class Session {
         ? { kind: 'setParam', synth, name, value, rampMs }
         : { kind: 'setParam', synth, name, value },
     )
+  }
+
+  /** Set which of a synth's voice-graph nodes the engine value-probes (the
+   *  editor's live readouts). Replaces the synth's whole set; `[]` clears it.
+   *  Probe values arrive as `probe` engine events through onEngineEvent. */
+  setProbes(synth: string, nodes: number[]): void {
+    this.audio.send({ kind: 'setProbes', synth, nodes })
   }
 
   /** Per-synth channel strip (mixer): thin passthrough to the engine's

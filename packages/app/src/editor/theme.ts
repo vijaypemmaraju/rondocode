@@ -113,6 +113,17 @@ const editorTheme = EditorView.theme(
     '.wgsl-api': { color: '#f7a8ff', fontWeight: '600' },
     '.wgsl-punct': { color: C_DIM },
     '.wgsl-id': { color: C_TEXT },
+    // Inline live-value readout trailing a modulation expression (editor/
+    // probes.ts): a dim tabular number that updates from the running engine.
+    '.cm-probe': {
+      color: C_ACCENT,
+      opacity: '0.72',
+      margin: '0 0.1em 0 0.35em',
+      fontSize: '0.85em',
+      fontVariantNumeric: 'tabular-nums',
+      userSelect: 'none',
+      pointerEvents: 'none',
+    },
   },
   { dark: true },
 )

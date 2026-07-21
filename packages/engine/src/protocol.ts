@@ -30,6 +30,11 @@ export type EngineMessage = (
    *  from the live one solely in numeric input constants (see patch.ts /
    *  diffGraphConstants). Unknown synth → no-op. */
   | { kind: 'patchConstants'; name: string; patches: { node: number; port: string; value: number }[] }
+  /** Set which of a synth's voice-graph nodes are value-probed (the editor's
+   *  live readouts): the engine samples each listed node's current output on
+   *  the meter cadence and emits `probe` events. Replaces the synth's whole
+   *  probe set; an empty `nodes` clears it. Unknown synth → no-op. */
+  | { kind: 'setProbes'; synth: string; nodes: number[] }
   /** Drop the synth and all its voices immediately (hard stop, no release). */
   | { kind: 'removeSynth'; name: string }
   /** Create/replace a shared send bus: a named FX chain (a POST-style graph,
@@ -113,3 +118,9 @@ export type EngineEvent =
    *  RealtimeEngine.collectMeters() on request — the engine does not emit
    *  these unprompted. */
   | { kind: 'meters'; frame: number; master: number; channels: Record<string, number>; buses?: Record<string, number> }
+  /** Current output value of each probed node (see setProbes), for the editor's
+   *  live-value readouts. `values[synth][nodeId]` is the node's most recent
+   *  output sample from a currently-active voice; a silent synth (no active
+   *  voice) or a stale/unknown node reports NaN. Emitted on the meter cadence
+   *  only while at least one probe is set. */
+  | { kind: 'probe'; frame: number; values: Record<string, Record<number, number>> }

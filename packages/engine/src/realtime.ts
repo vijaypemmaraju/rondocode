@@ -189,6 +189,9 @@ export class RealtimeEngine {
   /** Dense mirror of byName.values() + retiring for allocation-free iteration
    *  in process(); rebuilt on define/remove/reap (control plane). */
   private list: Channel[] = []
+  /** Value-probe targets: synth name → its probed voice-graph node ids (see
+   *  setProbes / collectProbes). Empty (the common case) → no probe events. */
+  private readonly probes = new Map<string, number[]>()
   /** Future note events, sorted by (frame, rank), consumed via qHead. */
   private queue: QueuedNote[] = []
   private qHead = 0
@@ -301,6 +304,23 @@ export class RealtimeEngine {
       ev.buses = buses
     }
     return ev
+  }
+
+  /** Sample every probed node's current value from its (active) voice — the
+   *  editor's live readouts. Returns null when no probes are set (the common
+   *  case) so the worklet emits nothing. Control-plane rate (meter cadence),
+   *  allocates its result object; the per-node read is a cheap step scan. */
+  collectProbes(): EngineEvent | null {
+    if (this.probes.size === 0) return null
+    const values = Object.create(null) as Record<string, Record<number, number>>
+    for (const [name, nodes] of this.probes) {
+      const ch = this.byName.get(name)
+      if (ch === undefined) continue
+      const perNode = Object.create(null) as Record<number, number>
+      for (let i = 0; i < nodes.length; i++) perNode[nodes[i]!] = ch.pool.readNode(nodes[i]!)
+      values[name] = perNode
+    }
+    return { kind: 'probe', frame: this.frames, values }
   }
 
   /** Render exactly BLOCK frames into outL/outR (their previous contents are
@@ -612,6 +632,8 @@ export class RealtimeEngine {
         return this.msgDefineSynth(m)
       case 'patchConstants':
         return this.msgPatchConstants(m)
+      case 'setProbes':
+        return this.msgSetProbes(m)
       case 'removeSynth':
         return this.msgRemoveSynth(m)
       case 'noteOn':
@@ -748,6 +770,19 @@ export class RealtimeEngine {
       }
     }
     ch.pool.patchConstants(clean)
+  }
+
+  /** Set (or clear) which of a synth's voice-graph nodes are value-probed. The
+   *  node ids are validated lazily at read time (an unknown/stale id just reads
+   *  NaN), so a probe set that races a redefine is harmless. */
+  private msgSetProbes(m: Record<string, unknown>): void {
+    const synth = m['synth']
+    if (typeof synth !== 'string') return this.error(`'synth' must be a string`, 'setProbes')
+    const nodes = m['nodes']
+    if (!Array.isArray(nodes)) return this.error(`'nodes' must be an array`, `setProbes '${synth}'`)
+    const clean = nodes.filter((n): n is number => typeof n === 'number' && Number.isInteger(n))
+    if (clean.length === 0) this.probes.delete(synth)
+    else this.probes.set(synth, clean)
   }
 
   private msgRemoveSynth(m: Record<string, unknown>): void {

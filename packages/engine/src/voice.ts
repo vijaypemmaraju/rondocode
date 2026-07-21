@@ -211,6 +211,21 @@ export class Voice {
     buf.fill(value)
   }
 
+  /** Read a node's most recent output sample (last frame of the last processed
+   *  block) — the value-probe tap. NaN for an unknown id. Cheap: a step scan
+   *  (like patchConstant) plus one array read; the caller gates the cadence.
+   *  An inactive voice keeps its stale buffer, so callers read active voices. */
+  readNode(nodeId: number): number {
+    const steps = this.graph.steps
+    for (let s = 0; s < steps.length; s++) {
+      if (steps[s]!.id === nodeId) {
+        const out = steps[s]!.out
+        return out.length > 0 ? out[out.length - 1]! : NaN
+      }
+    }
+    return NaN
+  }
+
   /** Reset every kernel's state (delay lines, filter/envelope/oscillator
    *  state). VoicePool calls this ONLY when allocating an INACTIVE voice to a
    *  new note: a reclaimed voice can still hold stale delay-line energy (see
@@ -402,6 +417,17 @@ export class VoicePool {
       const v = this.voices[i]!
       for (let p = 0; p < patches.length; p++) v.patchConstant(patches[p]!.node, patches[p]!.port, patches[p]!.value)
     }
+  }
+
+  /** Read a node's current output value from an active voice — the value-probe
+   *  tap. Idle voices hold stale buffers, so the first ACTIVE voice is used
+   *  (any of a poly cluster reflects the shared modulation well enough for a
+   *  readout); NaN when the synth is silent. */
+  readNode(nodeId: number): number {
+    for (let i = 0; i < this.voices.length; i++) {
+      if (this.voices[i]!.active) return this.voices[i]!.readNode(nodeId)
+    }
+    return NaN
   }
 
   noteOn(note: number, vel: number): void {

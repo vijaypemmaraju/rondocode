@@ -159,6 +159,13 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
   let specTex: GPUTexture | null = null
   let waveTex: GPUTexture | null = null
   let sampler: GPUSampler | null = null
+  // Explicit bind-group layout (NOT layout:'auto'): a user shader that doesn't
+  // sample waveform (binding 2) or spectrum (binding 1) would otherwise make
+  // the auto-derived layout prune that binding, and createBindGroup — which
+  // always binds all four — would throw "binding index N not present", leaving
+  // an invalid bind group and a black canvas. A fixed layout keeps all four.
+  let bindLayout: GPUBindGroupLayout | null = null
+  let pipeLayout: GPUPipelineLayout | null = null
   let pipeline: GPURenderPipeline | null = null
   let bindGroup: GPUBindGroup | null = null
   const uni = new Float32Array(UNI_FLOATS)
@@ -190,7 +197,7 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     let next: GPURenderPipeline
     try {
       next = device.createRenderPipeline({
-        layout: 'auto',
+        layout: pipeLayout!,
         vertex: { module, entryPoint: 'vs' },
         fragment: { module, entryPoint: 'fs', targets: [{ format }] },
         primitive: { topology: 'triangle-list' },
@@ -207,7 +214,7 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     }
     pipeline = next
     bindGroup = device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
+      layout: bindLayout!,
       entries: [
         { binding: 0, resource: { buffer: uniformBuf! } },
         { binding: 1, resource: specTex!.createView() },
@@ -345,6 +352,15 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     specTex = mkTex(SPEC_BINS)
     waveTex = mkTex(WAVE_SAMPLES)
     sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge' })
+    bindLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      ],
+    })
+    pipeLayout = device.createPipelineLayout({ bindGroupLayouts: [bindLayout] })
     await buildPipeline(wantFrag, wantSynths)
     return true
   }

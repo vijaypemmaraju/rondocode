@@ -105,6 +105,17 @@ export interface SynthCtx {
    *  `density` (grains/s, def 25), `spray` (position jitter s, def 0.01),
    *  `loop` (def true). Shape the amplitude with an ADSR. */
   granular(gate: SigIn, name: string, opts?: { pos?: SigIn; root?: number; rate?: SigIn; size?: number; density?: number; spray?: number; loop?: boolean }): Sig
+  /** Karplus-Strong PLUCKED STRING: a rising `gate` edge plucks a string tuned
+   *  to `freq` (Hz). `decay` (s, def 1.5) is the ring time; `damp` (0..0.95,
+   *  def 0.5) darkens the tone and shortens the highs. Output ~[-1, 1] — no
+   *  ADSR needed (the pluck IS the envelope), though you can still shape it. */
+  pluck(gate: SigIn, freq: SigIn, opts?: { decay?: number; damp?: number; seed?: number }): Sig
+  /** MODAL resonator bank (struck/mallet voice): a rising `gate` edge strikes a
+   *  bank of tuned resonators at `freq` (Hz). `model` picks the material
+   *  ('bell' default, 'bar' marimba, 'drum', 'glass'); `decay` (s, def 1.2) is
+   *  the ring time; `damp` (0..1) mellows the strike by taming higher modes.
+   *  Self-enveloping like pluck. */
+  modal(gate: SigIn, freq: SigIn, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass'; decay?: number; damp?: number }): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -534,6 +545,20 @@ const makeCtx = (b: Builder): SynthCtx => {
         definedConfig({ name, size: opts?.size, density: opts?.density, spray: opts?.spray, loop: opts?.loop }),
       )
     },
+
+    pluck: (gate, freq, opts) =>
+      b.node(
+        'pluck',
+        { gate: src(gate, 'pluck gate'), freq: src(freq, 'pluck freq') },
+        definedConfig({ decay: opts?.decay, damp: opts?.damp, seed: opts?.seed }),
+      ),
+
+    modal: (gate, freq, opts) =>
+      b.node(
+        'modal',
+        { gate: src(gate, 'modal gate'), freq: src(freq, 'modal freq') },
+        definedConfig({ model: opts?.model, decay: opts?.decay, damp: opts?.damp }),
+      ),
 
     adsr: (gate, opts) =>
       b.node(

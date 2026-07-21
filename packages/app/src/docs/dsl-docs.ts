@@ -456,6 +456,18 @@ const SYNTH_CTX: DocEntry[] = [
     "granular(gate, 'pad', { root: 60, pos: lfo(0.05).range(0, 1), size: 0.1, density: 40 })",
   ),
   sc(
+    'pluck',
+    'pluck(gate, freq, opts?: { decay?, damp?, seed? })',
+    'Karplus-Strong plucked string: a rising gate edge plucks a string tuned to freq. A one-period noise burst recirculates through a tuned delay with a damping lowpass, the natural string decay. decay (s, def 1.5) is the ring time; damp (0..0.95, def 0.5) darkens it. The pluck IS the envelope, so no ADSR needed (you can still shape it).',
+    "pluck(gate, note.freq, { decay: 2, damp: 0.4 })",
+  ),
+  sc(
+    'modal',
+    "modal(gate, freq, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass', decay?, damp? })",
+    'A struck modal resonator bank: a rising gate edge strikes a bank of tuned resonators at freq, ringing like a physical object. model picks the material (bell default, bar for marimba, drum, glass); decay (s, def 1.2) is the ring time; damp (0..1) mellows the strike by taming the higher modes. Self-enveloping like pluck.',
+    "modal(gate, note.freq, { model: 'bell', decay: 3 })",
+  ),
+  sc(
     'svf',
     "svf(input, cutoff, opts?: { res, mode: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' })",
     'A clean multimode filter: low-pass by default, high-pass for hats, band-pass for claps, notch to scoop a band out, peak for a resonant bell that boosts at cutoff; res adds a resonant peak.',

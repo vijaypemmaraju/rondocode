@@ -130,6 +130,24 @@ setCps(0.4)`,
     ],
   },
   {
+    id: 'physical',
+    title: 'Physical modeling',
+    blocks: [
+      p("Some sounds are easier to model as a physical object than to build from oscillators. pluck() is a Karplus-Strong string: a rising gate plucks it, and it rings and decays on its own, no ADSR needed. modal() strikes a bank of tuned resonators like a real bell, bar, drum or glass. Both are self-enveloping, so you just give them a gate and a pitch."),
+      code(
+        'A plucked string ostinato under a struck bell.',
+        `const string = synth(({ note, gate, pluck }) =>
+  pluck(gate, note.freq, { decay: 1.4, damp: 0.35 }))
+const bells = synth(({ note, gate, modal }) =>
+  modal(gate, note.freq, { model: 'bell', decay: 3 }))
+
+p('string', note('a2 e3 a3 e3 c3 e3 a3 e3').sound('string').gain(0.8))
+p('bell', note('<a4 ~ c5 ~>').sound('bells').gain(0.5))
+setCps(0.5)`,
+      ),
+    ],
+  },
+  {
     id: 'effects',
     title: 'Effects & the post-chain',
     blocks: [

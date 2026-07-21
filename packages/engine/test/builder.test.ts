@@ -137,6 +137,40 @@ describe('builder: fm operator', () => {
   })
 })
 
+describe('builder: physical modeling', () => {
+  it('pluck: end-to-end noteOn renders a decaying, tuned string', () => {
+    const def = synth(({ note, gate, pluck }) => pluck(gate, note.freq, { decay: 1.5 }))
+    const pool = new VoicePool(def.graph, ctx, 2)
+    pool.noteOn(57, 1) // 220 Hz
+    const N = Math.floor(0.6 * SR)
+    const L = new Float32Array(N)
+    const R = new Float32Array(N)
+    const bl = new Float32Array(BLOCK)
+    const br = new Float32Array(BLOCK)
+    for (let i = 0; i < N; i += BLOCK) {
+      const n = Math.min(BLOCK, N - i)
+      bl.fill(0); br.fill(0)
+      pool.process(bl, br, n)
+      L.set(bl.subarray(0, n), i); R.set(br.subarray(0, n), i)
+    }
+    const rmsOf = (from: number, to: number): number => {
+      let s = 0; for (let i = from; i < to; i++) s += L[i]! * L[i]!; return Math.sqrt(s / (to - from))
+    }
+    for (let i = 0; i < N; i++) expect(Number.isNaN(L[i])).toBe(false)
+    expect(rmsOf(0, N / 4)).toBeGreaterThan(0.01) // sounds
+    expect(rmsOf((3 * N) / 4, N)).toBeLessThan(rmsOf(0, N / 4)) // rings down
+    // tuned to 220 Hz
+    expect(goertzel(L, 220, SR)).toBeGreaterThan(goertzel(L, 180, SR) * 3)
+  })
+
+  it('modal: passes the model through config and rejects an unknown one', () => {
+    const def = synth(({ note, gate, modal }) => modal(gate, note.freq, { model: 'glass', decay: 2 }))
+    expect(findByType(def, 'modal')[0]!.config).toMatchObject({ model: 'glass', decay: 2 })
+    expect(() => compileGraph(def.graph, ctx)).not.toThrow()
+    expect(() => synth(({ note, gate, modal }) => modal(gate, note.freq, { model: 'nope' as 'bell' }))).toThrow()
+  })
+})
+
 describe('builder: env (multi-segment)', () => {
   it('compiles a breakpoint envelope and passes points + opts through config', () => {
     const def = synth(({ note, gate, saw, env }) =>

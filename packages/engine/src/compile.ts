@@ -27,6 +27,8 @@ import { ShapeKernel } from './dsp/shape'
 import type { ShapeType } from './dsp/shape'
 import { SampleKernel } from './dsp/sample'
 import { GranularKernel } from './dsp/granular'
+import { PluckKernel, ModalKernel } from './dsp/physical'
+import type { PluckConfig, ModalConfig } from './dsp/physical'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
 import type { CompressConfig } from './dsp/compress'
@@ -129,6 +131,8 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   sample: [{ name: 'gate' }, { name: 'speed', def: 1 }],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
+  pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],
+  modal: [{ name: 'gate' }, { name: 'freq', def: 220 }],
   svf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   ladder: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   onepole: [{ name: 'in' }, { name: 'cutoff' }],
@@ -180,6 +184,9 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   // block (so samples loaded after compile still play).
   sample: (c, ctx) => new SampleKernel(String(c['name'] ?? ''), c['loop'] === true, ctx.samples),
   granular: (c, ctx) => new GranularKernel(String(c['name'] ?? ''), granularCfg(c), ctx.samples),
+  // ctx sizes the delay line to the lowest note at the engine rate up front
+  pluck: (c, ctx) => new PluckKernel(c as PluckConfig, ctx),
+  modal: (c, ctx) => new ModalKernel(c as ModalConfig, ctx),
   svf: (c) => new SvfKernel((c['mode'] as SvfMode | undefined) ?? 'lp'),
   ladder: () => new LadderKernel(),
   onepole: () => new OnePoleKernel(),

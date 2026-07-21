@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SineKernel, SawKernel, SquareKernel, PulseKernel, TriKernel, NoiseKernel, SyncSawKernel, FMKernel } from '../src/dsp/osc'
+import { SineKernel, SawKernel, SquareKernel, PulseKernel, TriKernel, NoiseKernel, SyncSawKernel, FMKernel, SuperSawKernel } from '../src/dsp/osc'
 import { LadderKernel, OnePoleKernel, SvfKernel } from '../src/dsp/filters'
 import { AdsrKernel } from '../src/dsp/env'
 import { LfoKernel } from '../src/dsp/lfo'
@@ -562,5 +562,66 @@ describe('FMKernel', () => {
     const sq = run('square')
     for (let i = 0; i < n; i++) expect(Math.abs(sq[i]!)).toBeCloseTo(1, 6)
     expect(() => new FMKernel('nope')).toThrow(/unknown fm wave/)
+  })
+})
+
+describe('NoiseKernel colors', () => {
+  const gen = (color: string, n: number): Float32Array => {
+    const out = new Float32Array(n)
+    new NoiseKernel(12345, color).process(n, {}, out, ctx)
+    return out
+  }
+  // low/high spectral energy via a few Goertzel bins
+  const band = (x: Float32Array, freqs: number[]): number =>
+    freqs.reduce((s, f) => s + goertzel(x, f, sr), 0)
+  const tilt = (x: Float32Array): number =>
+    band(x, [80, 120, 160]) / (band(x, [4000, 6000, 8000]) + 1e-12)
+
+  it('pink tilts toward lows and brown tilts harder than white', () => {
+    const n = 48000
+    const white = tilt(gen('white', n))
+    const pink = tilt(gen('pink', n))
+    const brown = tilt(gen('brown', n))
+    expect(pink).toBeGreaterThan(white * 3) // pink has far more lows than highs
+    expect(brown).toBeGreaterThan(pink) // brown is steeper still
+  })
+
+  it('rejects an unknown color', () => {
+    expect(() => new NoiseKernel(1, 'green')).toThrow(/unknown noise color/)
+  })
+})
+
+describe('SuperSawKernel', () => {
+  const run = (freq: number, detune: number, mix: number, n: number): Float32Array => {
+    const out = new Float32Array(n)
+    new SuperSawKernel().process(
+      n,
+      { freq: new Float32Array(n).fill(freq), detune: new Float32Array(n).fill(detune), mix: new Float32Array(n).fill(mix) },
+      out,
+      ctx,
+    )
+    return out
+  }
+
+  it('sounds, is saw-like (rich harmonics), and stays bounded', () => {
+    const n = 48000
+    const out = run(220, 0.3, 0.7, n)
+    let sumSq = 0
+    const [min, max] = minMax(out)
+    for (let i = 0; i < n; i++) sumSq += out[i]! * out[i]!
+    expect(Math.sqrt(sumSq / n)).toBeGreaterThan(0.05) // audible
+    expect(max).toBeLessThanOrEqual(1.15)
+    expect(min).toBeGreaterThanOrEqual(-1.15)
+    // a saw has energy at 2f, 3f
+    expect(goertzel(out, 440, sr)).toBeGreaterThan(goertzel(out, 330, sr))
+    expect(goertzel(out, 660, sr)).toBeGreaterThan(goertzel(out, 770, sr))
+  })
+
+  it('detune spreads energy around the fundamental (fatter than detune 0)', () => {
+    const n = 48000
+    const tight = run(220, 0, 0.7, n)
+    const wide = run(220, 0.5, 0.7, n)
+    // just off the fundamental: the detuned stack leaks energy there, the tight one much less
+    expect(goertzel(wide, 226, sr)).toBeGreaterThan(goertzel(tight, 226, sr) * 3)
   })
 })

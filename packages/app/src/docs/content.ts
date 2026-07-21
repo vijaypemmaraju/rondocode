@@ -190,6 +190,27 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'color',
+    title: 'Fat leads & vowels',
+    blocks: [
+      p("A few oscillators and filters exist just for character. supersaw() stacks 7 detuned saws for the classic wide trance lead. phaser() sweeps notches through a sound for motion. formant() filters a buzzy source into a singing vowel, and noise('pink') / noise('brown') give warmer, deeper noise than plain white."),
+      code(
+        'A detuned supersaw lead through a phaser, over a talking formant pad.',
+        `const lead = synth(({ note, gate, adsr, supersaw, phaser }) => {
+  const sig = supersaw(note.freq, { detune: 0.3, mix: 0.8 })
+  return phaser(sig, { rate: 0.3, feedback: 0.6 }).mul(adsr(gate, { a: 0.02, d: 0.3, s: 0.7, r: 0.3 })).mul(0.5)
+})
+const voice = synth(({ note, gate, adsr, saw, formant, lfo }) =>
+  // the LFO scans the vowels a->e->i->o->u for a talking pad
+  formant(saw(note.freq), lfo(0.15).range(0, 1)).mul(adsr(gate, { a: 0.3, d: 0.4, s: 0.8, r: 0.5 })).mul(0.4))
+
+p('lead', note('<c4 eb4 g4 bb4>').sound('lead'))
+p('voice', chord('<Cm Ab>').sound('voice').dur(0.95))
+setCps(0.44)`,
+      ),
+    ],
+  },
+  {
     id: 'arrange',
     title: 'Layering & tempo',
     blocks: [

@@ -309,31 +309,119 @@ export class FMKernel implements Kernel {
   }
 }
 
-/** White noise via xorshift32. No inputs; output uniform in [-1, 1), seeded
- *  and deterministic: same seed always yields the same sequence. */
+/** Relative detune offsets of the 7 saws (Szabo's measured JP-8000 curve);
+ *  index 3 is the centre (0). Scaled by the detune amount at runtime. */
+const SS_DETUNE = [-0.11002313, -0.06288439, -0.01952356, 0, 0.01991221, 0.06216538, 0.10745242]
+
+/** Supersaw: 7 detuned polyblep sawtooths summed for a fat trance/EDM lead.
+ *  Inputs 'freq' (Hz), 'detune' (0..1 spread, default 0.2), 'mix' (0..1 level
+ *  of the 6 side saws vs the centre, default 0.7). Anti-aliased; output ~[-1, 1]
+ *  (unity-ish across mix via a 1/(1+6·mix) normalization). */
+export class SuperSawKernel implements Kernel {
+  private readonly phases = new Float32Array(7)
+
+  constructor() {
+    for (let s = 0; s < 7; s++) this.phases[s] = s / 7 // decorrelate the start
+  }
+
+  process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
+    const freq = inputs['freq']!
+    const detune = inputs['detune']!
+    const mix = inputs['mix']!
+    const sr = ctx.sampleRate
+    const ph = this.phases
+    for (let i = 0; i < n; i++) {
+      const dv = detune[i]!
+      const mv = mix[i]!
+      const f0 = freq[i]!
+      let acc = 0
+      for (let s = 0; s < 7; s++) {
+        const fr = f0 * (1 + SS_DETUNE[s]! * dv)
+        let dt = fr / sr
+        if (dt > 0.5) dt = 0.5
+        else if (dt < -0.5) dt = -0.5
+        const p = ph[s]!
+        const v = 2 * p - 1 - polyblep(p, dt)
+        acc += s === 3 ? v : v * mv
+        let np = p + dt
+        np -= Math.floor(np)
+        ph[s] = np
+      }
+      out[i] = (acc / (1 + 6 * mv)) * 1.2
+    }
+    for (let s = 0; s < 7; s++) ph[s] = flush(ph[s]!)
+  }
+
+  reset(): void {
+    for (let s = 0; s < 7; s++) this.phases[s] = s / 7
+  }
+}
+
+export const NOISE_COLORS = ['white', 'pink', 'brown'] as const
+export type NoiseColor = (typeof NOISE_COLORS)[number]
+const isNoiseColor = (c: string): c is NoiseColor => (NOISE_COLORS as readonly string[]).includes(c)
+
+/** Noise generator via xorshift32, seeded and deterministic. `color`: 'white'
+ *  (flat, default), 'pink' (−3 dB/oct, Paul Kellet's filter — natural, warm),
+ *  or 'brown' (−6 dB/oct, a leaky integrator — deep and rumbly). Output ~[-1, 1]. */
 export class NoiseKernel implements Kernel {
   private readonly seed: number
+  private readonly color: NoiseColor
   private state: number
+  // pink filter state (Paul Kellet) + brown integrator state
+  private b0 = 0
+  private b1 = 0
+  private b2 = 0
+  private b3 = 0
+  private b4 = 0
+  private b5 = 0
+  private b6 = 0
+  private brown = 0
 
-  constructor(seed = 0x9e3779b9) {
+  constructor(seed = 0x9e3779b9, color?: string) {
     // xorshift32 requires a nonzero state
     this.seed = (seed >>> 0) || 1
     this.state = this.seed
+    const c = color ?? 'white'
+    if (!isNoiseColor(c)) throw new Error(`unknown noise color '${c}' (known: ${NOISE_COLORS.join(', ')})`)
+    this.color = c
   }
 
   process(n: number, _inputs: Record<string, Float32Array>, out: Float32Array, _ctx: DspContext): void {
     let x = this.state
+    const color = this.color
     for (let i = 0; i < n; i++) {
       x ^= x << 13
       x ^= x >>> 17
       x ^= x << 5
       x >>>= 0
-      out[i] = (x / 4294967296) * 2 - 1
+      const w = (x / 4294967296) * 2 - 1
+      if (color === 'white') {
+        out[i] = w
+      } else if (color === 'pink') {
+        this.b0 = 0.99886 * this.b0 + w * 0.0555179
+        this.b1 = 0.99332 * this.b1 + w * 0.0750759
+        this.b2 = 0.969 * this.b2 + w * 0.153852
+        this.b3 = 0.8665 * this.b3 + w * 0.3104856
+        this.b4 = 0.55 * this.b4 + w * 0.5329522
+        this.b5 = -0.7616 * this.b5 - w * 0.016898
+        out[i] = (this.b0 + this.b1 + this.b2 + this.b3 + this.b4 + this.b5 + this.b6 + w * 0.5362) * 0.11
+        this.b6 = w * 0.115926
+      } else {
+        // brown: leaky integrator, then scale back toward unity
+        this.brown = (this.brown + 0.02 * w) / 1.02
+        out[i] = this.brown * 3.5
+      }
     }
     this.state = x
+    this.b0 = flush(this.b0)
+    this.b5 = flush(this.b5)
+    this.brown = flush(this.brown)
   }
 
   reset(): void {
     this.state = this.seed
+    this.b0 = this.b1 = this.b2 = this.b3 = this.b4 = this.b5 = this.b6 = 0
+    this.brown = 0
   }
 }

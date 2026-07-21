@@ -88,7 +88,13 @@ export interface SynthCtx {
    *  ('basic' | 'harmonic' | 'pwm', default 'basic'). Band-limited via mipmaps,
    *  so it stays clean at high notes. */
   wavetable(freq: SigIn, pos?: SigIn, opts?: { table?: string }): Sig
-  noise(): Sig
+  /** SUPERSAW: 7 detuned saws for a fat trance/EDM lead. `detune` (0..1, def
+   *  0.2) spreads them; `mix` (0..1, def 0.7) is the side-saw level vs centre.
+   *  Anti-aliased. */
+  supersaw(freq: SigIn, opts?: { detune?: SigIn; mix?: SigIn }): Sig
+  /** Noise. `color`: 'white' (default), 'pink' (warmer, −3 dB/oct) or 'brown'
+   *  (deep, −6 dB/oct). */
+  noise(color?: 'white' | 'pink' | 'brown'): Sig
   /** Play a loaded audio sample. `name` is a sample loaded via loadSample. A
    *  rising edge on `gate` retriggers from the start (one-shot); pass
    *  `{ loop: true }` to loop. Pitch: `{ root }` plays at natural pitch when the
@@ -150,6 +156,13 @@ export interface SynthCtx {
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
   compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
   pan(inp: SigIn, pos: SigIn): Sig
+  /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
+   *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
+   *  (def 0.5). */
+  phaser(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig
+  /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
+   *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
+  formant(inp: SigIn, morph?: SigIn): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
 }
 
@@ -179,6 +192,13 @@ export interface PostCtx {
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
   compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
+   *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
+   *  (def 0.5). */
+  phaser(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig
+  /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
+   *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
+  formant(inp: SigIn, morph?: SigIn): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
 }
 
@@ -457,6 +477,17 @@ const makeShared = (b: Builder) => {
           makeup: opts?.makeup,
         }),
       ),
+    phaser: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig =>
+      b.node(
+        'phaser',
+        { in: src(inp, 'phaser in') },
+        definedConfig({ rate: opts?.rate, depth: opts?.depth, feedback: opts?.feedback, stages: opts?.stages, mix: opts?.mix }),
+      ),
+    formant: (inp: SigIn, morph?: SigIn): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'formant in') }
+      if (morph !== undefined) inputs['morph'] = src(morph, 'formant morph')
+      return b.node('formant', inputs)
+    },
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
   }
@@ -488,6 +519,8 @@ const makeCtx = (b: Builder): SynthCtx => {
     bitcrush: shared.bitcrush,
     shape: shared.shape,
     compress: shared.compress,
+    phaser: shared.phaser,
+    formant: shared.formant,
     mix: shared.mix,
 
     sine: (freq) => b.node('sine', { freq: src(freq, 'sine freq') }),
@@ -515,7 +548,13 @@ const makeCtx = (b: Builder): SynthCtx => {
       if (pos !== undefined) inputs['pos'] = src(pos, 'wavetable pos')
       return b.node('wavetable', inputs, definedConfig({ table: opts?.table }))
     },
-    noise: () => b.node('noise', {}),
+    supersaw: (freq, opts) => {
+      const inputs: Record<string, InputSource> = { freq: src(freq, 'supersaw freq') }
+      if (opts?.detune !== undefined) inputs['detune'] = src(opts.detune, 'supersaw detune')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'supersaw mix')
+      return b.node('supersaw', inputs)
+    },
+    noise: (color) => b.node('noise', {}, definedConfig({ color })),
 
     sample: (gate, name, opts) => {
       const inputs: Record<string, InputSource> = { gate: src(gate, 'sample gate') }

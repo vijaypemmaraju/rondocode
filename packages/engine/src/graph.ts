@@ -1,10 +1,10 @@
 export type NodeType =
-  | 'sine' | 'saw' | 'square' | 'tri' | 'pulse' | 'noise' | 'wavetable' | 'syncsaw' | 'fm'
+  | 'sine' | 'saw' | 'square' | 'tri' | 'pulse' | 'noise' | 'wavetable' | 'syncsaw' | 'fm' | 'supersaw'
   | 'sample' | 'granular' | 'pluck' | 'modal'
   | 'svf' | 'ladder' | 'onepole'
   | 'adsr' | 'env' | 'lfo'
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'
-  | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress'
+  | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'phaser' | 'formant'
   | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'
   | 'businput' | 'mix' | 'out'
 

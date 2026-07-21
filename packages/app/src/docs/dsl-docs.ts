@@ -442,7 +442,8 @@ const SYNTH_CTX: DocEntry[] = [
     'A morphing wavetable oscillator: pos (0..1) scans through a bank of single-cycle waves for an evolving, sweepable timbre, anti-aliased, so it stays clean up high. Tables: basic (sine→saw→square), harmonic (moving formant), pwm (widening pulses).',
     "wavetable(note.freq, lfo(0.25).range(0, 1), { table: 'basic' })",
   ),
-  sc('noise', 'noise()', 'White noise, the raw material of hats, claps and breath.', "svf(noise(), 8000, { mode: 'hp' })"),
+  sc('noise', "noise(color?: 'white' | 'pink' | 'brown')", 'Noise, the raw material of hats, claps, wind and breath. white (default) is flat and bright; pink (−3 dB/oct) is warmer and more natural; brown (−6 dB/oct) is deep and rumbly.', "svf(noise('pink'), 8000, { mode: 'hp' })"),
+  sc('supersaw', 'supersaw(freq, opts?: { detune?, mix? })', 'The fat trance/EDM lead: 7 detuned sawtooths in one oscillator. detune (0..1, def 0.2) spreads them apart; mix (0..1, def 0.7) is how loud the 6 side saws are versus the centre. Anti-aliased, so it stays clean up high.', "supersaw(note.freq, { detune: 0.3, mix: 0.8 })"),
   sc(
     'sample',
     'sample(gate, name, opts?: { root, speed, loop })',
@@ -539,6 +540,18 @@ const SYNTH_CTX: DocEntry[] = [
     'compress(input, opts?: { threshold, ratio, attack, release, knee, makeup })',
     'A compressor: tames peaks and glues a signal together. threshold (dB, def -18), ratio (def 4), attack/release (ms, def 10/120), knee (dB, def 6), makeup (dB, def 0). For PARALLEL (New York) compression, blend the dry back: input.mix(compress(input, { ratio: 10 }), 0.5).',
     'compress(drumBus, { threshold: -20, ratio: 4, attack: 5, makeup: 4 })',
+  ),
+  sc(
+    'phaser',
+    'phaser(input, opts?: { rate?, depth?, feedback?, stages?, mix? })',
+    'A swept-allpass phaser: a cascade of allpass stages moves notches through the signal for that classic sweeping, whooshing motion. rate Hz (def 0.5), depth 0..1 (def 0.7), feedback 0..0.9 (def 0.4) sharpens the notches, stages 2..12 (def 4), mix 0..1 (def 0.5).',
+    'phaser(pad, { rate: 0.3, feedback: 0.6 })',
+  ),
+  sc(
+    'formant',
+    'formant(input, morph?)',
+    'A vowel filter: three band-pass resonators at a vowel’s formant frequencies, so a buzzy source (saw, pulse, supersaw) turns into a singing "aah/eee/ooo". morph (0..1) scans the vowels a to e to i to o to u, sweep it for a talking, vocal effect.',
+    "formant(saw(note.freq), lfo(0.2).range(0, 1))",
   ),
   sc('pan', 'pan(input, pos)', 'Place the signal in the stereo field: 0 left, 0.5 center, 1 right.', 'pan(osc, 0.3)'),
   sc('mix', 'mix(a, b, t)', 'Crossfade between two signals: t=0 is all a, t=1 all b.', 'mix(saw(note.freq), square(note.freq), 0.3)'),

@@ -1,9 +1,20 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import { docsMarkdown } from './src/docs/markdown'
 
 const entry = (name: string): string => fileURLToPath(new URL(name, import.meta.url))
 
 export default defineConfig({
+  // Emit the docs as Markdown at /llms.txt (the LLM-consumable convention),
+  // generated from the same guide + reference data the docs page renders.
+  plugins: [
+    {
+      name: 'emit-llms-txt',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'llms.txt', source: docsMarkdown() })
+      },
+    },
+  ],
   // The AudioWorklet processor is loaded via `?worker&url` (see
   // src/audio/AudioSession.ts). audioWorklet.addModule always loads ES
   // modules, so the worker bundle must be emitted as one.

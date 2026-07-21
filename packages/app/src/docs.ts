@@ -8,6 +8,7 @@ import { PreviewPlayer } from './docs/player'
 import { createDocEditor } from './docs/doceditor'
 import { escapeHtml as esc } from './docs/highlight'
 import { iconEl } from './ui/icons'
+import { docsMarkdown } from './docs/markdown'
 import { FLASH_MS } from './editor/flash'
 import { encodeShare, shareUrl } from './session/share'
 
@@ -247,9 +248,25 @@ async function build(): Promise<void> {
   label.style.fontSize = 'var(--fs-ctrl)'
   label.textContent = 'docs'
   top.append(brand, label, el('div', 'spacer'))
+  // copy the whole docs as Markdown, for pasting into an LLM
+  const copyBtn = el('button', 'doc-copy', 'copy for LLMs')
+  copyBtn.type = 'button'
+  copyBtn.title = 'copy the guide + reference as Markdown (also at /llms.txt)'
+  copyBtn.addEventListener('click', () => {
+    void navigator.clipboard
+      .writeText(docsMarkdown())
+      .then(() => {
+        copyBtn.textContent = 'copied'
+        setTimeout(() => (copyBtn.textContent = 'copy for LLMs'), 1500)
+      })
+      .catch(() => {
+        copyBtn.textContent = 'copy failed'
+        setTimeout(() => (copyBtn.textContent = 'copy for LLMs'), 1500)
+      })
+  })
   const cta = el('a', 'cta', 'open the editor →')
   cta.href = '/'
-  top.append(cta)
+  top.append(copyBtn, cta)
   document.body.append(top)
 
   const wrap = el('div', 'doc-wrap')

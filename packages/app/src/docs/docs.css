@@ -547,3 +547,31 @@ a:hover {
     color: var(--c-accent);
   }
 }
+
+/* "copy for LLMs" button in the docs header */
+.doc-copy {
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  padding: var(--sp-2) var(--sp-3);
+  margin-right: var(--sp-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface);
+  color: var(--c-dim);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .doc-copy:hover {
+    color: var(--c-text);
+    border-color: var(--c-dim);
+  }
+}
+.doc-copy:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .doc-copy {
+    display: none; /* the header is tight on phones; /llms.txt still works */
+  }
+}

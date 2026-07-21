@@ -247,13 +247,17 @@ function resynthSustain(seg: Float32Array, sr: number, note: Note, len: number):
  *  the REAL syllable (PSOLA-pitched — intelligible consonant + vowel onset) and
  *  crossfade a vocoder-generated held vowel onto its tail — so the sustain is
  *  buzz-free without losing the word. Then level-even and articulate. */
-function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: number): Float32Array {
+function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: number, unpitched = false): Float32Array {
   const f0in = estimateF0(seg, sr) || globalF0
   const f0out = mtof(note.midi)
   const target = Math.floor(note.dur * sr)
   const stretch = target / Math.max(1, seg.length)
   let y: Float32Array
-  if (stretch <= MAX_UNIFORM_STRETCH) {
+  if (unpitched) {
+    // diagnostic: fit the note RHYTHM but keep the natural speech pitch — pure
+    // time-stretch (no PSOLA), so alignment/placement can be judged on its own.
+    y = olaStretch(seg, target, sr)
+  } else if (stretch <= MAX_UNIFORM_STRETCH) {
     y = psola(seg, sr, target / Math.max(1, seg.length), f0out, f0in)
   } else {
     // real, pitched syllable (keeps the word), then a vocoder sustain tail
@@ -358,6 +362,9 @@ export async function singWithLyrics(
     /** DEV: capture the (non-deterministic) TTS + alignment result so the pure
      *  DSP stage can be re-run on the SAME spoken audio while tuning. */
     capture?: (c: AlignedSpeech) => void
+    /** DIAGNOSTIC: fit the note rhythm but keep the natural speech pitch (pure
+     *  time-stretch, no PSOLA/vocoder) so alignment can be judged on its own. */
+    unpitched?: boolean
   } = {},
 ): Promise<{ audio: Float32Array; sr: number }> {
   const parsed = parseLyrics(lyrics)
@@ -371,7 +378,7 @@ export async function singWithLyrics(
   const words = await alignWords(spoken, sr)
   const cap: AlignedSpeech = { spoken, words, gf0, sr }
   opts.capture?.(cap)
-  return { audio: renderSung(cap, parsed, melody), sr }
+  return { audio: renderSung(cap, parsed, melody, { unpitched: opts.unpitched }), sr }
 }
 
 /** A captured TTS+alignment result — everything the pure DSP stage needs, so it
@@ -383,16 +390,44 @@ export interface AlignedSpeech {
   sr: number
 }
 
+/** Snap Whisper word spans into a gapless cover of the utterance: anchor the
+ *  first word to 0 and the last to the end, and split every inter-word gap (or
+ *  overlap) at its midpoint. Whisper's generative timestamps routinely UNDER-
+ *  cover a word (e.g. "amazing" tagged 0.28s when it's really ~0.84s), which
+ *  wrecks the per-syllable split; this recovers the missing audio. Returns null
+ *  spans when Whisper's word count doesn't match the lyrics (caller falls back to
+ *  even division). */
+function snapWordSpans(
+  words: { text: string; start: number; end: number }[],
+  W: number,
+  totalSec: number,
+): ({ start: number; end: number } | null)[] {
+  if (words.length !== W || W === 0) return new Array(W).fill(null)
+  const spans = words.map((w) => ({ start: w.start, end: w.end }))
+  spans[0]!.start = 0
+  spans[W - 1]!.end = totalSec
+  for (let i = 1; i < W; i++) {
+    const prev = spans[i - 1]!
+    const cur = spans[i]!
+    const mid = (prev.end + cur.start) / 2 // meet in the middle of any gap/overlap
+    prev.end = mid
+    cur.start = mid
+  }
+  for (const s of spans) if (s.end <= s.start) s.end = s.start + 0.02
+  return spans
+}
+
 /** Pure, deterministic DSP stage: slice each Whisper-bounded word into its
  *  hyphen syllables → PSOLA each onto its note (melisma holds, ~ is silent) →
  *  place at exact onsets. Split out from singWithLyrics so it can be re-run on a
  *  captured `AlignedSpeech` while tuning, with no fresh TTS/alignment noise. */
-export function renderSung(cap: AlignedSpeech, parsed: ParsedLyrics, melody: Note[]): Float32Array {
+export function renderSung(cap: AlignedSpeech, parsed: ParsedLyrics, melody: Note[], opts: { unpitched?: boolean } = {}): Float32Array {
   const { spoken, words, gf0, sr } = cap
+  const spans = snapWordSpans(words, parsed.words.length, spoken.length / sr)
   const slotAudio: (Float32Array | null)[] = new Array(parsed.slots.length).fill(null)
   for (let wi = 0; wi < parsed.words.length; wi++) {
     const w = parsed.words[wi]!
-    const t = words[wi]
+    const t = spans[wi]
     let seg = t
       ? spoken.slice(Math.floor(t.start * sr), Math.floor(t.end * sr))
       : spoken.slice(Math.floor((spoken.length * wi) / parsed.words.length), Math.floor((spoken.length * (wi + 1)) / parsed.words.length))
@@ -410,7 +445,7 @@ export function renderSung(cap: AlignedSpeech, parsed: ParsedLyrics, melody: Not
   const parts = melody.map((note, i) => {
     const seg = slotAudio[i]
     if (parsed.slots[i]!.rest || !seg || seg.length < 8) return new Float32Array(Math.floor(note.dur * sr))
-    return singSyllable(seg, sr, note, gf0)
+    return singSyllable(seg, sr, note, gf0, opts.unpitched)
   })
   return placeNotes(parts, melody.map((n) => n.dur), sr)
 }

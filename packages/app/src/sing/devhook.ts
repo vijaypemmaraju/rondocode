@@ -14,13 +14,13 @@ interface Hook {
   load(): void
   say(text: string): Promise<{ len: number; sr: number; rms: number; peak: number }>
   sing(text: string, melody: Note[]): Promise<{ len: number; sr: number; peak: number }>
-  singLyrics(lyrics: string, melody: Note[]): Promise<{ len: number; sr: number; peak: number }>
+  singLyrics(lyrics: string, melody: Note[], opts?: { unpitched?: boolean }): Promise<{ len: number; sr: number; peak: number }>
   /** DEV: last captured TTS+alignment, for deterministic DSP re-rendering. */
   captured: (AlignedSpeech & { lyrics: string }) | null
   /** DEV: re-run only the DSP stage on the captured speech (no fresh TTS) — so
    *  PSOLA/level/placement tuning can be A/B'd without TTS randomness. Pass a
    *  lyrics string to re-capture; omit to reuse the last capture. */
-  resing(melody: Note[], lyrics?: string): Promise<{ len: number; sr: number; peak: number }>
+  resing(melody: Note[], lyrics?: string, opts?: { unpitched?: boolean }): Promise<{ len: number; sr: number; peak: number }>
 }
 
 export function installSingDevHook(): void {
@@ -61,10 +61,11 @@ export function installSingDevHook(): void {
       for (let i = 0; i < audio.length; i++) peak = Math.max(peak, Math.abs(audio[i]!))
       return { len: audio.length, sr, peak }
     },
-    async singLyrics(lyrics: string, melody: Note[]) {
+    async singLyrics(lyrics: string, melody: Note[], opts: { unpitched?: boolean } = {}) {
       if (!this.engine) throw new Error('not loaded')
       const { audio, sr } = await singWithLyrics(this.engine, lyrics, melody, {
         capture: (c) => (this.captured = { ...c, lyrics }),
+        unpitched: opts.unpitched,
       })
       this.audio = audio
       this.sr = sr
@@ -73,14 +74,14 @@ export function installSingDevHook(): void {
       return { len: audio.length, sr, peak }
     },
     captured: null,
-    async resing(melody: Note[], lyrics?: string) {
+    async resing(melody: Note[], lyrics?: string, opts: { unpitched?: boolean } = {}) {
       if (lyrics && lyrics !== this.captured?.lyrics) {
         // need a fresh capture for new lyrics
-        return this.singLyrics(lyrics, melody)
+        return this.singLyrics(lyrics, melody, opts)
       }
       if (!this.captured) throw new Error('no captured speech; call singLyrics(lyrics, melody) first')
       const parsed = parseLyrics(this.captured.lyrics)
-      const audio = renderSung(this.captured, parsed, melody)
+      const audio = renderSung(this.captured, parsed, melody, { unpitched: opts.unpitched })
       this.audio = audio
       this.sr = this.captured.sr
       let peak = 0

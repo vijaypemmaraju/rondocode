@@ -238,6 +238,12 @@ export interface SynthDef {
   /** Voice-pool size (max simultaneous notes) from opts.voices; ABSENT when
    *  unset (the engine then uses its default 8). */
   maxVoices?: number
+  /** Voice-graph node id → source char-range [from, to) of the expression that
+   *  produced it (captured by tapLoc). EDITOR-ONLY metadata for live-value
+   *  readouts: it is deliberately NOT sent to the engine and NOT part of the
+   *  synth's structural identity (Session fingerprints graph/post/voiceOpts/
+   *  maxVoices only), so it never triggers a rebuild or voice drop. */
+  nodeLocs?: Record<number, [number, number]>
 }
 
 /** Normalize + clamp user VoiceOptsInput into a full VoiceOpts. */
@@ -259,6 +265,10 @@ let activeBuilder: Builder | null = null
 class Builder {
   readonly nodes: NodeSpec[] = []
   readonly params: ParamSpec[] = []
+  /** node id → its source char-range [from, to), captured by tapLoc during the
+   *  build so the editor can show a live value on a modulation expression. Kept
+   *  OFF the GraphSpec (never diffed or fingerprinted). */
+  readonly locs = new Map<number, [number, number]>()
   private nextId = 0
 
   node(type: NodeType, inputs: Record<string, InputSource>, config?: Record<string, unknown>): SigImpl {
@@ -293,6 +303,18 @@ class Builder {
     }
     return { node: x.id }
   }
+}
+
+/** Tag the node a signal expression produced with its source char-range, so
+ *  the editor can show a live value on it (the value-probe feature). TRANSPARENT
+ *  — returns `val` unchanged — so the evaluator can wrap any expression with it.
+ *  Only Sigs from the synth() build currently running are tagged; numbers,
+ *  patterns, the SynthDef itself and anything else pass straight through. */
+export function tapLoc<T>(from: number, to: number, val: T): T {
+  if (activeBuilder !== null && val instanceof SigImpl && val.builder === activeBuilder) {
+    activeBuilder.locs.set(val.id, [from, to])
+  }
+  return val
 }
 
 /** Short printable preview of a rejected input value for error messages. */
@@ -636,7 +658,7 @@ const buildGraph = <C>(
   isImpl: (result: unknown, b: Builder) => boolean,
   build: (ctx: C) => Sig,
   compile: (g: GraphSpec) => void,
-): GraphSpec => {
+): { graph: GraphSpec; locs: Map<number, [number, number]> } => {
   const b = new Builder()
   const prev = activeBuilder
   activeBuilder = b
@@ -653,7 +675,7 @@ const buildGraph = <C>(
   const graph: GraphSpec = { nodes: b.nodes, out: outId, params: b.params }
   validateGraph(graph)
   compile(graph)
-  return graph
+  return { graph, locs: b.locs }
 }
 
 const returnsOwnSig = (result: unknown, b: Builder): boolean =>
@@ -689,14 +711,18 @@ export function synth(
     optsInput = postOrOpts
   }
 
-  const graph = buildGraph(makeCtx, returnsOwnSig, voiceFn, (g) => {
+  const voice = buildGraph(makeCtx, returnsOwnSig, voiceFn, (g) => {
     compileGraph(g, { sampleRate: 48000 }) // validation pass; graphs are tiny
   })
-  const def: SynthDef = { graph }
+  const def: SynthDef = { graph: voice.graph }
+  // Modulation-expression source spans for the editor's live-value readouts.
+  // Voice graph only (per-note modulation lives here); metadata, never part of
+  // the synth's structural identity — see SynthDef.nodeLocs.
+  if (voice.locs.size > 0) def.nodeLocs = Object.fromEntries(voice.locs)
   if (postFn !== undefined) {
     def.post = buildGraph(makePostCtx, returnsOwnSig, postFn, (g) => {
       compilePost(g, { sampleRate: 48000 })
-    })
+    }).graph
   }
   if (optsInput !== undefined) def.voiceOpts = normalizeVoiceOpts(optsInput)
   if (optsInput?.voices !== undefined && Number.isFinite(optsInput.voices)) {
@@ -711,5 +737,5 @@ export function synth(
 export function busGraph(fxFn: (ctx: PostCtx) => Sig): GraphSpec {
   return buildGraph(makePostCtx, returnsOwnSig, fxFn, (g) => {
     compilePost(g, { sampleRate: 48000 })
-  })
+  }).graph
 }

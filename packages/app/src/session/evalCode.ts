@@ -3,7 +3,7 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { busGraph } from '@rondocode/engine'
+import { busGraph, tapLoc } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 
 /* ------------------------------------------------------------------------- *
@@ -105,7 +105,7 @@ export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object. */
-const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus'])
+const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', '__rcTap'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -187,7 +187,31 @@ const transformSynthDecls = (
       })
     }
   }
+  // Live-value probe: wrap modulation signal expressions with __rcTap(from, to, …)
+  // so the builder tags each produced node with its source span (see tapLoc /
+  // SynthDef.nodeLocs). Targets are Call/Member expressions in the positions
+  // where a signal feeds something — call arguments and variable-declarator
+  // inits — which is exactly `sine(0.5).range(200,2000)` as a filter cutoff, an
+  // adsr in a .mul(), an lfo bound to a const, etc. Transparent at runtime and a
+  // no-op for non-Sig values (patterns, numbers, objects), so wrapping widely is
+  // safe. Embedded offsets are into the ORIGINAL source (= the editor doc).
+  const wrap = (node: { type: string; start: number; end: number } | null | undefined): void => {
+    if (node != null && (node.type === 'CallExpression' || node.type === 'MemberExpression')) {
+      inserts.push({ at: node.start, text: `__rcTap(${node.start},${node.end},` })
+      inserts.push({ at: node.end, text: ')' })
+    }
+  }
+  walkSimple(program, {
+    CallExpression(node) {
+      for (const arg of node.arguments) wrap(arg as { type: string; start: number; end: number })
+    },
+    VariableDeclarator(node) {
+      wrap(node.init as { type: string; start: number; end: number } | null)
+    },
+  })
   let transformed = source
+  // High-offset-first so earlier splices don't shift later offsets. Proper AST
+  // nesting means an open (at start) and a close (at end) never share an offset.
   for (const ins of inserts.sort((a, b) => b.at - a.at)) {
     transformed = transformed.slice(0, ins.at) + ins.text + transformed.slice(ins.at)
   }
@@ -440,8 +464,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus')
-  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus)
+  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', '__rcTap')
+  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus, tapLoc)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval

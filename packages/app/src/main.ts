@@ -12,7 +12,6 @@ import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
 import { BridgeClient } from './session/bridge-client'
 import { applyPalette } from './ui/palette'
-import { mountViz } from './viz/viz'
 
 /* MCP bridge wiring: expose the Session command API to the local bridge
  * server (see session/bridge-client.ts for protocol, reach, and the
@@ -79,7 +78,7 @@ if (!app) throw new Error('missing #app root')
 AudioSession.start().then(
   (audio) => {
     const editor = mountEditor(app, audio)
-    mountViz(app, editor, audio)
+    // mixer + scopes panel removed for now (mountViz) — see viz/viz.ts to restore
     void mountLibrary(editor).catch((e) => console.warn('[library] failed to mount', e))
     mountDocs(editor)
     mountSynthLib(editor)

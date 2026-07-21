@@ -7,6 +7,7 @@
  * offline prototype; Whisper word-alignment is a later robustness upgrade.
  * ------------------------------------------------------------------------- */
 import { psola, estimateF0, olaStretch } from './psola'
+import { analyzeVoice, resynth, buildFrameMap } from './vocoder'
 import type { SupertonicEngine } from './supertonic'
 import { parseLyrics, type ParsedLyrics } from './lyrics'
 import { loadAligner, alignWords } from './align'
@@ -209,10 +210,43 @@ function sustainVowel(x: Float32Array, sr: number, target: number, f0: number): 
   return out
 }
 
+/** RMS of the last `ms` of a signal (for level-matching a crossfade). */
+function tailRms(x: Float32Array, sr: number, ms: number): number {
+  const w = Math.min(x.length, Math.floor((ms / 1000) * sr))
+  let s = 0
+  for (let i = x.length - w; i < x.length; i++) s += x[i]! * x[i]!
+  return Math.sqrt(s / Math.max(1, w))
+}
+
+/** Vocoder-generate a pure held vowel of `len` samples at the note pitch, by
+ *  parking the analysis on the steady vowel frames (with slow wander) and
+ *  regenerating excitation from a continuous f0 (vibrato/jitter/breath). No
+ *  consonant — this is only the SUSTAIN, crossfaded onto the natural syllable. */
+function resynthSustain(seg: Float32Array, sr: number, note: Note, len: number): Float32Array {
+  const an = analyzeVoice(seg, sr)
+  const F = an.frames.length
+  let firstV = an.frames.findIndex((f) => f.f0 > 0)
+  if (firstV < 0) firstV = 0
+  let lastV = F - 1
+  while (lastV > firstV && an.frames[lastV]!.f0 === 0) lastV--
+  const steady = Math.floor(firstV + (lastV - firstV) * 0.7) // deep in the vowel
+  const outFrames = Math.max(2, Math.ceil(len / an.hop) + 1)
+  const map = new Float32Array(outFrames)
+  const wanderAmp = Math.max(1, (lastV - steady) * 0.5)
+  for (let j = 0; j < outFrames; j++) {
+    map[j] = Math.max(firstV, Math.min(F - 1, steady + Math.sin(j * 0.1) * wanderAmp))
+  }
+  // vibrato eases in almost immediately (the note's straight-tone lead-in is the
+  // natural syllable that precedes this sustain).
+  const vibrato = { depth: 0.35, rate: 5.6, delay: 0.05, ease: 0.18 }
+  return resynth(an, len, { frameMap: map, f0: mtof(note.midi), vibrato, jitter: 0.1, breath: 0.04 })
+}
+
 /** Retune+retime a syllable onto a note, rendered exactly `note.dur` long. Up to
- *  a moderate stretch, uniform PSOLA; for long held notes, pitch to natural
- *  length then loop the vowel (sustainVowel) so consonants don't smear and the
- *  sustain doesn't buzz. Then level-even and articulate. */
+ *  a moderate stretch, uniform PSOLA (crisp, cheap). For a long held note, keep
+ *  the REAL syllable (PSOLA-pitched — intelligible consonant + vowel onset) and
+ *  crossfade a vocoder-generated held vowel onto its tail — so the sustain is
+ *  buzz-free without losing the word. Then level-even and articulate. */
 function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: number): Float32Array {
   const f0in = estimateF0(seg, sr) || globalF0
   const f0out = mtof(note.midi)
@@ -222,9 +256,29 @@ function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: numbe
   if (stretch <= MAX_UNIFORM_STRETCH) {
     y = psola(seg, sr, target / Math.max(1, seg.length), f0out, f0in)
   } else {
-    // pitch to ~natural length, then hold the vowel out to the note length
+    // real, pitched syllable (keeps the word), then a vocoder sustain tail
     const natural = psola(seg, sr, 1, f0out, f0in)
-    y = sustainVowel(natural, sr, target, f0out)
+    y = new Float32Array(target)
+    const nkeep = Math.min(natural.length, target)
+    y.set(natural.subarray(0, nkeep))
+    const xf = Math.min(Math.floor(0.035 * sr), natural.length >> 1)
+    if (target > natural.length - xf) {
+      const sustLen = target - (natural.length - xf)
+      const tail = resynthSustain(seg, sr, note, sustLen)
+      // match the sustain level to the natural syllable's vowel tail
+      const tRms = tailRms(natural, sr, 60)
+      let sRms = 0
+      for (let i = 0; i < tail.length; i++) sRms += tail[i]! * tail[i]!
+      sRms = Math.sqrt(sRms / Math.max(1, tail.length))
+      const g = sRms > 1e-5 ? Math.min(6, tRms / sRms) : 1
+      const base = natural.length - xf
+      for (let i = 0; i < tail.length && base + i < target; i++) {
+        const oi = base + i
+        const s = tail[i]! * g
+        if (i < xf && oi >= 0) y[oi] = y[oi]! * Math.cos((Math.PI / 2) * (i / xf)) + s * Math.sin((Math.PI / 2) * (i / xf))
+        else if (oi >= 0) y[oi] = s
+      }
+    }
   }
   const out = new Float32Array(target)
   out.set(y.length >= target ? y.subarray(0, target) : y)

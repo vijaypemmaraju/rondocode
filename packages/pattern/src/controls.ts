@@ -212,6 +212,17 @@ declare module './pattern' {
       amount: number,
       f: (p: Pattern<ControlMap>) => Pattern<ControlMap>,
     ): Pattern<ControlMap>
+    /**
+     * Tempo-synced delay: layer `count` copies (including the dry one), each
+     * `time` cycles later than the last and `feedback` (default 0.5) times as
+     * loud — a musical echo, since `time` is in cycles the scheduler resolves
+     * against the current cps. Multiplies each tap's gain (respecting any gain
+     * already set).
+     */
+    echo(this: Pattern<ControlMap>, count: number, time: number, feedback?: number): Pattern<ControlMap>
+    /** Like {@link echo} but successive taps alternate right/left for a
+     *  ping-pong stereo delay. */
+    ping(this: Pattern<ControlMap>, count: number, time: number, feedback?: number): Pattern<ControlMap>
   }
 }
 
@@ -293,4 +304,45 @@ Pattern.prototype.jux = function (
   f: (p: Pattern<ControlMap>) => Pattern<ControlMap>,
 ): Pattern<ControlMap> {
   return this.juxBy(1, f)
+}
+
+/** Multiply an event's gain (default 1) by `f`. */
+const scaleGain = (v: ControlMap, f: number): ControlMap => ({
+  ...v,
+  gain: (typeof v.gain === 'number' ? v.gain : 1) * f,
+})
+
+Pattern.prototype.echo = function (
+  this: Pattern<ControlMap>,
+  count: number,
+  time: number,
+  feedback = 0.5,
+): Pattern<ControlMap> {
+  const n = Math.max(1, Math.floor(count))
+  const layers: Pattern<ControlMap>[] = []
+  for (let i = 0; i < n; i++) {
+    const tap = this.late(time * i)
+    layers.push(i === 0 ? tap : tap.withValue((v) => scaleGain(v, feedback ** i)))
+  }
+  return Pattern.stack(...layers)
+}
+
+Pattern.prototype.ping = function (
+  this: Pattern<ControlMap>,
+  count: number,
+  time: number,
+  feedback = 0.5,
+): Pattern<ControlMap> {
+  const n = Math.max(1, Math.floor(count))
+  const layers: Pattern<ControlMap>[] = []
+  for (let i = 0; i < n; i++) {
+    const tap = this.late(time * i)
+    if (i === 0) {
+      layers.push(tap)
+      continue
+    }
+    const pan = i % 2 === 1 ? 0.85 : 0.15 // alternate right/left
+    layers.push(tap.withValue((v) => ({ ...scaleGain(v, feedback ** i), pan })))
+  }
+  return Pattern.stack(...layers)
 }

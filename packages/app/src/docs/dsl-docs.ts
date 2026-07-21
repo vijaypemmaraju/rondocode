@@ -376,6 +376,18 @@ const PATTERN_METHODS: DocEntry[] = [
     "Turn scale degrees (from n()) into actual notes in a scale like 'a minor' or 'f# mixolydian', degrees past the top wrap up an octave.",
     "n('0 0 3 5').scale('a minor')",
   ),
+  pm(
+    'echo',
+    'echo(count: number, time: number, feedback?: number)',
+    'Tempo-synced delay: layer count copies, each time cycles later and feedback (default 0.5) quieter — a musical echo, since time is in cycles.',
+    ".sound('pluck').echo(3, 0.125, 0.5)",
+  ),
+  pm(
+    'ping',
+    'ping(count: number, time: number, feedback?: number)',
+    'Like echo, but the taps alternate right/left for a ping-pong stereo delay.',
+    ".sound('pluck').ping(4, 0.1875, 0.6)",
+  ),
   pm('jux', 'jux(f: (p) => p)', 'Stereo split: the original hard left, f(copy) hard right.', '.jux(x => x.rev())'),
   pm('juxBy', 'juxBy(amount: number, f: (p) => p)', 'jux with adjustable width: 0 keeps both centered, 1 is a full split.', '.juxBy(0.5, x => x.rev())'),
 ]

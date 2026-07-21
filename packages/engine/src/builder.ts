@@ -109,6 +109,14 @@ export interface SynthCtx {
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
   adsr(gate: SigIn, opts?: { a?: number; d?: number; s?: number; r?: number }): Sig
+  /** Multi-segment (breakpoint) envelope — the flexible cousin of adsr.
+   *  `points` are [timeSec, level] pairs: while the gate is held it ramps
+   *  through them in order (each from the previous level), then HOLDS the last
+   *  level, or with `loop` repeats them (a function generator). Gate-off
+   *  releases from the current level to 0 over `release` (def 0.1 s). `curve`
+   *  (def 0) shapes every segment: > 0 fast-then-slow, < 0 slow-then-fast.
+   *  Levels are not clamped, so it drives amplitude, pitch or any modulation. */
+  env(gate: SigIn, points: [number, number][], opts?: { release?: number; curve?: number; loop?: boolean }): Sig
   lfo(freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig
   /** Freeverb-style algorithmic reverb. Output is WET only — mix it back with
@@ -532,6 +540,15 @@ const makeCtx = (b: Builder): SynthCtx => {
         'adsr',
         { gate: src(gate, 'adsr gate') },
         definedConfig({ a: opts?.a, d: opts?.d, s: opts?.s, r: opts?.r }),
+      ),
+
+    env: (gate, points, opts) =>
+      b.node(
+        'env',
+        { gate: src(gate, 'env gate') },
+        // points is required config (the kernel rejects an empty list at compile);
+        // definedConfig drops the optional keys when absent.
+        { points, ...(definedConfig({ release: opts?.release, curve: opts?.curve, loop: opts?.loop }) ?? {}) },
       ),
 
     pan: (inp, pos) => b.node('pan', { in: src(inp, 'pan in'), pos: src(pos, 'pan pos') }),

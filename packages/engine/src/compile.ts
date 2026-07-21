@@ -5,7 +5,8 @@ import { SineKernel, SawKernel, SquareKernel, TriKernel, PulseKernel, NoiseKerne
 import { WavetableKernel } from './dsp/wavetable'
 import { SvfKernel, LadderKernel, OnePoleKernel } from './dsp/filters'
 import type { SvfMode } from './dsp/filters'
-import { AdsrKernel } from './dsp/env'
+import { AdsrKernel, EnvKernel } from './dsp/env'
+import type { EnvConfig } from './dsp/env'
 import type { AdsrConfig } from './dsp/env'
 import { LfoKernel } from './dsp/lfo'
 import type { LfoShape } from './dsp/lfo'
@@ -132,6 +133,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   ladder: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   onepole: [{ name: 'in' }, { name: 'cutoff' }],
   adsr: [{ name: 'gate' }],
+  env: [{ name: 'gate' }],
   lfo: [{ name: 'freq' }],
   mul: [{ name: 'a' }, { name: 'b' }],
   add: [{ name: 'a' }, { name: 'b' }],
@@ -182,6 +184,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   ladder: () => new LadderKernel(),
   onepole: () => new OnePoleKernel(),
   adsr: (c) => new AdsrKernel(c as AdsrConfig),
+  env: (c) => new EnvKernel(c as unknown as EnvConfig),
   lfo: (c) => new LfoKernel((c['shape'] as LfoShape | undefined) ?? 'sine'),
   mul: () => new MulKernel(),
   add: () => new AddKernel(),

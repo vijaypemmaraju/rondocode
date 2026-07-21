@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AdsrKernel } from '../src/dsp/env'
+import { AdsrKernel, EnvKernel } from '../src/dsp/env'
 import type { DspContext } from '../src/dsp/types'
 
 const ctx: DspContext = { sampleRate: 48000 }
@@ -98,5 +98,76 @@ describe('AdsrKernel', () => {
     k.reset()
     const out = runEnv(k, new Float32Array(1024)) // gate off, idle
     for (let i = 0; i < out.length; i++) expect(out[i]).toBe(0)
+  })
+})
+
+describe('EnvKernel (multi-segment)', () => {
+  const gate = (n: number, onSec: number): Float32Array => {
+    const g = new Float32Array(n)
+    g.fill(1, 0, Math.min(n, Math.round(onSec * sr)))
+    return g
+  }
+  const run = (k: EnvKernel, g: Float32Array): Float32Array => {
+    const out = new Float32Array(g.length)
+    k.process(g.length, { gate: g }, out, ctx)
+    return out
+  }
+  const at = (out: Float32Array, sec: number): number => out[Math.round(sec * sr)]!
+
+  it('ramps through the breakpoints then holds the last level while gated', () => {
+    // 0 -> 1 over 0.1s, then 1 -> 0.5 over 0.1s, hold 0.5
+    const k = new EnvKernel({ points: [[0.1, 1], [0.1, 0.5]] })
+    const out = run(k, gate(sr, 1)) // 1s, gate on the whole time
+    expect(at(out, 0)).toBeCloseTo(0, 2)
+    expect(at(out, 0.1)).toBeCloseTo(1, 1) // end of first segment
+    expect(at(out, 0.2)).toBeCloseTo(0.5, 1) // end of second
+    expect(at(out, 0.8)).toBeCloseTo(0.5, 2) // holding the sustain
+  })
+
+  it('releases from the current level to 0 after gate-off', () => {
+    const k = new EnvKernel({ points: [[0.05, 1]], release: 0.1 })
+    const out = run(k, gate(sr, 0.3)) // gate off at 0.3s
+    expect(at(out, 0.2)).toBeCloseTo(1, 2) // sustaining at 1
+    expect(at(out, 0.3 + 0.1 + 0.02)).toBeCloseTo(0, 2) // fully released after ~release
+    expect(at(out, 0.35)).toBeGreaterThan(0) // mid-release, still ringing
+    expect(at(out, 0.35)).toBeLessThan(1)
+  })
+
+  it('loops the breakpoints while held instead of holding', () => {
+    // a 0->1->0 triangle looping every 0.2s
+    const k = new EnvKernel({ points: [[0.1, 1], [0.1, 0]], loop: true })
+    const out = run(k, gate(sr, 1))
+    // peaks recur ~0.1, 0.3, 0.5...; troughs ~0.2, 0.4...
+    expect(at(out, 0.1)).toBeGreaterThan(0.9)
+    expect(at(out, 0.2)).toBeLessThan(0.1)
+    expect(at(out, 0.3)).toBeGreaterThan(0.9)
+    expect(at(out, 0.4)).toBeLessThan(0.1)
+  })
+
+  it('curve > 0 bends a rising segment above its linear midpoint (fast-then-slow)', () => {
+    const lin = new EnvKernel({ points: [[0.2, 1]], curve: 0 })
+    const exp = new EnvKernel({ points: [[0.2, 1]], curve: 4 })
+    const half = 0.1 // halfway through a 0.2s attack
+    const l = at(run(lin, gate(sr, 1)), half)
+    const e = at(run(exp, gate(sr, 1)), half)
+    expect(l).toBeCloseTo(0.5, 1) // linear midpoint
+    expect(e).toBeGreaterThan(l + 0.1) // curved rises faster early
+  })
+
+  it('retriggers from the current level (no click) and reset() idles', () => {
+    const k = new EnvKernel({ points: [[0.1, 1]], release: 0.5 })
+    // gate on 0.05s (partway up), off, then on again quickly
+    const g = new Float32Array(sr)
+    g.fill(1, 0, Math.round(0.05 * sr))
+    g.fill(1, Math.round(0.1 * sr), Math.round(0.2 * sr))
+    const out = run(k, g)
+    for (let i = 0; i < out.length; i++) expect(Number.isFinite(out[i]!)).toBe(true)
+    k.reset()
+    const idle = run(k, new Float32Array(256))
+    for (let i = 0; i < idle.length; i++) expect(idle[i]).toBe(0)
+  })
+
+  it('rejects an empty breakpoint list at construction', () => {
+    expect(() => new EnvKernel({ points: [] })).toThrow()
   })
 })

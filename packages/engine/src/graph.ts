@@ -2,7 +2,7 @@ export type NodeType =
   | 'sine' | 'saw' | 'square' | 'tri' | 'pulse' | 'noise' | 'wavetable' | 'syncsaw' | 'fm'
   | 'sample' | 'granular'
   | 'svf' | 'ladder' | 'onepole'
-  | 'adsr' | 'lfo'
+  | 'adsr' | 'env' | 'lfo'
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'
   | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress'
   | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'

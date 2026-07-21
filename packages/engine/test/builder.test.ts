@@ -137,6 +137,21 @@ describe('builder: fm operator', () => {
   })
 })
 
+describe('builder: env (multi-segment)', () => {
+  it('compiles a breakpoint envelope and passes points + opts through config', () => {
+    const def = synth(({ note, gate, saw, env }) =>
+      saw(note.freq).mul(env(gate, [[0.005, 1], [0.2, 0.4]], { release: 0.3, curve: 3 })))
+    const e = findByType(def, 'env')
+    expect(e).toHaveLength(1)
+    expect(e[0]!.config).toEqual({ points: [[0.005, 1], [0.2, 0.4]], release: 0.3, curve: 3 })
+    expect(() => compileGraph(def.graph, ctx)).not.toThrow()
+  })
+
+  it('rejects an empty breakpoint list at definition time', () => {
+    expect(() => synth(({ note, gate, saw, env }) => saw(note.freq).mul(env(gate, [])))).toThrow()
+  })
+})
+
 describe('builder: wavetable oscillator', () => {
   it('wires freq/pos and passes the table name through config', () => {
     const def = synth(({ note, wavetable }) => wavetable(note.freq, 0.5, { table: 'harmonic' }))

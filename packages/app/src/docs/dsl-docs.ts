@@ -475,6 +475,12 @@ const SYNTH_CTX: DocEntry[] = [
     'adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })',
   ),
   sc(
+    'env',
+    'env(gate, points: [time, level][], opts?: { release?, curve?, loop? })',
+    'A multi-segment (breakpoint) envelope, the flexible cousin of adsr. points are [seconds, level] pairs: while the gate is held it ramps through them in order (each from the previous level), then holds the last level, or with loop repeats them like a function generator. Gate-off releases from the current level to 0 over release (def 0.1s). curve (def 0) shapes every segment: >0 fast-then-slow, <0 slow-then-fast. Levels are not clamped, so aim it at amplitude, pitch or any modulation.',
+    "env(gate, [[0.005, 1], [0.15, 0.4], [0.5, 0.6]], { release: 0.3, curve: 3 })",
+  ),
+  sc(
     'lfo',
     "lfo(freq, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand')",
     'A slow oscillator 0..1 for movement, wobble a filter, a pulse width, a pan. Shapes sine/tri/square/saw, plus rand: a sample-and-hold that jumps to a new random level each cycle and holds it, for stepped random modulation.',

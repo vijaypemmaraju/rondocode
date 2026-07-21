@@ -241,6 +241,20 @@ p('pad',
     .ctrl('cutoff', sine.range(300, 4500).slow(4)))
 setCps(0.4)`,
       ),
+      p("When adsr's four stages are not enough, env() takes a list of [seconds, level] breakpoints for any shape you like, and drives amplitude, pitch or a filter. Here a two-stage pluck envelope shapes the amp, while a second env bends the pitch down at the very start for a synthetic 'blip' attack."),
+      code(
+        'A breakpoint envelope for the amp, and a fast pitch blip on the attack.',
+        `const blip = synth(({ note, gate, env, saw, svf }) => {
+  // pitch: start an octave up, snap down to the note in 30ms
+  const pitch = note.freq.mul(env(gate, [[0.03, 1]], { release: 0.05 }).range(2, 1))
+  // amp: sharp attack, two-stage decay, then a tail (curve makes it natural)
+  const amp = env(gate, [[0.004, 1], [0.12, 0.5], [0.5, 0.2]], { release: 0.25, curve: 3 })
+  return svf(saw(pitch), 3500, { res: 0.3 }).mul(amp)
+})
+
+p('blips', note('c4 e4 g4 c5 g4 e4').sound('blip'))
+setCps(0.5)`,
+      ),
     ],
   },
   {

@@ -1,0 +1,9 @@
+{
+  "name": "@rondocode/pattern",
+  "license": "MIT",
+  "author": "Vijay Pemmaraju",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

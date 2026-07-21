@@ -1,0 +1,1240 @@
+/* Mobile-first dark shell for the live-coding instrument. Monospace, lowercase
+ * chrome; teal-green accent; every touch target >= 44px; text inputs 16px
+ * (below that iOS Safari zooms on focus). Single column: header / editor / viz
+ * panel / status strip, the editor taking every spare pixel and scrolling
+ * internally (the page itself never scrolls). Hover states are gated behind
+ * @media (hover: hover) so touch taps never stick.
+ *
+ * DESIGN TOKENS (below): one radius scale, one type scale, one spacing scale,
+ * one control height — used everywhere so the chrome reads as one system.
+ * Colors are var(--c-*), set on :root at boot from ui/palette.ts (the single
+ * source of truth — no color fallbacks here on purpose). */
+
+:root {
+  color-scheme: dark;
+
+  /* radius: controls/cards vs small inline chips (+ 50% for dots) */
+  --r: 10px;
+  --r-sm: 6px;
+
+  /* type scale (monospace chrome) */
+  --fs-meta: 12px; /* readouts, timestamps, labels */
+  --fs-ctrl: 13px; /* buttons, controls, messages */
+  --fs-title: 15px; /* wordmark, sheet + row titles */
+  --fs-input: 16px; /* text inputs — the iOS no-zoom floor */
+
+  /* spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+
+  /* the single touch-target height for every interactive control */
+  --h-ctrl: 44px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- header: the control bar — wordmark · project · [controls] --- */
+
+.topbar {
+  position: relative; /* anchors the .meter baseline */
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-right)) var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-left));
+  padding-top: calc(var(--sp-2) + env(safe-area-inset-top));
+  /* scope graticule: a faint measurement grid over the bezel (signature) */
+  background:
+    repeating-linear-gradient(90deg, var(--c-grid) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(0deg, var(--c-grid) 0 1px, transparent 1px 34px),
+    var(--c-bar);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.logo {
+  flex: none;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--c-accent);
+}
+
+/* right-side control cluster (sample · viz · cps · stop · run) */
+.hdr-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* "+ sample" loader button */
+.sample-btn {
+  white-space: nowrap;
+}
+
+/* Master output meter, reimagined as the header's living baseline: a thin
+ * line sitting on the bottom border that fills + glows with the output level. */
+.meter {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--c-accent), var(--c-accent-alt));
+  box-shadow:
+    0 0 6px var(--c-accent),
+    0 0 14px var(--c-accent-alt); /* phosphor bloom on the trace */
+  transition: width 0.08s linear;
+}
+
+/* Phones: keep the header to ONE row. The wordmark + cps readout drop, the
+ * sample button collapses to its "＋" icon, gaps tighten, and the project name
+ * ellipsizes into whatever space the controls leave. */
+@media (max-width: 560px) {
+  .topbar {
+    gap: var(--sp-1);
+  }
+  .logo {
+    display: none;
+  }
+  .cps-readout {
+    display: none;
+  }
+  .sample-btn .btn-label,
+  .synthlib-btn .btn-label {
+    display: none;
+  }
+  .synthlib-btn .synthlib-ico {
+    margin: 0;
+  }
+  .hdr-controls {
+    gap: var(--sp-1);
+    min-width: 0; /* let the cluster itself shrink if ever needed */
+  }
+  .project-btn {
+    flex: 0 1 auto;
+    min-width: 0; /* shrink + ellipsize before the controls do */
+  }
+}
+
+/* --- editor --- */
+
+.editor-host {
+  flex: 1;
+  min-height: 0; /* let the flex child shrink so CM can scroll internally */
+  /* the transport bar is gone — reserve the home-indicator inset here so code
+   * never hides under it when the viz panel is closed */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.editor-host .cm-editor {
+  height: 100%;
+}
+
+/* Event flash: a mini-notation atom lights up when its event fires and
+ * STAYS lit for the event's duration (the decoration is removed by the
+ * flasher when the note ends). The animation is just a quick attack into
+ * the steady lit state — --flash-ms (set in mountEditor from FLASH_MS)
+ * controls only that attack. */
+.cm-flash {
+  border-radius: var(--r-sm);
+  background-color: rgba(90, 190, 135, 0.55);
+  animation: cm-flash-attack var(--flash-ms, 150ms) ease-out;
+}
+
+@keyframes cm-flash-attack {
+  from {
+    background-color: rgba(120, 230, 180, 0.9);
+  }
+  to {
+    background-color: rgba(90, 190, 135, 0.55);
+  }
+}
+
+/* --- inline widgets: slider()/toggle()/pick()/xy() render as controls ---
+ *
+ * Widgets sit inside 24px editor lines, so their VISUAL height stays ~20px;
+ * the ::before pseudo-element inflates each hitbox toward the 44px touch
+ * target without moving layout. Tradeoff: the invisible hitbox overlaps a
+ * few px of the neighboring lines — taps very close above/below a widget
+ * hit the widget, which in practice is what a finger aiming at it wants. */
+
+.cm-w {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  vertical-align: middle;
+  height: 20px;
+  padding: 0 var(--sp-2);
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--c-text);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cm-w::before {
+  /* hitbox inflation: ~44px tall, slightly wider than the control */
+  content: '';
+  position: absolute;
+  inset: -12px -6px;
+}
+
+.cm-w-slider {
+  /* drag handlers live on the wrap (its ::before is the 44px hitbox), so
+   * the whole wrap owns the gesture — never scroll from it */
+  touch-action: none;
+}
+
+.cm-w-track {
+  position: relative;
+  width: 120px;
+  height: 6px;
+  background: var(--c-bar);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.cm-w-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--c-accent), var(--c-accent-alt));
+}
+
+.cm-w-readout {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-accent);
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-w-toggle {
+  min-width: 52px;
+  justify-content: center;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--c-dim);
+}
+
+.cm-w-toggle.on {
+  color: var(--c-accent);
+  background: var(--c-green-deep);
+  border-color: var(--c-green);
+}
+
+.cm-w-pick {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--c-accent);
+  white-space: nowrap;
+}
+
+.cm-w-xy {
+  width: 26px;
+  justify-content: center;
+  touch-action: none;
+}
+
+.cm-w-xy-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.cm-w-xy-pad {
+  position: fixed;
+  z-index: 30;
+  background: var(--c-bar);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  touch-action: none;
+}
+
+.cm-w-xy-pad .cm-w-xy-dot {
+  width: 13px;
+  height: 13px;
+}
+
+/* --- scrubbable numeric literals ---
+ * Always-on faint dotted underline (not modifier-gated): phones have no
+ * modifier key, and a permanent hint is how the gesture gets discovered.
+ * Kept dim on purpose so code stays readable. */
+
+.cm-scrub {
+  text-decoration: underline dotted var(--c-faint) 1px;
+  text-underline-offset: 3px;
+}
+
+.cm-scrubbing {
+  cursor: ew-resize;
+}
+
+/* go-to-definition: while Cmd/Ctrl is held, the resolvable symbol under the
+ * pointer reads as a link (see editor/gotodef.ts). */
+.cm-gotodef-link {
+  text-decoration: underline;
+  text-decoration-color: var(--c-accent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* note/chord hovercard: a mini piano keyboard (editor/notehover.ts) */
+.cm-note-card {
+  padding: 6px 9px;
+}
+.cm-note-card-head {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-accent);
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cm-note-card-kb {
+  line-height: 0;
+}
+.cm-note-card-kb svg {
+  display: block;
+}
+
+/* --- per-synth inline meters (editor/meters.ts) ---
+ * A tiny level bar at the end of each `const X = synth(...)` line. The
+ * track is near-invisible against the editor background when silent; the
+ * fill width is mutated directly by the meters rAF loop. */
+
+.cm-meter {
+  display: inline-block;
+  width: 40px;
+  height: 10px;
+  margin-left: 10px;
+  vertical-align: middle;
+  background: var(--c-raised);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cm-meter-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--c-accent), var(--c-accent-alt));
+}
+
+.cm-scrubbing .cm-content {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* --- viz panel: scope/spectrum canvases + mixer strip --- */
+
+.viz-toggle {
+  padding: 0 var(--sp-3);
+  color: var(--c-dim);
+}
+
+.viz-toggle.active {
+  color: var(--c-accent);
+  border-color: var(--c-green);
+}
+
+.viz-panel {
+  flex: none;
+  padding: var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-right)) calc(var(--sp-2) + env(safe-area-inset-bottom))
+    calc(var(--sp-3) + env(safe-area-inset-left));
+  background:
+    repeating-linear-gradient(90deg, var(--c-grid) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(0deg, var(--c-grid) 0 1px, transparent 1px 34px),
+    var(--c-bar);
+  border-top: 1px solid var(--c-border);
+}
+
+.viz-panel.closed {
+  display: none;
+}
+
+.viz-canvases {
+  display: flex;
+  gap: var(--sp-2);
+  height: 56px; /* + panel padding ≈ the 72px strip */
+}
+
+.viz-canvases canvas {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--c-bg);
+  border: 1px solid var(--c-raised);
+  border-radius: var(--r-sm);
+}
+
+/* Narrow viewports get ONE canvas: the spectrum canvas hides and viz.ts
+ * draws dim spectrum bars behind the scope line instead. */
+@media (max-width: 599px) {
+  .viz-spectrum {
+    display: none;
+  }
+}
+
+.mixer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl); /* touch target row */
+  margin-top: 4px;
+}
+
+.mixer-name {
+  flex: none;
+  width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+}
+
+.mixer-meter {
+  flex: none;
+  width: 64px;
+  height: 8px;
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.mixer-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--c-accent), var(--c-accent-alt));
+}
+
+.mixer-row input[type='range'] {
+  min-height: var(--h-ctrl); /* touch target */
+  margin: 0;
+  background: transparent;
+  accent-color: var(--c-accent);
+}
+
+.mixer-gain {
+  flex: 1;
+  min-width: 0;
+}
+
+.mixer-pan {
+  flex: none;
+  width: 72px;
+}
+
+/* --- runtime-error strip (scheduler/engine diagnostics) --- */
+
+.status-strip {
+  flex: none;
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: var(--sp-1) calc(var(--sp-3) + env(safe-area-inset-right)) var(--sp-1) calc(var(--sp-3) + env(safe-area-inset-left));
+  background: var(--c-error-bg);
+  border-top: 1px solid var(--c-error-border);
+  font-size: var(--fs-meta);
+  color: var(--c-error);
+}
+
+.status-line {
+  padding: var(--sp-1) 0;
+  word-break: break-word;
+}
+
+/* --- header controls: buttons (run/stop/sample/viz/project) --- */
+
+.btn {
+  min-height: var(--h-ctrl); /* touch target */
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+  cursor: pointer;
+  transition:
+    filter 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease,
+    transform 0.05s ease;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* uniform interaction states across every control (hover only where a real
+ * pointer exists, so touch taps never stick) */
+@media (hover: hover) {
+  .btn:hover {
+    filter: brightness(1.18);
+    border-color: var(--c-dim);
+  }
+}
+
+.btn:active {
+  filter: brightness(0.86);
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Run/Update: the primary action. */
+.run {
+  position: relative; /* anchors the dirty dot */
+  min-width: 78px;
+  font-weight: 600;
+  color: #d7fff0;
+  background: var(--c-green-deep);
+  border-color: var(--c-green);
+}
+
+.run.playing {
+  background: var(--c-green);
+  border-color: var(--c-accent);
+  color: #eafff6;
+}
+
+/* Tactile feedback: a quick brighten on every Run/Update (click or Mod-Enter).
+ * Only the `from` frame is set, so it animates back to whatever the button's
+ * resting style is (run vs playing). */
+.run.run-flash {
+  animation: run-flash 220ms ease-out;
+}
+
+@keyframes run-flash {
+  from {
+    background: var(--c-accent);
+    border-color: var(--c-accent);
+    color: #04120c;
+  }
+}
+
+/* Stop: quiet, icon-only; a red tint only on press. */
+.stop-btn {
+  min-width: var(--h-ctrl);
+  padding: 0 var(--sp-3);
+  color: var(--c-dim);
+}
+
+.stop-btn:active {
+  color: var(--c-error);
+  border-color: var(--c-error-border);
+}
+
+/* Dirty indicator: doc differs from the last run — a dot on the Run button. */
+.dirty-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-warn);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.dirty-dot.visible {
+  opacity: 1;
+}
+
+.cps-readout {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --- boot error (audio graph failed to build) --- */
+
+.boot-error {
+  margin: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--c-error);
+  font-size: var(--fs-ctrl);
+  background: var(--c-error-bg);
+  border: 1px solid var(--c-error-border);
+  border-radius: var(--r);
+}
+
+/* --- library: project switcher + history sheet --- */
+
+.project-btn {
+  flex: none;
+  min-height: var(--h-ctrl);
+  min-width: 0;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40; /* above viz toggle (30) and editor */
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: flex-end;
+  transition: opacity 0.2s ease;
+}
+
+.sheet-backdrop.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sheet {
+  width: min(420px, 92vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  overflow-y: auto;
+  padding: calc(var(--sp-4) + env(safe-area-inset-top)) calc(var(--sp-4) + env(safe-area-inset-right))
+    calc(var(--sp-4) + env(safe-area-inset-bottom)) var(--sp-4);
+  background: var(--c-bar);
+  border-left: 1px solid var(--c-raised);
+  transform: translateX(0);
+  transition: transform 0.22s ease;
+}
+
+.sheet-backdrop.hidden .sheet {
+  transform: translateX(100%);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sheet-title {
+  margin: 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--c-accent);
+}
+
+.sheet-close {
+  min-width: var(--h-ctrl);
+  min-height: var(--h-ctrl);
+  font-size: var(--fs-input);
+  color: var(--c-dim);
+  background: transparent;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+}
+
+.lib-active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.lib-name {
+  min-height: var(--h-ctrl);
+  font: inherit;
+  font-size: var(--fs-input);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+}
+
+.lib-actions,
+.lib-new {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.lib-mini {
+  min-height: var(--h-ctrl);
+  flex: 1;
+  font: inherit;
+  font-size: var(--fs-ctrl);
+  white-space: nowrap;
+  color: var(--c-text);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+}
+
+.lib-danger:active,
+.lib-danger {
+  color: var(--c-error);
+}
+
+.lib-example {
+  flex: 1;
+  min-height: var(--h-ctrl);
+  font: inherit;
+  font-size: var(--fs-input);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+}
+
+.lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.lib-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl);
+  text-align: left;
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+}
+
+.lib-row.active {
+  border-color: var(--c-green);
+  background: var(--c-green-deep);
+}
+
+.lib-row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-title);
+}
+
+.lib-row-time {
+  flex: none;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.lib-hist-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  border-top: 1px solid var(--c-raised);
+  padding-top: var(--sp-3);
+}
+
+.lib-hist-head .lib-mini {
+  flex: none;
+}
+
+.lib-snap-name {
+  flex: 1;
+  min-width: 120px;
+  min-height: var(--h-ctrl);
+  font: inherit;
+  font-size: var(--fs-input); /* no iOS focus-zoom */
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  padding: 0 var(--sp-3);
+}
+
+.lib-subtitle {
+  margin: 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--c-dim);
+}
+
+.lib-hist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.lib-empty {
+  font-size: var(--fs-ctrl);
+  color: var(--c-faint);
+  padding: var(--sp-2) var(--sp-1);
+}
+
+.lib-vrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl);
+  text-align: left;
+  font: inherit;
+  color: var(--c-text);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 0 var(--sp-2);
+}
+
+.lib-vrow:active {
+  background: var(--c-surface);
+}
+
+.lib-vdot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-faint);
+}
+
+.lib-vdot.latest {
+  background: var(--c-accent);
+}
+
+.lib-vmeta {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.lib-vtime {
+  font-size: var(--fs-ctrl);
+  font-variant-numeric: tabular-nums;
+}
+
+.lib-vlabel {
+  font-size: var(--fs-meta);
+  color: var(--c-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-vaction {
+  flex: none;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+
+/* --- sheet controls: same interaction feel as the header buttons --- */
+
+.sheet-close,
+.lib-mini,
+.lib-example,
+.lib-row,
+.lib-vrow {
+  cursor: pointer;
+  transition:
+    filter 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease,
+    transform 0.05s ease;
+}
+
+@media (hover: hover) {
+  .sheet-close:hover,
+  .lib-mini:hover,
+  .lib-example:hover,
+  .lib-row:hover {
+    filter: brightness(1.15);
+    border-color: var(--c-dim);
+  }
+  .lib-vrow:hover {
+    background: var(--c-surface);
+  }
+}
+
+.sheet-close:active,
+.lib-mini:active,
+.lib-example:active,
+.lib-row:active {
+  filter: brightness(0.87);
+  transform: translateY(1px);
+}
+
+.sheet-close:focus-visible,
+.lib-mini:focus-visible,
+.lib-example:focus-visible,
+.lib-row:focus-visible,
+.lib-vrow:focus-visible,
+.lib-name:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Respect reduced-motion: keep the UI legible, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* --- DSL reference panel (editor/docspanel.ts) --- */
+
+.docs-search {
+  flex: none;
+}
+
+.docs-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.docs-group {
+  margin-top: var(--sp-3);
+}
+
+.docs-entry {
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--c-raised);
+}
+
+.docs-signature {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-accent);
+  word-break: break-word;
+}
+
+.docs-summary {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+.docs-example {
+  display: block;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-faint);
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* link from the ? reference panel out to the full standalone docs page */
+.docs-full-link {
+  margin-left: auto;
+  margin-right: var(--sp-3);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.docs-full-link:hover {
+  color: var(--c-accent);
+}
+
+/* --- synth library panel (editor/synthlib.ts) --- */
+
+.synthlib-btn .synthlib-ico {
+  font-size: 16px;
+  line-height: 1;
+}
+.synthlib-btn .btn-label {
+  margin-left: 6px;
+}
+
+.sheet-hint {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+
+.synthlib-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.synthlib-row {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--c-surface);
+}
+
+.synthlib-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-bar);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.synthlib-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.synthlib-name {
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+}
+.synthlib-tags {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-faint);
+}
+
+.synthlib-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+/* audition ▶ / ⏹ toggle — shared visual language with the docs page */
+.play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: var(--h-ctrl);
+  padding: 0 var(--sp-2);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-accent);
+  background: var(--c-green-deep);
+  border: 1px solid var(--c-green);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.synthlib-insert {
+  min-height: var(--h-ctrl);
+}
+@media (hover: hover) {
+  .play-btn:hover {
+    background: var(--c-green);
+    color: var(--c-text);
+  }
+}
+.play-btn.playing {
+  background: var(--c-accent);
+  color: var(--c-bg);
+  border-color: var(--c-accent);
+}
+
+.synthlib-code {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  overflow-x: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  line-height: 1.55;
+  color: var(--c-text);
+  tab-size: 2;
+}
+
+/* --- programmable WebGPU visualizer (shaderviz/shaderviz.ts) --- */
+
+.shaderviz-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0; /* behind #app content, which sits above */
+  display: none;
+  pointer-events: none; /* never intercept editor interaction */
+}
+.shaderviz-canvas.visible {
+  display: block;
+}
+
+/* when visuals are on, let them show THROUGH the code area: the editor and
+ * its chrome go transparent so the phosphor text floats over the shader */
+body.shaderviz-on #app {
+  background: transparent;
+}
+body.shaderviz-on .editor-host,
+body.shaderviz-on .cm-editor,
+body.shaderviz-on .cm-scroller,
+body.shaderviz-on .cm-gutters {
+  background: transparent !important;
+}
+body.shaderviz-on .topbar {
+  background: color-mix(in srgb, var(--c-bar) 62%, transparent);
+  backdrop-filter: blur(6px);
+}
+body.shaderviz-on .cm-content {
+  /* keep code legible over bright visuals */
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.shaderviz-btn.active {
+  background: var(--c-accent);
+  color: var(--c-bg);
+  border-color: var(--c-accent);
+}
+
+.shaderviz-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: 90vw;
+  padding: var(--sp-2) var(--sp-3);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-error);
+  background: var(--c-error-bg);
+  border: 1px solid var(--c-error-border);
+  border-radius: var(--r-sm);
+  white-space: pre-wrap;
+}
+.shaderviz-toast.hidden {
+  display: none;
+}
+
+/* --- inline WGSL highlighting inside visual(`…`) (editor/wgsl.ts) ---
+ * These per-token marks are Prec.highest, so they nest inside the JS grammar's
+ * whole-string coloring and their color wins. */
+.cm-editor .wgsl-com {
+  color: var(--c-faint);
+  font-style: italic;
+}
+.cm-editor .wgsl-kw {
+  color: #a7f3d0;
+}
+.cm-editor .wgsl-type {
+  color: var(--c-accent-alt);
+}
+.cm-editor .wgsl-fn {
+  color: var(--c-accent);
+}
+.cm-editor .wgsl-num {
+  color: var(--c-warn);
+}
+.cm-editor .wgsl-attr {
+  color: #f7a8ff;
+}
+/* the rondocode audio API (level, spectrum, beat…) — magenta so it pops */
+.cm-editor .wgsl-api {
+  color: #f7a8ff;
+  font-weight: 600;
+}
+.cm-editor .wgsl-punct {
+  color: var(--c-dim);
+}
+.cm-editor .wgsl-id {
+  color: var(--c-text);
+}
+
+/* --- icon buttons (ui/icons.ts) --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.ico {
+  display: block;
+  flex: none;
+}
+.sheet-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The secondary header controls are an icon toolbar — their icons + title
+ * tooltips name them, so no text labels (keeps the cluster compact at every
+ * width). Only Run carries a word, and it drops to an icon on phones. */
+.hdr-controls .btn-label {
+  display: none;
+}
+.run .btn-label {
+  display: inline;
+}
+@media (max-width: 560px) {
+  .run .btn-label {
+    display: none;
+  }
+  .hdr-controls .btn {
+    padding: 0 var(--sp-2);
+    gap: 0;
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rondocode": {
+      "command": "pnpm",
+      "args": ["--filter", "@rondocode/server", "exec", "tsx", "src/mcp-stdio.ts"]
+    }
+  }
+}

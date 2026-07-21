@@ -1,0 +1,425 @@
+/* Standalone docs page. Oscilloscope-Lab palette (var(--c-*) set at runtime by
+ * applyPalette()). Unlike the editor shell (style.css) this page SCROLLS, so it
+ * does not share that stylesheet — the tokens below mirror it deliberately. */
+
+:root {
+  color-scheme: dark;
+  --fs-meta: 12px;
+  --fs-ctrl: 13px;
+  --fs-body: 15px;
+  --fs-title: 15px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --r: 10px;
+  --r-sm: 6px;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --content: 760px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 72px; /* clears the sticky header on anchor jumps */
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+a {
+  color: var(--c-accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* --- sticky header --- */
+
+.doc-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background:
+    repeating-linear-gradient(90deg, var(--c-grid) 0 1px, transparent 1px 34px),
+    repeating-linear-gradient(0deg, var(--c-grid) 0 1px, transparent 1px 34px),
+    color-mix(in srgb, var(--c-bar) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.doc-top .brand {
+  font-family: var(--mono);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  color: var(--c-accent);
+}
+.doc-top .brand:hover {
+  text-decoration: none;
+}
+.doc-top .spacer {
+  flex: 1;
+}
+.doc-top .cta {
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-green);
+  border-radius: var(--r-sm);
+  background: var(--c-green-deep);
+  color: var(--c-accent);
+}
+.doc-top .cta:hover {
+  text-decoration: none;
+  background: var(--c-green);
+  color: var(--c-text);
+}
+
+/* --- layout: sticky TOC + content --- */
+
+.doc-wrap {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4) 25vh;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--sp-8);
+}
+
+.doc-nav {
+  position: sticky;
+  top: 80px;
+  align-self: start;
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+.doc-nav a {
+  display: block;
+  padding: 5px 0;
+  color: var(--c-dim);
+  border-left: 2px solid transparent;
+  padding-left: var(--sp-3);
+}
+.doc-nav a:hover {
+  color: var(--c-text);
+  text-decoration: none;
+}
+.doc-nav a.on {
+  color: var(--c-accent);
+  border-left-color: var(--c-accent);
+}
+.doc-nav .nav-group {
+  margin-top: var(--sp-4);
+  color: var(--c-faint);
+  font-size: var(--fs-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-left: var(--sp-3);
+}
+
+.doc-main {
+  min-width: 0;
+  max-width: var(--content);
+}
+
+/* --- hero --- */
+
+.doc-hero {
+  padding-bottom: var(--sp-6);
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: var(--sp-6);
+}
+.doc-hero h1 {
+  font-family: var(--mono);
+  font-size: clamp(32px, 7vw, 52px);
+  font-weight: 700;
+  margin: 0 0 var(--sp-2);
+  color: var(--c-accent);
+  letter-spacing: -0.01em;
+}
+.doc-hero .tagline {
+  font-size: clamp(17px, 3.5vw, 22px);
+  color: var(--c-text);
+  margin: 0 0 var(--sp-4);
+  line-height: 1.4;
+}
+.doc-hero .blurb {
+  color: var(--c-dim);
+  max-width: 62ch;
+}
+
+/* --- sections --- */
+
+.doc-section {
+  margin-top: var(--sp-8);
+}
+.doc-section > h2 {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 var(--sp-3);
+  scroll-margin-top: 72px;
+}
+.doc-section > h2::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--sp-2);
+  border-radius: 2px;
+  background: var(--c-accent);
+  box-shadow: 0 0 8px var(--c-accent);
+  vertical-align: middle;
+}
+.doc-section p {
+  color: var(--c-dim);
+  margin: 0 0 var(--sp-4);
+  max-width: 64ch;
+}
+.doc-section p code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--c-accent);
+  background: var(--c-surface);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* --- code block card --- */
+
+.doc-code {
+  margin: 0 0 var(--sp-6);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--c-surface);
+}
+.doc-code-cap {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bar);
+}
+.doc-code-body {
+  position: relative;
+}
+.doc-code pre {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  line-height: 1.6;
+  color: var(--c-text);
+  tab-size: 2;
+}
+.doc-code-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--c-border);
+  background: var(--c-bar);
+}
+.play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  min-height: 34px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-green);
+  border-radius: var(--r-sm);
+  background: var(--c-green-deep);
+  color: var(--c-accent);
+  cursor: pointer;
+}
+.play-btn:hover {
+  background: var(--c-green);
+  color: var(--c-text);
+}
+.play-btn.playing {
+  background: var(--c-accent);
+  color: var(--c-bg);
+  border-color: var(--c-accent);
+}
+.edit-link {
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+}
+.edit-link:hover {
+  color: var(--c-accent);
+}
+.doc-code-err {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  color: var(--c-error);
+  text-align: right;
+}
+
+/* syntax highlight tokens */
+.tok-com {
+  color: var(--c-faint);
+  font-style: italic;
+}
+.tok-str {
+  color: var(--c-accent-alt);
+}
+.tok-num {
+  color: var(--c-warn);
+}
+.tok-kw {
+  color: var(--c-accent);
+}
+
+/* --- reference --- */
+
+.doc-ref {
+  margin-top: var(--sp-8);
+}
+.doc-ref-search {
+  width: 100%;
+  min-height: 44px;
+  font-family: var(--mono);
+  font-size: 16px;
+  padding: 0 var(--sp-3);
+  margin-bottom: var(--sp-4);
+  background: var(--c-surface);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}
+.doc-ref-search:focus {
+  outline: none;
+  border-color: var(--c-accent);
+}
+.ref-group {
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--c-faint);
+  margin: var(--sp-6) 0 var(--sp-2);
+}
+.ref-entry {
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--c-raised);
+}
+.ref-sig {
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  color: var(--c-accent);
+  word-break: break-word;
+}
+.ref-sum {
+  color: var(--c-dim);
+  font-size: var(--fs-meta);
+  margin-top: 3px;
+}
+.ref-ex {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  color: var(--c-faint);
+  margin-top: 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- mobile: TOC collapses above content --- */
+
+@media (max-width: 720px) {
+  .doc-wrap {
+    grid-template-columns: 1fr;
+    gap: var(--sp-4);
+  }
+  .doc-nav {
+    position: static;
+    max-height: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-2);
+    padding-bottom: var(--sp-3);
+    border-bottom: 1px solid var(--c-border);
+  }
+  .doc-nav a {
+    border-left: none;
+    padding: 3px var(--sp-2);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-sm);
+  }
+  .doc-nav a.on {
+    border-color: var(--c-accent);
+  }
+  .doc-nav .nav-group {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* --- full editors in the guide (docs/doceditor.ts) --- */
+
+.doc-code-body .cm-editor {
+  background: var(--c-bg);
+  font-size: 14px;
+}
+.doc-code-body .cm-editor.cm-focused {
+  outline: none;
+}
+.doc-code-body .cm-scroller {
+  font-family: var(--mono);
+  line-height: 1.6;
+}
+.doc-code-body .cm-content {
+  padding: var(--sp-3) 0;
+}
+
+/* flash decoration: mirrors style.css so the docs editors light atoms too.
+ * --flash-ms is set on :root by docs.ts. */
+.cm-flash {
+  border-radius: var(--r-sm);
+  background-color: rgba(90, 190, 135, 0.55);
+  animation: cm-flash-attack var(--flash-ms, 150ms) ease-out;
+}
+@keyframes cm-flash-attack {
+  from {
+    background-color: rgba(120, 230, 180, 0.9);
+  }
+  to {
+    background-color: rgba(90, 190, 135, 0.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-flash {
+    animation: none;
+  }
+}

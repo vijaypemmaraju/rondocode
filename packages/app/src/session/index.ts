@@ -1,0 +1,5 @@
+export { Session } from './Session'
+export type { AudioSessionLike, SessionOpts, SessionState } from './Session'
+export { evalCode, clampCps } from './evalCode'
+export type { Diagnostic, EvalResult } from './evalCode'
+export { baseScope } from './scope'

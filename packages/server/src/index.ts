@@ -1,0 +1,8 @@
+export { Bridge, SUPERSEDED } from './bridge'
+export type { BridgeOpts, NotifyKind } from './bridge'
+export { createMcpServer, NO_SESSION } from './mcp'
+export type { McpServerOpts } from './mcp'
+export { registerRenderTools } from './render-tools'
+export type { RenderDirs } from './render-tools'
+export { stageCode, runPatterns, renderMix, GATE_GAP_SEC } from './render-runner'
+export { codeSpan, dslReferenceMarkdown, examplesMarkdown } from './docs-gen'

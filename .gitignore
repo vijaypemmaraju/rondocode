@@ -1,0 +1,8 @@
+node_modules
+dist
+renders/
+.DS_Store
+
+# secrets
+.env
+.env.*

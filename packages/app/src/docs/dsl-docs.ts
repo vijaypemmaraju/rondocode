@@ -433,8 +433,8 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'fm',
     'fm(freq: Sig | number, mod?: Sig | number, opts?: { feedback?: Sig | number })',
-    'FM / phase-modulation operator: a sine at freq whose phase is bent by mod (another operator, its amplitude is the modulation index in cycles) plus self-feedback (0..~1). The FM building block, chain operators as each other mod for DX-style bells, e-pianos and metallic basses; raise feedback for a self-modulating operator that grows toward a saw. Shape it with an ADSR like any oscillator.',
-    'fm(note.freq, fm(note.freq.mul(2)).mul(adsr(gate, { d: 0.4, s: 0 }).mul(4))).mul(adsr(gate))',
+    'FM / phase-modulation operator: a sine at freq whose phase is bent by mod (another operator, its amplitude is the modulation index in cycles) plus self-feedback (0..~1). The FM building block, chain operators as each other mod for DX-style bells, e-pianos and metallic basses; raise feedback for a self-modulating operator that grows toward a saw. Keep the index modest (1 to 3) for a warm tone; big indexes and heavy feedback turn harsh. Shape it with an ADSR like any oscillator.',
+    'fm(note.freq, fm(note.freq.mul(3)).mul(adsr(gate, { d: 0.4, s: 0 }).mul(2))).mul(adsr(gate))',
   ),
   sc(
     'wavetable',

@@ -107,24 +107,26 @@ p('bass', note('c2 c2 g2 c2 eb2 c2 g1 c2').sound('acid'))`,
     id: 'fm',
     title: 'FM synthesis',
     blocks: [
-      p("fm() is a phase-modulation operator: a sine whose pitch is bent by another signal. Feed one fm() as the mod of another and its amplitude becomes the modulation index, more index means more sidebands and a brighter, more metallic tone. A non-whole frequency ratio makes those sidebands inharmonic, which is where bells and mallets come from. Because the modulator's amplitude is the index, an envelope on the modulator sweeps the timbre over the note."),
-      p('This is a classic FM bell: a 1.4 ratio modulator with a long-decaying index gives a bright metallic strike that settles to a pure sine tail.'),
+      p("fm() is a phase-modulation operator: a sine whose pitch is bent by another signal. Feed one fm() as the mod of another and its amplitude becomes the modulation index, more index means more sidebands and a brighter tone. A whole-number ratio keeps the sidebands harmonic (musical); a non-whole ratio makes them inharmonic (bells and mallets). Because the modulator's amplitude is the index, an envelope on the modulator sweeps the timbre, and keeping the index modest (1 to 3) keeps the sound warm rather than harsh."),
+      p('This is a warm FM electric piano: a 3:1 ratio whose index decays quickly, so each note has a soft bark that settles to a near-sine body, plus a gentle bell on top.'),
       code(
-        'An FM bell, then an operator feeding back on itself for a reedy tone.',
-        `const bell = synth(({ note, gate, adsr, fm }) => {
-  // modulator at a 1.4 ratio, its index decays from 6 to 0 over the note
-  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.6, s: 0, r: 0.6 }).mul(6))
-  return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 2, s: 0, r: 0.8 }))
+        'A mellow FM e-piano, with a soft inharmonic bell above it.',
+        `const ep = synth(({ note, gate, adsr, fm }) => {
+  // modulator at 3:1; its index decays fast from 2 -> 0 (the tine bark)
+  const mod = fm(note.freq.mul(3)).mul(adsr(gate, { a: 0.001, d: 0.4, s: 0, r: 0.2 }).mul(2))
+  return fm(note.freq, mod, { feedback: 0.05 }).mul(adsr(gate, { a: 0.002, d: 1.2, s: 0.2, r: 0.4 })).mul(0.5)
 })
-const reed = synth(({ note, gate, adsr, fm }) =>
-  // feedback grows a single operator toward a saw, a buzzy reed
-  fm(note.freq, undefined, { feedback: 0.7 }).mul(adsr(gate, { a: 0.02, d: 0.3, s: 0.6, r: 0.3 })))
+const bell = synth(({ note, gate, adsr, fm }) => {
+  // 1.4 ratio is inharmonic; a LOW index (2.2) keeps the ring soft, not clangy
+  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.2, s: 0, r: 0.5 }).mul(2.2))
+  return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 1.6, s: 0, r: 0.6 })).mul(0.35)
+})
 
-p('bells', note('<c5 e5 g5 b5>').sound('bell'))
-p('reed', note('c3 ~ eb3 ~').sound('reed').gain(0.5))
+p('keys', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('ep').dur(0.95))
+p('bell', note('<c6 ~ g5 ~>').sound('bell').gain(0.5))
 setCps(0.4)`,
       ),
-      p("A few starting recipes (all carrier + one modulator): a BELL is a ~1.4 ratio with a long index decay; an E-PIANO is a 3:1 ratio with a fast index decay and a little feedback; an FM BASS is 1:1 with a quick index decay; BRASS is 1:1 with a slow index swell so the tone grows in. The built-in 'fm presets' example wires all four up to play with."),
+      p("A few starting recipes (all carrier + one modulator): a warm E-PIANO is a 3:1 ratio with a fast index decay and a whisper of feedback; a BELL is a ~1.4 ratio kept at a low index (2 to 3) so it rings rather than clangs; an FM BASS is 1:1 with a quick index decay; BRASS is 1:1 with a slow index swell so the tone grows in. Big indexes (5+) and heavy feedback are where FM turns harsh, reach for them deliberately. The built-in 'fm presets' example wires these up to play with."),
     ],
   },
   {

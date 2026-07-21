@@ -142,11 +142,12 @@ body {
   }
   .hdr-controls {
     gap: var(--sp-1);
-    min-width: 0; /* let the cluster itself shrink if ever needed */
+    flex: none; /* controls keep their size; the name absorbs the squeeze */
   }
   .project-btn {
-    flex: 0 1 auto;
-    min-width: 0; /* shrink + ellipsize before the controls do */
+    flex: 1 1 0; /* take only the leftover row width, then ellipsize the name */
+    min-width: 0;
+    max-width: none; /* drop the 42vw cap so it can't push controls off-screen */
   }
 }
 

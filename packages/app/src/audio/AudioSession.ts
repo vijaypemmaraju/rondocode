@@ -158,6 +158,80 @@ export class AudioSession {
     this._preview = src
   }
 
+  // ---- live session recording (a PCM tap off the worklet output) ----
+  private recNode: ScriptProcessorNode | null = null
+  private recSink: GainNode | null = null
+  private recL: Float32Array[] = []
+  private recR: Float32Array[] = []
+  private recStartSec = 0
+
+  /** True while a live session recording is in progress. */
+  get isRecording(): boolean {
+    return this.recNode !== null
+  }
+
+  /** Seconds captured so far (0 when not recording). */
+  get recordingSeconds(): number {
+    return this.recNode ? this.context.currentTime - this.recStartSec : 0
+  }
+
+  /** Start capturing the live output to memory. A ScriptProcessor taps the
+   *  worklet (in parallel with the main output) and accumulates stereo PCM;
+   *  the sink is silent so this adds no audible path. */
+  startRecording(): void {
+    if (this.recNode) return
+    const ctx = this.context
+    const sp = ctx.createScriptProcessor(4096, 2, 2)
+    this.recL = []
+    this.recR = []
+    sp.onaudioprocess = (e: AudioProcessingEvent): void => {
+      const buf = e.inputBuffer
+      const l = buf.getChannelData(0)
+      const r = buf.numberOfChannels > 1 ? buf.getChannelData(1) : l
+      this.recL.push(new Float32Array(l))
+      this.recR.push(new Float32Array(r))
+    }
+    const sink = ctx.createGain()
+    sink.gain.value = 0
+    this.node.connect(sp)
+    sp.connect(sink)
+    sink.connect(ctx.destination)
+    this.recNode = sp
+    this.recSink = sink
+    this.recStartSec = ctx.currentTime
+    void ctx.resume()
+  }
+
+  /** Stop recording and return the captured stereo PCM (null if not recording). */
+  stopRecording(): { left: Float32Array; right: Float32Array; sampleRate: number } | null {
+    const sp = this.recNode
+    if (!sp) return null
+    sp.onaudioprocess = null
+    try {
+      this.node.disconnect(sp) // remove only the tap; the main path stays
+    } catch {
+      /* already gone */
+    }
+    sp.disconnect()
+    this.recSink?.disconnect()
+    this.recNode = null
+    this.recSink = null
+    const merge = (chunks: Float32Array[]): Float32Array => {
+      const n = chunks.reduce((a, c) => a + c.length, 0)
+      const out = new Float32Array(n)
+      let o = 0
+      for (const c of chunks) {
+        out.set(c, o)
+        o += c.length
+      }
+      return out
+    }
+    const res = { left: merge(this.recL), right: merge(this.recR), sampleRate: this.context.sampleRate }
+    this.recL = []
+    this.recR = []
+    return res
+  }
+
   /** Stop the current preview, if any. */
   stopPreview(): void {
     if (!this._preview) return

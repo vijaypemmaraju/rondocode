@@ -59,14 +59,33 @@ p('melody', note('c4 e4 g4 e4').sound('pluck'))`,
 
 p('seq', note('c4 [e4 g4] <b4 a4> c5*2').sound('pluck'))`,
       ),
-      p('Write a Euclidean rhythm in the string with (pulses, steps). It spreads the pulses as evenly as it can across the steps. (3,8) is the tresillo.'),
+      p("Rests and lengths shape the rhythm without changing the tempo: `~` is a silent step, `_` holds the previous note for another step, `@n` gives a step n steps' worth of time, and `!n` repeats a step n times."),
       code(
-        'A Euclidean rhythm in the pattern string.',
+        '~ rest, _ hold, @n weight, !n repeat.',
         `const pluck = synth(({ note, gate, adsr, tri }) =>
   tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.15, s: 0, r: 0.1 })))
 
-p('seq', note('c4(3,8)').sound('pluck'))`,
+// "c4 held for 2, rest, a chord, then 3 quick c5s"
+p('seq', note('c4@2 ~ [e4,g4,b4] c5!3').sound('pluck'))`,
       ),
+      p("Speed changes and randomness keep a loop alive: `*n` fits n repeats INTO a step, `/n` stretches a step over n cycles, `?` drops a step at random, and `a | b` picks one alternative each cycle. All randomness is seeded per cycle, so a loop is different bar to bar but identical every time you replay it."),
+      code(
+        '*n / /n speed, ? maybe, | random choice.',
+        `const pluck = synth(({ note, gate, adsr, tri }) =>
+  tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.12, s: 0, r: 0.1 })))
+
+p('seq', note('c4*2 e4? <g4 a4>/2 [c5 b4 | e5 d5]').scale('c major').sound('pluck'))`,
+      ),
+      p("Write a Euclidean rhythm inline with (pulses, steps): it spreads the pulses as evenly as it can, so (3,8) is the tresillo. And `{a b c, d e}%n` is polymeter, several voices running at n steps per cycle so they drift against each other."),
+      code(
+        'Euclid (p,s) and polymeter {…}%n.',
+        `const pluck = synth(({ note, gate, adsr, tri }) =>
+  tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.15, s: 0, r: 0.1 })))
+
+p('euclid', note('c4(3,8)').sound('pluck'))
+p('poly', note('{c3 e3 g3, c4 b3}%4').sound('pluck').gain(0.5))`,
+      ),
+      p('The API reference panel (search or scroll to Mini-notation) lists every operator with a one-line description, `*` `/` `!` `@` `~` `_` `[]` `<>` `{}` `?` `|` and the euclid form, in one place.'),
     ],
   },
   {
@@ -75,12 +94,14 @@ p('seq', note('c4(3,8)').sound('pluck'))`,
     blocks: [
       p("note() takes absolute pitches like c4 or f#3. n() takes scale degrees, where 0 is the root and 7 is the octave, and .scale('c minor') puts them in a key, so you can move a whole line by changing one word. chord() turns a name like Cm7 into a stack of notes."),
       code(
-        'Scale degrees and named chords.',
-        `const keys = synth(({ note, gate, adsr, saw }) =>
-  saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.3, s: 0.4, r: 0.3 })))
+        'Scale degrees and named chords. Give the lead and pad SEPARATE synths so a shared note is not cut short by the other part.',
+        `const lead = synth(({ note, gate, adsr, tri }) =>
+  tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.2, s: 0.3, r: 0.2 })))
+const pad = synth(({ note, gate, adsr, saw, svf }) =>
+  svf(saw(note.freq), 1800, { res: 0.2 }).mul(adsr(gate, { a: 0.2, d: 0.3, s: 0.6, r: 0.4 })).mul(0.35))
 
-p('lead', n('0 2 4 <7 6> 4 2').scale('c minor').sound('keys'))
-p('pad', chord('<Cm7 Abmaj7>').sound('keys'))`,
+p('lead', n('0 2 4 <7 6> 4 2').scale('c minor').sound('lead'))
+p('pad', chord('<Cm7 Abmaj7>').sound('pad').dur(0.96))`,
       ),
       p("Chords sit in root position by default. Reshape them with .invert(k) (inversions), .octave(n), and .voicing('drop2') (open/jazz spreads). Best of all, .voiceLead() nudges each chord onto the octaves nearest the previous one, so a progression glides smoothly instead of leaping, the difference between a beginner and a pro-sounding comp."),
       code(
@@ -294,20 +315,24 @@ setCps(0.5)`,
     id: 'modulation',
     title: 'Modulation',
     blocks: [
-      p("Signals are shapes that run 0 to 1: `sine`, `saw`, `perlin` and friends. `.range(lo, hi)` maps one onto real units, and `.ctrl('name', signal)` drives a synth parameter with it per event. Inside a synth, `lfo()` moves things per voice."),
+      p("There are two places to modulate, and the difference matters. INSIDE a synth, lfo() (and any signal) runs at audio rate, so it moves smoothly and continuously, this is how you get a gliding filter sweep or a tremolo. From the PATTERN side, .ctrl('name', signal) samples the signal ONCE PER NOTE and holds it, great for per-note variation (a different cutoff on every hit) but stepped, not smooth, so a slow sweep sampled by a few long notes just jumps between a handful of values."),
       code(
-        'A slow sine sweeps the filter; an LFO adds per-voice tremolo.',
-        `const pad = synth(({ note, gate, param, adsr, saw, svf, lfo }) => {
-  const cutoff = param('cutoff', 800, { min: 200, max: 6000, curve: 'log' })
-  const trem = lfo(4).range(0.6, 1) // per-voice tremolo
+        'A smooth in-synth filter sweep + tremolo, and a per-note random cutoff.',
+        `const pad = synth(({ note, gate, adsr, saw, svf, lfo }) => {
+  // SMOOTH, audio-rate: a slow LFO glides the cutoff; a fast one adds tremolo
+  const sweep = lfo(0.1).range(300, 4500)
+  const trem = lfo(5).range(0.7, 1)
   const env = adsr(gate, { a: 0.2, d: 0.3, s: 0.85, r: 0.6 })
-  return svf(saw(note.freq), cutoff, { res: 0.5 }).mul(env).mul(trem)
+  return svf(saw(note.freq), sweep, { res: 0.5 }).mul(env).mul(trem).mul(0.4)
+})
+const stab = synth(({ note, gate, param, adsr, saw, svf }) => {
+  const cut = param('cutoff', 1500, { min: 300, max: 6000, curve: 'log' })
+  return svf(saw(note.freq), cut, { res: 0.4 }).mul(adsr(gate, { a: 0.002, d: 0.15, s: 0, r: 0.1 })).mul(0.3)
 })
 
-p('pad',
-  chord('<Am7 Dm7 G Cmaj7>').sound('pad').dur(0.96)
-    // sweep the filter from the pattern side, over 4 cycles
-    .ctrl('cutoff', sine.range(300, 4500).slow(4)))
+p('pad', chord('<Am7 Dm7 G Cmaj7>').sound('pad').dur(0.96))
+// .ctrl from the pattern is PER-NOTE: each 8th note gets its own sampled cutoff
+p('stab', n('0 3 5 7 5 3 5 7').scale('a minor').sound('stab').ctrl('cutoff', sine.range(600, 5000).fast(3)))
 setCps(0.4)`,
       ),
       p("When adsr's four stages are not enough, env() takes a list of [seconds, level] breakpoints for any shape you like, and drives amplitude, pitch or a filter. Here a two-stage pluck envelope shapes the amp, while a second env bends the pitch down at the very start for a synthetic 'blip' attack."),

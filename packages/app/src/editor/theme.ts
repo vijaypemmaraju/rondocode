@@ -98,6 +98,21 @@ const editorTheme = EditorView.theme(
       whiteSpace: 'pre-wrap',
       wordBreak: 'break-word',
     },
+    // Inline WGSL highlighting inside visual(`…`) (editor/wgsl.ts). Lives in the
+    // theme — NOT a stylesheet — so it travels with the shared editor extension
+    // to both the main editor and the docs examples (no CSS to keep in sync).
+    // The per-token marks are Prec.highest, so they nest innermost and win over
+    // the JS grammar's whole-string coloring.
+    '.wgsl-com': { color: C_FAINT, fontStyle: 'italic' },
+    '.wgsl-kw': { color: '#a7f3d0' },
+    '.wgsl-type': { color: C_ACCENT_ALT },
+    '.wgsl-fn': { color: C_ACCENT },
+    '.wgsl-num': { color: C_WARN },
+    '.wgsl-attr': { color: '#f7a8ff' },
+    // the rondocode audio API (level, spectrum, beat…) — magenta so it pops
+    '.wgsl-api': { color: '#f7a8ff', fontWeight: '600' },
+    '.wgsl-punct': { color: C_DIM },
+    '.wgsl-id': { color: C_TEXT },
   },
   { dark: true },
 )

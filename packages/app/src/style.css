@@ -1389,39 +1389,8 @@ body.shaderviz-on .cm-content {
   display: none;
 }
 
-/* --- inline WGSL highlighting inside visual(`…`) (editor/wgsl.ts) ---
- * These per-token marks are Prec.highest, so they nest inside the JS grammar's
- * whole-string coloring and their color wins. */
-.cm-editor .wgsl-com {
-  color: var(--c-faint);
-  font-style: italic;
-}
-.cm-editor .wgsl-kw {
-  color: #a7f3d0;
-}
-.cm-editor .wgsl-type {
-  color: var(--c-accent-alt);
-}
-.cm-editor .wgsl-fn {
-  color: var(--c-accent);
-}
-.cm-editor .wgsl-num {
-  color: var(--c-warn);
-}
-.cm-editor .wgsl-attr {
-  color: #f7a8ff;
-}
-/* the rondocode audio API (level, spectrum, beat…) — magenta so it pops */
-.cm-editor .wgsl-api {
-  color: #f7a8ff;
-  font-weight: 600;
-}
-.cm-editor .wgsl-punct {
-  color: var(--c-dim);
-}
-.cm-editor .wgsl-id {
-  color: var(--c-text);
-}
+/* WGSL highlighting inside visual(`…`) now lives in the shared editor theme
+ * (editor/theme.ts → synthTheme) so it applies in the docs examples too. */
 
 /* --- icon buttons (ui/icons.ts) --- */
 .btn {

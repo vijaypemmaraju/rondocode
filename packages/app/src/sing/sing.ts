@@ -233,17 +233,41 @@ function resynthSustain(seg: Float32Array, sr: number, note: Note, len: number):
   if (firstV < 0) firstV = 0
   let lastV = F - 1
   while (lastV > firstV && an.frames[lastV]!.f0 === 0) lastV--
-  const steady = Math.floor(firstV + (lastV - firstV) * 0.7) // deep in the vowel
+  // Hold the STEADIEST vowel frame — the voiced frame whose spectral envelope
+  // changes least vs its neighbours (the stationary vowel core). Parking on a
+  // moving frame, or wandering far/fast, makes the held vowel wobble through
+  // consonant-ish frames — heard as repeated "nuh-nuh" phonemes. Bias toward the
+  // first ~⅔ of the vowel so we never sit on a trailing consonant (sound's "nd").
+  const hiV = Math.max(firstV, Math.floor(firstV + (lastV - firstV) * 0.6))
+  const flux = (a: number): number => {
+    const e0 = an.frames[a - 1]?.env
+    const e1 = an.frames[a]!.env
+    const e2 = an.frames[a + 1]?.env
+    let s = 0
+    for (let k = 0; k < e1.length; k++) {
+      if (e0) s += Math.abs(e1[k]! - e0[k]!)
+      if (e2) s += Math.abs(e1[k]! - e2[k]!)
+    }
+    return s
+  }
+  let steady = hiV
+  let best = Infinity
+  for (let a = firstV + 1; a <= hiV; a++) {
+    const fx = flux(a) / (an.frames[a]!.f0 > 0 ? 1 : 0.001) // prefer voiced
+    if (fx < best) {
+      best = fx
+      steady = a
+    }
+  }
   const outFrames = Math.max(2, Math.ceil(len / an.hop) + 1)
   const map = new Float32Array(outFrames)
-  const wanderAmp = Math.max(1, (lastV - steady) * 0.5)
+  // barely-there wander (±1 frame, very slow) just to avoid a dead-frozen frame;
+  // real liveness comes from the excitation (vibrato/jitter/breath), not here.
   for (let j = 0; j < outFrames; j++) {
-    map[j] = Math.max(firstV, Math.min(F - 1, steady + Math.sin(j * 0.1) * wanderAmp))
+    map[j] = Math.max(firstV, Math.min(lastV, steady + Math.sin(j * 0.03) * 1.0))
   }
-  // vibrato eases in almost immediately (the note's straight-tone lead-in is the
-  // natural syllable that precedes this sustain).
   const vibrato = { depth: 0.35, rate: 5.6, delay: 0.05, ease: 0.18 }
-  return resynth(an, len, { frameMap: map, f0: mtof(note.midi), vibrato, jitter: 0.1, breath: 0.04 })
+  return resynth(an, len, { frameMap: map, f0: mtof(note.midi), vibrato, jitter: 0.08, breath: 0.04 })
 }
 
 /** Retune+retime a syllable onto a note, rendered exactly `note.dur` long. Up to

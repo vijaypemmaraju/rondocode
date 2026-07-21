@@ -2,7 +2,7 @@
  * console during bring-up (loading is ~250MB so it's fire-and-forget + polled).
  * Never imported in production (main.ts gates it behind import.meta.env.DEV). */
 import { loadEngine, type SupertonicEngine, type SingProgress } from './supertonic'
-import { sing, type Note } from './sing'
+import { sing, singWithLyrics, type Note } from './sing'
 
 interface Hook {
   state: string
@@ -13,6 +13,7 @@ interface Hook {
   load(): void
   say(text: string): Promise<{ len: number; sr: number; rms: number; peak: number }>
   sing(text: string, melody: Note[]): Promise<{ len: number; sr: number; peak: number }>
+  singLyrics(lyrics: string, melody: Note[]): Promise<{ len: number; sr: number; peak: number }>
 }
 
 export function installSingDevHook(): void {
@@ -47,6 +48,15 @@ export function installSingDevHook(): void {
     async sing(text: string, melody: Note[]) {
       if (!this.engine) throw new Error('not loaded')
       const { audio, sr } = await sing(this.engine, text, melody, { onProgress: (p) => (this.progress = { phase: p.phase as 'download' | 'synthesize', label: p.phase, done: p.done, total: p.total }) })
+      this.audio = audio
+      this.sr = sr
+      let peak = 0
+      for (let i = 0; i < audio.length; i++) peak = Math.max(peak, Math.abs(audio[i]!))
+      return { len: audio.length, sr, peak }
+    },
+    async singLyrics(lyrics: string, melody: Note[]) {
+      if (!this.engine) throw new Error('not loaded')
+      const { audio, sr } = await singWithLyrics(this.engine, lyrics, melody)
       this.audio = audio
       this.sr = sr
       let peak = 0

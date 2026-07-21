@@ -8,6 +8,8 @@
  * ------------------------------------------------------------------------- */
 import { psola, estimateF0 } from './psola'
 import type { SupertonicEngine } from './supertonic'
+import { parseLyrics } from './lyrics'
+import { loadAligner, alignWords } from './align'
 
 /** One melody note: MIDI number + duration in seconds. */
 export interface Note {
@@ -120,25 +122,30 @@ function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: numbe
   return out
 }
 
-/** Speak `text`, then sing it on `melody` (one syllable per note). Returns a mono
- *  Float32Array at the engine's sample rate. */
-export async function sing(
-  engine: SupertonicEngine,
-  text: string,
-  melody: Note[],
-  opts: { voice?: string; onProgress?: (p: { phase: string; done: number; total: number }) => void } = {},
-): Promise<{ audio: Float32Array; sr: number }> {
-  const sr = engine.sampleRate
-  const spoken = trim(await engine.synthesize(text, { voice: opts.voice, onProgress: (p) => opts.onProgress?.({ phase: p.phase, done: p.done, total: p.total }) }), sr)
-  const globalF0 = estimateF0(spoken, sr) || 180
-  const segs = segmentToN(spoken, sr, melody.length)
+/** Split a segment into exactly `k` pieces at energy valleys near the even
+ *  divisions — reliable inside a single Whisper-bounded word. */
+function splitK(seg: Float32Array, sr: number, k: number): Float32Array[] {
+  if (k <= 1 || seg.length < 2) return [seg]
+  const e = envelope(seg, Math.floor(0.02 * sr))
+  const n = seg.length
+  const b = [0]
+  for (let j = 1; j < k; j++) {
+    const lo = Math.max(1, Math.floor(n * (j / k - 0.12)))
+    const hi = Math.min(n - 1, Math.floor(n * (j / k + 0.12)))
+    let m = lo
+    for (let i = lo; i < hi; i++) if (e[i]! < e[m]!) m = i
+    b.push(hi > lo ? m : Math.floor((n * j) / k))
+  }
+  b.push(n)
+  return b.slice(0, -1).map((_, i) => seg.slice(b[i]!, b[i + 1]!))
+}
 
-  const parts = melody.map((note, i) => singSyllable(segs[i]!, sr, note, globalF0))
-  // equal-power crossfade concat
+/** Equal-power crossfade concat + peak-normalize. */
+function concatNormalize(parts: Float32Array[], sr: number): Float32Array {
   const xf = Math.floor(0.02 * sr)
   let total = 0
   for (const p of parts) total += p.length
-  total -= xf * (parts.length - 1)
+  total -= xf * Math.max(0, parts.length - 1)
   const out = new Float32Array(Math.max(1, total))
   let pos = 0
   for (let k = 0; k < parts.length; k++) {
@@ -156,5 +163,71 @@ export async function sing(
   for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]!))
   const norm = peak > 1e-6 ? 0.9 / peak : 1
   for (let i = 0; i < out.length; i++) out[i]! *= norm
-  return { audio: out, sr }
+  return out
+}
+
+/** Sing lyrics (mini-notation, see lyrics.ts) on a melody using Whisper word
+ *  alignment: Supertonic speaks the words → Whisper places each word → split it
+ *  into its hyphen-specified syllables → PSOLA each onto its note (melisma holds
+ *  the syllable, ~ is a silent note). One slot per note. */
+export async function singWithLyrics(
+  engine: SupertonicEngine,
+  lyrics: string,
+  melody: Note[],
+  opts: { voice?: string; onProgress?: (p: { phase: string; done: number; total: number }) => void } = {},
+): Promise<{ audio: Float32Array; sr: number }> {
+  const parsed = parseLyrics(lyrics)
+  if (parsed.slots.length !== melody.length) {
+    throw new Error(`lyrics has ${parsed.slots.length} syllables but melody has ${melody.length} notes`)
+  }
+  const sr = engine.sampleRate
+  const spoken = trim(await engine.synthesize(parsed.text, { voice: opts.voice, onProgress: (p) => opts.onProgress?.({ phase: p.phase, done: p.done, total: p.total }) }), sr)
+  const gf0 = estimateF0(spoken, sr) || 180
+  await loadAligner()
+  const words = await alignWords(spoken, sr)
+
+  // audio per slot: split each word (Whisper-bounded) into its syllables;
+  // melisma slots hold the last real syllable's audio.
+  const slotAudio: (Float32Array | null)[] = new Array(parsed.slots.length).fill(null)
+  for (let wi = 0; wi < parsed.words.length; wi++) {
+    const w = parsed.words[wi]!
+    const t = words[wi]
+    let seg = t
+      ? spoken.slice(Math.floor(t.start * sr), Math.floor(t.end * sr))
+      : spoken.slice(Math.floor((spoken.length * wi) / parsed.words.length), Math.floor((spoken.length * (wi + 1)) / parsed.words.length))
+    if (seg.length < 8) seg = spoken.slice(0, Math.min(spoken.length, Math.floor(0.2 * sr)))
+    const sylls = splitK(seg, sr, w.syllableCount)
+    let si = 0
+    for (const slotIdx of w.slots) {
+      if (parsed.slots[slotIdx]!.melisma) slotAudio[slotIdx] = sylls[Math.max(0, si - 1)]!
+      else {
+        slotAudio[slotIdx] = sylls[Math.min(si, sylls.length - 1)]!
+        si++
+      }
+    }
+  }
+
+  const parts = melody.map((note, i) => {
+    const seg = slotAudio[i]
+    if (parsed.slots[i]!.rest || !seg || seg.length < 8) return new Float32Array(Math.floor(note.dur * sr))
+    return singSyllable(seg, sr, note, gf0)
+  })
+  return { audio: concatNormalize(parts, sr), sr }
+}
+
+/** Speak `text`, then sing it on `melody` (one syllable per note). Returns a mono
+ *  Float32Array at the engine's sample rate. */
+export async function sing(
+  engine: SupertonicEngine,
+  text: string,
+  melody: Note[],
+  opts: { voice?: string; onProgress?: (p: { phase: string; done: number; total: number }) => void } = {},
+): Promise<{ audio: Float32Array; sr: number }> {
+  const sr = engine.sampleRate
+  const spoken = trim(await engine.synthesize(text, { voice: opts.voice, onProgress: (p) => opts.onProgress?.({ phase: p.phase, done: p.done, total: p.total }) }), sr)
+  const globalF0 = estimateF0(spoken, sr) || 180
+  const segs = segmentToN(spoken, sr, melody.length)
+
+  const parts = melody.map((note, i) => singSyllable(segs[i]!, sr, note, globalF0))
+  return { audio: concatNormalize(parts, sr), sr }
 }

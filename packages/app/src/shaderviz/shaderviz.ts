@@ -377,6 +377,7 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
   const setOn = (v: boolean): void => {
     on = v
     btn.classList.toggle('active', v)
+    btn.setAttribute('aria-pressed', String(v))
     canvas.classList.toggle('visible', v)
     document.body.classList.toggle('shaderviz-on', v)
     if (v) {

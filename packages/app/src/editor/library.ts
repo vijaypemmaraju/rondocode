@@ -14,6 +14,7 @@
 
 import type { EditorHandle } from './editor'
 import { icon, iconEl } from '../ui/icons'
+import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { EXAMPLES } from '../examples'
 import { MemoryDb, ProjectStore } from '../session/projects'
 import type { Project } from '../session/projects'
@@ -122,6 +123,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // ---- top-bar control -------------------------------------------------------
   const projectBtn = el('button', 'btn project-btn')
   projectBtn.type = 'button'
+  projectBtn.setAttribute('aria-expanded', 'false')
   const setLabel = (name: string): void => {
     // name (ellipsizes) + a fixed chevron, so the affordance survives a long
     // name; full name in the title since the button truncates.
@@ -135,13 +137,23 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // ---- sheet -----------------------------------------------------------------
   const backdrop = el('div', 'sheet-backdrop hidden')
   const sheet = el('aside', 'sheet')
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+  sheet.setAttribute('aria-label', 'projects')
   backdrop.append(sheet)
   document.body.append(backdrop)
 
-  const closeSheet = (): void => backdrop.classList.add('hidden')
+  const closeSheet = (): void => {
+    backdrop.classList.add('hidden')
+    projectBtn.setAttribute('aria-expanded', 'false')
+    overlayClosed(closeSheet)
+    projectBtn.focus() // restore focus to the trigger
+  }
   const openSheet = (): void => {
-    void render()
+    overlayOpened(closeSheet) // close any other open sheet
     backdrop.classList.remove('hidden')
+    projectBtn.setAttribute('aria-expanded', 'true')
+    void render().then(() => (sheet.querySelector('input, button') as HTMLElement | null)?.focus())
   }
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) closeSheet()

@@ -2,6 +2,7 @@ import type { EditorHandle } from './editor'
 import { PreviewPlayer } from '../docs/player'
 import { highlightDsl } from '../docs/highlight'
 import { icon, iconEl } from '../ui/icons'
+import { overlayClosed, overlayOpened } from '../ui/overlays'
 
 /* ------------------------------------------------------------------------- *
  * Synth library: a shelf of ready-made instruments. Each entry auditions a
@@ -184,22 +185,31 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
 
   const btn = el('button', 'btn synthlib-btn')
   btn.type = 'button'
-  btn.title = 'Synth library'
+  btn.title = 'synth library'
+  btn.setAttribute('aria-expanded', 'false')
   btn.innerHTML = `${icon('waveform')}<span class="btn-label">synths</span>`
   const controls = editor.topbar.querySelector('.hdr-controls') ?? editor.topbar
   controls.insertBefore(btn, controls.firstChild)
 
   const backdrop = el('div', 'sheet-backdrop hidden')
   const sheet = el('aside', 'sheet')
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+  sheet.setAttribute('aria-label', 'synth library')
   backdrop.append(sheet)
   document.body.append(backdrop)
 
   const close = (): void => {
     backdrop.classList.add('hidden')
     player.stop()
+    btn.setAttribute('aria-expanded', 'false')
+    overlayClosed(close)
+    btn.focus() // restore focus to the trigger
   }
   const open = (): void => {
+    overlayOpened(close) // close any other open sheet
     backdrop.classList.remove('hidden')
+    btn.setAttribute('aria-expanded', 'true')
     search.focus()
   }
 

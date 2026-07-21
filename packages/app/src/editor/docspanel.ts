@@ -1,5 +1,6 @@
 import type { EditorHandle } from './editor'
-import { icon } from '../ui/icons'
+import { icon, iconEl } from '../ui/icons'
+import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { DSL_DOCS } from '../docs/dsl-docs'
 import type { DocEntry } from '../docs/dsl-docs'
 
@@ -36,23 +37,35 @@ export function mountDocs(editor: EditorHandle): DocsHandle {
   btn.type = 'button'
   btn.innerHTML = icon('help')
   btn.title = 'DSL reference'
+  btn.setAttribute('aria-expanded', 'false')
   const controls = editor.topbar.querySelector('.hdr-controls') ?? editor.topbar
   controls.insertBefore(btn, controls.firstChild)
 
   const backdrop = el('div', 'sheet-backdrop hidden')
   const sheet = el('aside', 'sheet')
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+  sheet.setAttribute('aria-label', 'DSL reference')
   backdrop.append(sheet)
   document.body.append(backdrop)
 
-  const close = (): void => backdrop.classList.add('hidden')
+  const close = (): void => {
+    backdrop.classList.add('hidden')
+    btn.setAttribute('aria-expanded', 'false')
+    overlayClosed(close)
+    btn.focus() // restore focus to the trigger
+  }
   const open = (): void => {
+    overlayOpened(close) // close any other open sheet
     backdrop.classList.remove('hidden')
+    btn.setAttribute('aria-expanded', 'true')
     search.focus()
   }
 
   const head = el('div', 'sheet-head')
   head.append(el('h2', 'sheet-title', 'reference'))
-  const full = el('a', 'docs-full-link', 'full docs ↗') as HTMLAnchorElement
+  const full = el('a', 'docs-full-link') as HTMLAnchorElement
+  full.append('full docs ', iconEl('external'))
   full.href = '/docs'
   full.target = '_blank'
   full.rel = 'noopener'

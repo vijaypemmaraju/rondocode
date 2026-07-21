@@ -357,6 +357,61 @@ export class SuperSawKernel implements Kernel {
   }
 }
 
+export const LFSR_MODES = ['white', 'periodic'] as const
+export type LfsrMode = (typeof LFSR_MODES)[number]
+const isLfsrMode = (m: string): m is LfsrMode => (LFSR_MODES as readonly string[]).includes(m)
+
+/** NES/Game-Boy style LFSR noise channel — the chiptune noise. A 15-bit
+ *  linear-feedback shift register is clocked at 'freq' Hz (the "pitch"/colour
+ *  of the noise): low = a coarse rumble, high = a bright hiss. `mode` 'white'
+ *  (default, taps bit 1 → the full 32767-step sequence) is classic hiss;
+ *  'periodic' (taps bit 6 → a 93-step loop) is the buzzy, metallic, pitched
+ *  tone. Output is 1-bit ±1 — shape it with an ADSR for chip drums and zaps. */
+export class LFSRKernel implements Kernel {
+  private readonly periodic: boolean
+  private reg = 1 // must be nonzero
+  private phase = 0
+  private cur = 0
+
+  constructor(mode?: string) {
+    const m = mode ?? 'white'
+    if (!isLfsrMode(m)) throw new Error(`unknown lfsr mode '${m}' (known: ${LFSR_MODES.join(', ')})`)
+    this.periodic = m === 'periodic'
+  }
+
+  process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
+    const freq = inputs['freq']!
+    const sr = ctx.sampleRate
+    const nyq = sr * 0.5
+    let reg = this.reg
+    let phase = this.phase
+    let cur = this.cur
+    for (let i = 0; i < n; i++) {
+      out[i] = cur
+      let f = freq[i]!
+      if (f < 1) f = 1
+      else if (f > nyq) f = nyq
+      phase += f / sr
+      while (phase >= 1) {
+        phase -= 1
+        const b0 = reg & 1
+        const tap = this.periodic ? (reg >> 6) & 1 : (reg >> 1) & 1
+        reg = (reg >> 1) | ((b0 ^ tap) << 14)
+        cur = reg & 1 ? -1 : 1
+      }
+    }
+    this.reg = reg
+    this.phase = phase
+    this.cur = cur
+  }
+
+  reset(): void {
+    this.reg = 1
+    this.phase = 0
+    this.cur = 0
+  }
+}
+
 export const NOISE_COLORS = ['white', 'pink', 'brown'] as const
 export type NoiseColor = (typeof NOISE_COLORS)[number]
 const isNoiseColor = (c: string): c is NoiseColor => (NOISE_COLORS as readonly string[]).includes(c)

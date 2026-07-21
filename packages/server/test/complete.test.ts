@@ -21,10 +21,11 @@ describe('parseDotEnv', () => {
 
 describe('compactCheatsheet', () => {
   const sheet = compactCheatsheet()
-  it('is compact (<5KB) and grouped', () => {
-    // Signature-only, grouped; grows as the DSL gains primitives. Kept well
-    // under the model's context — a few KB is lean for a completion prompt.
-    expect(sheet.length).toBeLessThan(5120)
+  it('is compact (<8KB) and grouped', () => {
+    // Signature-only, grouped; grows as the DSL gains primitives (FM, physical
+    // modeling, chip/filter FX...). Kept well under the model's context — a few
+    // KB is lean for a completion prompt.
+    expect(sheet.length).toBeLessThan(8192)
     expect(sheet).toContain('# Top-level')
     expect(sheet).toContain('# Pattern methods')
     expect(sheet).toContain('# Mini-notation')

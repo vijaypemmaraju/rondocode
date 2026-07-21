@@ -443,6 +443,12 @@ const SYNTH_CTX: DocEntry[] = [
     "wavetable(note.freq, lfo(0.25).range(0, 1), { table: 'basic' })",
   ),
   sc('noise', "noise(color?: 'white' | 'pink' | 'brown')", 'Noise, the raw material of hats, claps, wind and breath. white (default) is flat and bright; pink (−3 dB/oct) is warmer and more natural; brown (−6 dB/oct) is deep and rumbly.', "svf(noise('pink'), 8000, { mode: 'hp' })"),
+  sc(
+    'lfsr',
+    "lfsr(freq, opts?: { mode?: 'white' | 'periodic' })",
+    'The chiptune noise channel (NES/Game Boy): a 15-bit shift register clocked at freq, so freq is the noise "pitch", low is a coarse rumble, high a bright hiss. mode white (default) is classic hiss; periodic is a short 93-step loop that buzzes into a metallic pitched tone. 1-bit output, shape it with an ADSR for chip drums, hats and zaps.',
+    "lfsr(8000).mul(adsr(gate, { d: 0.08, s: 0, r: 0.02 }))",
+  ),
   sc('supersaw', 'supersaw(freq, opts?: { detune?, mix? })', 'The fat trance/EDM lead: 7 detuned sawtooths in one oscillator. detune (0..1, def 0.2) spreads them apart; mix (0..1, def 0.7) is how loud the 6 side saws are versus the centre. Anti-aliased, so it stays clean up high.', "supersaw(note.freq, { detune: 0.3, mix: 0.8 })"),
   sc(
     'sample',

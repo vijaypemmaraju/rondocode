@@ -211,6 +211,27 @@ setCps(0.44)`,
     ],
   },
   {
+    id: 'chiptune',
+    title: 'Chiptune',
+    blocks: [
+      p("The classic 8-bit palette is all here: pulse() with a duty like 0.125/0.25 for the thin NES square, a triangle bass run through bitcrush({ bits: 4 }) for the stair-stepped sub, and lfsr() for the noise channel, the shift-register noise behind chip hats, snares and zaps ('periodic' mode gives the buzzy, pitched tone). The fake-chord trick is just a fast arpeggio, since a chip channel plays one note at a time."),
+      code(
+        'A pulse lead arpeggio, 4-bit triangle bass, and LFSR-noise drums.',
+        `setCps(0.5)
+const lead = synth(({ note, gate, adsr, pulse }) =>
+  pulse(note.freq, 0.25).mul(adsr(gate, { a: 0.001, d: 0.05, s: 0.6, r: 0.04 })).mul(0.35))
+const bass = synth(({ note, gate, adsr, tri, bitcrush }) =>
+  bitcrush(tri(note.freq), { bits: 4 }).mul(adsr(gate, { a: 0.001, d: 0.06, s: 0.7, r: 0.05 })).mul(0.6))
+const hat = synth(({ gate, adsr, lfsr }) =>
+  lfsr(11000).mul(adsr(gate, { a: 0.001, d: 0.025, s: 0, r: 0.02 })).mul(0.25))
+
+p('lead', chord('<C Am F G>').arp('up').fast(2).sound('lead'))
+p('bass', note('<c2 a1 f1 g1>').sound('bass'))
+p('hats', note('c5*8').sound('hat'))`,
+      ),
+    ],
+  },
+  {
     id: 'arrange',
     title: 'Layering & tempo',
     blocks: [

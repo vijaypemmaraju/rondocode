@@ -95,6 +95,11 @@ export interface SynthCtx {
   /** Noise. `color`: 'white' (default), 'pink' (warmer, −3 dB/oct) or 'brown'
    *  (deep, −6 dB/oct). */
   noise(color?: 'white' | 'pink' | 'brown'): Sig
+  /** NES/Game-Boy LFSR noise (the chiptune noise channel). `freq` is the clock
+   *  rate in Hz (the noise "pitch": low = coarse, high = bright). `mode`
+   *  'white' (default) is hiss; 'periodic' is a buzzy, metallic pitched tone.
+   *  1-bit output — shape it with an ADSR for chip drums and zaps. */
+  lfsr(freq: SigIn, opts?: { mode?: 'white' | 'periodic' }): Sig
   /** Play a loaded audio sample. `name` is a sample loaded via loadSample. A
    *  rising edge on `gate` retriggers from the start (one-shot); pass
    *  `{ loop: true }` to loop. Pitch: `{ root }` plays at natural pitch when the
@@ -555,6 +560,7 @@ const makeCtx = (b: Builder): SynthCtx => {
       return b.node('supersaw', inputs)
     },
     noise: (color) => b.node('noise', {}, definedConfig({ color })),
+    lfsr: (freq, opts) => b.node('lfsr', { freq: src(freq, 'lfsr freq') }, definedConfig({ mode: opts?.mode })),
 
     sample: (gate, name, opts) => {
       const inputs: Record<string, InputSource> = { gate: src(gate, 'sample gate') }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SineKernel, SawKernel, SquareKernel, PulseKernel, TriKernel, NoiseKernel, SyncSawKernel, FMKernel, SuperSawKernel } from '../src/dsp/osc'
+import { SineKernel, SawKernel, SquareKernel, PulseKernel, TriKernel, NoiseKernel, SyncSawKernel, FMKernel, SuperSawKernel, LFSRKernel } from '../src/dsp/osc'
 import { LadderKernel, OnePoleKernel, SvfKernel } from '../src/dsp/filters'
 import { AdsrKernel } from '../src/dsp/env'
 import { LfoKernel } from '../src/dsp/lfo'
@@ -623,5 +623,46 @@ describe('SuperSawKernel', () => {
     const wide = run(220, 0.5, 0.7, n)
     // just off the fundamental: the detuned stack leaks energy there, the tight one much less
     expect(goertzel(wide, 226, sr)).toBeGreaterThan(goertzel(tight, 226, sr) * 3)
+  })
+})
+
+describe('LFSRKernel (chip noise)', () => {
+  const run = (freq: number, mode: string | undefined, n: number): Float32Array => {
+    const out = new Float32Array(n)
+    new LFSRKernel(mode).process(n, { freq: new Float32Array(n).fill(freq) }, out, ctx)
+    return out
+  }
+
+  it('outputs 1-bit ±1 with mean ~0', () => {
+    const out = run(6000, 'white', 48000)
+    let sum = 0
+    for (let i = 0; i < out.length; i++) {
+      const v = out[i]!
+      expect(v === 1 || v === -1 || v === 0).toBe(true)
+      sum += v
+    }
+    expect(Math.abs(sum / out.length)).toBeLessThan(0.2)
+  })
+
+  it('periodic mode is a pitched tone at ~clock/93; white mode is not', () => {
+    const n = 48000
+    const f = 9300 // periodic loop = 93 shifts -> ~100 Hz fundamental
+    const periodic = run(f, 'periodic', n)
+    const white = run(f, 'white', n)
+    expect(goertzel(periodic, 100, sr)).toBeGreaterThan(goertzel(white, 100, sr) * 10)
+  })
+
+  it('higher clock freq shifts energy up (brighter)', () => {
+    const n = 48000
+    const lowE = goertzel(run(1500, 'white', n), 6000, sr)
+    const highE = goertzel(run(18000, 'white', n), 6000, sr)
+    expect(highE).toBeGreaterThan(lowE * 2)
+  })
+
+  it('is deterministic and rejects an unknown mode', () => {
+    const a = run(4000, undefined, 512)
+    const b = run(4000, undefined, 512)
+    for (let i = 0; i < a.length; i++) expect(a[i]).toBe(b[i]!)
+    expect(() => new LFSRKernel('square')).toThrow(/unknown lfsr mode/)
   })
 })

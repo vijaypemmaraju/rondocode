@@ -1,7 +1,7 @@
 import { GraphError, validateGraph } from './graph'
 import type { GraphSpec, NodeSpec, NodeType, ParamSpec } from './graph'
 import type { DspContext, Kernel } from './dsp/types'
-import { SineKernel, SawKernel, SquareKernel, TriKernel, PulseKernel, NoiseKernel, SyncSawKernel, FMKernel, SuperSawKernel } from './dsp/osc'
+import { SineKernel, SawKernel, SquareKernel, TriKernel, PulseKernel, NoiseKernel, SyncSawKernel, FMKernel, SuperSawKernel, LFSRKernel } from './dsp/osc'
 import { PhaserKernel, FormantKernel } from './dsp/fx2'
 import type { PhaserConfig } from './dsp/fx2'
 import { WavetableKernel } from './dsp/wavetable'
@@ -128,6 +128,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   syncsaw: [{ name: 'freq' }, { name: 'ratio', def: 2 }],
   fm: [{ name: 'freq' }, { name: 'mod', def: 0 }, { name: 'feedback', def: 0 }],
   supersaw: [{ name: 'freq' }, { name: 'detune', def: 0.2 }, { name: 'mix', def: 0.7 }],
+  lfsr: [{ name: 'freq', def: 4000 }],
   wavetable: [{ name: 'freq' }, { name: 'pos', def: 0 }],
   noise: [],
   // gate required (retrigger edge); speed optional, 1 = natural pitch.
@@ -186,6 +187,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   wavetable: (c, ctx) => new WavetableKernel(typeof c['table'] === 'string' ? c['table'] : undefined, ctx),
   noise: (c) => new NoiseKernel(typeof c['seed'] === 'number' ? c['seed'] : undefined, typeof c['color'] === 'string' ? c['color'] : undefined),
   supersaw: () => new SuperSawKernel(),
+  lfsr: (c) => new LFSRKernel(typeof c['mode'] === 'string' ? c['mode'] : undefined),
   // ctx carries the shared sample bank the kernel resolves `name` against each
   // block (so samples loaded after compile still play).
   sample: (c, ctx) => new SampleKernel(String(c['name'] ?? ''), c['loop'] === true, ctx.samples),

@@ -1,5 +1,5 @@
 export type NodeType =
-  | 'sine' | 'saw' | 'square' | 'tri' | 'pulse' | 'noise' | 'wavetable' | 'syncsaw' | 'fm' | 'supersaw'
+  | 'sine' | 'saw' | 'square' | 'tri' | 'pulse' | 'noise' | 'wavetable' | 'syncsaw' | 'fm' | 'supersaw' | 'lfsr'
   | 'sample' | 'granular' | 'pluck' | 'modal'
   | 'svf' | 'ladder' | 'onepole'
   | 'adsr' | 'env' | 'lfo'

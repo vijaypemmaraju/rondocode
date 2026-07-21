@@ -925,6 +925,36 @@ p('brass', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('brass').dur(0.9).gain(0.5))
 p('bells', note('<c6 e6 g6 b6>').sound('bell').gain(0.4))
 `
 
+const chiptune = `// CHIPTUNE: NES-style. Two pulse voices, a bitcrushed 4-bit triangle bass,
+// and LFSR noise for drums, plus the fake-chord arpeggio trick.
+setCps(0.5)
+
+// pulse lead at 25% duty (the classic thin NES square)
+const lead = synth(({ note, gate, adsr, pulse }) =>
+  pulse(note.freq, 0.25).mul(adsr(gate, { a: 0.001, d: 0.05, s: 0.6, r: 0.04 })).mul(0.35))
+
+// harmony pulse with a wobbling duty for movement
+const harm = synth(({ note, gate, adsr, pulse, lfo }) =>
+  pulse(note.freq, lfo(4).range(0.15, 0.5)).mul(adsr(gate, { a: 0.001, d: 0.08, s: 0.4, r: 0.04 })).mul(0.28))
+
+// triangle bass, crushed to 4 bits for the NES stair-step
+const bass = synth(({ note, gate, adsr, tri, bitcrush }) =>
+  bitcrush(tri(note.freq), { bits: 4 }).mul(adsr(gate, { a: 0.001, d: 0.06, s: 0.7, r: 0.05 })).mul(0.6))
+
+// LFSR noise: bright white hiss = hats, low periodic buzz = snare
+const hat = synth(({ gate, adsr, lfsr }) =>
+  lfsr(11000).mul(adsr(gate, { a: 0.001, d: 0.025, s: 0, r: 0.02 })).mul(0.25))
+const snare = synth(({ gate, adsr, lfsr }) =>
+  lfsr(2400, { mode: 'periodic' }).mul(adsr(gate, { a: 0.001, d: 0.12, s: 0, r: 0.05 })).mul(0.4))
+
+// fast arp = the chip fake-chord trick: cycle a chord's tones inside the step
+p('lead', chord('<C Am F G>').arp('up').fast(2).sound('lead'))
+p('harm', note('<g4 e4 c4 d4>').sound('harm').gain(0.8))
+p('bass', note('<c2 a1 f1 g1>').sound('bass'))
+p('hats', note('c5*8').sound('hat'))
+p('snare', note('~ c4 ~ c4').sound('snare'))
+`
+
 export const EXAMPLES: Example[] = [
   { name: 'acid', code: acid },
   { name: 'visuals', code: visuals },
@@ -936,6 +966,7 @@ export const EXAMPLES: Example[] = [
   { name: 'drum groove', code: drumGroove },
   { name: 'fm keys', code: fmKeys },
   { name: 'fm presets', code: fmPresets },
+  { name: 'chiptune', code: chiptune },
   { name: 'chords & arps', code: chordsArp },
   { name: 'generative', code: generative },
   { name: 'edm', code: edm },

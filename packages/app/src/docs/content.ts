@@ -124,6 +124,7 @@ p('bells', note('<c5 e5 g5 b5>').sound('bell'))
 p('reed', note('c3 ~ eb3 ~').sound('reed').gain(0.5))
 setCps(0.4)`,
       ),
+      p("A few starting recipes (all carrier + one modulator): a BELL is a ~1.4 ratio with a long index decay; an E-PIANO is a 3:1 ratio with a fast index decay and a little feedback; an FM BASS is 1:1 with a quick index decay; BRASS is 1:1 with a slow index swell so the tone grows in. The built-in 'fm presets' example wires all four up to play with."),
     ],
   },
   {

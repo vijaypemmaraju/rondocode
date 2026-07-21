@@ -11,9 +11,9 @@ import { baseScope } from '../src/session/scope'
  * skips anything else), so that is what "would make sound" means here. */
 
 describe('examples', () => {
-  it('ships sixteen distinctly named examples', () => {
-    expect(EXAMPLES).toHaveLength(16)
-    expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(16)
+  it('ships seventeen distinctly named examples', () => {
+    expect(EXAMPLES).toHaveLength(17)
+    expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(17)
   })
 
   for (const ex of EXAMPLES) {

@@ -887,6 +887,44 @@ fn render(uv: vec2f) -> vec4f {
 \`)
 `
 
+const fmPresets = `// FM PRESETS: classic operator-FM voices built from fm(). The recipe is
+// always a carrier + a modulator: its RATIO to the note sets the harmonic
+// character (whole = musical, non-whole = metallic/inharmonic) and its INDEX
+// (the modulator's amplitude, in cycles) sets brightness. An envelope on the
+// index makes the tone move; feedback grows an operator toward a buzzy saw.
+
+setCps(0.44)
+
+// BELL — inharmonic 1.4 ratio + a long index decay: metallic strike, sine tail
+const bell = synth(({ note, gate, adsr, fm }) => {
+  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.6, s: 0, r: 0.6 }).mul(6))
+  return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 2, s: 0, r: 0.8 })).mul(0.5)
+})
+
+// E-PIANO — 3:1 "tine" ratio + a touch of feedback for the Rhodes bark
+const ep = synth(({ note, gate, adsr, fm }) => {
+  const tine = fm(note.freq.mul(3)).mul(adsr(gate, { a: 0.001, d: 0.4, s: 0, r: 0.2 }).mul(3))
+  return fm(note.freq, tine, { feedback: 0.1 }).mul(adsr(gate, { a: 0.002, d: 1.4, s: 0.15, r: 0.4 })).mul(0.5)
+})
+
+// BASS — 1:1 ratio, quick index decay, a little feedback: punchy and round
+const bass = synth(({ note, gate, adsr, fm }) => {
+  const mod = fm(note.freq).mul(adsr(gate, { a: 0.001, d: 0.18, s: 0.1, r: 0.1 }).mul(2))
+  return fm(note.freq, mod, { feedback: 0.2 }).mul(adsr(gate, { a: 0.001, d: 0.3, s: 0.5, r: 0.1 }))
+})
+
+// BRASS — 1:1 ratio with a SLOW index swell: the horn grows into the note
+const brass = synth(({ note, gate, adsr, fm }) => {
+  const mod = fm(note.freq).mul(adsr(gate, { a: 0.25, d: 0.2, s: 0.8, r: 0.3 }).mul(2.2))
+  return fm(note.freq, mod).mul(adsr(gate, { a: 0.12, d: 0.2, s: 0.85, r: 0.35 })).mul(0.4)
+})
+
+p('bass', note('<c2 a1 f2 g2>').sound('bass'))
+p('keys', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('ep').dur(0.9).gain(0.9))
+p('brass', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('brass').dur(0.9).gain(0.5))
+p('bells', note('<c6 e6 g6 b6>').sound('bell').gain(0.4))
+`
+
 export const EXAMPLES: Example[] = [
   { name: 'acid', code: acid },
   { name: 'visuals', code: visuals },
@@ -897,6 +935,7 @@ export const EXAMPLES: Example[] = [
   { name: 'ambient bells', code: ambientBells },
   { name: 'drum groove', code: drumGroove },
   { name: 'fm keys', code: fmKeys },
+  { name: 'fm presets', code: fmPresets },
   { name: 'chords & arps', code: chordsArp },
   { name: 'generative', code: generative },
   { name: 'edm', code: edm },

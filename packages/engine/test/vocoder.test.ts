@@ -59,7 +59,7 @@ describe('VocoderKernel', () => {
         expect(Number.isNaN(out[i]!)).toBe(false)
         peak = Math.max(peak, Math.abs(out[i]!))
       }
-      expect(peak).toBeLessThanOrEqual(1)
+      expect(peak).toBeLessThan(8) // linear (no internal clip); the master stage limits
     }
   })
 })

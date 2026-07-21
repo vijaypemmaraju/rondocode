@@ -13,46 +13,49 @@ interface Demo {
   source: string
 }
 
+// A bright carrier (dual saw + a little noise) so EVERY band — including the
+// highs — has energy for the modulator to shape. This is the biggest lever for
+// a convincing vocoder: a plain saw starves the high bands and sounds dull.
+const CARRIER = `saw(note.freq).add(saw(note.freq.mul(1.007))).add(noise().mul(0.15))`
+
 const DEMOS: Demo[] = [
   {
-    // Singing choir: supersaw chords vocoded by a slowly morphing vowel source.
-    name: 'vocoder-vowels',
+    // A/B reference: the bright carrier chord, NO vocoder. Compare to voc-wet.
+    name: 'voc-A-dry',
     cycles: 4,
-    source: `const voice = synth(({ note, gate, adsr, saw, formant, lfo, supersaw, vocoder }) => {
-  const mod = formant(saw(115), lfo(0.2).range(0, 1))
-  const car = supersaw(note.freq)
-  return vocoder(car, mod, { bands: 24, high: 6000 })
-    .mul(adsr(gate, { a: 0.12, d: 0.4, s: 0.9, r: 0.7 })).mul(0.7)
-})
-p('v', chord('<Cmaj7 Fmaj7 Am7 Gsus4>').sound('voice').dur(0.98))
+    source: `const dry = synth(({ note, gate, adsr, saw, noise }) =>
+  ${CARRIER}.mul(adsr(gate, { a: 0.1, d: 0.3, s: 0.9, r: 0.5 })).mul(0.32))
+p('d', chord('<Cmaj7 Fmaj7 Am7 G>').sound('dry').dur(0.98))
 setCps(0.3)`,
   },
   {
-    // Talkbox lead: a melody with a faster vowel wobble = a "talking" synth.
-    name: 'vocoder-talkbox',
+    // Same chord, vocoded by a voice-like source (buzz + breath) whose vowels
+    // move — the chord now "sings ah→ee→oh". A/B this against voc-A-dry.
+    name: 'voc-B-wet',
     cycles: 4,
-    source: `const lead = synth(({ note, gate, adsr, saw, formant, lfo, vocoder }) => {
-  const mod = formant(saw(100), lfo(3).range(0, 1))
-  const car = saw(note.freq).add(saw(note.freq.mul(1.008)))
-  return vocoder(car, mod, { bands: 20 })
-    .mul(adsr(gate, { a: 0.02, d: 0.15, s: 0.7, r: 0.18 })).mul(0.7)
+    source: `const wet = synth(({ note, gate, adsr, saw, noise, formant, lfo, vocoder }) => {
+  const car = ${CARRIER}
+  const mod = formant(saw(110).add(noise().mul(0.4)), lfo(1.5).range(0, 1))
+  return vocoder(car, mod, { bands: 24, high: 9000 })
+    .mul(adsr(gate, { a: 0.1, d: 0.3, s: 0.9, r: 0.5 })).mul(0.5)
 })
-p('lead', note('c4 e4 g4 c5 g4 e4 d4 g4').sound('lead'))
-setCps(0.5)`,
+p('w', chord('<Cmaj7 Fmaj7 Am7 G>').sound('wet').dur(0.98))
+setCps(0.3)`,
   },
   {
-    // Breathy robot: a NOISE modulator (whispered vowels) instead of a pitched
-    // source — the classic airy vocoder texture over a minor progression.
-    name: 'vocoder-breath',
+    // Unmistakably vocoded: a RHYTHMIC modulator (6 Hz noise bursts + moving
+    // vowels) chops and articulates the sustained chord — robotic stabs.
+    name: 'voc-C-rhythm',
     cycles: 4,
-    source: `const robo = synth(({ note, gate, adsr, saw, noise, formant, lfo, vocoder }) => {
-  const mod = formant(noise(), lfo(0.5).range(0, 1))
-  const car = saw(note.freq).add(saw(note.freq.mul(1.006)))
-  return vocoder(car, mod, { bands: 24, response: 0.02 })
-    .mul(adsr(gate, { a: 0.06, d: 0.25, s: 0.85, r: 0.4 })).mul(0.7)
+    source: `const rhy = synth(({ note, gate, adsr, saw, noise, formant, lfo, vocoder }) => {
+  const car = ${CARRIER}
+  const src = noise().mul(lfo(6).range(0, 1).pow(3))
+  const mod = formant(src, lfo(0.7).range(0, 1))
+  return vocoder(car, mod, { bands: 22, high: 9000, response: 0.008 })
+    .mul(adsr(gate, { a: 0.02, d: 0.3, s: 0.9, r: 0.4 })).mul(0.6)
 })
-p('r', chord('<Cm7 Abmaj7 Ebmaj7 Bb>').sound('robo').dur(0.98))
-setCps(0.35)`,
+p('r', chord('<Cm7 Fm7>').sound('rhy').dur(0.98))
+setCps(0.4)`,
   },
 ]
 
@@ -73,7 +76,18 @@ for (const demo of DEMOS) {
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
   })
+  // Peak-normalize to a consistent level so the demos (and the dry/wet A/B) are
+  // fairly comparable regardless of each patch's internal gain.
+  let peak = 0
+  for (let i = 0; i < mix.left.length; i++) {
+    peak = Math.max(peak, Math.abs(mix.left[i]!), Math.abs(mix.right[i]!))
+  }
+  const g = peak > 1e-6 ? 0.8 / peak : 1
+  for (let i = 0; i < mix.left.length; i++) {
+    mix.left[i]! *= g
+    mix.right[i]! *= g
+  }
   const wav = encodeWav16(mix.left, mix.right, mix.sampleRate)
   writeFileSync(join(outDir, `${demo.name}.wav`), wav)
-  console.log(`✓ ${demo.name}.wav  (${durationSec.toFixed(1)}s)`)
+  console.log(`✓ ${demo.name}.wav  (${durationSec.toFixed(1)}s, ×${g.toFixed(2)})`)
 }

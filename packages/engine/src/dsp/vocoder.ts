@@ -1,6 +1,6 @@
 import type { DspContext, Kernel } from './types'
 import { smoothCoeff } from './compress'
-import { flush, clamp, softClipTanh } from './util'
+import { flush, clamp } from './util'
 
 /* ------------------------------------------------------------------------- *
  * Classic analysis/synthesis VOCODER — a bank of matched bandpass filters
@@ -93,9 +93,11 @@ export class VocoderKernel implements Kernel {
 
     const respMs = Math.max(1, (cfg.response ?? 0.012) * 1000)
     this.envCoeff = smoothCoeff(respMs, sr)
-    // The band-sum × envelope loses a lot of level vs the carrier; makeup gain
-    // lands it at a usable level, soft-clipped so extremes stay bounded.
-    this.outGain = 6
+    // Makeup for the band-sum × envelope level loss. Kept LINEAR (no internal
+    // soft-clip): a tanh here would compress the very per-band dynamics that ARE
+    // the vocoder effect and smear in distortion harmonics. Scaled by band count
+    // so it stays roughly level across `bands`; the master stage catches extremes.
+    this.outGain = 0.55 * Math.sqrt(n)
   }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, _ctx: DspContext): void {
@@ -125,7 +127,7 @@ export class VocoderKernel implements Kernel {
         cy1[k] = cy
         acc += cy * e
       }
-      out[s] = softClipTanh(acc * outGain, 0.9)
+      out[s] = acc * outGain
     }
     // block-end denormal / NaN hygiene on the recursive + envelope state
     for (let k = 0; k < bands; k++) {

@@ -4,6 +4,8 @@ import type { DspContext, Kernel } from './dsp/types'
 import { SineKernel, SawKernel, SquareKernel, TriKernel, PulseKernel, NoiseKernel, SyncSawKernel, FMKernel, SuperSawKernel, LFSRKernel } from './dsp/osc'
 import { PhaserKernel, FormantKernel } from './dsp/fx2'
 import type { PhaserConfig } from './dsp/fx2'
+import { VocoderKernel } from './dsp/vocoder'
+import type { VocoderConfig } from './dsp/vocoder'
 import { WavetableKernel } from './dsp/wavetable'
 import { SvfKernel, LadderKernel, OnePoleKernel } from './dsp/filters'
 import type { SvfMode } from './dsp/filters'
@@ -161,6 +163,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   compress: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
+  vocoder: [{ name: 'carrier' }, { name: 'modulator' }],
   pan: [{ name: 'in' }, { name: 'pos', def: 0.5 }],
   const: [],
   param: [],
@@ -224,6 +227,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   compress: (c) => new CompressKernel(compressCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
+  vocoder: (c, ctx) => new VocoderKernel(c as VocoderConfig, ctx),
 }
 
 /** Build a { roomSize?, damp? } config, keeping only the numeric entries so the

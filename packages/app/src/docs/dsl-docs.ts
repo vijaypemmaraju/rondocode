@@ -563,6 +563,12 @@ const SYNTH_CTX: DocEntry[] = [
     'A vowel filter: three band-pass resonators at a vowel’s formant frequencies, so a buzzy source (saw, pulse, supersaw) turns into a singing "aah/eee/ooo". morph (0..1) scans the vowels a to e to i to o to u, sweep it for a talking, vocal effect.',
     "formant(saw(note.freq), lfo(0.2).range(0, 1))",
   ),
+  sc(
+    'vocoder',
+    'vocoder(carrier, modulator, opts?)',
+    'The classic VOCODER: a bank of band-pass filters reads the modulator’s per-band loudness (its spectral envelope) and imposes it on the carrier, so the carrier "talks" or "sings" in the modulator’s voice. Give it a harmonically rich carrier (saw/supersaw/pulse) and a modulator with formants — a voice sample, noise, or another synth. opts: bands 2..64 (def 16, more = clearer), low/high band range in Hz (def 120/7500), q band sharpness scale (def 1), response envelope time in seconds (def 0.012, smaller = crisper consonants).',
+    "vocoder(supersaw(note.freq), sample(gate, 'vox'), { bands: 20 })",
+  ),
   sc('pan', 'pan(input, pos)', 'Place the signal in the stereo field: 0 left, 0.5 center, 1 right.', 'pan(osc, 0.3)'),
   sc('mix', 'mix(a, b, t)', 'Crossfade between two signals: t=0 is all a, t=1 all b.', 'mix(saw(note.freq), square(note.freq), 0.3)'),
 ]

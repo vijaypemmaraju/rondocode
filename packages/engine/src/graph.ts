@@ -4,7 +4,7 @@ export type NodeType =
   | 'svf' | 'ladder' | 'onepole'
   | 'adsr' | 'env' | 'lfo'
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'
-  | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'phaser' | 'formant'
+  | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'phaser' | 'formant' | 'vocoder'
   | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'
   | 'businput' | 'mix' | 'out'
 

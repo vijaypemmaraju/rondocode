@@ -168,6 +168,12 @@ export interface SynthCtx {
   /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
    *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
   formant(inp: SigIn, morph?: SigIn): Sig
+  /** VOCODER: impose the `modulator`'s spectral envelope on the `carrier` via a
+   *  bank of bandpass filters — talking/singing synths. `bands` 2..64 (def 16),
+   *  `low`/`high` the band range in Hz (def 120/7500), `q` band-Q scale (def 1),
+   *  `response` envelope time in s (def 0.012). Carrier should be harmonically
+   *  rich (saw/supersaw); modulator a voice sample, noise, or another synth. */
+  vocoder(carrier: SigIn, modulator: SigIn, opts?: { bands?: number; low?: number; high?: number; q?: number; response?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
 }
 
@@ -204,6 +210,12 @@ export interface PostCtx {
   /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
    *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
   formant(inp: SigIn, morph?: SigIn): Sig
+  /** VOCODER: impose the `modulator`'s spectral envelope on the `carrier` via a
+   *  bank of bandpass filters — talking/singing synths. `bands` 2..64 (def 16),
+   *  `low`/`high` the band range in Hz (def 120/7500), `q` band-Q scale (def 1),
+   *  `response` envelope time in s (def 0.012). Carrier should be harmonically
+   *  rich (saw/supersaw); modulator a voice sample, noise, or another synth. */
+  vocoder(carrier: SigIn, modulator: SigIn, opts?: { bands?: number; low?: number; high?: number; q?: number; response?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
 }
 
@@ -515,6 +527,16 @@ const makeShared = (b: Builder) => {
       if (morph !== undefined) inputs['morph'] = src(morph, 'formant morph')
       return b.node('formant', inputs)
     },
+    vocoder: (
+      carrier: SigIn,
+      modulator: SigIn,
+      opts?: { bands?: number; low?: number; high?: number; q?: number; response?: number },
+    ): Sig =>
+      b.node(
+        'vocoder',
+        { carrier: src(carrier, 'vocoder carrier'), modulator: src(modulator, 'vocoder modulator') },
+        definedConfig({ bands: opts?.bands, low: opts?.low, high: opts?.high, q: opts?.q, response: opts?.response }),
+      ),
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
   }
@@ -548,6 +570,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     compress: shared.compress,
     phaser: shared.phaser,
     formant: shared.formant,
+    vocoder: shared.vocoder,
     mix: shared.mix,
 
     sine: (freq) => b.node('sine', { freq: src(freq, 'sine freq') }),

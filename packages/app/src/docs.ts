@@ -5,6 +5,7 @@ import type { Block, Section } from './docs/content'
 import { docsOfKind } from './docs/dsl-docs'
 import type { DocEntry } from './docs/dsl-docs'
 import { PreviewPlayer } from './docs/player'
+import { createShaderRenderer } from './shaderviz/renderer'
 import { createDocEditor } from './docs/doceditor'
 import { escapeHtml as esc } from './docs/highlight'
 import { iconEl } from './ui/icons'
@@ -44,6 +45,48 @@ player.onStop = () => {
   current?.reset()
   current = null
   player.onPatternEvents = undefined
+  hideViz()
+}
+
+/* ---- inline visuals: one shared WebGPU canvas, moved into the playing block
+ *  when its snippet registered a visual() and rendered live from the preview
+ *  audio (see shaderviz/renderer.ts). Lazily created on first use. */
+let vizCanvas: HTMLCanvasElement | null = null
+let vizRenderer: ReturnType<typeof createShaderRenderer> | null = null
+let latestVisual: { wgsl: string | null; synths: string[] } = { wgsl: null, synths: [] }
+player.onVisual = (wgsl, synths) => {
+  latestVisual = { wgsl, synths }
+}
+
+const ensureViz = (): { canvas: HTMLCanvasElement; renderer: ReturnType<typeof createShaderRenderer> } => {
+  if (!vizCanvas) {
+    vizCanvas = el('canvas', 'doc-viz-canvas hidden')
+    vizRenderer = createShaderRenderer(vizCanvas, {
+      now: () => player.now(),
+      analyser: () => player.analyser,
+      sampleRate: () => player.sampleRate,
+    })
+  }
+  return { canvas: vizCanvas, renderer: vizRenderer! }
+}
+
+const hideViz = (): void => {
+  vizRenderer?.setActive(false)
+  vizCanvas?.classList.add('hidden')
+}
+
+/** Show the shared visual canvas inside `host`, rendering `latestVisual`. */
+const showViz = (host: HTMLElement): void => {
+  if (latestVisual.wgsl === null) {
+    hideViz()
+    return
+  }
+  const { canvas, renderer } = ensureViz()
+  host.append(canvas)
+  canvas.classList.remove('hidden')
+  renderer.setVisual(latestVisual.wgsl, latestVisual.synths)
+  renderer.setCps(player.cps)
+  renderer.setActive(true)
 }
 
 /** A playable code block: a full editor (syntax highlight + flash-on-play,
@@ -90,17 +133,23 @@ async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
       err.textContent = ''
       play.textContent = '…'
       const source = docEd.getDoc()
-      player.onPatternEvents = (evs) => docEd.flash(evs) // flash THIS editor
+      // flash THIS editor and (when it has a visual) feed the shared renderer
+      player.onPatternEvents = (evs) => {
+        docEd.flash(evs)
+        if (latestVisual.wgsl !== null) vizRenderer?.pushEvents(evs)
+      }
       const res = await player.play(source)
       if (res.ok) {
         docEd.markPlaying(source)
         play.classList.add('playing')
         play.textContent = '⏹ stop'
+        showViz(card) // no-op unless the snippet registered a visual()
         current = {
           btn: play,
           reset: () => {
             setIdle()
             docEd.stopFlashes()
+            hideViz()
           },
         }
       } else {

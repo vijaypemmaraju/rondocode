@@ -30,6 +30,25 @@ export class PreviewPlayer {
    *  drive a flash decoration on the editor that owns it. Re-pointed per play. */
   onPatternEvents?: (evs: SchedulerEvent[]) => void
 
+  /** The staged WGSL of the last good eval (or null) + its synth names — so the
+   *  docs page can render a snippet's visual() inline. Fired per successful eval. */
+  onVisual?: (wgsl: string | null, synths: string[]) => void
+
+  /** The audio analyser (spectrum/waveform tap), available once booted. */
+  get analyser(): AnalyserNode | null {
+    return this.audio?.analyser ?? null
+  }
+
+  /** Engine sample rate (0 before boot). */
+  get sampleRate(): number {
+    return this.audio?.sampleRate ?? 48000
+  }
+
+  /** Current tempo (cps) of the playing snippet — for the visualizer's phase. */
+  get cps(): number {
+    return this.session?.getState().cps ?? 0.5
+  }
+
   /** True while a snippet is sounding. */
   get playing(): boolean {
     return this.session?.getState().playing ?? false
@@ -58,6 +77,7 @@ export class PreviewPlayer {
         this.session = new Session({
           audio,
           onPatternEvents: (evs) => this.onPatternEvents?.(evs),
+          onVisual: (wgsl, synths) => this.onVisual?.(wgsl, synths),
         })
       })()
     }

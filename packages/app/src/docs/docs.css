@@ -224,6 +224,17 @@ a:hover {
 .doc-code-body {
   position: relative;
 }
+/* inline WebGPU visual, revealed inside a playing block that has visual() */
+.doc-viz-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-top: 1px solid var(--c-border);
+  background: #060807;
+}
+.doc-viz-canvas.hidden {
+  display: none;
+}
 .doc-code pre {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);

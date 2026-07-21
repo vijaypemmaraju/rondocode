@@ -201,6 +201,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   runBtn.type = 'button'
   const runLabel = el('span', 'btn-label', 'run')
   runBtn.replaceChildren(iconEl('play'), runLabel)
+  runBtn.title = 'run (Cmd/Ctrl+Enter)' // icon-only on mobile, so name it for a11y
   const stopBtn = el('button', 'btn stop-btn')
   stopBtn.type = 'button'
   stopBtn.title = 'stop'
@@ -533,6 +534,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // While playing, Run hot-swaps the current code into the running program
       // rather than starting it — label it "update" (refresh icon) to say so.
       runLabel.textContent = s.playing ? 'update' : 'run'
+      runBtn.title = s.playing ? 'update (Cmd/Ctrl+Enter)' : 'run (Cmd/Ctrl+Enter)'
       const wantIcon = s.playing ? 'refresh' : 'play'
       if (runBtn.dataset.icon !== wantIcon) {
         runBtn.querySelector('svg.ico')?.replaceWith(iconEl(wantIcon))

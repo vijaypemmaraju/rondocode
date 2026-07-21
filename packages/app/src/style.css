@@ -744,18 +744,30 @@ body {
 
 .project-btn {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
   min-height: var(--h-ctrl);
   min-width: 0;
   max-width: 42vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-ctrl);
   color: var(--c-text);
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: var(--r);
   padding: 0 var(--sp-3);
+}
+.project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-btn svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
 }
 
 .sheet-backdrop {
@@ -953,7 +965,7 @@ body {
 
 .lib-empty {
   font-size: var(--fs-ctrl);
-  color: var(--c-faint);
+  color: var(--c-dim);
   padding: var(--sp-2) var(--sp-1);
 }
 
@@ -1109,8 +1121,8 @@ body {
   display: block;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: var(--fs-meta);
-  color: var(--c-faint);
-  margin-top: 4px;
+  color: var(--c-dim);
+  margin-top: var(--sp-1);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -1125,7 +1137,14 @@ body {
   text-decoration: none;
   white-space: nowrap;
 }
-.docs-full-link:hover {
+@media (hover: hover) {
+  .docs-full-link:hover {
+    color: var(--c-accent);
+  }
+}
+.docs-full-link:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
   color: var(--c-accent);
 }
 
@@ -1180,7 +1199,7 @@ body {
 .synthlib-tags {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: var(--fs-meta);
-  color: var(--c-faint);
+  color: var(--c-dim);
 }
 
 .synthlib-actions {
@@ -1198,7 +1217,6 @@ body {
   min-width: 40px;
   min-height: var(--h-ctrl);
   padding: 0 var(--sp-2);
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: var(--fs-ctrl);
   color: var(--c-accent);
   background: var(--c-green-deep);
@@ -1214,6 +1232,10 @@ body {
     background: var(--c-green);
     color: var(--c-text);
   }
+}
+.play-btn svg {
+  width: 15px;
+  height: 15px;
 }
 .play-btn.playing {
   background: var(--c-accent);

@@ -78,6 +78,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
       row.type = 'button'
       row.title = `insert sample(gate, '${s.name}')`
       const name = el('span', 'samples-name', s.name)
+      name.title = s.name // full name; the row ellipsizes
       if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
       row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
       row.addEventListener('click', () => insert(s.name))
@@ -150,13 +151,19 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
   const onKey = (e: KeyboardEvent): void => {
     if (open && e.key === 'Escape') close()
   }
+  // keep the popover pinned under its anchor if the window resizes while open
+  const onResize = (): void => {
+    if (open) position()
+  }
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKey)
+  window.addEventListener('resize', onResize)
 
   return () => {
     unsub()
     document.removeEventListener('click', onDocClick)
     document.removeEventListener('keydown', onKey)
+    window.removeEventListener('resize', onResize)
     pop.remove()
   }
 }

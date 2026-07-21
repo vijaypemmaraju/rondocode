@@ -26,6 +26,14 @@ const ICONS: Record<string, string> = {
   refresh: '<path d="M3 12a9 9 0 0 1 15-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.4L3 16"/><path d="M3 21v-5h5"/>',
   // close
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  // chevron down — dropdown affordance (project button)
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  // external link — "open full docs"
+  external: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
+  // rotate counter-clockwise — reset a widget to its default
+  reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  // check — success confirmation
+  check: '<path d="M20 6 9 17l-5-5"/>',
 }
 
 export function icon(name: string): string {

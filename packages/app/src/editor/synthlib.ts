@@ -1,7 +1,7 @@
 import type { EditorHandle } from './editor'
 import { PreviewPlayer } from '../docs/player'
 import { highlightDsl } from '../docs/highlight'
-import { icon } from '../ui/icons'
+import { icon, iconEl } from '../ui/icons'
 
 /* ------------------------------------------------------------------------- *
  * Synth library: a shelf of ready-made instruments. Each entry auditions a
@@ -217,7 +217,7 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
   search.setAttribute('aria-label', 'search synths')
 
   const list = el('div', 'synthlib-list')
-  sheet.append(head, el('p', 'sheet-hint', 'Audition a synth, then insert its code at your cursor.'), search, list)
+  sheet.append(head, el('p', 'sheet-hint', 'audition a synth, then insert its code at your cursor'), search, list)
 
   const render = (query = ''): void => {
     list.replaceChildren()
@@ -242,7 +242,7 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
       play.type = 'button'
       const setIdle = (): void => {
         play.classList.remove('playing')
-        play.textContent = '▶'
+        play.replaceChildren(iconEl('play'))
         play.title = 'audition'
       }
       setIdle()
@@ -254,11 +254,11 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
           }
           current?.reset()
           current = null
-          play.textContent = '…'
+          play.title = 'loading…'
           const res = await player.play(`${sy.code}\n\n${sy.demoTail}`)
           if (res.ok) {
             play.classList.add('playing')
-            play.textContent = '⏹'
+            play.replaceChildren(iconEl('stop'))
             play.title = 'stop'
             current = { btn: play, reset: setIdle }
           } else {

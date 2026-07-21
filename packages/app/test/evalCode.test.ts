@@ -286,6 +286,61 @@ describe('evalCode: masterCompress staging', () => {
   })
 })
 
+describe('evalCode: bus staging', () => {
+  const REVERB = "({ input, reverb }) => reverb(input, { roomSize: 0.8 })"
+
+  it('stages a bus with a compiled graph and default gain 1', () => {
+    const r = run(`bus('space', ${REVERB})`)
+    expect(r.ok).toBe(true)
+    expect(r.buses.size).toBe(1)
+    const def = r.buses.get('space')!
+    expect(def.gain).toBe(1)
+    expect(def.graph).toBeDefined()
+    expect(Array.isArray(def.graph.nodes)).toBe(true)
+    expect(r.sends).toEqual([])
+  })
+
+  it('collects sends from the send map', () => {
+    const r = run(`bus('space', ${REVERB}, { pad: 0.4, arp: 0.2 })`)
+    expect(r.ok).toBe(true)
+    expect(r.sends).toEqual([
+      { synth: 'pad', bus: 'space', amount: 0.4 },
+      { synth: 'arp', bus: 'space', amount: 0.2 },
+    ])
+  })
+
+  it('honours an explicit output gain', () => {
+    expect(run(`bus('space', ${REVERB}, {}, { gain: 0.5 })`).buses.get('space')?.gain).toBe(0.5)
+  })
+
+  it('last bus() with a name wins', () => {
+    const r = run(`bus('space', ${REVERB}, { a: 0.1 })\nbus('space', ${REVERB}, { b: 0.9 })`)
+    expect(r.buses.size).toBe(1)
+    // both send maps are collected (the Session diffs them); the graph is the last one
+    expect(r.sends.map((s) => s.synth)).toEqual(['a', 'b'])
+  })
+
+  it('rejects a non-function fx, bad name, or out-of-range send amount', () => {
+    expect(run("bus('space', 42)").ok).toBe(false)
+    expect(run(`bus('', ${REVERB})`).ok).toBe(false)
+    expect(run(`bus('space', ${REVERB}, { pad: 2 })`).ok).toBe(false)
+    expect(run(`bus('space', ${REVERB}, { pad: -0.1 })`).ok).toBe(false)
+    expect(run(`bus('space', ${REVERB}, { pad: 'x' })`).ok).toBe(false)
+  })
+
+  it('surfaces an FX compile error as a failed eval', () => {
+    // reverb() with a bogus argument shape should throw during graph build.
+    const r = run("bus('space', ({ input }) => input.nope())")
+    expect(r.ok).toBe(false)
+  })
+
+  it('is empty when never called', () => {
+    const r = run('const z = 1')
+    expect(r.buses.size).toBe(0)
+    expect(r.sends).toEqual([])
+  })
+})
+
 describe('evalCode: all-or-nothing staging', () => {
   it('discards partial registrations when the eval later throws', () => {
     const r = run(`p('a', n('0'))\nconst k = ${SYNTH_SRC}\nthrow new Error('late')`)

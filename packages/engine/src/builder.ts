@@ -603,3 +603,12 @@ export function synth(
   }
   return def
 }
+
+/** Build a shared send-bus FX graph. `fxFn` is a POST-style chain — it takes
+ *  the summed sends as `input` and returns the processed signal — compiled
+ *  exactly like a synth's post chain, so bus FX behave identically. */
+export function busGraph(fxFn: (ctx: PostCtx) => Sig): GraphSpec {
+  return buildGraph(makePostCtx, returnsOwnSig, fxFn, (g) => {
+    compilePost(g, { sampleRate: 48000 })
+  })
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { BLOCK } from '../src/compile'
-import { synth } from '../src/builder'
+import { synth, busGraph } from '../src/builder'
 import type { GraphSpec } from '../src/graph'
 import type { DspContext } from '../src/dsp/types'
 import { softClipTanh } from '../src/dsp/util'
@@ -867,6 +867,101 @@ describe('RealtimeEngine: redefine retires the old pool (no voice cut)', () => {
     const L = walk(eng, 400).L // long enough for release + reap
     const tail = rms(L, L.length - 10 * BLOCK) // measure only the END of the window
     expect(tail).toBeLessThan(0.001) // fully silent (reaped, nothing stuck)
+    expect(errors(events)).toEqual([])
+  })
+})
+
+describe('RealtimeEngine: shared send buses', () => {
+  /** A unity-passthrough bus (out = input): deterministic, so a send just adds
+   *  the synth's PRE-strip voice level into the master. That makes the bus
+   *  contribution easy to observe without waiting for a reverb tail to build. */
+  const thruBus = (): GraphSpec => busGraph((c) => c.input)
+
+  /** Sustained-DC level: noteOn, discard the first 2 blocks, RMS of the next 4. */
+  const heldRms = (eng: RealtimeEngine): number => {
+    send(eng, { kind: 'noteOn', synth: 'dc', note: 60 })
+    walk(eng, 2)
+    return rms(walk(eng, 4).L)
+  }
+
+  it('setSend routes a synth into a bus, adding its pre-fader level to the mix', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+    // Dry-only DC lands at DC_HALF per side; the pre-fader send adds clearly on top.
+    expect(heldRms(eng)).toBeGreaterThan(DC_HALF + 0.1)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('a synth with no send is dry-only (bus contributes nothing)', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    // no setSend
+    expect(heldRms(eng)).toBeCloseTo(DC_HALF, 2)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('the send amount scales the contribution', () => {
+    const level = (amt: number): number => {
+      const { eng } = makeEngine()
+      define(eng, 'dc', dcGraph())
+      send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+      send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: amt })
+      return heldRms(eng)
+    }
+    const half = level(0.5)
+    const full = level(1)
+    expect(half).toBeGreaterThan(DC_HALF) // adds some
+    expect(full).toBeGreaterThan(half) // more send, more level
+  })
+
+  it('removeBus drops the routing: the mix returns to dry-only', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+    send(eng, { kind: 'removeBus', name: 'thru' })
+    expect(heldRms(eng)).toBeCloseTo(DC_HALF, 2)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('setSend amount 0 removes the routing', () => {
+    const { eng } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 0 })
+    expect(heldRms(eng)).toBeCloseTo(DC_HALF, 2)
+  })
+
+  it('setSend to an unknown synth or bus errors without throwing', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    expect(() => send(eng, { kind: 'setSend', synth: 'nope', bus: 'thru', amount: 1 })).not.toThrow()
+    expect(() => send(eng, { kind: 'setSend', synth: 'dc', bus: 'nope', amount: 1 })).not.toThrow()
+    expect(errors(events).length).toBe(2)
+  })
+
+  it('a bad bus graph is rejected and leaves the existing bus untouched', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+    send(eng, { kind: 'defineBus', name: 'thru', graph: { bogus: true } as unknown as GraphSpec })
+    expect(errors(events).length).toBeGreaterThan(0)
+    expect(heldRms(eng)).toBeGreaterThan(DC_HALF + 0.1) // original passthrough still summing
+  })
+
+  it('preserves a synth send across a redefine of that synth', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+    define(eng, 'dc', dcGraph()) // redefine same name — the send must survive
+    expect(heldRms(eng)).toBeGreaterThan(DC_HALF + 0.1)
     expect(errors(events)).toEqual([])
   })
 })

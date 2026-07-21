@@ -141,6 +141,11 @@ export class Session {
   private liveScAmounts = new Map<string, number>()
   /** JSON fingerprint of the live master-comp config (undefined = none). */
   private liveMasterComp: string | undefined
+  /** Live send buses: name → JSON.stringify(BusDef), the diffing fingerprint. */
+  private readonly liveBuses = new Map<string, string>()
+  /** Live per-synth sends: `${synth} ${bus}` → amount, the diff base so an
+   *  unchanged send isn't resent and a dropped one resets to 0. */
+  private liveSends = new Map<string, number>()
   /** Slide notes whose release is deferred until the synth's next note lands
    *  (adaptive 303 slide): synth name -> the held slide note. */
   private readonly pendingSlide = new Map<string, number>()
@@ -308,6 +313,46 @@ export class Session {
       this.liveMasterComp = mcJson
     }
 
+    // Shared send buses: defineBus on new/changed, removeBus when vanished —
+    // same apply-on-ok, diff-and-send discipline as synths. Buses are applied
+    // BEFORE sends so a send never references a not-yet-defined bus.
+    for (const [name, def] of result.buses) {
+      const json = JSON.stringify(def)
+      if (this.liveBuses.get(name) === json) continue
+      this.audio.send({ kind: 'defineBus', name, graph: def.graph, gain: def.gain })
+      this.liveBuses.set(name, json)
+    }
+    for (const name of [...this.liveBuses.keys()]) {
+      if (!result.buses.has(name)) {
+        this.audio.send({ kind: 'removeBus', name })
+        this.liveBuses.delete(name)
+      }
+    }
+
+    // Sends: setSend for new/changed routes, reset a dropped route to 0 — but
+    // only while both endpoints still exist (removeBus/removeSynth already drop
+    // the routing engine-side, and setSend to a gone endpoint would error).
+    const sendKey = (synth: string, bus: string): string => `${synth} ${bus}`
+    const newSends = new Map<string, number>()
+    for (const s of result.sends) newSends.set(sendKey(s.synth, s.bus), s.amount)
+    for (const s of result.sends) {
+      const key = sendKey(s.synth, s.bus)
+      if (this.liveSends.get(key) === s.amount) continue
+      if (this.liveSynths.has(s.synth) && this.liveBuses.has(s.bus)) {
+        this.audio.send({ kind: 'setSend', synth: s.synth, bus: s.bus, amount: s.amount })
+      }
+    }
+    for (const key of this.liveSends.keys()) {
+      if (newSends.has(key)) continue
+      const sep = key.indexOf(' ')
+      const synth = key.slice(0, sep)
+      const bus = key.slice(sep + 1)
+      if (this.liveSynths.has(synth) && this.liveBuses.has(bus)) {
+        this.audio.send({ kind: 'setSend', synth, bus, amount: 0 })
+      }
+    }
+    this.liveSends = newSends
+
     this.lastGoodSource = source
     this.lastError = undefined
     this.onState?.(this.getState())
@@ -433,6 +478,8 @@ export class Session {
     this.liveSidechain = undefined
     this.liveScAmounts.clear()
     this.liveMasterComp = undefined
+    this.liveBuses.clear()
+    this.liveSends = new Map()
     this.pendingSlide.clear()
     for (const name of this.scheduler.patterns()) this.scheduler.removePattern(name)
   }

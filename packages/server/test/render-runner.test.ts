@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GATE_GAP_SEC, renderMix, runPatterns, stageCode } from '../src/render-runner'
 import { duckReleaseCoeff } from '../../engine/src/index'
+import { SECTIONS } from '../../app/src/docs/content'
 
 /* Unit tests for the headless code→audio pipeline, hitting the pure
  * functions directly (faster and sharper than going through MCP — the
@@ -21,6 +22,22 @@ p('melody', n('0 3').scale('a minor').sound('ping'))
 p('bass', n('0').scale('a minor').sound('buzz').ctrl('cutoff', sine.range(400, 2000)))
 setCps(1)
 `
+
+describe('docs guide snippets', () => {
+  // Every fenced code block in the guide is a complete, playable program — so
+  // it must stage cleanly against the exact browser vocabulary. This guards the
+  // guide against DSL drift (a renamed global, a changed signature).
+  const snippets = SECTIONS.flatMap((s) =>
+    s.blocks.filter((b) => b.kind === 'code').map((b) => ({ id: s.id, code: b.text })),
+  )
+  it.each(snippets)('section "$id" snippet stages ok', ({ code }) => {
+    const r = stageCode(code)
+    if (!r.ok) {
+      throw new Error(r.diagnostics.map((d) => `${d.line}:${d.col} ${d.message}`).join(' | '))
+    }
+    expect(r.ok).toBe(true)
+  })
+})
 
 describe('stageCode', () => {
   it('stages synths, patterns and cps from good source', () => {
@@ -187,6 +204,39 @@ p('pa', note('c3').sound('a'))
     expect(base.normalized).toBe(false)
     expect(rms(comped.left)).toBeLessThan(rms(base.left) * 0.9)
     expect(rms(comped.left)).toBeGreaterThan(0)
+  })
+
+  it('routes sends through a shared bus, adding a reverb tail past the dry note (offline parity)', () => {
+    const src = (sendAmt: string) => `
+const a = synth(({ note, gate, adsr, sine }) => sine(note.freq).mul(adsr(gate, { a: 0.001, d: 0.05, s: 0, r: 0.05 })).mul(0.5))
+p('pa', note('c4').sound('a'))
+bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { a: ${sendAmt} })
+`
+    const rmsTail = (x: Float32Array, from: number): number => {
+      let s = 0
+      let cnt = 0
+      for (let i = from; i < x.length; i++) {
+        s += x[i]! * x[i]!
+        cnt++
+      }
+      return Math.sqrt(s / cnt)
+    }
+    // The dry note is fully released well before 0.5s; measure the tail after it.
+    const dur = 1.5
+    const sr = 48000
+    const tailFrom = Math.round(0.5 * sr)
+
+    const dry = stageCode(src('0'))
+    const wet = stageCode(src('0.8'))
+    if (!dry.ok || !wet.ok) throw new Error('stage failed')
+
+    const dryEvents = runPatterns(dry.patterns, { cycles: 1, cps: 1 })
+    const wetEvents = runPatterns(wet.patterns, { cycles: 1, cps: 1 })
+    const dryMix = renderMix(dry.synths, dryEvents, dur, { sampleRate: sr, buses: dry.buses, sends: dry.sends })
+    const wetMix = renderMix(wet.synths, wetEvents, dur, { sampleRate: sr, buses: wet.buses, sends: wet.sends })
+
+    // With a send, the reverb bus rings on after the dry note has gone silent.
+    expect(rmsTail(wetMix.left, tailFrom)).toBeGreaterThan(rmsTail(dryMix.left, tailFrom) + 1e-4)
   })
 
   it('leaves a quiet mix untouched and skips unknown sounds', () => {

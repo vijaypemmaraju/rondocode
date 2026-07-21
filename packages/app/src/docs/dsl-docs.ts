@@ -205,6 +205,12 @@ const GLOBALS: DocEntry[] = [
     'A glue compressor on the whole master bus (stereo-linked, after master gain, before the limiter). threshold dB (def -18), ratio (def 4), attack/release ms (def 10/120), knee dB (def 6), makeup dB (def 0). Call again to change it; omit to remove.',
     'masterCompress({ threshold: -14, ratio: 3, attack: 10, release: 100, makeup: 2 })',
   ),
+  g(
+    'bus',
+    'bus(name: string, fx: (ctx) => Sig, sends?: Record<string, number>, opts?: { gain?: number })',
+    'A shared send bus: one FX chain (written like a synth post-chain) that many synths feed, so a single reverb or delay is shared instead of duplicated per voice. The sends map routes synths in by amount 0..1, tapped pre-fader so a reverb send does not pump with the sidechain. gain (def 1) scales the return; the bus sums into the master before the glue compressor.',
+    "bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { pad: 0.4, arp: 0.2 })",
+  ),
 ]
 
 // -------------------------------------------------------- pattern methods

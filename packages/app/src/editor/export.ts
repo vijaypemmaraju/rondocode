@@ -39,6 +39,7 @@ function bounceLoop(code: string, cycles: number): Uint8Array | { error: string 
     sampleRate: 48000,
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
+    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
   })
   return encodeWav16(mix.left, mix.right, mix.sampleRate)
 }

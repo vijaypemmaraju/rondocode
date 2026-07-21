@@ -146,7 +146,24 @@ interface Channel {
    *  multiplier is 1 - scAmount·(1 - duckLevel). The source channel is never
    *  ducked regardless of this. */
   scAmount: number
+  /** Per-synth send amounts into shared buses (busName -> 0..1). Tapped
+   *  pre-strip/pre-duck (raw post-FX), so a reverb send does not pump. */
+  sends: Map<string, number>
 }
+
+/** A shared send bus: an FX chain (like a synth post-chain) fed by the summed
+ *  per-synth sends, its output mixed into the master before the master stage. */
+interface Bus {
+  name: string
+  post: PostChain
+  gain: number
+  /** Per-block send accumulators (BLOCK long), zeroed each block start. */
+  accumL: Float32Array
+  accumR: Float32Array
+  sumSq: number
+}
+
+const MAX_BUSES = 8
 
 const isObj = (m: unknown): m is Record<string, unknown> => typeof m === 'object' && m !== null
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -199,6 +216,10 @@ export class RealtimeEngine {
   /** Per-channel scratch bus reused across channels and segments. */
   private readonly busL = new Float32Array(BLOCK)
   private readonly busR = new Float32Array(BLOCK)
+  /** Shared send buses (name -> Bus) + a dense mirror for allocation-free
+   *  iteration in render(), rebuilt on define/remove (control plane). */
+  private readonly busByName = new Map<string, Bus>()
+  private busList: Bus[] = []
   /** Sidechain duck. scSource undefined = no ducking. duckLevel is the running
    *  envelope (1 = no duck), snapped to 1 - scDepth on each source noteOn and
    *  recovering toward 1 via scReleaseCoeff per sample; it advances continuously
@@ -353,6 +374,14 @@ export class RealtimeEngine {
       ch.panPrev = ch.pan
       ch.sumSq = 0
     }
+    // Zero the shared-bus send accumulators for this block (mixChannel taps
+    // into them pre-strip/pre-duck; the buses are summed after the segment walk).
+    for (let b = 0; b < this.busList.length; b++) {
+      const bus = this.busList[b]!
+      bus.accumL.fill(0)
+      bus.accumR.fill(0)
+      bus.sumSq = 0
+    }
 
     // Walk the block, splitting at queued-event frames so each event applies
     // on its exact sample (VoicePool.process accepts any n <= BLOCK). fire()
@@ -393,6 +422,27 @@ export class RealtimeEngine {
     if (this.qHead > 0 && this.qHead >= q.length) {
       q.length = 0 // fully drained: reset in place, no allocation
       this.qHead = 0
+    }
+
+    // Shared send buses: each bus's FX chain processes the whole block of
+    // summed sends, then its output is mixed into the master PRE gain/comp (so
+    // a bus reverb sits inside the master glue, and — being fed pre-duck — does
+    // not pump with the sidechain).
+    for (let b = 0; b < this.busList.length; b++) {
+      const bus = this.busList[b]!
+      const aL = bus.accumL
+      const aR = bus.accumR
+      bus.post.processStereo(aL, aR, BLOCK)
+      const g = bus.gain
+      let ss = 0
+      for (let i = 0; i < BLOCK; i++) {
+        const l = aL[i]! * g
+        const r = aR[i]! * g
+        outL[i] = outL[i]! + l
+        outR[i] = outR[i]! + r
+        ss += l * l + r * r
+      }
+      bus.sumSq = ss
     }
 
     // Master stage: gain (one-block ramp), optional glue compressor, soft knee,
@@ -471,6 +521,20 @@ export class RealtimeEngine {
     // Per-synth FX post-chain: process the SUMMED voices once (shared reverb
     // tail etc.), in place, BEFORE the channel strip + sidechain duck.
     if (ch.post !== undefined) ch.post.processStereo(bufL, bufR, n)
+    // Shared-bus sends: tap the raw post-FX (pre-strip, pre-duck) into each
+    // target bus's block accumulator. Pre-duck so a reverb send doesn't pump.
+    if (ch.sends.size > 0) {
+      for (const [busName, amt] of ch.sends) {
+        const bus = this.busByName.get(busName)
+        if (bus === undefined) continue
+        const aL = bus.accumL
+        const aR = bus.accumR
+        for (let i = 0; i < n; i++) {
+          aL[cursor + i] = aL[cursor + i]! + bufL[i]! * amt
+          aR[cursor + i] = aR[cursor + i]! + bufR[i]! * amt
+        }
+      }
+    }
     // Effective duck multiplier for this channel: 1 - amount·(1 - duckLevel).
     // amount 1 → the raw duck envelope; amount 0 → 1 (never entered here,
     // duck is null then). Shared with the offline mirror in render-runner.
@@ -565,6 +629,12 @@ export class RealtimeEngine {
         return this.msgSetMasterComp(m)
       case 'clearMasterComp':
         return this.msgClearMasterComp()
+      case 'defineBus':
+        return this.msgDefineBus(m)
+      case 'removeBus':
+        return this.msgRemoveBus(m)
+      case 'setSend':
+        return this.msgSetSend(m)
       default:
         this.error(`unknown message kind '${m['kind']}'`, 'message')
     }
@@ -648,6 +718,9 @@ export class RealtimeEngine {
       sumSq: 0,
       // Preserve the sidechain response across a redefine (like the strip).
       scAmount: existing?.scAmount ?? 1,
+      // Preserve send amounts too: a redefine shouldn't drop the synth's
+      // routing into shared buses.
+      sends: existing?.sends ?? new Map(),
     })
     this.rebuildList()
   }
@@ -689,6 +762,78 @@ export class RealtimeEngine {
       this.qHead = 0
     }
     this.queue = this.queue.filter((e) => e.synth !== name)
+  }
+
+  private msgDefineBus(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'defineBus')
+    }
+    if (!isObj(m['graph'])) {
+      return this.error(`'graph' must be a GraphSpec object`, `defineBus '${name}'`)
+    }
+    const existing = this.busByName.get(name)
+    if (existing === undefined && this.busByName.size >= MAX_BUSES) {
+      return this.error(`bus limit reached (${MAX_BUSES})`, `defineBus '${name}'`)
+    }
+    let gain = 1
+    if (m['gain'] !== undefined) {
+      if (!fin(m['gain'])) return this.error(`'gain' must be a finite number`, `defineBus '${name}'`)
+      gain = m['gain'] as number
+    }
+    const graph = m['graph'] as unknown as GraphSpec
+    let post: PostChain
+    try {
+      // Compile BEFORE touching the registry: a bad graph leaves any existing
+      // bus of this name untouched (mirrors defineSynth's last-good guarantee).
+      post = new PostChain(graph, this.ctx)
+    } catch (e) {
+      return this.error(
+        `defineBus '${name}' rejected: ${e instanceof Error ? e.message : String(e)}`,
+        `defineBus '${name}'`,
+      )
+    }
+    // Reuse the old accumulators on redefine (they're just scratch), else fresh.
+    this.busByName.set(name, {
+      name,
+      post,
+      gain,
+      accumL: existing?.accumL ?? new Float32Array(BLOCK),
+      accumR: existing?.accumR ?? new Float32Array(BLOCK),
+      sumSq: 0,
+    })
+    this.rebuildBusList()
+  }
+
+  private msgRemoveBus(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string') return this.error(`'name' must be a string`, 'removeBus')
+    if (!this.busByName.delete(name)) {
+      return this.error(`unknown bus '${name}'`, 'removeBus')
+    }
+    // Drop dangling sends into the removed bus (keeps the per-channel maps
+    // tight); a send left pointing at a gone bus would be a no-op anyway.
+    for (const ch of this.byName.values()) ch.sends.delete(name)
+    this.rebuildBusList()
+  }
+
+  private msgSetSend(m: Record<string, unknown>): void {
+    const synth = m['synth']
+    const bus = m['bus']
+    if (typeof synth !== 'string') return this.error(`'synth' must be a string`, 'setSend')
+    if (typeof bus !== 'string') return this.error(`'bus' must be a string`, 'setSend')
+    const ch = this.byName.get(synth)
+    if (!ch) return this.error(`unknown synth '${synth}'`, `setSend '${synth}'->'${bus}'`)
+    if (!this.busByName.has(bus)) return this.error(`unknown bus '${bus}'`, `setSend '${synth}'->'${bus}'`)
+    if (!fin(m['amount'])) return this.error(`'amount' must be a finite number`, `setSend '${synth}'->'${bus}'`)
+    const amount = clamp(m['amount'] as number, 0, 1)
+    // Amount 0 removes the send so the audio-path tap loop stays minimal.
+    if (amount === 0) ch.sends.delete(bus)
+    else ch.sends.set(bus, amount)
+  }
+
+  private rebuildBusList(): void {
+    this.busList = [...this.busByName.values()]
   }
 
   private msgNote(m: Record<string, unknown>, rank: number): void {

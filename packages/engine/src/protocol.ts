@@ -32,6 +32,18 @@ export type EngineMessage = (
   | { kind: 'patchConstants'; name: string; patches: { node: number; port: string; value: number }[] }
   /** Drop the synth and all its voices immediately (hard stop, no release). */
   | { kind: 'removeSynth'; name: string }
+  /** Create/replace a shared send bus: a named FX chain (a POST-style graph,
+   *  compiled like a synth's post-chain) that synths feed via per-synth send
+   *  amounts (see setSend). The bus output is summed into the master before
+   *  the master gain/compressor. `gain` (default 1) scales the bus output.
+   *  Like defineSynth, a bad graph leaves any existing bus untouched. */
+  | { kind: 'defineBus'; name: string; graph: GraphSpec; gain?: number }
+  /** Drop a shared bus; any sends into it become no-ops. */
+  | { kind: 'removeBus'; name: string }
+  /** Per-synth send amount (0..1, clamped) into a shared bus. Unknown synth or
+   *  bus → validated no-op. Pre-fader/pre-duck tap, so a reverb send does not
+   *  pump with the sidechain. */
+  | { kind: 'setSend'; synth: string; bus: string; amount: number }
   /** `atFrame` is an absolute frame in the SAME timeline the host passes as
    *  `startFrame` to RealtimeEngine.process() — for an AudioWorklet host
    *  that's the context's running frame counter. Omitted or already past →

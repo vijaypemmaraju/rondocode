@@ -124,6 +124,28 @@ p('chords', chord('<Am7 Dm7 G7 Cmaj7>').sound('stab'))`,
     ],
   },
   {
+    id: 'sends',
+    title: 'Shared send buses',
+    blocks: [
+      p("A post-chain lives inside one synth. A `bus(name, fx, sends)` is a shared effect that many synths feed at once, so a single reverb ties a pluck and a pad into the same space instead of each carrying its own. The send map routes each synth in by amount 0..1. Sends are pre-fader, so lowering a channel keeps its reverb; and a bus reverb sits outside the sidechain, so it does not pump."),
+      code(
+        'A pluck and a pad sharing one reverb, each sent in by a different amount.',
+        `const pluck = synth(({ note, gate, adsr, tri }) =>
+  tri(note.freq).mul(adsr(gate, { a: 0.004, d: 0.14, s: 0, r: 0.12 })))
+const pad = synth(({ note, gate, adsr, saw, svf }) =>
+  svf(saw(note.freq).add(saw(note.freq.mul(1.007))), 1600, { res: 0.2 })
+    .mul(adsr(gate, { a: 0.4, d: 0.5, s: 0.8, r: 0.7 })).mul(0.35))
+
+p('lead', note('c5 e5 g5 e5').sound('pluck'))
+p('bed', chord('<Cmaj7 Am7>').sound('pad').dur(0.98))
+
+// one reverb, fed by both synths (pluck brighter, pad deeper)
+bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9, damp: 0.3 }), { pluck: 0.35, pad: 0.6 })
+setCps(0.5)`,
+      ),
+    ],
+  },
+  {
     id: 'arrange',
     title: 'Layering & tempo',
     blocks: [

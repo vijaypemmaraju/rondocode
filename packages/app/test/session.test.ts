@@ -193,6 +193,62 @@ describe('Session.evalCode: sidechain diff & send', () => {
   })
 })
 
+describe('Session.evalCode: bus & send diff', () => {
+  const REVERB = "({ input, reverb }) => reverb(input, { roomSize: 0.8 })"
+  const busSrc = (sends = '{ a: 0.4 }') => `const a = ${SYNTH_SRC}\nbus('space', ${REVERB}, ${sends})`
+
+  it('sends defineBus with graph + gain and setSend for the routes', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(busSrc())
+    const defs = ofKind('defineBus')
+    expect(defs).toHaveLength(1)
+    expect(defs[0]).toMatchObject({ kind: 'defineBus', name: 'space', gain: 1 })
+    expect(defs[0]!.graph).toHaveProperty('nodes')
+    expect(ofKind('setSend')).toContainEqual({ kind: 'setSend', synth: 'a', bus: 'space', amount: 0.4 })
+  })
+
+  it('does not resend an unchanged bus or send', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(busSrc())
+    session.evalCode(busSrc())
+    expect(ofKind('defineBus')).toHaveLength(1)
+    expect(ofKind('setSend')).toHaveLength(1)
+  })
+
+  it('resends setSend when the amount changes', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(busSrc('{ a: 0.4 }'))
+    session.evalCode(busSrc('{ a: 0.7 }'))
+    const sends = ofKind('setSend')
+    expect(sends).toHaveLength(2)
+    expect(sends[1]).toMatchObject({ amount: 0.7 })
+  })
+
+  it('resets a dropped send to 0 while the bus lives on', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(busSrc('{ a: 0.4 }'))
+    session.evalCode(busSrc('{}')) // route dropped, bus still present
+    expect(ofKind('setSend')).toContainEqual({ kind: 'setSend', synth: 'a', bus: 'space', amount: 0 })
+    expect(ofKind('removeBus')).toHaveLength(0)
+  })
+
+  it('sends removeBus when the bus vanishes and does NOT reset its sends (engine drops them)', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(busSrc('{ a: 0.4 }'))
+    session.evalCode(`const a = ${SYNTH_SRC}`) // no bus() at all
+    expect(ofKind('removeBus').map((m) => m.name)).toEqual(['space'])
+    // no setSend(...,0): removeBus already dropped the routing engine-side
+    expect(ofKind('setSend').filter((m) => m.amount === 0)).toHaveLength(0)
+  })
+
+  it('a failed eval sends no bus message', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(`bus('space', ${REVERB})\nthrow new Error('x')`)
+    expect(ofKind('defineBus')).toHaveLength(0)
+    expect(ofKind('setSend')).toHaveLength(0)
+  })
+})
+
 describe('Session.transport', () => {
   it('play starts a 25ms tick interval; stop clears it and panics notes', () => {
     const { session, intervals, ofKind } = rig()

@@ -28,7 +28,7 @@
 // see mcp.ts header): the app's eval core gives us the exact browser
 // vocabulary; pattern/engine give the scheduler and offline renderer.
 import { evalCode } from '../../app/src/session/evalCode'
-import type { Diagnostic } from '../../app/src/session/evalCode'
+import type { Diagnostic, BusDef, SendSpec } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
 import { Scheduler } from '../../pattern/src/index'
 import type { ControlMap, Pattern } from '../../pattern/src/index'
@@ -55,6 +55,10 @@ export type StageResult =
       ok: true
       synths: Map<string, SynthDef>
       patterns: Map<string, Pattern<ControlMap>>
+      /** Staged shared send buses (name → compiled FX graph + gain). */
+      buses: Map<string, BusDef>
+      /** Staged per-synth sends into buses. */
+      sends: SendSpec[]
       /** Present iff the code called setCps (already clamped 0.05..4). */
       cps?: number
       /** Present iff the code called sidechain() — releaseMs, not seconds.
@@ -79,6 +83,8 @@ export function stageCode(source: string): StageResult {
     ok: true,
     synths: r.synths,
     patterns: r.patterns,
+    buses: r.buses,
+    sends: r.sends,
     warnings: r.diagnostics,
   }
   if (r.cps !== undefined) out.cps = r.cps
@@ -192,6 +198,13 @@ export interface MixOpts {
    *  the summed mix before normalization — mirrors the live engine's master
    *  compressor (which runs after master gain, before the limiter). */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Shared send buses (name → compiled FX graph + gain). Fed by `sends` and
+   *  summed into the mix before the master compressor — mirrors the live
+   *  engine's bus stage. */
+  buses?: Map<string, BusDef>
+  /** Per-synth sends into buses (0..1). Tapped from each stem's raw post-FX
+   *  (pre-duck), matching the live engine's pre-fader send tap. */
+  sends?: SendSpec[]
 }
 
 export interface MixResult {
@@ -268,6 +281,21 @@ export function renderMix(
   const sc = opts?.sidechain
   const duck = sc !== undefined ? buildDuckEnvelope(sc, events.get(sc.source), total, sampleRate) : undefined
 
+  // Shared send buses: one full-length accumulator pair per bus, and a
+  // per-synth index of its sends. Stems tap into these PRE-duck (below),
+  // mirroring the live engine's pre-fader send tap.
+  const busAccums = new Map<string, { L: Float32Array; R: Float32Array }>()
+  const sendsBySynth = new Map<string, SendSpec[]>()
+  if (opts?.buses !== undefined && opts.buses.size > 0) {
+    for (const [busName] of opts.buses) busAccums.set(busName, { L: new Float32Array(total), R: new Float32Array(total) })
+    for (const s of opts.sends ?? []) {
+      if (!busAccums.has(s.bus)) continue
+      const list = sendsBySynth.get(s.synth) ?? []
+      list.push(s)
+      sendsBySynth.set(s.synth, list)
+    }
+  }
+
   for (const [name] of synths) perSynth[name] = { events: 0, rms: 0 }
   for (const [name, evs] of events) {
     const def = synths.get(name)
@@ -281,6 +309,17 @@ export function renderMix(
       for (let i = 0; i < total; i += BLOCK) {
         const n = Math.min(BLOCK, total - i)
         chain.processStereo(stem.left.subarray(i, i + n), stem.right.subarray(i, i + n), n)
+      }
+    }
+    // Send tap: pre-duck (raw post-FX), so a reverb send does not pump.
+    const stemSends = sendsBySynth.get(name)
+    if (stemSends !== undefined) {
+      for (const s of stemSends) {
+        const acc = busAccums.get(s.bus)!
+        for (let i = 0; i < total; i++) {
+          acc.L[i]! += stem.left[i]! * s.amount
+          acc.R[i]! += stem.right[i]! * s.amount
+        }
       }
     }
     if (duck !== undefined && sc !== undefined && name !== sc.source) {
@@ -301,6 +340,27 @@ export function renderMix(
     }
     const notes = evs.filter((e) => e.type === 'noteOn').length
     perSynth[name] = { events: notes, rms: stemRms(stem.left, stem.right) }
+  }
+
+  // Shared send buses: each bus's FX chain processes its accumulated sends
+  // (block by block, like the live PostChain), then the output is scaled by
+  // gain and summed into the mix BEFORE the master compressor — mirroring the
+  // live engine's bus stage.
+  if (opts?.buses !== undefined) {
+    for (const [busName, def] of opts.buses) {
+      const acc = busAccums.get(busName)
+      if (acc === undefined) continue
+      const chain = new PostChain(def.graph, { sampleRate })
+      for (let i = 0; i < total; i += BLOCK) {
+        const n = Math.min(BLOCK, total - i)
+        chain.processStereo(acc.L.subarray(i, i + n), acc.R.subarray(i, i + n), n)
+      }
+      const g = def.gain
+      for (let i = 0; i < total; i++) {
+        left[i]! += acc.L[i]! * g
+        right[i]! += acc.R[i]! * g
+      }
+    }
   }
 
   // Master glue compressor (stereo-linked), mirroring the live engine's master

@@ -112,4 +112,4 @@ export type EngineEvent =
    *  for schedulers stamping future atFrame values. Produced by
    *  RealtimeEngine.collectMeters() on request — the engine does not emit
    *  these unprompted. */
-  | { kind: 'meters'; frame: number; master: number; channels: Record<string, number> }
+  | { kind: 'meters'; frame: number; master: number; channels: Record<string, number>; buses?: Record<string, number> }

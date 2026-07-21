@@ -587,6 +587,61 @@ body {
   width: 72px;
 }
 
+/* --- bus section: shared send buses, faders that edit the code --- */
+
+.mixer-buses {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.mixer-bus-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl);
+}
+
+.mixer-bus-name {
+  color: var(--c-accent-alt);
+}
+
+.mixer-bus-sends {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  /* indent the sends under their bus header */
+  padding-left: calc(64px + var(--sp-2));
+}
+
+.mixer-send {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl); /* touch target row */
+}
+
+.mixer-send-label {
+  flex: none;
+  width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+}
+
+.mixer-send input[type='range'] {
+  min-height: var(--h-ctrl); /* touch target */
+  margin: 0;
+  background: transparent;
+  accent-color: var(--c-accent-alt);
+}
+
 /* --- runtime-error strip (scheduler/engine diagnostics) --- */
 
 .status-strip {

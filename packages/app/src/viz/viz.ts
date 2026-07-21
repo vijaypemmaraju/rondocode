@@ -4,6 +4,7 @@ import { C_ACCENT, C_ACCENT_ALT } from '../ui/palette'
 import { icon } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { createMixer } from './mixer'
+import { detectBuses } from '../editor/buses'
 
 /* ------------------------------------------------------------------------- *
  * Viz panel: a collapsible strip between the editor and the transport bar
@@ -82,7 +83,7 @@ export function mountViz(root: HTMLElement, editor: EditorHandle, audio: AudioSe
   const spectrumCanvas = document.createElement('canvas')
   spectrumCanvas.className = 'viz-spectrum'
   canvases.append(scopeCanvas, spectrumCanvas)
-  const mixer = createMixer(editor.session)
+  const mixer = createMixer(editor.session, editor.rewrite)
   panel.append(canvases, mixer.el)
   root.append(panel) // bottom of the app column (the transport bar is gone)
 
@@ -211,17 +212,24 @@ export function mountViz(root: HTMLElement, editor: EditorHandle, audio: AudioSe
   window.addEventListener('resize', onResize)
 
   // ---- session wiring --------------------------------------------------
+  // The mixer's bus faders edit the bus() literals in the source, so their
+  // ranges must track the text: refresh on every doc change (re-detect buses),
+  // not only on eval. Synth rows still come from session state.
+  let lastSynths: string[] = editor.session.getState().synths
+  const refreshMixer = (): void => mixer.refresh(lastSynths, detectBuses(editor.getDoc()))
   const unsubState = editor.onState((s) => {
     playing = s.playing
-    mixer.refresh(s.synths)
+    lastSynths = s.synths
+    refreshMixer()
     syncLoop()
   })
+  const unsubDoc = editor.onDoc(() => refreshMixer())
   const unsubEngine = editor.onEngineEvent((ev) => {
     if (ev.kind !== 'meters' || !open) return
-    mixer.paintMeters(ev.channels) // event-driven, no rAF: decays to 0 after stop
+    mixer.paintMeters(ev.channels, ev.buses) // event-driven, no rAF: decays to 0 after stop
   })
 
-  mixer.refresh(editor.session.getState().synths)
+  refreshMixer()
   setOpen(open)
 
   return {
@@ -229,6 +237,7 @@ export function mountViz(root: HTMLElement, editor: EditorHandle, audio: AudioSe
       disposed = true
       syncLoop()
       unsubState()
+      unsubDoc()
       unsubEngine()
       window.removeEventListener('resize', onResize)
       mixer.dispose()

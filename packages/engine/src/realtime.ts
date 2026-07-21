@@ -286,12 +286,21 @@ export class RealtimeEngine {
       channels[ch.name] = Number.isFinite(v) ? v : 0
     }
     const master = Math.sqrt(this.masterSumSq / (2 * BLOCK))
-    return {
+    const ev: Extract<EngineEvent, { kind: 'meters' }> = {
       kind: 'meters',
       frame: this.frames,
       master: Number.isFinite(master) ? master : 0,
       channels,
     }
+    if (this.busList.length > 0) {
+      const buses = Object.create(null) as Record<string, number>
+      for (const bus of this.busList) {
+        const v = Math.sqrt(bus.sumSq / (2 * BLOCK))
+        buses[bus.name] = Number.isFinite(v) ? v : 0
+      }
+      ev.buses = buses
+    }
+    return ev
   }
 
   /** Render exactly BLOCK frames into outL/outR (their previous contents are

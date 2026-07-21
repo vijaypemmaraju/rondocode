@@ -66,3 +66,44 @@ describe('.arp()', () => {
     expect(notesOf(q(chord('C').arp('updown'), 0, 1))).toEqual([48, 52, 55, 52])
   })
 })
+
+describe('chord voicings', () => {
+  const sorted = (p: ReturnType<typeof chord>): number[] =>
+    notesOf(q(p, 0, 1)).sort((a, b) => a - b)
+
+  it('invert(k) lifts the lowest voices up an octave (wrapping)', () => {
+    // C major = [48, 52, 55]
+    expect(sorted(chord('C').invert(1))).toEqual([52, 55, 60]) // root up 8ve
+    expect(sorted(chord('C').invert(2))).toEqual([55, 60, 64]) // lowest two up
+    expect(sorted(chord('C').invert(3))).toEqual([60, 64, 67]) // full octave up
+  })
+
+  it('negative invert drops the highest voices down', () => {
+    expect(sorted(chord('C').invert(-1))).toEqual([43, 48, 52]) // top (55) down 8ve
+  })
+
+  it('octave(n) transposes the whole chord', () => {
+    expect(sorted(chord('C').octave(1))).toEqual([60, 64, 67])
+    expect(sorted(chord('C').octave(-1))).toEqual([36, 40, 43])
+  })
+
+  it('voicing modes re-space the chord', () => {
+    // Cmaj7 = [48, 52, 55, 59]
+    expect(sorted(chord('Cmaj7').voicing('close'))).toEqual([48, 52, 55, 59])
+    expect(sorted(chord('C').voicing('open'))).toEqual([48, 55, 64]) // 2nd voice up 8ve
+    expect(sorted(chord('Cmaj7').voicing('drop2'))).toEqual([43, 48, 52, 59]) // 2nd-from-top down
+    expect(sorted(chord('Cmaj7').voicing('drop3'))).toEqual([40, 48, 55, 59]) // 3rd-from-top down
+    expect(sorted(chord('Cmaj7').voicing('spread'))).toEqual([48, 55, 64, 71]) // alt voices up
+  })
+
+  it('voicings compose and still arpeggiate', () => {
+    const p = chord('<Cmaj7 Am7>').octave(1).invert(1)
+    // 8 note-events over two cycles once arpeggiated (4 per chord)
+    const arped = q(p.arp('up'), 0, 2)
+    expect(arped.length).toBe(8)
+  })
+
+  it('an unknown voicing name falls back to close', () => {
+    expect(sorted(chord('C').voicing('nope'))).toEqual([48, 52, 55])
+  })
+})

@@ -226,6 +226,9 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('late', 'late(t: number)', 'Nudge everything later by t cycles, echoes and laid-back feels.', '.superimpose(x => x.late(0.25).gain(0.3))'),
   pm('rev', 'rev()', 'Play each cycle backwards.', '.every(4, x => x.rev())'),
   pm('arp', "arp(mode?: 'up'|'down'|'updown'|'downup'|'updowninc'|'converge')", 'Arpeggiate: spread the notes that sound together (a chord) across their step, in mode order. Great on chord().', "chord('<Cmaj7 Am7>').arp('updown')"),
+  pm('invert', 'invert(k: number)', 'Invert a chord: positive k lifts the lowest voices up an octave (1 = first inversion, 2 = second...), negative drops the highest voices down. Wraps past the chord size. Smooths the jump between chords.', "chord('<C F G>').invert(1)"),
+  pm('octave', 'octave(n: number)', 'Transpose whole chords/notes by n octaves (n×12 semitones); negative goes down.', "chord('Cmaj7').octave(-1)"),
+  pm('voicing', "voicing(name?: 'close'|'open'|'drop2'|'drop3'|'spread')", 'Re-space a chord: close (default), open (2nd voice up an octave), drop2/drop3 (drop the 2nd/3rd voice from the top for a wider jazz spread), or spread (alternate voices up an octave).', "chord('<Cmaj7 Am7>').voicing('drop2')"),
   pm(
     'every',
     'every(n: number, f: (p) => p)',

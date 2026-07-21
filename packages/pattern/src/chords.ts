@@ -117,12 +117,90 @@ const noteVal = (v: unknown): number =>
     ? (v as { note: number }).note
     : 0
 
+/** Copy a hap value with a new `note` (preserves loc/gain/other controls). */
+const withNote = <T>(v: T, note: number): T =>
+  v !== null && typeof v === 'object' ? ({ ...(v as object), note } as T) : ({ note } as unknown as T)
+
+/** Regroup simultaneous note haps (a chord), sort them low→high, and remap their
+ *  note values via `transform` (given the sorted MIDI notes, returns the new
+ *  ones). Non-onset fragments and non-note haps pass through untouched. Shared
+ *  by invert/octave/voicing — the note ORDER returned by transform is irrelevant
+ *  (the notes sound together), only the multiset matters. */
+const revoice = <T>(pat: Pattern<T>, transform: (notes: number[]) => number[]): Pattern<T> =>
+  new Pattern<T>((span) => {
+    const out: Hap<T>[] = []
+    const groups = new Map<string, Hap<T>[]>()
+    for (const h of pat.query(span)) {
+      if (!hasOnset(h)) {
+        out.push(h) // held tail — leave it be
+        continue
+      }
+      const w = h.whole!
+      const key = `${w.begin.toString()}_${w.end.toString()}`
+      let g = groups.get(key)
+      if (!g) {
+        g = []
+        groups.set(key, g)
+      }
+      g.push(h)
+    }
+    for (const g of groups.values()) {
+      g.sort((a, b) => noteVal(a.value) - noteVal(b.value)) // low→high
+      const newNotes = transform(g.map((h) => noteVal(h.value)))
+      for (let i = 0; i < g.length; i++) {
+        const nn = newNotes[i]
+        if (nn === undefined) continue // transform dropped a voice
+        out.push(hap(g[i]!.whole, g[i]!.part, withNote(g[i]!.value, nn)))
+      }
+      // extra voices beyond the input count borrow the lowest hap's controls
+      for (let i = g.length; i < newNotes.length; i++) {
+        out.push(hap(g[0]!.whole, g[0]!.part, withNote(g[0]!.value, newNotes[i]!)))
+      }
+    }
+    return out
+  })
+
+/** Named voicings over a sorted (low→high) chord. */
+const VOICINGS: Record<string, (notes: number[]) => number[]> = {
+  close: (ns) => ns,
+  open: (ns) => ns.map((x, i) => (i === 1 ? x + 12 : x)), // raise the 2nd voice an octave
+  drop2: (ns) => ns.map((x, i) => (i === ns.length - 2 ? x - 12 : x)),
+  drop3: (ns) => ns.map((x, i) => (i === ns.length - 3 ? x - 12 : x)),
+  spread: (ns) => ns.map((x, i) => (i % 2 === 1 ? x + 12 : x)), // alternate voices up an octave
+}
+
+/** Invert a sorted chord by `k` steps: k>0 lifts the lowest voices up octaves
+ *  (wrapping past the chord size), k<0 drops the highest voices down. */
+const invertNotes = (notes: number[], k: number): number[] => {
+  const len = notes.length
+  if (len === 0) return notes
+  if (k >= 0) {
+    const whole = Math.floor(k / len)
+    const rem = k % len
+    return notes.map((x, i) => x + 12 * (whole + (i < rem ? 1 : 0)))
+  }
+  const kk = -k
+  const whole = Math.floor(kk / len)
+  const rem = kk % len
+  return notes.map((x, i) => x - 12 * (whole + (i >= len - rem ? 1 : 0)))
+}
+
 declare module './pattern' {
   interface Pattern<T> {
     /** Arpeggiate: spread the notes that sound TOGETHER (a chord) across their
      *  step, in `mode` order. Modes: up, down, updown, downup, updowninc,
      *  converge. Best on a `chord(...)` pattern. */
     arp(this: Pattern<T>, mode?: string): Pattern<T>
+    /** Invert a chord: `k` positive lifts the lowest voices up an octave (1 =
+     *  first inversion), negative drops the highest voices down. Wraps past the
+     *  chord size for multi-octave inversions. */
+    invert(this: Pattern<T>, k: number): Pattern<T>
+    /** Transpose whole chords/notes by `n` octaves (n·12 semitones). */
+    octave(this: Pattern<T>, n: number): Pattern<T>
+    /** Re-space a chord: 'close' (default), 'open' (2nd voice up an octave),
+     *  'drop2'/'drop3' (drop the 2nd/3rd voice from the top an octave), or
+     *  'spread' (alternate voices up an octave). */
+    voicing(this: Pattern<T>, name?: string): Pattern<T>
   }
 }
 
@@ -161,4 +239,18 @@ Pattern.prototype.arp = function <T>(this: Pattern<T>, mode = 'up'): Pattern<T> 
     }
     return out
   })
+}
+
+Pattern.prototype.invert = function <T>(this: Pattern<T>, k: number): Pattern<T> {
+  return revoice(this, (notes) => invertNotes(notes, Math.trunc(k)))
+}
+
+Pattern.prototype.octave = function <T>(this: Pattern<T>, n: number): Pattern<T> {
+  const semis = 12 * Math.trunc(n)
+  return revoice(this, (notes) => notes.map((x) => x + semis))
+}
+
+Pattern.prototype.voicing = function <T>(this: Pattern<T>, name = 'close'): Pattern<T> {
+  const fn = VOICINGS[name] ?? VOICINGS['close']!
+  return revoice(this, fn)
 }

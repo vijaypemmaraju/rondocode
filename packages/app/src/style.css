@@ -1566,6 +1566,94 @@ body.shaderviz-on .cm-content {
   border-radius: var(--r);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
+/* --- options / settings popover (ui/options.ts) --- */
+.options-pop {
+  position: fixed;
+  z-index: 45;
+  min-width: 260px;
+  max-width: min(340px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.options-pop.hidden {
+  display: none;
+}
+.options-head {
+  font-size: var(--fs-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-dim);
+  padding: 0 var(--sp-1) var(--sp-1);
+}
+/* a settings row: label + help on the left, a toggle switch on the right */
+.opt-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  text-align: left;
+  cursor: pointer;
+  color: var(--c-text);
+}
+.opt-row:hover {
+  background: var(--c-bg);
+  border-color: var(--c-border);
+}
+.opt-text {
+  flex: 1;
+  min-width: 0;
+}
+.opt-label {
+  font-size: var(--fs-ctrl);
+  font-weight: 600;
+}
+.opt-help {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+/* the switch: a track with a knob that slides + lights when on */
+.opt-switch {
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.opt-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--c-dim);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.opt-row.on .opt-switch {
+  background: var(--c-green-deep);
+  border-color: var(--c-green);
+}
+.opt-row.on .opt-switch::after {
+  transform: translateX(14px);
+  background: var(--c-accent);
+}
+
 .more-pop.hidden {
   display: none;
 }

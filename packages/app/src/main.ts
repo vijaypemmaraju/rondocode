@@ -7,6 +7,7 @@ import { mountDocs } from './editor/docspanel'
 import { mountSynthLib } from './editor/synthlib'
 import { mountShaderViz } from './shaderviz/shaderviz'
 import { mountProbes } from './editor/probes'
+import { mountOptions } from './ui/options'
 import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
 import { BridgeClient } from './session/bridge-client'
@@ -84,6 +85,7 @@ AudioSession.start().then(
     mountSynthLib(editor)
     mountShaderViz(app, editor, audio)
     mountProbes(editor) // inline live-value readouts on modulation expressions
+    mountOptions(editor) // user settings popover (gear)
     mountMidi(editor, audio)
     mountHeaderOverflow(editor.topbar) // after every module has added its button
     startBridge(editor)

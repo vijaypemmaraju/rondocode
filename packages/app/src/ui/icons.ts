@@ -42,6 +42,8 @@ const ICONS: Record<string, string> = {
   dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
   // midi — a little keyboard
   midi: '<rect x="3" y="7" width="18" height="10" rx="1.5"/><path d="M8 7v6M12 7v6M16 7v6"/>',
+  // gear — settings / options
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
 }
 
 export function icon(name: string): string {

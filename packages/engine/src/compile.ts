@@ -1,7 +1,7 @@
 import { GraphError, validateGraph } from './graph'
 import type { GraphSpec, NodeSpec, NodeType, ParamSpec } from './graph'
 import type { DspContext, Kernel } from './dsp/types'
-import { SineKernel, SawKernel, SquareKernel, TriKernel, PulseKernel, NoiseKernel, SyncSawKernel } from './dsp/osc'
+import { SineKernel, SawKernel, SquareKernel, TriKernel, PulseKernel, NoiseKernel, SyncSawKernel, FMKernel } from './dsp/osc'
 import { WavetableKernel } from './dsp/wavetable'
 import { SvfKernel, LadderKernel, OnePoleKernel } from './dsp/filters'
 import type { SvfMode } from './dsp/filters'
@@ -121,6 +121,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   tri: [{ name: 'freq' }],
   pulse: [{ name: 'freq' }, { name: 'width', def: 0.5 }],
   syncsaw: [{ name: 'freq' }, { name: 'ratio', def: 2 }],
+  fm: [{ name: 'freq' }, { name: 'mod', def: 0 }, { name: 'feedback', def: 0 }],
   wavetable: [{ name: 'freq' }, { name: 'pos', def: 0 }],
   noise: [],
   // gate required (retrigger edge); speed optional, 1 = natural pitch.
@@ -168,6 +169,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   tri: () => new TriKernel(),
   pulse: () => new PulseKernel(),
   syncsaw: () => new SyncSawKernel(),
+  fm: () => new FMKernel(),
   // ctx carries the sample rate the kernel needs for mipmap selection; the
   // table's harmonic content is sample-rate-independent and cached module-level
   wavetable: (c, ctx) => new WavetableKernel(typeof c['table'] === 'string' ? c['table'] : undefined, ctx),

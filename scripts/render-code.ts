@@ -54,6 +54,29 @@ masterCompress({ threshold: -12, ratio: 3, makeup: 2 })
 setCps(0.5)`,
   },
   {
+    // FM: an inharmonic bell (ratio 1.4, decaying index) over a chord.
+    name: 'fm-bell',
+    cycles: 8,
+    source: `const bell = synth(({ note, gate, adsr, fm }) => {
+  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.6, s: 0, r: 0.6 }).mul(6))
+  return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 2, s: 0, r: 0.8 })).mul(0.6)
+})
+p('bells', note('<c5 e5 g5 b5> <e5 g5 b5 d6>').sound('bell'))
+setCps(0.5)`,
+  },
+  {
+    // FM: a 3:1 tine electric piano with a touch of feedback grit.
+    name: 'fm-epiano',
+    cycles: 8,
+    source: `const ep = synth(({ note, gate, adsr, fm }) => {
+  const tine = fm(note.freq.mul(3)).mul(adsr(gate, { a: 0.001, d: 0.4, s: 0, r: 0.2 }).mul(3))
+  const body = fm(note.freq, tine, { feedback: 0.1 })
+  return body.mul(adsr(gate, { a: 0.002, d: 1.4, s: 0.15, r: 0.4 })).mul(0.5)
+})
+p('keys', chord('<Cmaj7 Am7 Dm7 G7>').sound('ep').dur(0.95))
+setCps(0.4)`,
+  },
+  {
     // A 16th-note acid line with a filter sweep — the classic 303 sound.
     name: 'acid-line',
     cycles: 8,

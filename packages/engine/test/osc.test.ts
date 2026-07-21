@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SineKernel, SawKernel, SquareKernel, PulseKernel, TriKernel, NoiseKernel, SyncSawKernel } from '../src/dsp/osc'
+import { SineKernel, SawKernel, SquareKernel, PulseKernel, TriKernel, NoiseKernel, SyncSawKernel, FMKernel } from '../src/dsp/osc'
 import { LadderKernel, OnePoleKernel, SvfKernel } from '../src/dsp/filters'
 import { AdsrKernel } from '../src/dsp/env'
 import { LfoKernel } from '../src/dsp/lfo'
@@ -471,5 +471,78 @@ describe('edge cases: out-of-range inputs stay bounded', () => {
     const [min, max] = minMax(out)
     expect(max).toBeLessThanOrEqual(1.1)
     expect(min).toBeGreaterThanOrEqual(-1.1)
+  })
+})
+
+describe('FMKernel', () => {
+  const sineBuf = (freq: number, n: number): Float32Array => {
+    const out = new Float32Array(n)
+    const k = new SineKernel()
+    k.process(n, { freq: new Float32Array(n).fill(freq) }, out, ctx)
+    return out
+  }
+  const runFM = (n: number, freq: number, mod?: Float32Array, feedback = 0): Float32Array => {
+    const out = new Float32Array(n)
+    const inputs: Record<string, Float32Array> = {
+      freq: new Float32Array(n).fill(freq),
+      mod: mod ?? new Float32Array(n), // default 0 (mirrors the PORTS default)
+      feedback: new Float32Array(n).fill(feedback),
+    }
+    new FMKernel().process(n, inputs, out, ctx)
+    return out
+  }
+
+  it('with no modulation and no feedback it IS a pure sine (fundamental only)', () => {
+    const n = 48000
+    const fm = runFM(n, 500)
+    const sine = sineBuf(500, n)
+    // sample-for-sample identical to the sine oscillator
+    let maxDiff = 0
+    for (let i = 0; i < n; i++) maxDiff = Math.max(maxDiff, Math.abs(fm[i]! - sine[i]!))
+    expect(maxDiff).toBeLessThan(1e-6)
+    // negligible energy at a would-be sideband
+    expect(goertzel(fm, 700, sr)).toBeLessThan(goertzel(fm, 500, sr) * 1e-3)
+  })
+
+  it('a modulator injects sidebands at carrier ± k·modFreq', () => {
+    const n = 48000
+    const carrier = 500
+    const modFreq = 100
+    const index = 2 // modulator amplitude in cycles
+    const mod = sineBuf(modFreq, n)
+    for (let i = 0; i < n; i++) mod[i]! *= index
+    const dry = runFM(n, carrier)
+    const wet = runFM(n, carrier, mod)
+    // 700 = carrier + 2·modFreq: silent dry, loud once modulated
+    expect(goertzel(wet, 700, sr)).toBeGreaterThan(goertzel(dry, 700, sr) * 100)
+    // and 400 = carrier − modFreq gains energy too
+    expect(goertzel(wet, 400, sr)).toBeGreaterThan(goertzel(dry, 400, sr) * 100)
+    // output stays bounded (it is a sine of a phase)
+    const [min, max] = minMax(wet)
+    expect(max).toBeLessThanOrEqual(1.0001)
+    expect(min).toBeGreaterThanOrEqual(-1.0001)
+  })
+
+  it('self-feedback adds upper harmonics and stays bounded', () => {
+    const n = 48000
+    const clean = runFM(n, 500, undefined, 0)
+    const fed = runFM(n, 500, undefined, 0.8)
+    // the 2nd harmonic (1000 Hz) is negligible on the clean sine, present with feedback
+    expect(goertzel(fed, 1000, sr)).toBeGreaterThan(goertzel(clean, 1000, sr) * 50)
+    const [min, max] = minMax(fed)
+    expect(max).toBeLessThanOrEqual(1.05)
+    expect(min).toBeGreaterThanOrEqual(-1.05)
+  })
+
+  it('reset() clears phase and feedback history (deterministic restart)', () => {
+    const n = 256
+    const k = new FMKernel()
+    const first = new Float32Array(n)
+    const inputs = { freq: new Float32Array(n).fill(440), mod: new Float32Array(n), feedback: new Float32Array(n).fill(0.7) }
+    k.process(n, inputs, first, ctx)
+    k.reset()
+    const second = new Float32Array(n)
+    k.process(n, inputs, second, ctx)
+    for (let i = 0; i < n; i++) expect(second[i]).toBeCloseTo(first[i]!, 10)
   })
 })

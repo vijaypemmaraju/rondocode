@@ -238,6 +238,54 @@ export class TriKernel implements Kernel {
   }
 }
 
+/** FM / phase-modulation operator: a sine carrier whose phase is offset by an
+ *  external modulator plus optional self-feedback. This is the building block
+ *  of operator-FM — chain operators (each other's `mod`) to get DX-style
+ *  algorithms, and use `feedback` for the self-modulating operator that a pure
+ *  DAG can't express (the loop lives inside this kernel's own history).
+ *
+ *  Inputs: 'freq' (Hz, audio-rate), 'mod' (phase offset in CYCLES — add another
+ *  operator's output; its amplitude is the modulation index, default 0),
+ *  'feedback' (self-modulation 0..~1, default 0). Output in [-1, 1].
+ *
+ *  Feedback uses the classic Yamaha 2-sample average of the operator's own
+ *  history, which stays stable up to feedback ~= 1 (a single-sample loop would
+ *  scream and blow up). Phase is flushed at block end like the other phase
+ *  oscillators so a NaN freq can't poison it permanently. */
+export class FMKernel implements Kernel {
+  private phase = 0
+  private y1 = 0
+  private y2 = 0
+
+  process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
+    const freq = inputs['freq']!
+    const mod = inputs['mod']!
+    const fb = inputs['feedback']!
+    const sr = ctx.sampleRate
+    let phase = this.phase
+    let y1 = this.y1
+    let y2 = this.y2
+    for (let i = 0; i < n; i++) {
+      const self = fb[i]! * (y1 + y2) * 0.5
+      const y = Math.sin(TWO_PI * (phase + mod[i]! + self))
+      out[i] = y
+      y2 = y1
+      y1 = y
+      phase += freq[i]! / sr
+      phase -= Math.floor(phase)
+    }
+    this.phase = flush(phase)
+    this.y1 = flush(y1)
+    this.y2 = flush(y2)
+  }
+
+  reset(): void {
+    this.phase = 0
+    this.y1 = 0
+    this.y2 = 0
+  }
+}
+
 /** White noise via xorshift32. No inputs; output uniform in [-1, 1), seeded
  *  and deterministic: same seed always yields the same sequence. */
 export class NoiseKernel implements Kernel {

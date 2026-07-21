@@ -431,6 +431,12 @@ const SYNTH_CTX: DocEntry[] = [
     'syncsaw(note.freq, lfo(0.2).range(1, 5)).mul(adsr(gate))',
   ),
   sc(
+    'fm',
+    'fm(freq: Sig | number, mod?: Sig | number, opts?: { feedback?: Sig | number })',
+    'FM / phase-modulation operator: a sine at freq whose phase is bent by mod (another operator, its amplitude is the modulation index in cycles) plus self-feedback (0..~1). The FM building block, chain operators as each other mod for DX-style bells, e-pianos and metallic basses; raise feedback for a self-modulating operator that grows toward a saw. Shape it with an ADSR like any oscillator.',
+    'fm(note.freq, fm(note.freq.mul(2)).mul(adsr(gate, { d: 0.4, s: 0 }).mul(4))).mul(adsr(gate))',
+  ),
+  sc(
     'wavetable',
     "wavetable(freq: Sig | number, pos?: Sig | number, opts?: { table: 'basic' | 'harmonic' | 'pwm' })",
     'A morphing wavetable oscillator: pos (0..1) scans through a bank of single-cycle waves for an evolving, sweepable timbre, anti-aliased, so it stays clean up high. Tables: basic (sine→saw→square), harmonic (moving formant), pwm (widening pulses).',

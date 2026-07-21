@@ -104,6 +104,29 @@ p('bass', note('c2 c2 g2 c2 eb2 c2 g1 c2').sound('acid'))`,
     ],
   },
   {
+    id: 'fm',
+    title: 'FM synthesis',
+    blocks: [
+      p("fm() is a phase-modulation operator: a sine whose pitch is bent by another signal. Feed one fm() as the mod of another and its amplitude becomes the modulation index, more index means more sidebands and a brighter, more metallic tone. A non-whole frequency ratio makes those sidebands inharmonic, which is where bells and mallets come from. Because the modulator's amplitude is the index, an envelope on the modulator sweeps the timbre over the note."),
+      p('This is a classic FM bell: a 1.4 ratio modulator with a long-decaying index gives a bright metallic strike that settles to a pure sine tail.'),
+      code(
+        'An FM bell, then an operator feeding back on itself for a reedy tone.',
+        `const bell = synth(({ note, gate, adsr, fm }) => {
+  // modulator at a 1.4 ratio, its index decays from 6 to 0 over the note
+  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.6, s: 0, r: 0.6 }).mul(6))
+  return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 2, s: 0, r: 0.8 }))
+})
+const reed = synth(({ note, gate, adsr, fm }) =>
+  // feedback grows a single operator toward a saw, a buzzy reed
+  fm(note.freq, undefined, { feedback: 0.7 }).mul(adsr(gate, { a: 0.02, d: 0.3, s: 0.6, r: 0.3 })))
+
+p('bells', note('<c5 e5 g5 b5>').sound('bell'))
+p('reed', note('c3 ~ eb3 ~').sound('reed').gain(0.5))
+setCps(0.4)`,
+      ),
+    ],
+  },
+  {
     id: 'effects',
     title: 'Effects & the post-chain',
     blocks: [

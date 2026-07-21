@@ -77,6 +77,59 @@ describe('builder: acid example', () => {
   })
 })
 
+describe('builder: fm operator', () => {
+  it('wires freq/mod/feedback; omitted mod & feedback fall to PORTS defaults', () => {
+    const withMod = synth(({ note, fm }) => fm(note.freq, fm(note.freq.mul(2)).mul(3), { feedback: 0.4 }))
+    const ops = findByType(withMod, 'fm')
+    expect(ops).toHaveLength(2)
+    // the carrier (the one whose mod is wired) carries a mod + feedback edge
+    const carrier = ops.find((o) => o.inputs['mod'] !== undefined)!
+    expect(carrier.inputs['feedback']).toBe(0.4)
+
+    const bare = synth(({ note, fm }) => fm(note.freq))
+    const op = findByType(bare, 'fm')[0]!
+    expect(op.inputs['mod']).toBeUndefined() // PORTS supplies the 0 default
+    expect(op.inputs['feedback']).toBeUndefined()
+    expect(() => compileGraph(bare.graph, ctx)).not.toThrow()
+  })
+
+  it('end-to-end: a 2-operator FM voice renders bounded audio with sidebands', () => {
+    // carrier 110 Hz, modulator at 2:1 with a decaying index → inharmonic-ish
+    // sidebands at 110 ± k·220 while the modulator is loud.
+    const def = synth(({ note, gate, fm, adsr }) => {
+      const mod = fm(note.freq.mul(2)).mul(adsr(gate, { a: 0.001, d: 0.3, s: 0, r: 0.1 }).mul(4))
+      return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 0.4, s: 0.4, r: 0.1 }))
+    })
+    const pool = new VoicePool(def.graph, ctx, 2)
+    pool.noteOn(45, 1) // 110 Hz
+
+    const N = Math.floor(0.25 * SR)
+    const L = new Float32Array(N)
+    const R = new Float32Array(N)
+    const bl = new Float32Array(BLOCK)
+    const br = new Float32Array(BLOCK)
+    for (let i = 0; i < N; i += BLOCK) {
+      const n = Math.min(BLOCK, N - i)
+      bl.fill(0)
+      br.fill(0)
+      pool.process(bl, br, n)
+      L.set(bl.subarray(0, n), i)
+      R.set(br.subarray(0, n), i)
+    }
+    let sumSq = 0
+    let peak = 0
+    for (let i = 0; i < N; i++) {
+      expect(Number.isNaN(L[i])).toBe(false)
+      sumSq += L[i]! * L[i]!
+      peak = Math.max(peak, Math.abs(L[i]!))
+    }
+    expect(Math.sqrt(sumSq / N)).toBeGreaterThan(0.01) // audible
+    expect(peak).toBeLessThan(1.2) // bounded (voice pan/gain aside)
+    // upper sideband at 330 Hz (110 + 220) has real energy — FM, not a pure sine
+    expect(goertzel(L, 330, SR)).toBeGreaterThan(goertzel(L, 110, SR) * 0.05)
+  })
+})
+
 describe('builder: wavetable oscillator', () => {
   it('wires freq/pos and passes the table name through config', () => {
     const def = synth(({ note, wavetable }) => wavetable(note.freq, 0.5, { table: 'harmonic' }))

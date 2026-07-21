@@ -101,13 +101,17 @@ function pitchMarks(x: Float32Array, sr: number, f0: number): number[] {
 
 /** TD-PSOLA: place epoch-centered grains at synthesis marks spaced 1/f0Out →
  *  output pitch = f0Out, formants preserved, time-scaled by `timeStretch`
- *  (outputLen / inputLen). f0In ≤ 0 → unvoiced OLA fallback. */
+ *  (outputLen / inputLen). f0In ≤ 0 → unvoiced OLA fallback. `jitter` (0..~0.06)
+ *  perturbs the synthesis-mark spacing by a small random amount — a real voice's
+ *  micro-pitch instability, which breaks the machine-perfect periodicity that
+ *  otherwise reads as a buzz. Zero-mean, so it never shifts the note. */
 export function psola(
   x: Float32Array,
   sr: number,
   timeStretch: number,
   f0Out: number,
   f0In: number,
+  jitter = 0,
 ): Float32Array {
   const outLen = Math.max(1, Math.round(x.length * timeStretch))
   if (f0In <= 0) return olaStretch(x, outLen, sr)
@@ -117,7 +121,7 @@ export function psola(
   const pad = Math.floor((2 * sr) / f0In) + 8
   const out = new Float32Array(outLen + 2 * pad)
   const norm = new Float32Array(outLen + 2 * pad)
-  for (let ts = 0; ts < outLen; ts += Ps) {
+  for (let ts = 0; ts < outLen; ts += Ps * (jitter > 0 ? 1 + jitter * (Math.random() * 2 - 1) : 1)) {
     const ta = ts / timeStretch
     // nearest epoch
     let mi = 0

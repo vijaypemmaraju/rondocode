@@ -135,6 +135,10 @@ function coreRms(x: Float32Array): number {
  *  looping the vowel instead — see sustainVowel(). */
 const MAX_UNIFORM_STRETCH = 2.4
 
+/** Micro-pitch jitter for PSOLA (fraction of a period) — breaks the perfectly-
+ *  periodic grain repetition that reads as a synthetic buzz. */
+const PSOLA_JITTER = 0.04
+
 /** The voiced vowel nucleus of a (pitched) syllable: the loudest ~period-stable
  *  run. Returns [start,end) sample indices — the region safe to loop for a
  *  sustain (consonants live outside it). */
@@ -258,10 +262,10 @@ function singSyllable(seg: Float32Array, sr: number, note: Note, globalF0: numbe
     // time-stretch (no PSOLA), so alignment/placement can be judged on its own.
     y = olaStretch(seg, target, sr)
   } else if (stretch <= MAX_UNIFORM_STRETCH) {
-    y = psola(seg, sr, target / Math.max(1, seg.length), f0out, f0in)
+    y = psola(seg, sr, target / Math.max(1, seg.length), f0out, f0in, PSOLA_JITTER)
   } else {
     // real, pitched syllable (keeps the word), then a vocoder sustain tail
-    const natural = psola(seg, sr, 1, f0out, f0in)
+    const natural = psola(seg, sr, 1, f0out, f0in, PSOLA_JITTER)
     y = new Float32Array(target)
     const nkeep = Math.min(natural.length, target)
     y.set(natural.subarray(0, nkeep))

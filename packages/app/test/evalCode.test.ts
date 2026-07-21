@@ -309,7 +309,7 @@ describe('evalCode: all-or-nothing staging', () => {
     )
     expect(r.ok).toBe(true)
     expect(r.patterns.size).toBe(0)
-    expect(await captured).toMatch(/eval already completed — async registration is not supported/)
+    expect(await captured).toMatch(/eval already completed; async registration is not supported/)
   })
 
   it('successive evals do not share staging maps', () => {

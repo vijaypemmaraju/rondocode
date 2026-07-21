@@ -1,7 +1,7 @@
 /* Preloaded example documents. Plain strings of REAL rondocode source:
  * each one must eval clean against the live scope (pinned by
  * test/examples.test.ts, which also proves every pattern produces sounding
- * events). The FIRST example ("acid") is what a first visit loads — a gentle,
+ * events). The FIRST example ("acid") is what a first visit loads: a gentle,
  * self-documenting tutorial. */
 
 export interface Example {
@@ -584,7 +584,7 @@ fn render(uv: vec2f) -> vec4f {
   let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
   let r = length(p);
   let a = atan2(p.y, p.x) / 6.2831853 + 0.5;
-  // spectrum ring — its radius eases outward on the KICK (motion, not a flash)
+  // spectrum ring: its radius eases outward on the KICK (motion, not a flash)
   let s = spectrum(fract(a * 2.0));
   let ring = smoothstep(0.05, 0.0, abs(r - (0.42 + s * 0.4 + hit_kick * 0.1)));
   // core glow: a steady floor with only a small kick swell
@@ -667,7 +667,7 @@ fn render(uv: vec2f) -> vec4f {
 `
 
 const dubstep = `// DUBSTEP: the litmus test. Punchy kick, cracking snare, a clean sub, a dark
-// Fm pad, and a FILTHY wobble — detuned saws + square sub through a resonant
+// Fm pad, and a FILTHY wobble: detuned saws + square sub through a resonant
 // ladder, hard-clipped and bit-crushed, wobble rate patterned per step.
 
 const kick = synth(({ gate, adsr, sine, noise, svf }) => {

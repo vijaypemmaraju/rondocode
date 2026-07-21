@@ -1,6 +1,6 @@
 # Security Policy
 
-rondocode is a client-side web app with no backend — tunes are shared purely
+rondocode is a client-side web app with no backend; tunes are shared purely
 via the URL, so there is no server to attack and no user data stored remotely.
 
 ## Reporting a vulnerability

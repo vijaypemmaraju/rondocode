@@ -162,7 +162,7 @@ const transformSynthDecls = (
         line: start.line,
         col: start.column + 1,
         message:
-          "synth() result not assigned or registered — assign it to a top-level const, or call defineSynth('name', synth(...))",
+          "synth() result not assigned or registered: assign it to a top-level const, or call defineSynth('name', synth(...))",
         severity: 'warning',
         source: 'eval',
       })
@@ -250,7 +250,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let sealed = false
   const assertOpen = (fn: string): void => {
     if (sealed) {
-      throw new Error(`${fn}(): eval already completed — async registration is not supported`)
+      throw new Error(`${fn}(): eval already completed; async registration is not supported`)
     }
   }
 

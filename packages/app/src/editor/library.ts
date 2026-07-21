@@ -81,7 +81,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   try {
     store = new ProjectStore(await openIdb())
   } catch (e) {
-    console.warn('[library] IndexedDB unavailable — projects will not persist', e)
+    console.warn('[library] IndexedDB unavailable; projects will not persist', e)
     store = new ProjectStore(new MemoryDb())
   }
 
@@ -370,7 +370,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     const versions = await store.listVersions(current.id)
     const hist = el('div', 'lib-hist')
     if (versions.length === 0) {
-      hist.append(el('div', 'lib-empty', 'no history yet — run to snapshot'))
+      hist.append(el('div', 'lib-empty', 'no history yet; run to snapshot'))
     }
     versions.forEach((v, i) => {
       const row = el('button', 'lib-vrow')

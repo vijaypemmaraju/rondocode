@@ -175,7 +175,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // mobile via CSS, so the button becomes icon-only to keep the header 1 row).
   const sampleBtn = el('button', 'btn sample-btn')
   sampleBtn.type = 'button'
-  sampleBtn.title = 'load audio file(s) as samples — play with sample(gate, "name")'
+  sampleBtn.title = 'load audio file(s) as samples, then play with sample(gate, "name")'
   const sampleLabel = el('span', 'btn-label', 'sample')
   const renderSample = (): void => {
     sampleBtn.replaceChildren(iconEl('plus'), sampleLabel)

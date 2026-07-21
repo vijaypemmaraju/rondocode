@@ -95,6 +95,25 @@ function olaStretch(x: Float32Array, target: number, sr: number): Float32Array {
   return out
 }
 
+/** Vowel-sustain stretch: keep the consonant ONSET and RELEASE at natural speed
+ *  and stretch only the middle (the vowel) to fill the note — so consonants stay
+ *  crisp while the vowel sustains, like real singing. Falls back to whole-syllable
+ *  OLA when the note is shorter than the natural consonants. */
+function vowelStretch(x: Float32Array, target: number, sr: number): Float32Array {
+  if (x.length < 2 || target < 2) return new Float32Array(target)
+  const onset = Math.min(Math.floor(0.06 * sr), Math.floor(x.length * 0.3))
+  const release = Math.min(Math.floor(0.045 * sr), Math.floor(x.length * 0.2))
+  const fill = target - onset - release
+  if (fill <= 0 || onset + release >= x.length) return olaStretch(x, target, sr)
+  const vowel = x.subarray(onset, x.length - release)
+  const mid = olaStretch(vowel, fill, sr)
+  const out = new Float32Array(target)
+  out.set(x.subarray(0, onset), 0)
+  out.set(mid, onset)
+  out.set(x.subarray(x.length - release), onset + fill)
+  return out
+}
+
 const mtof = (m: number): number => 440 * 2 ** ((m - 69) / 12)
 
 // --- load + segment "twinkle twinkle little star" into 7 syllables --------
@@ -115,7 +134,7 @@ const DUR = [0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 1.1]
 const parts: Float32Array[] = []
 for (let n = 0; n < NOTE.length; n++) {
   const len = Math.floor(DUR[n]! * sr)
-  const mod = olaStretch(SYL[n]!, len, sr)
+  const mod = vowelStretch(SYL[n]!, len, sr)
 
   // carrier: saw + octave + noise, vibrato, per-note amp envelope
   const f0 = mtof(NOTE[n]!)

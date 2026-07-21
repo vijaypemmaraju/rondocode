@@ -771,8 +771,12 @@ body {
   color: var(--c-error);
   border-color: var(--c-error-border);
 }
+/* Reserve the stop button's slot even when idle (visibility, not display) so
+ * starting playback doesn't reflow the header — otherwise the whole icon-toggle
+ * cluster to its left shifts ~53px and a click meant for one toggle lands on
+ * its neighbour (visuals → mixer). */
 .stop-btn.hidden {
-  display: none;
+  visibility: hidden;
 }
 .stop-btn:active {
   background: var(--c-error-bg);

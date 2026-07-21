@@ -65,6 +65,9 @@ const ensureViz = (): { canvas: HTMLCanvasElement; renderer: ReturnType<typeof c
       now: () => player.now(),
       analyser: () => player.analyser,
       sampleRate: () => player.sampleRate,
+      onError: (msg) => {
+        if (msg) console.warn('[docs-viz]', msg)
+      },
     })
   }
   return { canvas: vizCanvas, renderer: vizRenderer! }

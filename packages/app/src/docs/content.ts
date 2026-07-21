@@ -82,6 +82,15 @@ p('seq', note('c4(3,8)').sound('pluck'))`,
 p('lead', n('0 2 4 <7 6> 4 2').scale('c minor').sound('keys'))
 p('pad', chord('<Cm7 Abmaj7>').sound('keys'))`,
       ),
+      p("Chords sit in root position by default. Reshape them with .invert(k) (inversions), .octave(n), and .voicing('drop2') (open/jazz spreads). Best of all, .voiceLead() nudges each chord onto the octaves nearest the previous one, so a progression glides smoothly instead of leaping, the difference between a beginner and a pro-sounding comp."),
+      code(
+        'The same progression, voice-led so the chords barely move.',
+        `const pad = synth(({ note, gate, adsr, saw, svf }) =>
+  svf(saw(note.freq), 2200, { res: 0.2 }).mul(adsr(gate, { a: 0.3, d: 0.4, s: 0.8, r: 0.6 })).mul(0.3))
+
+p('pad', chord('<Cmaj7 Fmaj7 Bm7b5 E7>').voiceLead().sound('pad').dur(0.98))
+setCps(0.4)`,
+      ),
     ],
   },
   {

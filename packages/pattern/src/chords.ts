@@ -169,6 +169,47 @@ const VOICINGS: Record<string, (notes: number[]) => number[]> = {
   spread: (ns) => ns.map((x, i) => (i % 2 === 1 ? x + 12 : x)), // alternate voices up an octave
 }
 
+/** Group the onset haps of `haps` into chords (haps sharing a whole), each
+ *  sorted low→high, plus the leftover non-onset tails. */
+const groupChords = <T>(haps: Hap<T>[]): { groups: Hap<T>[][]; tails: Hap<T>[] } => {
+  const map = new Map<string, Hap<T>[]>()
+  const tails: Hap<T>[] = []
+  for (const h of haps) {
+    if (!hasOnset(h)) {
+      tails.push(h)
+      continue
+    }
+    const w = h.whole!
+    const key = `${w.begin.toString()}_${w.end.toString()}`
+    let g = map.get(key)
+    if (!g) {
+      g = []
+      map.set(key, g)
+    }
+    g.push(h)
+  }
+  const groups = [...map.values()]
+  for (const g of groups) g.sort((a, b) => noteVal(a.value) - noteVal(b.value))
+  return { groups, tails }
+}
+
+/** Move each note of `curr` to the octave that brings it closest to some note
+ *  of `ref` — greedy per-voice voice leading toward the reference chord. */
+const leadNotes = (curr: number[], ref: number[]): number[] =>
+  curr.map((c) => {
+    let bestShift = 0
+    let bestDist = Infinity
+    for (const r of ref) {
+      const k = Math.round((r - c) / 12)
+      const d = Math.abs(c + 12 * k - r)
+      if (d < bestDist) {
+        bestDist = d
+        bestShift = 12 * k
+      }
+    }
+    return c + bestShift
+  })
+
 /** Invert a sorted chord by `k` steps: k>0 lifts the lowest voices up octaves
  *  (wrapping past the chord size), k<0 drops the highest voices down. */
 const invertNotes = (notes: number[], k: number): number[] => {
@@ -201,6 +242,11 @@ declare module './pattern' {
      *  'drop2'/'drop3' (drop the 2nd/3rd voice from the top an octave), or
      *  'spread' (alternate voices up an octave). */
     voicing(this: Pattern<T>, name?: string): Pattern<T>
+    /** Voice-lead a chord progression: nudge each chord's notes to the octaves
+     *  nearest the PREVIOUS chord, so the harmony moves smoothly instead of
+     *  leaping between root positions. `center` (MIDI, default 60) anchors the
+     *  first chord's register. Deterministic. */
+    voiceLead(this: Pattern<T>, center?: number): Pattern<T>
   }
 }
 
@@ -253,4 +299,35 @@ Pattern.prototype.octave = function <T>(this: Pattern<T>, n: number): Pattern<T>
 Pattern.prototype.voicing = function <T>(this: Pattern<T>, name = 'close'): Pattern<T> {
   const fn = VOICINGS[name] ?? VOICINGS['close']!
   return revoice(this, fn)
+}
+
+/** Cycles to look back for the previous chord (bounds the search; a slower
+ *  progression than this between chords simply anchors to `center`). */
+const VL_LOOKBACK = 4
+
+Pattern.prototype.voiceLead = function <T>(this: Pattern<T>, center = 60): Pattern<T> {
+  return new Pattern<T>((span) => {
+    const { groups, tails } = groupChords(this.query(span))
+    const out: Hap<T>[] = [...tails]
+    for (const g of groups) {
+      const begin = g[0]!.whole!.begin
+      // Reference = the previous chord (root position from the source pattern),
+      // found by looking back a bounded window. Querying `this` (not the
+      // voice-led wrapper) keeps it pure and non-recursive; if there is no
+      // prior chord in range, anchor the register to `center`.
+      const prev = groupChords(this.query(new TimeSpan(begin.sub(VL_LOOKBACK), begin))).groups
+      let ref = [center]
+      let bestBegin: Fraction | null = null
+      for (const pg of prev) {
+        const pb = pg[0]!.whole!.begin
+        if (pb.lt(begin) && (bestBegin === null || pb.gt(bestBegin))) {
+          bestBegin = pb
+          ref = pg.map((h) => noteVal(h.value))
+        }
+      }
+      const led = leadNotes(g.map((h) => noteVal(h.value)), ref)
+      g.forEach((h, i) => out.push(hap(h.whole, h.part, withNote(h.value, led[i]!))))
+    }
+    return out
+  })
 }

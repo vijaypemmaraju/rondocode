@@ -107,3 +107,56 @@ describe('chord voicings', () => {
     expect(sorted(chord('C').voicing('nope'))).toEqual([48, 52, 55])
   })
 })
+
+describe('voiceLead', () => {
+  const prog = () => chord('<Cmaj7 Fmaj7 Bm7b5 E7>')
+  const cycleNotes = (p: ReturnType<typeof chord>, c: number): number[] =>
+    notesOf(q(p, c, c + 1)).sort((a, b) => a - b)
+
+  it('keeps every chord in a tight register around center (no root-position leaps)', () => {
+    const led = prog().voiceLead(60)
+    for (let c = 0; c < 4; c++) {
+      const ns = cycleNotes(led, c)
+      for (const n of ns) {
+        expect(n).toBeGreaterThan(60 - 16)
+        expect(n).toBeLessThan(60 + 16)
+      }
+    }
+  })
+
+  it('moves less between chords than root position does', () => {
+    const centroid = (ns: number[]): number => ns.reduce((s, n) => s + n, 0) / ns.length
+    const totalMotion = (p: ReturnType<typeof chord>): number => {
+      let m = 0
+      for (let c = 1; c < 4; c++) m += Math.abs(centroid(cycleNotes(p, c)) - centroid(cycleNotes(p, c - 1)))
+      return m
+    }
+    expect(totalMotion(prog().voiceLead())).toBeLessThan(totalMotion(prog()))
+  })
+
+  it('is deterministic across query boundaries', () => {
+    const led = prog().voiceLead()
+    // querying one cycle in isolation matches that cycle inside a wider query
+    expect(cycleNotes(led, 2)).toEqual(notesOf(q(led, 2, 3)).sort((a, b) => a - b))
+    const wide = q(led, 0, 4)
+      .filter((e) => e[0] >= 2 && e[0] < 3)
+      .map((e) => (e[2] as ControlMap).note!)
+      .sort((a, b) => a - b)
+    expect(cycleNotes(led, 2)).toEqual(wide)
+  })
+
+  it('loops seamlessly: cycle 0 leads from the wrapped-around previous chord', () => {
+    // with a repeating progression, the first chord is voiced relative to the
+    // LAST one (cycle -1), not the center anchor — so the loop point is smooth
+    const led = prog().voiceLead(60)
+    for (const n of cycleNotes(led, 0)) expect(n).toBeLessThan(60 + 16) // not a root-position leap
+  })
+
+  it('anchors to center only when no prior chord is in range (sparse progression)', () => {
+    // a chord that onsets every 8 cycles has no predecessor within the lookback,
+    // so cycle 0 anchors its register to center
+    const ns = cycleNotes(chord('Cmaj7').slow(8).voiceLead(72), 0)
+    const mean = ns.reduce((s, n) => s + n, 0) / ns.length
+    expect(Math.abs(mean - 72)).toBeLessThan(8)
+  })
+})

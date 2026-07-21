@@ -229,6 +229,7 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('invert', 'invert(k: number)', 'Invert a chord: positive k lifts the lowest voices up an octave (1 = first inversion, 2 = second...), negative drops the highest voices down. Wraps past the chord size. Smooths the jump between chords.', "chord('<C F G>').invert(1)"),
   pm('octave', 'octave(n: number)', 'Transpose whole chords/notes by n octaves (n×12 semitones); negative goes down.', "chord('Cmaj7').octave(-1)"),
   pm('voicing', "voicing(name?: 'close'|'open'|'drop2'|'drop3'|'spread')", 'Re-space a chord: close (default), open (2nd voice up an octave), drop2/drop3 (drop the 2nd/3rd voice from the top for a wider jazz spread), or spread (alternate voices up an octave).', "chord('<Cmaj7 Am7>').voicing('drop2')"),
+  pm('voiceLead', 'voiceLead(center?: number)', 'Voice-lead a progression: nudge each chord onto the octaves nearest the previous chord, so the harmony glides instead of leaping between root positions. center (MIDI, def 60) sets the first chord register. Deterministic. Pair with a sustained pad.', "chord('<Cmaj7 Fmaj7 Bm7b5 E7>').voiceLead()"),
   pm(
     'every',
     'every(n: number, f: (p) => p)',

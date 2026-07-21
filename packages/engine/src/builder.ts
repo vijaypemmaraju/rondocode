@@ -80,8 +80,9 @@ export interface SynthCtx {
    *  index, in cycles) plus self-`feedback` (0..~1). This is the FM building
    *  block: chain operators as each other's `mod` for DX-style algorithms, and
    *  raise feedback for the self-modulating operator a plain graph can't express.
-   *  Output [-1, 1] — shape it with an ADSR like any oscillator. */
-  fm(freq: SigIn, mod?: SigIn, opts?: { feedback?: SigIn }): Sig
+   *  `wave` sets the operator waveform ('sine' default and warmest; 'tri' soft;
+   *  'saw'/'square' brighter, naive). Output [-1, 1] — shape it with an ADSR. */
+  fm(freq: SigIn, mod?: SigIn, opts?: { feedback?: SigIn; wave?: 'sine' | 'tri' | 'saw' | 'square' }): Sig
   /** Morphing, anti-aliased wavetable oscillator. `pos` (0..1, default 0) scans
    *  through a bank of single-cycle waveforms; `table` names a built-in bank
    *  ('basic' | 'harmonic' | 'pwm', default 'basic'). Band-limited via mipmaps,
@@ -488,7 +489,7 @@ const makeCtx = (b: Builder): SynthCtx => {
       const inputs: Record<string, InputSource> = { freq: src(freq, 'fm freq') }
       if (mod !== undefined) inputs['mod'] = src(mod, 'fm mod')
       if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'fm feedback')
-      return b.node('fm', inputs)
+      return b.node('fm', inputs, definedConfig({ wave: opts?.wave }))
     },
     wavetable: (freq, pos, opts) => {
       const inputs: Record<string, InputSource> = { freq: src(freq, 'wavetable freq') }

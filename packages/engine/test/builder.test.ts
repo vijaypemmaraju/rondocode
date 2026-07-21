@@ -93,6 +93,13 @@ describe('builder: fm operator', () => {
     expect(() => compileGraph(bare.graph, ctx)).not.toThrow()
   })
 
+  it('passes the wave option through config and rejects an unknown one', () => {
+    const def = synth(({ note, fm }) => fm(note.freq, undefined, { wave: 'tri' }))
+    expect(findByType(def, 'fm')[0]!.config).toEqual({ wave: 'tri' })
+    // unknown wave is rejected at definition time (compile instantiates the kernel)
+    expect(() => synth(({ note, fm }) => fm(note.freq, undefined, { wave: 'nope' as 'sine' }))).toThrow()
+  })
+
   it('end-to-end: a 2-operator FM voice renders bounded audio with sidebands', () => {
     // carrier 110 Hz, modulator at 2:1 with a decaying index → inharmonic-ish
     // sidebands at 110 ± k·220 while the modulator is loud.

@@ -545,4 +545,22 @@ describe('FMKernel', () => {
     k.process(n, inputs, second, ctx)
     for (let i = 0; i < n; i++) expect(second[i]).toBeCloseTo(first[i]!, 10)
   })
+
+  it('the wave option changes the operator timbre; an unknown wave throws', () => {
+    const n = 4800
+    const run = (wave?: string): Float32Array => {
+      const out = new Float32Array(n)
+      new FMKernel(wave).process(n, { freq: new Float32Array(n).fill(500), mod: new Float32Array(n), feedback: new Float32Array(n) }, out, ctx)
+      return out
+    }
+    const sine = run()
+    const saw = run('saw')
+    // a saw operator (no modulation) has strong upper harmonics the sine lacks
+    expect(goertzel(saw, 1000, sr)).toBeGreaterThan(goertzel(sine, 1000, sr) * 20) // 2nd
+    expect(goertzel(saw, 1500, sr)).toBeGreaterThan(goertzel(sine, 1500, sr) * 20) // 3rd
+    // square is hard-bipolar
+    const sq = run('square')
+    for (let i = 0; i < n; i++) expect(Math.abs(sq[i]!)).toBeCloseTo(1, 6)
+    expect(() => new FMKernel('nope')).toThrow(/unknown fm wave/)
+  })
 })

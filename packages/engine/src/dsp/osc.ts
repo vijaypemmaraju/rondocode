@@ -252,22 +252,45 @@ export class TriKernel implements Kernel {
  *  history, which stays stable up to feedback ~= 1 (a single-sample loop would
  *  scream and blow up). Phase is flushed at block end like the other phase
  *  oscillators so a NaN freq can't poison it permanently. */
+export const FM_WAVES = ['sine', 'tri', 'saw', 'square'] as const
+export type FMWave = (typeof FM_WAVES)[number]
+const isFMWave = (w: string): w is FMWave => (FM_WAVES as readonly string[]).includes(w)
+
+/** Evaluate an operator waveform at (possibly unwrapped) phase `ph` in cycles.
+ *  'sine' is true FM (warmest); 'tri' is a soft alternative; 'saw'/'square' are
+ *  naive (not band-limited) so they are brighter and can alias at high index. */
+const fmShape = (wave: FMWave, ph: number): number => {
+  if (wave === 'sine') return Math.sin(TWO_PI * ph)
+  const frac = ph - Math.floor(ph)
+  if (wave === 'saw') return 2 * frac - 1
+  if (wave === 'square') return frac < 0.5 ? 1 : -1
+  return frac < 0.5 ? 4 * frac - 1 : 3 - 4 * frac // tri: -1 at phase 0, +1 at 0.5
+}
+
 export class FMKernel implements Kernel {
   private phase = 0
   private y1 = 0
   private y2 = 0
+  private readonly wave: FMWave
+
+  constructor(wave?: string) {
+    const w = wave ?? 'sine'
+    if (!isFMWave(w)) throw new Error(`unknown fm wave '${w}' (known: ${FM_WAVES.join(', ')})`)
+    this.wave = w
+  }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
     const freq = inputs['freq']!
     const mod = inputs['mod']!
     const fb = inputs['feedback']!
+    const wave = this.wave
     const sr = ctx.sampleRate
     let phase = this.phase
     let y1 = this.y1
     let y2 = this.y2
     for (let i = 0; i < n; i++) {
       const self = fb[i]! * (y1 + y2) * 0.5
-      const y = Math.sin(TWO_PI * (phase + mod[i]! + self))
+      const y = fmShape(wave, phase + mod[i]! + self)
       out[i] = y
       y2 = y1
       y1 = y

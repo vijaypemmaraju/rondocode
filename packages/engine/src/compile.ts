@@ -169,7 +169,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   tri: () => new TriKernel(),
   pulse: () => new PulseKernel(),
   syncsaw: () => new SyncSawKernel(),
-  fm: () => new FMKernel(),
+  fm: (c) => new FMKernel(typeof c['wave'] === 'string' ? c['wave'] : undefined),
   // ctx carries the sample rate the kernel needs for mipmap selection; the
   // table's harmonic content is sample-rate-independent and cached module-level
   wavetable: (c, ctx) => new WavetableKernel(typeof c['table'] === 'string' ? c['table'] : undefined, ctx),

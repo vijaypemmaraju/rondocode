@@ -138,22 +138,90 @@ export async function renderNeural(
   hardTune(audio, osr, melody)
 
   // Trim the padding (+ the roll-off it absorbed) back to the loop length, then
-  // seat the CLEAN loop on the beat: a signed sample-level shift (positive =
-  // earlier, negative = later). Because the loop is exactly one cycle it wraps
-  // cleanly, so a pickup pushed off one edge reappears at the other.
+  // MEASURE how far RVC shifted the vocal off the beat and cancel exactly that.
+  // The `guide` we fed RVC is beat-aligned by construction (vowel-on-beat
+  // assembly, tested), so cross-correlating the output's energy envelope
+  // against the guide's recovers RVC's group delay per clip — no magic delay.
+  // The loop is one cycle, so rotating wraps cleanly (a pickup off one edge
+  // reappears at the other). `.late()`/`.early()` are then free for feel.
   const keep = Math.min(audio.length, Math.round((loopN / sr) * osr))
-  const rotated = rotateLeft(audio.subarray(0, keep), Math.floor(SING_ALIGN_S * osr))
+  const loop = audio.subarray(0, keep)
+  const rotated = rotateLeft(loop, measureLagSamples(guide, sr, loop, osr))
   return { audio: rotated, sr: osr }
 }
 
-/** On-beat alignment for the finished vocal loop, in seconds: how far to shift
- *  it against the downbeat (positive = earlier, negative = later). The
- *  vowel-on-beat assembly renders the vocal a touch AHEAD of the grid, so a
- *  small delay seats it in the pocket. This is the ONE place the vocal's
- *  default timing is corrected — applied at the sample level so it's
- *  cps-independent, which is why the example needs no `.late()`. `.late()` /
- *  `.early()` on the sing() pattern stay free for artistic timing. Tune here. */
-const SING_ALIGN_S = -0.04
+/** Energy envelope of `x` sampled at `frameHz` frames/sec (RMS per hop). Sampling
+ *  by TIME makes envelopes at different sample rates share one frame grid. */
+function energyEnv(x: Float32Array, rate: number, frameHz: number): Float32Array {
+  const hop = Math.max(1, Math.round(rate / frameHz))
+  const nF = Math.floor(x.length / hop)
+  const e = new Float32Array(nF)
+  for (let f = 0; f < nF; f++) {
+    let s = 0
+    const a = f * hop
+    for (let k = 0; k < hop; k++) {
+      const v = x[a + k]!
+      s += v * v
+    }
+    e[f] = Math.sqrt(s / hop)
+  }
+  return e
+}
+
+/** Zero-mean, unit-norm in place (so a dot product is a correlation, blind to
+ *  the two envelopes' differing overall loudness). Returns the same array. */
+function normEnv(e: Float32Array): Float32Array {
+  const n = e.length || 1
+  let mean = 0
+  for (let i = 0; i < e.length; i++) mean += e[i]!
+  mean /= n
+  let norm = 0
+  for (let i = 0; i < e.length; i++) {
+    e[i]! -= mean
+    norm += e[i]! * e[i]!
+  }
+  norm = Math.sqrt(norm) || 1
+  for (let i = 0; i < e.length; i++) e[i]! /= norm
+  return e
+}
+
+/** How far `audio` (at `osr`) lags the beat-aligned `guide` (at `sr`), in
+ *  `audio` samples — i.e. how much to rotate `audio` LEFT to seat it on the
+ *  beat. Circular cross-correlation of their energy envelopes (both share a
+ *  time-based frame grid), bounded to ±maxLagS since RVC's group delay is
+ *  small; a flat/silent envelope yields 0 (no shift). Exported for testing. */
+export function measureLagSamples(
+  guide: Float32Array,
+  sr: number,
+  audio: Float32Array,
+  osr: number,
+  maxLagS = 0.2,
+): number {
+  const frameHz = 500
+  const ge = normEnv(energyEnv(guide, sr, frameHz))
+  const ae = normEnv(energyEnv(audio, osr, frameHz))
+  const n = Math.min(ge.length, ae.length)
+  if (n < 4) return 0
+  const maxLag = Math.min(n - 1, Math.round(maxLagS * frameHz))
+  const corr = (lag: number): number => {
+    let s = 0
+    for (let i = 0; i < n; i++) s += ge[i]! * ae[(((i + lag) % n) + n) % n]!
+    return s
+  }
+  // Seed at lag 0 and only accept a STRICTLY better lag, so a flat/silent
+  // envelope (all correlations equal) stays put instead of drifting to an edge.
+  let bestLag = 0
+  let best = corr(0)
+  for (let lag = -maxLag; lag <= maxLag; lag++) {
+    if (lag === 0) continue
+    const s = corr(lag)
+    if (s > best) {
+      best = s
+      bestLag = lag
+    }
+  }
+  return Math.round((bestLag / frameHz) * osr)
+}
 /** Guide tail repeated before RVC so its end-of-clip pitch roll-off falls on
  *  padding, not the final sung note; trimmed off afterwards. */
 const RVC_TAILPAD_S = 0.8

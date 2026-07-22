@@ -93,7 +93,7 @@ export function installSingDevHook(): void {
     },
     async singNeural(lyrics: string, notesMini: string, cps = 0.5, voiceId = 'kizuna') {
       if (!this.engine) throw new Error('not loaded')
-      const [{ parseLyrics }, { loadPhonemes, extractPhonemes }, warp, { loadRvc, rvcConvert }] = await Promise.all([
+      const [{ parseLyrics }, { loadPhonemes, vowelActivity, extractPhonemes }, warp, { loadRvc, rvcConvert }] = await Promise.all([
         import('./lyrics'), import('./phonemes'), import('./warp'), import('./rvc'),
       ])
       const ms: Record<string, number> = {}
@@ -110,9 +110,10 @@ export function installSingDevHook(): void {
       t = performance.now()
       await loadPhonemes((p) => (this.progress = { phase: 'download', label: p.label, done: p.done, total: p.total }))
       const phones = await extractPhonemes(spoken, sr)
+      const { prob, fps } = await vowelActivity(spoken, sr)
       clk('phonemes', t)
       t = performance.now()
-      const { guide, f0 } = warp.buildGuide(spoken, sr, phones, notes)
+      const { guide, f0 } = warp.buildGuide(spoken, sr, prob, fps, notes)
       clk('warp', t)
       t = performance.now()
       await loadRvc(voiceId, (p) => (this.progress = { phase: 'download', label: p.label, done: p.done, total: p.total }))

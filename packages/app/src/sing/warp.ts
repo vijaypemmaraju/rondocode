@@ -8,7 +8,6 @@
  * The guide + f0 feed RVC (rvc.ts), which supplies pitch + singer timbre. This
  * replaces PSOLA/the cepstral vocoder entirely — RVC does the hard part.
  * ------------------------------------------------------------------------- */
-import type { Phone } from './phonemes'
 import { note, TimeSpan, Fraction, hasOnset, type Pattern, type ControlMap } from '@rondocode/pattern'
 
 /** One melody note. */
@@ -166,34 +165,61 @@ interface Span {
   ve: number
 }
 
-/** Group the phoneme stream into `n` syllables (one vowel each). Boundaries fall
- *  at the phone nearest the midpoint between consecutive vowels. */
-function groupSyllables(phones: Phone[], n: number): Span[] {
-  let vi = phones.map((p, i) => (p.vowel ? i : -1)).filter((i) => i >= 0)
-  if (vi.length !== n) {
-    // fall back to an even split over all phones
-    vi = Array.from({ length: n }, (_, k) => Math.round((k * (phones.length - 1)) / Math.max(1, n - 1)))
-  }
-  const vStart = vi.map((k) => phones[k]!.start)
-  const nearest = (time: number): number => {
-    let bi = 0
-    let bd = Infinity
-    for (let i = 0; i < phones.length; i++) {
-      const d = Math.abs(phones[i]!.start - time)
-      if (d < bd) {
-        bd = d
-        bi = i
+/** Segment `n` syllables from a per-frame VOWEL-PROBABILITY curve (phonemes.ts),
+ *  given the KNOWN syllable count `n`. Snaps exactly n vowel centres to the curve's
+ *  peaks by Lloyd iteration (even-split regions → argmax per region → re-split at
+ *  midpoints, repeat), so it can never drop or duplicate a syllable the way the
+ *  greedy phoneme decode does. Each syllable's vowel extent grows out from its
+ *  centre while the curve stays above a fraction of its peak; the rest of the
+ *  region is onset (before) / coda (after). Times are in seconds. */
+function placeSyllables(prob: Float32Array, fps: number, n: number): Span[] {
+  const T = prob.length
+  if (T === 0 || n <= 0) return []
+  // light 3-frame smoothing so single-frame spikes don't win a region
+  const sm = new Float32Array(T)
+  for (let i = 0; i < T; i++) {
+    let s = 0
+    let c = 0
+    for (let d = -1; d <= 1; d++) {
+      const j = i + d
+      if (j >= 0 && j < T) {
+        s += prob[j]!
+        c++
       }
     }
-    return bi
+    sm[i] = s / c
+  }
+  let centers = Array.from({ length: n }, (_, i) => Math.min(T - 1, Math.floor((i + 0.5) * T / n)))
+  const bounds = new Array<number>(n + 1)
+  for (let iter = 0; iter < 4; iter++) {
+    bounds[0] = 0
+    bounds[n] = T
+    for (let i = 1; i < n; i++) bounds[i] = Math.floor((centers[i - 1]! + centers[i]!) / 2)
+    for (let i = 0; i < n; i++) {
+      const lo = bounds[i]!
+      const hi = Math.max(lo + 1, bounds[i + 1]!)
+      let bi = lo
+      let bv = -1
+      for (let t = lo; t < hi; t++) {
+        if (sm[t]! > bv) {
+          bv = sm[t]!
+          bi = t
+        }
+      }
+      centers[i] = bi
+    }
   }
   const spans: Span[] = []
-  for (let si = 0; si < n; si++) {
-    const lo = si === 0 ? 0 : nearest((vStart[si - 1]! + vStart[si]!) / 2)
-    const hi = si === n - 1 ? phones.length : nearest((vStart[si]! + vStart[si + 1]!) / 2)
-    const grp = hi > lo ? phones.slice(lo, hi) : [phones[vi[si]!]!]
-    const v = phones[vi[si]!]!
-    spans.push({ s: grp[0]!.start, e: grp[grp.length - 1]!.end, vs: v.start, ve: v.end })
+  for (let i = 0; i < n; i++) {
+    const segLo = bounds[i]!
+    const segHi = Math.max(segLo + 1, bounds[i + 1]!)
+    const c = Math.min(Math.max(centers[i]!, segLo), segHi - 1)
+    const thr = Math.max(0.12, sm[c]! * 0.4)
+    let vs = c
+    while (vs > segLo && sm[vs - 1]! >= thr) vs--
+    let ve = c
+    while (ve < segHi - 1 && sm[ve + 1]! >= thr) ve++
+    spans.push({ s: segLo / fps, e: segHi / fps, vs: vs / fps, ve: (ve + 1) / fps })
   }
   return spans
 }
@@ -207,9 +233,11 @@ export interface GuideResult {
 }
 
 /** Build the guide track (phoneme-warped, vowels held) + the melody f0 contour
- *  (with slides) for the given spoken line, phonemes and melody. */
-export function buildGuide(spoken: Float32Array, sr: number, phones: Phone[], notes: MelodyNote[]): GuideResult {
-  const spans = groupSyllables(phones, notes.length)
+ *  (with slides) for the given spoken line, its per-frame vowel-probability curve
+ *  (phonemes.ts `vowelActivity`) and the melody. The KNOWN note count drives the
+ *  syllable segmentation, so alignment never miscounts. */
+export function buildGuide(spoken: Float32Array, sr: number, prob: Float32Array, probFps: number, notes: MelodyNote[]): GuideResult {
+  const spans = placeSyllables(prob, probFps, notes.length)
   // Split every syllable into onset (consonants before the vowel) / vowel / coda
   // up front, so the hold pass can see the NEXT syllable's onset length.
   const seg = notes.map((_, i) => {

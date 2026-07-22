@@ -7,7 +7,7 @@
  * ------------------------------------------------------------------------- */
 import { loadEngine } from './supertonic'
 import { parseLyrics } from './lyrics'
-import { loadPhonemes, extractPhonemes } from './phonemes'
+import { loadPhonemes, vowelActivity } from './phonemes'
 import { buildGuide, parseMelodyMini } from './warp'
 import { loadRvc, rvcConvert } from './rvc'
 
@@ -37,32 +37,45 @@ export async function renderNeural(
   const sr = engine.sampleRate
   await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
 
-  // CHUNK into short phrases (≤ MAX_SYL syllables) at word boundaries. The
-  // phoneme CTC drops/duplicates phonemes on long takes (a whole 42-syllable
-  // verse mangles), so synthesize + align each phrase separately — short takes
-  // are reliable AND let us speak a touch slower for clarity — then concatenate
-  // the guide tracks. Slot ranges (word.slots) drive the per-chunk note slice so
-  // melisma/rests ride along.
+  // CHUNK into short phrases, then synthesize + align each separately (the
+  // phoneme CTC drops/duplicates on long takes — a whole 42-syllable verse
+  // mangles). Cut at MUSICAL PHRASE ENDS: the sustained notes (the `@2` at each
+  // line end) are where a singer breathes AND where the last syllable is stressed
+  // and held — exactly where the CTC is reliable. A count-based cut instead lands
+  // on weak trailing words ("...in the") that the CTC swallows, dropping a vowel
+  // and derailing the whole chunk's alignment. Cap at MAX_SYL so a phrase with no
+  // long note still splits. Line-aligned chunks also keep each line's guide/f0
+  // proportional, so RVC's uniform f0 stretch stays locked to the end.
+  const durs = melody.map((n) => n.dur).sort((a, b) => a - b)
+  const medianDur = durs[durs.length >> 1] ?? 0
+  const isPhraseEnd = (slot: number): boolean => (melody[slot]?.dur ?? 0) >= medianDur * 1.4
   const MAX_SYL = 9
   const groups: { text: string; from: number; to: number }[] = []
   let curWords: string[] = []
   let curSyl = 0
   let curFrom = 0
-  for (const w of parsed.words) {
-    if (curWords.length === 0) curFrom = w.slots[0]!
+  const flush = (toExclusive: number): void => {
+    groups.push({ text: curWords.join(' '), from: curFrom, to: toExclusive })
+    curWords = []
+    curSyl = 0
+  }
+  for (let wi = 0; wi < parsed.words.length; wi++) {
+    const w = parsed.words[wi]!
+    // cap overflow: close the current chunk before a word that would exceed it
     if (curSyl + w.syllableCount > MAX_SYL && curWords.length > 0) {
-      const prev = parsed.words[parsed.words.indexOf(w) - 1]!
-      groups.push({ text: curWords.join(' '), from: curFrom, to: prev.slots[prev.slots.length - 1]! + 1 })
-      curWords = []
-      curSyl = 0
-      curFrom = w.slots[0]!
+      const prev = parsed.words[wi - 1]!
+      flush(prev.slots[prev.slots.length - 1]! + 1)
     }
+    if (curWords.length === 0) curFrom = w.slots[0]!
     curWords.push(w.text)
     curSyl += w.syllableCount
+    // cut AFTER a word that lands on a sustained (phrase-end) note
+    const last = w.slots[w.slots.length - 1]!
+    if (isPhraseEnd(last)) flush(last + 1)
   }
   if (curWords.length > 0) {
     const last = parsed.words[parsed.words.length - 1]!
-    groups.push({ text: curWords.join(' '), from: curFrom, to: last.slots[last.slots.length - 1]! + 1 })
+    flush(last.slots[last.slots.length - 1]! + 1)
   }
 
   const guides: Float32Array[] = []
@@ -74,8 +87,8 @@ export async function renderNeural(
     const speed = chunkNotes.length <= 12 ? 0.7 : 0.9
     onProgress?.({ phase: 'synthesize', label: `phrase ${gi + 1}/${groups.length}`, done: gi, total: groups.length })
     const spoken = await engine.synthesize(g.text, { speed })
-    const phones = await extractPhonemes(spoken, sr)
-    const built = buildGuide(spoken, sr, phones, chunkNotes)
+    const { prob, fps } = await vowelActivity(spoken, sr)
+    const built = buildGuide(spoken, sr, prob, fps, chunkNotes)
     guides.push(built.guide)
     f0s.push(built.f0)
   }

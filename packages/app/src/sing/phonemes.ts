@@ -30,6 +30,7 @@ export interface Phone {
 
 let session: ort.InferenceSession | null = null
 let idToSym: string[] = []
+let vowelIds: number[] = []
 let loading: Promise<void> | null = null
 let ortReady = false
 
@@ -88,6 +89,11 @@ export async function loadPhonemes(onProgress?: (p: { label: string; done: numbe
       const vocab = (await res.json()) as Record<string, number>
       idToSym = []
       for (const [sym, id] of Object.entries(vocab)) idToSym[id] = sym
+      vowelIds = []
+      for (let id = 0; id < idToSym.length; id++) {
+        const s = idToSym[id]
+        if (id > 3 && s && isVowel(s)) vowelIds.push(id)
+      }
     })()
   }
   await loading
@@ -118,6 +124,37 @@ function normalize(x: Float32Array): Float32Array {
   const out = new Float32Array(x.length)
   for (let i = 0; i < x.length; i++) out[i] = (x[i]! - mean) / std
   return out
+}
+
+/** Per-frame VOWEL PROBABILITY (softmax mass on all vowel tokens) for `audio`.
+ *  Unlike the greedy phoneme decode — which drops/duplicates phonemes on long or
+ *  repetitive takes — this is a smooth activity curve. Paired with the KNOWN
+ *  syllable count from the lyrics, the caller snaps exactly N vowel centres to
+ *  its peaks (warp.ts), so syllable→note alignment can never miscount. */
+export async function vowelActivity(audio: Float32Array, sr: number): Promise<{ prob: Float32Array; fps: number }> {
+  if (!session) throw new Error('phoneme model not loaded')
+  const x16 = normalize(to16k(audio, sr))
+  const out = await session.run({ input_values: new ort.Tensor('float32', x16, [1, x16.length]) })
+  const logits = out['logits']!
+  const T = logits.dims[1]!
+  const V = logits.dims[2]!
+  const data = logits.data as Float32Array
+  const fps = T / (x16.length / 16000)
+  const prob = new Float32Array(T)
+  for (let t = 0; t < T; t++) {
+    const base = t * V
+    let mx = -Infinity
+    for (let k = 0; k < V; k++) {
+      const v = data[base + k]!
+      if (v > mx) mx = v
+    }
+    let sum = 0
+    for (let k = 0; k < V; k++) sum += Math.exp(data[base + k]! - mx)
+    let vs = 0
+    for (const id of vowelIds) vs += Math.exp(data[base + id]! - mx)
+    prob[t] = vs / sum
+  }
+  return { prob, fps }
 }
 
 /** Phoneme timeline for `audio`. Blank (id 0) + repeats collapsed. */

@@ -5,6 +5,7 @@
  * from the editor. Non-blocking to the DOM: it never steals focus or captures
  * input; live edits keep flowing (background bakes are silent unless slow).
  * ------------------------------------------------------------------------- */
+import './singDialog.css'
 import { onSingProgress, onSingError } from '../sing/singMgr'
 
 /** First-time consent: singing needs a large one-time model download, so ask

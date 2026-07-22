@@ -1,6 +1,8 @@
 import { AudioSession } from '../audio/AudioSession'
 import { Session } from '../session'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
+import * as singMgr from '../sing/singMgr'
+import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import type { SchedulerEvent } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -79,6 +81,10 @@ export class PreviewPlayer {
           onPatternEvents: (evs) => this.onPatternEvents?.(evs),
           onVisual: (wgsl, synths) => this.onVisual?.(wgsl, synths),
         })
+        // sing() support: the neural vocal bakes through the same manager +
+        // dialogs as the editor, so a sing() snippet plays here identically.
+        singMgr.initSing(audio)
+        mountSingDialog()
       })()
     }
     await this.booting
@@ -99,6 +105,20 @@ export class PreviewPlayer {
       return { ok: false, error: msg ?? 'evaluation failed' }
     }
     void audio.resume()
+    // sing(): if the snippet has a vocal that isn't baked yet, download the
+    // models (with first-time consent) and WAIT so it plays in time — the same
+    // preload path the editor's first Run uses. Already-baked vocals just play.
+    if (result.sings.length > 0) {
+      const cps = result.cps ?? session.getState().cps
+      if (singMgr.hasUnloaded(result.sings, cps)) {
+        if (!(await singMgr.modelsCached()) && !(await confirmSingDownload())) {
+          session.transport('play') // declined the download: play without the vocal
+          return { ok: true }
+        }
+        singMgr.bake(result.sings, cps)
+        await singMgr.whenReady(result.sings, cps)
+      }
+    }
     session.transport('play')
     return { ok: true }
   }

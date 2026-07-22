@@ -1735,62 +1735,6 @@ body.shaderviz-on .cm-content {
   border-radius: var(--r-sm);
 }
 
-/* sing() render dialog — centered overlay while a vocal clip bakes */
-.sing-dialog {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  pointer-events: none;
-  background: rgba(0, 0, 0, 0.35);
-}
-.sing-dialog.hidden { display: none; }
-.sing-card {
-  min-width: 300px;
-  padding: 20px 22px;
-  background: var(--c-bg, #16181d);
-  border: 1px solid var(--c-border, #2a2e37);
-  border-radius: var(--r-md, 10px);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-}
-.sing-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-.sing-label { font-size: 12px; opacity: 0.7; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
-.sing-bar { height: 6px; border-radius: 3px; background: var(--c-border, #2a2e37); overflow: hidden; }
-.sing-fill { height: 100%; width: 0; background: var(--c-accent, #6ea8fe); transition: width 0.15s ease; }
-.sing-fill.indeterminate {
-  width: 40% !important;
-  animation: sing-indet 1.1s ease-in-out infinite;
-}
-@keyframes sing-indet {
-  0% { margin-left: -40%; }
-  100% { margin-left: 100%; }
-}
-.sing-dialog.sing-error .sing-title { color: var(--c-danger, #ff6b6b); }
-.sing-dialog.sing-error .sing-label { opacity: 0.9; }
-.sing-dialog.sing-error .sing-fill { background: var(--c-danger, #ff6b6b); }
-
-/* first-time "download voice models?" consent modal */
-.sing-consent {
-  position: fixed; inset: 0; z-index: 1000;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.55); padding: 20px;
-}
-.sing-consent-card {
-  max-width: 380px; width: 100%;
-  background: var(--c-panel, #1b1e24); color: var(--c-text, #e8eaed);
-  border: 1px solid var(--c-border, #2a2e37); border-radius: 12px;
-  padding: 20px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-}
-.sing-consent-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
-.sing-consent-body { font-size: 13px; line-height: 1.5; opacity: 0.8; margin-bottom: 18px; }
-.sing-consent-actions { display: flex; gap: 10px; justify-content: flex-end; }
-.sing-consent-actions button {
-  font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
-  border: 1px solid var(--c-border, #2a2e37); background: transparent; color: inherit;
-}
-.sing-consent-go {
-  background: var(--c-accent, #6ea8fe) !important; border-color: var(--c-accent, #6ea8fe) !important;
-  color: #08131f !important; font-weight: 600;
-}
+/* The sing() bake dialog + consent modal styles now live with their component
+ * (src/ui/singDialog.css, imported by singDialog.ts) so the docs page gets
+ * them too. */

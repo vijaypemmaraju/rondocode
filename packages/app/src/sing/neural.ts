@@ -138,16 +138,22 @@ export async function renderNeural(
   hardTune(audio, osr, melody)
 
   // Trim the padding (+ the roll-off it absorbed) back to the loop length, then
-  // compensate RVC's small output latency by rotating this CLEAN loop LEFT so the
-  // first syllable's pickup wraps to the tail ahead of the looped downbeat.
+  // seat the CLEAN loop on the beat: a signed sample-level shift (positive =
+  // earlier, negative = later). Because the loop is exactly one cycle it wraps
+  // cleanly, so a pickup pushed off one edge reappears at the other.
   const keep = Math.min(audio.length, Math.round((loopN / sr) * osr))
-  const rotated = rotateLeft(audio.subarray(0, keep), Math.floor(RVC_LATENCY_S * osr))
+  const rotated = rotateLeft(audio.subarray(0, keep), Math.floor(SING_ALIGN_S * osr))
   return { audio: rotated, sr: osr }
 }
 
-/** How much to advance the vocal to cancel RVC's output latency (rotate the
- *  finished loop left). Tuned by ear so the vocal sits with the arrangement. */
-const RVC_LATENCY_S = 0.06
+/** On-beat alignment for the finished vocal loop, in seconds: how far to shift
+ *  it against the downbeat (positive = earlier, negative = later). The
+ *  vowel-on-beat assembly renders the vocal a touch AHEAD of the grid, so a
+ *  small delay seats it in the pocket. This is the ONE place the vocal's
+ *  default timing is corrected — applied at the sample level so it's
+ *  cps-independent, which is why the example needs no `.late()`. `.late()` /
+ *  `.early()` on the sing() pattern stay free for artistic timing. Tune here. */
+const SING_ALIGN_S = -0.04
 /** Guide tail repeated before RVC so its end-of-clip pitch roll-off falls on
  *  padding, not the final sung note; trimmed off afterwards. */
 const RVC_TAILPAD_S = 0.8

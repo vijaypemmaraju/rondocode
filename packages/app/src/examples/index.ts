@@ -1007,8 +1007,7 @@ p('vox', sing('barbara',
    g4 g4 f4 f4 e4 e4 d4@2 g4 g4 f4 f4 e4 e4 d4@2
    c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`,
   { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.25) })
-  .late(0.0042) // nudge the vocal onto the beat — tune to taste
-  .gain(0.95))
+  .gain(0.95)) // (.late()/.early() are free for feel — timing is on-beat already)
 `
 
 export const EXAMPLES: Example[] = [

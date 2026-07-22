@@ -2,6 +2,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { EventFlasher } from '../editor/flash'
+import { karaokeExtension, mountKaraoke } from '../editor/karaoke'
 import { codeEditingExtensions } from '../editor/setup'
 
 /* ------------------------------------------------------------------------- *
@@ -38,8 +39,18 @@ export function createDocEditor(
   /** A widget/scrub rewrote the doc — re-eval the snippet. `immediate` for
    *  discrete changes (toggle/pick), false for debounced drags. */
   requestEval?: (immediate: boolean) => void,
+  /** True if a `sound` control names a sing() vocal — lets karaoke light the
+   *  syllable/note even when sing(..., { name }) renames off the singv-hash.
+   *  Omitted → the built-in singv-prefix default. */
+  isSingSound?: (sound: string) => boolean,
 ): DocEditor {
   let lastGood = doc
+  // Karaoke needs to know when THIS block is the one playing, get its events,
+  // and re-parse on edits — all pushed in from the docs page via flash()/
+  // markPlaying()/the update listener, mirrored to these tiny fanouts.
+  let playing = false
+  const kEvSubs = new Set<(evs: SchedulerEvent[]) => void>()
+  const kDocSubs = new Set<(code: string) => void>()
   const view = new EditorView({
     parent,
     state: EditorState.create({
@@ -50,8 +61,12 @@ export function createDocEditor(
         // drift. `gutter: false` drops line numbers so small snippets stay
         // clean; every interactive feature is identical to the editor.
         ...codeEditingExtensions({ requestEval: (imm) => requestEval?.(imm), gutter: false }),
+        karaokeExtension, // sing() syllable/note highlight while a vocal plays
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) onDocChange?.()
+          if (!u.docChanged) return
+          onDocChange?.()
+          const code = u.state.doc.toString()
+          for (const fn of kDocSubs) fn(code)
         }),
       ],
     }),
@@ -61,16 +76,45 @@ export function createDocEditor(
   // once edited it's "dirty" and the flasher skips until the next play.
   const flasher = new EventFlasher(view, now, () => view.state.doc.toString() !== lastGood)
 
+  // Karaoke: same events as the flasher, the shared audio clock, and a
+  // per-block "is this the one playing" flag so only the active snippet lights.
+  const disposeKaraoke = mountKaraoke(view, {
+    audio: {
+      get currentTime(): number {
+        return now()
+      },
+    },
+    isPlaying: () => playing,
+    subscribeEvents: (fn) => {
+      kEvSubs.add(fn)
+      return () => kEvSubs.delete(fn)
+    },
+    getDoc: () => view.state.doc.toString(),
+    onDoc: (fn) => {
+      kDocSubs.add(fn)
+      return () => kDocSubs.delete(fn)
+    },
+    ...(isSingSound ? { isSingSound } : {}),
+  })
+
   return {
     view,
     getDoc: () => view.state.doc.toString(),
-    flash: (evs) => flasher.onEvents(evs),
+    flash: (evs) => {
+      flasher.onEvents(evs)
+      for (const fn of kEvSubs) fn(evs)
+    },
     markPlaying: (source) => {
       lastGood = source
+      playing = true
       flasher.onGoodEval(source)
     },
-    stopFlashes: () => flasher.clearPending(),
+    stopFlashes: () => {
+      playing = false
+      flasher.clearPending()
+    },
     destroy: () => {
+      disposeKaraoke()
       flasher.dispose()
       view.destroy()
     },

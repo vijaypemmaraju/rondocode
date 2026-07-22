@@ -299,6 +299,10 @@ body {
   }
 }
 
+/* Karaoke highlight styles now live with their component
+ * (src/editor/karaoke.css, imported by karaoke.ts) so the docs page gets them
+ * too. */
+
 /* --- inline widgets: slider()/toggle()/pick()/xy() render as controls ---
  *
  * Widgets sit inside 24px editor lines, so their VISUAL height stays ~20px;
@@ -1702,3 +1706,7 @@ body.shaderviz-on .cm-content {
   border: 1px solid var(--c-border);
   border-radius: var(--r-sm);
 }
+
+/* The sing() bake dialog + consent modal styles now live with their component
+ * (src/ui/singDialog.css, imported by singDialog.ts) so the docs page gets
+ * them too. */

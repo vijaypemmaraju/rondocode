@@ -59,6 +59,7 @@ export class AudioSession {
    *  Throws on failure; callers surface the message. */
   static async start(): Promise<AudioSession> {
     const context = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' })
+    if (import.meta.env.DEV) (window as unknown as { __rcCtx: AudioContext }).__rcCtx = context
     try {
       await context.audioWorklet.addModule(workletUrl)
       const node = new AudioWorkletNode(context, 'rondocode-engine', {
@@ -66,6 +67,7 @@ export class AudioSession {
         numberOfOutputs: 1,
         outputChannelCount: [2], // ask for stereo; processor tolerates mono
       })
+      if (import.meta.env.DEV) (window as unknown as { __rcNode: AudioWorkletNode }).__rcNode = node
       // Visualizer tap: worklet → analyser → destination. FAIL-OPEN: if the
       // analyser can't be created or wired, fall back to a direct
       // worklet → destination connection — audio must NEVER break because a
@@ -135,6 +137,15 @@ export class AudioSession {
     )
     this._pcm.set(name, { data: keep, sampleRate })
     this.recordSample(name, frames, sampleRate, builtIn)
+  }
+
+  /** Every loaded sample's main-thread PCM (built-ins, files, and baked sing()
+   *  clips), keyed by name — the sample bank an OFFLINE bounce needs so its
+   *  sample('name') nodes play the same audio the live engine does. */
+  get loadedSamples(): Record<string, { data: Float32Array; sampleRate: number }> {
+    const out: Record<string, { data: Float32Array; sampleRate: number }> = {}
+    for (const [name, pcm] of this._pcm) out[name] = pcm
+    return out
   }
 
   /** Preview a loaded sample through the AudioContext (independent of the
@@ -278,6 +289,12 @@ export class AudioSession {
 
   get sampleRate(): number {
     return this.context.sampleRate
+  }
+
+  /** The AudioContext clock in seconds — the same timeline SchedulerEvent.timeSec
+   *  is stamped in, so the karaoke highlighter can locate the playhead in a cycle. */
+  get currentTime(): number {
+    return this.context.currentTime
   }
 
   /** Approximate host-side "now" in the engine's frame timeline (the worklet

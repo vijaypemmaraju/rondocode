@@ -420,6 +420,30 @@ setCps(0.3)`,
     ],
   },
   {
+    id: 'singing',
+    title: 'Singing',
+    blocks: [
+      p("`sing(voice, lyrics, notes)` runs a neural voice entirely on your device: it sings your `lyrics` on your `notes`, both in mini-notation, one syllable per note (a hyphen splits a word, so \"twin-kle\" is two notes). The first play downloads the voice models once — a large one-time download, cached afterwards, so later plays are instant. You'll be asked before it starts."),
+      p("It returns an ordinary pattern, so the vocal is a first-class channel: wrap it in `p(...)` and it takes the same FX, `.late()`/`.early()` timing, and bus sends as any synth. `opts.post` adds a DSP chain on the voice itself (here a little reverb), and `opts.name` lets `bus()` / `sidechain()` target it by name. Timing is aligned to the beat automatically, so `.late()` is for feel, not fixing drift."),
+      code(
+        'A neural voice over a pad — one syllable per note. First play downloads the models.',
+        `const pad = synth(({ note, gate, adsr, saw, svf }) =>
+  svf(saw(note.freq).mix(saw(note.freq.mul(1.004)), 0.5),
+    adsr(gate, { a: 0.4, d: 0.6, s: 0.85, r: 0.9 }).range(0.3, 1).mul(2200), { res: 0.2 })
+    .mul(adsr(gate, { a: 0.4, d: 0.6, s: 0.85, r: 0.9 })).mul(0.2))
+
+p('pad', chord('<Cmaj7 Am7 Fmaj7 G7>').voiceLead().sound('pad').dur(0.98))
+
+p('vox', sing('barbara',
+  'lo-ver come and sing with me',
+  'e4 e4 g4 g4 a4 g4 e4',
+  { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.22) }).gain(0.95))
+
+setCps(0.34)`,
+      ),
+    ],
+  },
+  {
     id: 'visuals',
     title: 'Visuals',
     blocks: [

@@ -1,18 +1,21 @@
 /* ------------------------------------------------------------------------- *
- * Supertonic 2 — on-device neural TTS in the browser (ONNX Runtime Web).
+ * Supertonic 3 — on-device neural TTS in the browser (ONNX Runtime Web).
  * Ported from the upstream MIT `web/helper.js` (github.com/supertone-inc/
  * supertonic), adapted to fetch models straight from HuggingFace with CORS and
  * cache them in the Cache API (one-time ~250MB download, then offline). The
- * speech half of `sing()`; PSOLA (psola.ts) does the singing.
+ * speech half of `sing()`; the phoneme aligner (phonemes.ts) + RVC (rvc.ts) do
+ * the singing.
  *
  * Pipeline per utterance: text → unicode tokens → duration_predictor (total
  * length) → text_encoder → a flow-matching denoise loop (vector_estimator) →
  * vocoder → waveform. See synthesize().
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
+import { SUPERTONIC_BASE } from './config'
+import { cachedBytes } from './modelcache'
 
-const HF = 'https://huggingface.co/Supertone/supertonic-2/resolve/main'
-const CACHE = 'rondocode-supertonic-v1'
+const HF = SUPERTONIC_BASE
+const CACHE = 'rondocode-supertonic-v3'
 const MODELS = ['duration_predictor', 'text_encoder', 'vector_estimator', 'vocoder'] as const
 
 const LANGS = new Set([
@@ -70,38 +73,8 @@ class UnicodeProcessor {
 
 /* ------------------------------- loading -------------------------------- */
 
-async function cachedFetch(url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
-  const cache = await caches.open(CACHE)
-  const hit = await cache.match(url)
-  if (hit) return hit.arrayBuffer()
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`fetch ${url}: ${res.status}`)
-  // stream with progress when the length is known
-  const total = Number(res.headers.get('content-length') ?? 0)
-  if (onProgress && total > 0 && res.body) {
-    const reader = res.body.getReader()
-    const chunks: Uint8Array[] = []
-    let loaded = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-      loaded += value.length
-      onProgress(loaded, total)
-    }
-    const buf = new Uint8Array(loaded)
-    let off = 0
-    for (const c of chunks) {
-      buf.set(c, off)
-      off += c.length
-    }
-    await cache.put(url, new Response(buf, { headers: { 'content-type': 'application/octet-stream' } }))
-    return buf.buffer
-  }
-  const buf = await res.arrayBuffer()
-  await cache.put(url, new Response(buf))
-  return buf
-}
+const cachedFetch = (url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> =>
+  cachedBytes(url, CACHE, onProgress)
 
 async function cachedJson<T>(url: string): Promise<T> {
   return JSON.parse(new TextDecoder().decode(await cachedFetch(url))) as T
@@ -119,7 +92,7 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
     // Serve the ORT wasm binaries from the matching CDN build (no COOP/COEP →
     // single-threaded; WebGPU carries the heavy models anyway).
     ort.env.wasm.numThreads = 1
-    ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/`
+    if (!ort.env.wasm.wasmPaths) ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/` /* browser CDN; node presets a local path */
 
     const cfgs = await cachedJson<Cfgs>(`${HF}/onnx/tts.json`)
     const indexer = await cachedJson<number[]>(`${HF}/onnx/unicode_indexer.json`)
@@ -136,7 +109,7 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
     for (let i = 0; i < MODELS.length; i++) {
       const name = MODELS[i]!
       const buf = await cachedFetch(`${HF}/onnx/${name}.onnx`, (loaded, total) =>
-        onProgress?.({ phase: 'download', label: name, done: (i + loaded / total), total: MODELS.length }),
+        onProgress?.({ phase: 'download', label: `voice model ${i + 1}/${MODELS.length}`, done: loaded, total }),
       )
       sessions.push(await ort.InferenceSession.create(buf, opts))
     }

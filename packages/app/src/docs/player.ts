@@ -1,6 +1,8 @@
 import { AudioSession } from '../audio/AudioSession'
 import { Session } from '../session'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
+import * as singMgr from '../sing/singMgr'
+import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import type { SchedulerEvent } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -21,6 +23,14 @@ export class PreviewPlayer {
   private audio: AudioSession | null = null
   private session: Session | null = null
   private booting: Promise<void> | null = null
+  /** Synth/channel names of the currently-playing snippet's sing() vocals, so a
+   *  docs snippet's karaoke can spot their trigger events (incl. renamed ones). */
+  private _singSounds = new Set<string>()
+
+  /** The current snippet's sing() vocal channel names (for karaoke detection). */
+  get singSounds(): Set<string> {
+    return this._singSounds
+  }
 
   /** Fired whenever playback stops (either explicitly or when replaced), so a
    *  UI can reset its "playing" affordance. */
@@ -79,6 +89,10 @@ export class PreviewPlayer {
           onPatternEvents: (evs) => this.onPatternEvents?.(evs),
           onVisual: (wgsl, synths) => this.onVisual?.(wgsl, synths),
         })
+        // sing() support: the neural vocal bakes through the same manager +
+        // dialogs as the editor, so a sing() snippet plays here identically.
+        singMgr.initSing(audio)
+        mountSingDialog()
       })()
     }
     await this.booting
@@ -98,7 +112,22 @@ export class PreviewPlayer {
       const msg = result.diagnostics.find((d) => d.severity === 'error')?.message
       return { ok: false, error: msg ?? 'evaluation failed' }
     }
+    this._singSounds = new Set(result.sings.map((s) => s.synthName))
     void audio.resume()
+    // sing(): if the snippet has a vocal that isn't baked yet, download the
+    // models (with first-time consent) and WAIT so it plays in time — the same
+    // preload path the editor's first Run uses. Already-baked vocals just play.
+    if (result.sings.length > 0) {
+      const cps = result.cps ?? session.getState().cps
+      if (singMgr.hasUnloaded(result.sings, cps)) {
+        if (!(await singMgr.modelsCached()) && !(await confirmSingDownload())) {
+          session.transport('play') // declined the download: play without the vocal
+          return { ok: true }
+        }
+        singMgr.bake(result.sings, cps)
+        await singMgr.whenReady(result.sings, cps)
+      }
+    }
     session.transport('play')
     return { ok: true }
   }

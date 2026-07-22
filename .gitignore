@@ -6,3 +6,7 @@ renders/
 # secrets
 .env
 .env.*
+
+# cloudflare/wrangler local state (huge R2 blobs)
+.wrangler/
+!.env.example

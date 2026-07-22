@@ -15,10 +15,13 @@ import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { EventFlasher, FLASH_MS } from './flash'
+import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions } from './setup'
 import { synthMeters } from './meters'
+import * as singMgr from '../sing/singMgr'
+import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 
 /* ------------------------------------------------------------------------- *
  * The live-coding editor shell: header (logo, example picker, master
@@ -211,6 +214,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
     audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
     audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
+    // sing(): wire the neural render manager + its progress dialog
+    singMgr.initSing(audio)
+    mountSingDialog()
   } catch (e) {
     console.warn('[sample] default sample load failed', e)
   }
@@ -283,6 +289,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   let lastAttempted: string | undefined
   let lastGood: string | undefined
   let dirtyVsGood = true
+  // Synth/channel names of the current sing() vocals (for karaoke detection).
+  let singSoundNames = new Set<string>()
   let dirtyVsAttempted = true
 
   const updateDirty = (doc: string): void => {
@@ -305,11 +313,36 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     if (result.ok) {
       lastGood = source
       flasher.onGoodEval(source)
-      if (autoplay && !session.getState().playing) {
+      // Track the current vocals' synth/channel names so karaoke can spot their
+      // trigger events even when sing(..., { name }) renames off the singv-hash.
+      singSoundNames = new Set(result.sings.map((s) => s.synthName))
+      const firstPlay = autoplay && !session.getState().playing
+      const singCps = result.cps ?? session.getState().cps
+      // sing(): bake the vocal clip(s). First play PRELOADS (wait, then play);
+      // live edits bake in the BACKGROUND and swap the clip in when ready.
+      const needPreload = firstPlay && result.sings.length > 0 && singMgr.hasUnloaded(result.sings, singCps)
+      const startPlayback = (): void => {
         // First Run unlocks audio: resume() runs inside this click/keypress
         // gesture, which is exactly what browsers require. Idempotent after.
         void audio.resume()
         session.transport('play')
+      }
+      if (needPreload) {
+        // A first play that must bake a vocal. If the models aren't downloaded
+        // yet, ASK first (it's a large one-time download); on consent, bake +
+        // wait + play; if declined, play the track without the vocal.
+        void (async () => {
+          if (!(await singMgr.modelsCached()) && !(await confirmSingDownload())) {
+            startPlayback()
+            return
+          }
+          singMgr.bake(result.sings, singCps)
+          await singMgr.whenReady(result.sings, singCps)
+          startPlayback()
+        })()
+      } else {
+        if (result.sings.length > 0) singMgr.bake(result.sings, singCps) // background bake on live edits
+        if (firstPlay) startPlayback()
       }
     }
     updateDirty(source)
@@ -397,6 +430,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // builds means the extension is simply never installed.
         import.meta.env.DEV ? ghostCompletion() : [],
         meters.extension, // per-synth meter gutter (audio-driven)
+        karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
           if (!u.docChanged) return
           const doc = u.state.doc.toString()
@@ -576,6 +610,20 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
   const disposeExport = mountExport({ view, audio, anchor: exportBtn })
 
+  // karaoke: light up the current sing() syllable + note as the vocal plays,
+  // driven by the sing-trigger event's timing against the AudioContext clock.
+  const disposeKaraoke = mountKaraoke(view, {
+    audio,
+    isPlaying: () => session.getState().playing,
+    subscribeEvents: subscribePatternEvents,
+    getDoc: () => view.state.doc.toString(),
+    onDoc: (fn) => {
+      docListeners.add(fn)
+      return () => docListeners.delete(fn)
+    },
+    isSingSound: (snd) => singSoundNames.has(snd),
+  })
+
   const dispose = (): void => {
     window.removeEventListener('pagehide', flushSave)
     document.removeEventListener('visibilitychange', onVisibility)
@@ -586,6 +634,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     meters.dispose()
     disposeSamples()
     disposeExport()
+    disposeKaraoke()
     engineListeners.clear()
     stateListeners.clear()
     docListeners.clear()

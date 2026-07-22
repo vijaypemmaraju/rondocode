@@ -642,6 +642,8 @@ export class RealtimeEngine {
         return this.msgNote(m, RANK_OFF)
       case 'allNotesOff':
         return this.msgAllNotesOff()
+      case 'silenceAll':
+        return this.msgSilenceAll()
       case 'setParam':
         return this.msgSetParam(m)
       case 'setChannel':
@@ -912,6 +914,12 @@ export class RealtimeEngine {
     this.queue.length = 0
     this.qHead = 0
     for (const ch of this.list) ch.pool.allNotesOff()
+  }
+
+  private msgSilenceAll(): void {
+    this.queue.length = 0
+    this.qHead = 0
+    for (const ch of this.list) ch.pool.silenceAll()
   }
 
   private msgSetParam(m: Record<string, unknown>): void {

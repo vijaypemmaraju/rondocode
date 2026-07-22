@@ -28,8 +28,15 @@ function download(bytes: Uint8Array, name: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 
-/** Render `cycles` of `code` offline to WAV bytes, or an error message. */
-function bounceLoop(code: string, cycles: number): Uint8Array | { error: string } {
+/** Render `cycles` of `code` offline to WAV bytes, or an error message.
+ *  `samples` is the live engine's loaded sample bank (built-ins + baked sing()
+ *  vocals) so the offline sample('name') nodes play the same audio — without it
+ *  a program using samples (or sing()) bounces silent for those voices. */
+function bounceLoop(
+  code: string,
+  cycles: number,
+  samples?: Record<string, { data: Float32Array; sampleRate: number }>,
+): Uint8Array | { error: string } {
   const staged = stageCode(code)
   if (!staged.ok) return { error: staged.diagnostics.find((d) => d.severity === 'error')?.message ?? 'eval failed' }
   const cps = staged.cps ?? 0.5
@@ -37,6 +44,7 @@ function bounceLoop(code: string, cycles: number): Uint8Array | { error: string 
   const events = runPatterns(staged.patterns, { cycles, cps })
   const mix = renderMix(staged.synths, events, durationSec, {
     sampleRate: 48000,
+    ...(samples ? { samples } : {}),
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
@@ -87,7 +95,7 @@ export function mountExport({ view, audio, anchor }: ExportOpts): () => void {
     bounceMsg.textContent = 'rendering…'
     // let the label paint before the (synchronous) render blocks the thread
     setTimeout(() => {
-      const res = bounceLoop(view.state.doc.toString(), cycles)
+      const res = bounceLoop(view.state.doc.toString(), cycles, audio.loadedSamples)
       if (res instanceof Uint8Array) {
         download(res, `rondocode-loop-${cycles}.wav`)
         bounceMsg.textContent = 'downloaded'

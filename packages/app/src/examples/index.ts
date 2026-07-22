@@ -955,6 +955,61 @@ p('hats', note('c5*8').sound('hat'))
 p('snare', note('~ c4 ~ c4').sound('snare'))
 `
 
+const singing = `// SINGING — a neural voice sings your lyrics over a full band.
+// sing(voice, lyrics, notes): both lyrics and notes are mini-notation, one
+// syllable per note (hyphens split a word: "twin-kle" = 2 notes). First Run
+// downloads the voice models once (cached after); the vocal bakes in the
+// background and loops in time with everything else.
+
+setCps(0.0417) // the whole verse is ONE long cycle — each note is ~120 BPM
+
+// --- drum kit ---
+const kick = synth(({ gate, adsr, sine }) => {
+  const p = adsr(gate, { a: 0.001, d: 0.09, s: 0, r: 0.05 }) // pitch drop
+  const a = adsr(gate, { a: 0.001, d: 0.22, s: 0, r: 0.08 }) // amp
+  return sine(p.pow(2).range(45, 160)).mul(a).tanh()
+})
+const snare = synth(({ gate, adsr, noise, svf }) =>
+  svf(noise(), 1800, { mode: 'bp', res: 0.5 }).mul(adsr(gate, { a: 0.002, d: 0.12, s: 0, r: 0.08 })).mul(0.6))
+const hat = synth(({ gate, adsr, noise, svf }) =>
+  svf(noise(), 9000, { mode: 'hp' }).mul(adsr(gate, { a: 0.001, d: 0.04, s: 0, r: 0.03 })).mul(0.4))
+
+// --- bass + keys ---
+const bass = synth(({ note, gate, adsr, saw, ladder }) =>
+  ladder(saw(note.freq), 420, { res: 0.3 }).mul(adsr(gate, { a: 0.005, d: 0.35, s: 0.4, r: 0.2 })).mul(0.22))
+const piano = synth(({ note, gate, adsr, tri, sine }) => {
+  const env = adsr(gate, { a: 0.004, d: 0.5, s: 0.25, r: 0.5 })
+  return tri(note.freq).mul(0.5).add(sine(note.freq.mul(2)).mul(0.15)).mul(env).mul(0.22)
+})
+
+// The verse is one 12-bar cycle, so .fast(12) repeats a 1-bar drum pattern
+// across all 12 bars — a steady 120 BPM groove.
+p('kick',  note('c2*4').fast(12).sound('kick'))
+p('snare', note('~ c2 ~ c2').fast(12).sound('snare'))
+p('hats',  note('c5*8').fast(12).sound('hat').gain(0.7))
+
+// bass roots + a lush 7th/9th reharm (Cmaj9–Am7–Fmaj7–G7 with ii–V pull and
+// smooth voice-leading; [a,b,c] = a stacked chord), one chord per half-bar.
+p('bass', note('c2 a1 f1 g1 e2 d2 g1 g1 c2 f1 g1 c2').sound('bass'))
+p('piano', note(\`[c3,e3,g3,b3,d4] [a2,e3,g3,c4] [f2,a2,c3,e3] [g2,b2,d3,f3]
+                  [e2,g3,b3,d4]    [d3,f3,a3,c4] [g2,c3,e3,b3] [g2,b2,f3,a3]
+                  [c3,e3,g3,b3,d4] [f2,a2,c3,e3] [g2,c3,d3,f3] [c3,e3,g3,b3]\`).sound('piano'))
+
+// the voice. sing() returns a normal pattern, so the vocal is a first-class
+// channel: chain FX, nudge its timing, route it to buses. Try another voice:
+// "kizuna", "rise". opts.post is a per-synth DSP FX chain (here a touch of
+// reverb ON the vocal); opts.name lets bus()/sidechain() target it by name.
+p('vox', sing('barbara',
+  \`twin-kle twin-kle lit-tle star how I won-der what you are
+   up a-bove the world so high like a dia-mond in the sky
+   twin-kle twin-kle lit-tle star how I won-der what you are\`,
+  \`c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2
+   g4 g4 f4 f4 e4 e4 d4@2 g4 g4 f4 f4 e4 e4 d4@2
+   c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`,
+  { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.25) })
+  .gain(0.95)) // (.late()/.early() are free for feel — timing is on-beat already)
+`
+
 export const EXAMPLES: Example[] = [
   { name: 'acid', code: acid },
   { name: 'visuals', code: visuals },
@@ -974,4 +1029,5 @@ export const EXAMPLES: Example[] = [
   { name: 'arrangement', code: arrangement },
   { name: 'sampler', code: sampler },
   { name: 'granular', code: granular },
+  { name: 'singing', code: singing },
 ]

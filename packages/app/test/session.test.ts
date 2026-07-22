@@ -261,7 +261,7 @@ describe('Session.transport', () => {
     expect(st.cps).toBe(1)
     session.transport('stop')
     expect(intervals[0]!.cleared).toBe(true)
-    expect(ofKind('allNotesOff')).toHaveLength(1)
+    expect(ofKind('silenceAll')).toHaveLength(1) // hard cut on stop (also stops sung vocal clips)
     expect(session.getState().playing).toBe(false)
   })
 

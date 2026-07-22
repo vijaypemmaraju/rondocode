@@ -546,6 +546,20 @@ export class VoicePool {
     }
   }
 
+  /** Hard stop (transport Stop): drop the gate AND reset each active voice's
+   *  kernels, so an in-flight one-shot sample (a sung vocal clip) stops NOW
+   *  instead of playing to its end. reset() clears the sample's playing flag;
+   *  the noteOff first keeps the (now-zero) gate from re-triggering it. */
+  silenceAll(): void {
+    this.held.length = 0
+    for (const v of this.voices) {
+      if (v.active) {
+        v.noteOff()
+        v.reset()
+      }
+    }
+  }
+
   /** Broadcast to every voice. Voices are all pre-instantiated, so the
    *  broadcast IS the stored default — a voice reused for a later note keeps
    *  the last value set here. */

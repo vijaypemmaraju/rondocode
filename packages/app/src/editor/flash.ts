@@ -109,6 +109,21 @@ function stringChunks(
     if (source.slice(start + 1, end - 1) !== value) return null
     return [{ sourceStart: start + 1, value }]
   }
+  // A no-substitution template literal (`...`, no ${}) — e.g. a multi-line
+  // note(`[c3,e3,g3]\n  [f3,a3,c4]`). One quasi, no expressions. The content is
+  // between the backticks; require raw === cooked (no escapes) so offset math is
+  // exact, same rule as the Literal case.
+  if (node.type === 'TemplateLiteral') {
+    const quasis = node['quasis'] as { value: { cooked?: string } }[]
+    const exprs = node['expressions'] as unknown[]
+    if (exprs.length !== 0 || quasis.length !== 1) return null
+    const cooked = quasis[0]!.value.cooked
+    if (typeof cooked !== 'string') return null
+    const start = node['start'] as number
+    const end = node['end'] as number
+    if (source.slice(start + 1, end - 1) !== cooked) return null
+    return [{ sourceStart: start + 1, value: cooked }]
+  }
   if (node.type === 'BinaryExpression' && node['operator'] === '+') {
     const left = stringChunks(node['left'] as typeof node, source)
     const right = stringChunks(node['right'] as typeof node, source)

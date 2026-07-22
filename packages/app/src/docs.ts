@@ -132,6 +132,9 @@ async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
       // the one currently playing (otherwise the edit just updates the text).
       if (current?.btn === play) player.update(docEd.getDoc())
     },
+    // karaoke: the playing snippet's vocals live on player.singSounds, so this
+    // resolves correctly for THIS block whenever it's the one sounding.
+    (snd) => player.singSounds.has(snd),
   )
   await refreshEditLink(src)
 

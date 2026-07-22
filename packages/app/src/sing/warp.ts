@@ -248,49 +248,51 @@ export function buildGuide(spoken: Float32Array, sr: number, prob: Float32Array,
       coda: spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr)),
     }
   })
+  // Each slot is EXACTLY the note's length and laid out so the VOWEL STARTS ON
+  // THE BEAT: slot i = [ (leading onset, first syllable only) | vowel held |
+  // coda | NEXT syllable's onset ]. The next syllable's onset consonants ride at
+  // the END of this slot, leading INTO the next beat and ending exactly on it —
+  // so syllable i+1's vowel begins right on beat i+1. Every vowel (the pitched,
+  // perceptually-timed part) lands on its beat; consonants sit just ahead of it
+  // like a real singer. (The earlier concat of [onset|vowel|coda] per slot put
+  // each onset *inside* its own slot, so every vowel — and the whole line —
+  // dragged late by its leading-consonant length, 300–640 ms in practice.)
   const parts: Float32Array[] = []
   const noteLens: number[] = []
   const edge = Math.floor(0.006 * sr)
+  const empty = new Float32Array(0)
   for (let i = 0; i < notes.length; i++) {
     const tgt = Math.floor(notes[i]!.dur * sr)
-    const { onset, vowel, coda } = seg[i]!
-    const nextOnset = i + 1 < notes.length ? seg[i + 1]!.onset.length : 0
-    // VOWEL-ON-BEAT: hold this vowel so it fills the note UP TO the point where
-    // the next syllable's onset consonants must begin — those consonants lead
-    // INTO the next beat and end exactly on it. Net effect: every vowel (the
-    // pitched, perceptually-timed part) lands on its note's beat, and consonants
-    // sit ahead of the beat like a real singer. (Was `tgt - onset - coda`, which
-    // put THIS onset inside the slot so the vowel started late by its length.)
-    const vT = Math.max(Math.floor(tgt * 0.2), tgt - coda.length - nextOnset)
+    const { vowel, coda } = seg[i]!
+    const preOnset = i === 0 ? seg[0]!.onset : empty // only the very first vowel keeps a lead-in
+    const nextOnset = i + 1 < notes.length ? seg[i + 1]!.onset : empty
+    const vT = Math.max(Math.floor(tgt * 0.2), tgt - preOnset.length - coda.length - nextOnset.length)
     const held = holdVowel(vowel, vT, sr)
-    const note = new Float32Array(onset.length + held.length + coda.length)
-    note.set(onset, 0)
-    note.set(held, onset.length)
-    note.set(coda, onset.length + held.length)
-    for (let k = 0; k < edge && k < note.length; k++) {
-      note[k]! *= k / edge
-      note[note.length - 1 - k]! *= k / edge
+    const note = new Float32Array(preOnset.length + held.length + coda.length + nextOnset.length)
+    let o = 0
+    note.set(preOnset, o); o += preOnset.length
+    note.set(held, o); o += held.length
+    note.set(coda, o); o += coda.length
+    note.set(nextOnset, o)
+    // fit to EXACTLY the note length so slot boundaries == beat grid
+    const fit = note.length >= tgt ? note.slice(0, tgt) : (() => { const p = new Float32Array(tgt); p.set(note); return p })()
+    for (let k = 0; k < edge && k < fit.length; k++) {
+      fit[k]! *= k / edge
+      fit[fit.length - 1 - k]! *= k / edge
     }
-    parts.push(note)
-    noteLens.push(note.length)
+    parts.push(fit)
+    noteLens.push(fit.length)
   }
-  let total = 0
-  for (const p of parts) total += p.length
-  const raw = new Float32Array(total)
-  let pos = 0
-  for (const p of parts) {
-    raw.set(p, pos)
-    pos += p.length
-  }
-  // Trim (or pad) to the EXACT musical length (sum of note durations). The
-  // vowel-on-beat hold makes each slot onset+vowel+coda, so the buffer runs
-  // long by the first syllable's lead-in consonant; left unclipped, that lead-in
-  // would push every following chunk — and the whole vocal — progressively late.
-  // The excess we drop is tail off the final (held) vowel: inaudible.
   let musical = 0
-  for (const n of notes) musical += Math.floor(n.dur * sr)
+  for (const p of parts) musical += p.length
   const guide = new Float32Array(musical)
-  guide.set(total >= musical ? raw.subarray(0, musical) : raw)
+  {
+    let pos = 0
+    for (const p of parts) {
+      guide.set(p, pos)
+      pos += p.length
+    }
+  }
 
   // f0 contour on a 100 Hz grid over the guide (slides = log-glide, first 35%).
   const fps = 100

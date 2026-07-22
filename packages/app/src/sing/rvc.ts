@@ -78,7 +78,7 @@ async function cachedBytes(url: string, onProgress?: (loaded: number, total: num
 async function ortOptions(): Promise<ort.InferenceSession.SessionOptions> {
   if (!ortReady) {
     ort.env.wasm.numThreads = 1
-    ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/`
+    if (!ort.env.wasm.wasmPaths) ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/` /* browser CDN; node presets a local path */
     ortReady = true
   }
   let webgpu = false

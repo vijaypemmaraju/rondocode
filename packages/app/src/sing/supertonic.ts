@@ -119,7 +119,7 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
     // Serve the ORT wasm binaries from the matching CDN build (no COOP/COEP →
     // single-threaded; WebGPU carries the heavy models anyway).
     ort.env.wasm.numThreads = 1
-    ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/`
+    if (!ort.env.wasm.wasmPaths) ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/` /* browser CDN; node presets a local path */
 
     const cfgs = await cachedJson<Cfgs>(`${HF}/onnx/tts.json`)
     const indexer = await cachedJson<number[]>(`${HF}/onnx/unicode_indexer.json`)

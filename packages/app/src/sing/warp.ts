@@ -216,17 +216,10 @@ export function buildGuide(spoken: Float32Array, sr: number, phones: Phone[], no
   for (let i = 0; i < notes.length; i++) {
     const sp = spans[i]!
     const tgt = Math.floor(notes[i]!.dur * sr)
-    let onset: Float32Array = new Float32Array(spoken.subarray(Math.floor(sp.s * sr), Math.floor(sp.vs * sr)))
-    const vowel = new Float32Array(spoken.subarray(Math.floor(sp.vs * sr), Math.floor(sp.ve * sr)))
-    let coda: Float32Array = new Float32Array(spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr)))
-    // CONSONANT-PRESERVING: on a short note, COMPRESS the consonants to fit
-    // instead of letting them overflow and get trimmed to silence — keeps the
-    // attack/coda audible so words stay crisp.
-    const oKeep = Math.min(onset.length, Math.floor(tgt * 0.45))
-    const cKeep = Math.min(coda.length, Math.floor(tgt * 0.28))
-    if (onset.length > oKeep && oKeep > 64) onset = stretchTo(onset, oKeep)
-    if (coda.length > cKeep && cKeep > 64) coda = stretchTo(coda, cKeep)
-    const vT = Math.max(Math.floor(tgt * 0.15), tgt - onset.length - coda.length)
+    const onset = spoken.subarray(Math.floor(sp.s * sr), Math.floor(sp.vs * sr))
+    const vowel = spoken.slice(Math.floor(sp.vs * sr), Math.floor(sp.ve * sr))
+    const coda = spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr))
+    const vT = Math.max(Math.floor(tgt * 0.25), tgt - onset.length - coda.length)
     const held = holdVowel(vowel, vT, sr)
     const note = new Float32Array(onset.length + held.length + coda.length)
     note.set(onset, 0)

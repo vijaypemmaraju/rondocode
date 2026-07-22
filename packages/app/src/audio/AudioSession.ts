@@ -291,6 +291,12 @@ export class AudioSession {
     return this.context.sampleRate
   }
 
+  /** The AudioContext clock in seconds — the same timeline SchedulerEvent.timeSec
+   *  is stamped in, so the karaoke highlighter can locate the playhead in a cycle. */
+  get currentTime(): number {
+    return this.context.currentTime
+  }
+
   /** Approximate host-side "now" in the engine's frame timeline (the worklet
    *  advances the authoritative clock; meters events carry its exact frame). */
   get currentTimeFrames(): number {

@@ -15,6 +15,7 @@ import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { EventFlasher, FLASH_MS } from './flash'
+import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions } from './setup'
@@ -424,6 +425,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // builds means the extension is simply never installed.
         import.meta.env.DEV ? ghostCompletion() : [],
         meters.extension, // per-synth meter gutter (audio-driven)
+        karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
           if (!u.docChanged) return
           const doc = u.state.doc.toString()
@@ -603,6 +605,19 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
   const disposeExport = mountExport({ view, audio, anchor: exportBtn })
 
+  // karaoke: light up the current sing() syllable + note as the vocal plays,
+  // driven by the sing-trigger event's timing against the AudioContext clock.
+  const disposeKaraoke = mountKaraoke(view, {
+    audio,
+    isPlaying: () => session.getState().playing,
+    subscribeEvents: subscribePatternEvents,
+    getDoc: () => view.state.doc.toString(),
+    onDoc: (fn) => {
+      docListeners.add(fn)
+      return () => docListeners.delete(fn)
+    },
+  })
+
   const dispose = (): void => {
     window.removeEventListener('pagehide', flushSave)
     document.removeEventListener('visibilitychange', onVisibility)
@@ -613,6 +628,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     meters.dispose()
     disposeSamples()
     disposeExport()
+    disposeKaraoke()
     engineListeners.clear()
     stateListeners.clear()
     docListeners.clear()

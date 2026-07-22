@@ -988,11 +988,12 @@ p('kick',  note('c2*4').fast(12).sound('kick'))
 p('snare', note('~ c2 ~ c2').fast(12).sound('snare'))
 p('hats',  note('c5*8').fast(12).sound('hat').gain(0.7))
 
-// bass roots + block chords (I–IV–V; [a,b,c] = a stacked chord), one per half-bar
-p('bass', note('c2 f2 c2 g2 c2 g2 c2 g2 c2 f2 g2 c2').sound('bass'))
-p('piano', note(\`[c3,e3,g3] [f3,a3,c4] [c3,e3,g3] [g3,b3,d4]
-                  [c3,e3,g3] [g3,b3,d4] [c3,e3,g3] [g3,b3,d4]
-                  [c3,e3,g3] [f3,a3,c4] [g3,b3,d4] [c3,e3,g3]\`).sound('piano'))
+// bass roots + a lush 7th/9th reharm (Cmaj9–Am7–Fmaj7–G7 with ii–V pull and
+// smooth voice-leading; [a,b,c] = a stacked chord), one chord per half-bar.
+p('bass', note('c2 a1 f1 g1 e2 d2 g1 g1 c2 f1 g1 c2').sound('bass'))
+p('piano', note(\`[c3,e3,g3,b3,d4] [a2,e3,g3,c4] [f2,a2,c3,e3] [g2,b2,d3,f3]
+                  [e2,g3,b3,d4]    [d3,f3,a3,c4] [g2,c3,e3,b3] [g2,b2,f3,a3]
+                  [c3,e3,g3,b3,d4] [f2,a2,c3,e3] [g2,c3,d3,f3] [c3,e3,g3,b3]\`).sound('piano'))
 
 // the voice. Try another: "kizuna", "rise".
 sing('barbara',

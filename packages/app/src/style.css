@@ -299,6 +299,38 @@ body {
   }
 }
 
+/* Karaoke: while a sung vocal plays, the CURRENT syllable in the lyrics and
+ * the CURRENT note in the melody light up together, tracking the clip's
+ * playhead. Distinct from cm-flash (green, per-note attack): karaoke is a
+ * steady bounce-in that holds for the whole syllable, warm on the words and a
+ * cool accent on the note, so you can read the two streams apart at a glance. */
+.cm-karaoke-syllable {
+  border-radius: var(--r-sm);
+  background-color: rgba(255, 179, 71, 0.42);
+  box-shadow: inset 0 -2px 0 rgba(255, 179, 71, 0.95);
+  animation: cm-karaoke-pop 120ms ease-out;
+}
+
+.cm-karaoke-note {
+  border-radius: var(--r-sm);
+  background-color: rgba(120, 170, 255, 0.32);
+  box-shadow: inset 0 -2px 0 rgba(120, 170, 255, 0.95);
+  animation: cm-karaoke-pop 120ms ease-out;
+}
+
+@keyframes cm-karaoke-pop {
+  from {
+    background-color: rgba(255, 255, 255, 0.75);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-karaoke-syllable,
+  .cm-karaoke-note {
+    animation: none;
+  }
+}
+
 /* --- inline widgets: slider()/toggle()/pick()/xy() render as controls ---
  *
  * Widgets sit inside 24px editor lines, so their VISUAL height stays ~20px;

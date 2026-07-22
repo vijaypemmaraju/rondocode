@@ -955,34 +955,46 @@ p('hats', note('c5*8').sound('hat'))
 p('snare', note('~ c4 ~ c4').sound('snare'))
 `
 
-const singing = `// SINGING — a neural voice sings your lyrics on your melody, over a band.
+const singing = `// SINGING — a neural voice sings your lyrics over a full band.
 // sing(voice, lyrics, notes): both lyrics and notes are mini-notation, one
 // syllable per note (hyphens split a word: "twin-kle" = 2 notes). First Run
-// downloads the voice models once (~a couple hundred MB, then cached); the
-// vocal bakes in the background and loops in time with everything else.
+// downloads the voice models once (cached after); the vocal bakes in the
+// background and loops in time with everything else.
 
-setCps(0.0417) // slow — one full verse per cycle
+setCps(0.0417) // the whole verse is ONE long cycle — each note is ~120 BPM
 
-// soft FM-ish piano: triangle body + an octave sparkle
+// --- drum kit ---
+const kick = synth(({ gate, adsr, sine }) => {
+  const p = adsr(gate, { a: 0.001, d: 0.09, s: 0, r: 0.05 }) // pitch drop
+  const a = adsr(gate, { a: 0.001, d: 0.22, s: 0, r: 0.08 }) // amp
+  return sine(p.pow(2).range(45, 160)).mul(a).tanh()
+})
+const snare = synth(({ gate, adsr, noise, svf }) =>
+  svf(noise(), 1800, { mode: 'bp', res: 0.5 }).mul(adsr(gate, { a: 0.002, d: 0.12, s: 0, r: 0.08 })).mul(0.6))
+const hat = synth(({ gate, adsr, noise, svf }) =>
+  svf(noise(), 9000, { mode: 'hp' }).mul(adsr(gate, { a: 0.001, d: 0.04, s: 0, r: 0.03 })).mul(0.4))
+
+// --- bass + keys ---
+const bass = synth(({ note, gate, adsr, saw, ladder }) =>
+  ladder(saw(note.freq), 420, { res: 0.3 }).mul(adsr(gate, { a: 0.005, d: 0.35, s: 0.4, r: 0.2 })).mul(0.22))
 const piano = synth(({ note, gate, adsr, tri, sine }) => {
   const env = adsr(gate, { a: 0.004, d: 0.5, s: 0.25, r: 0.5 })
-  return tri(note.freq).mul(0.5).add(sine(note.freq.mul(2)).mul(0.15)).mul(env).mul(0.16)
+  return tri(note.freq).mul(0.5).add(sine(note.freq.mul(2)).mul(0.15)).mul(env).mul(0.14)
 })
 
-// warm filtered-saw bass on the roots
-const bass = synth(({ note, gate, adsr, saw, ladder }) => {
-  const env = adsr(gate, { a: 0.005, d: 0.35, s: 0.4, r: 0.2 })
-  return ladder(saw(note.freq), 420, { res: 0.3 }).mul(env).mul(0.22)
-})
+// The verse is one 12-bar cycle, so .fast(12) repeats a 1-bar drum pattern
+// across all 12 bars — a steady 120 BPM groove.
+p('kick',  note('c2*4').fast(12).sound('kick'))
+p('snare', note('~ c2 ~ c2').fast(12).sound('snare'))
+p('hats',  note('c5*8').fast(12).sound('hat').gain(0.7))
 
-// block chords: I–IV–V under the tune ([a,b,c] = a stacked chord)
+// bass roots + block chords (I–IV–V; [a,b,c] = a stacked chord), one per half-bar
+p('bass', note('c2 f2 c2 g2 c2 g2 c2 g2 c2 f2 g2 c2').sound('bass'))
 p('piano', note(\`[c3,e3,g3] [f3,a3,c4] [c3,e3,g3] [g3,b3,d4]
                   [c3,e3,g3] [g3,b3,d4] [c3,e3,g3] [g3,b3,d4]
                   [c3,e3,g3] [f3,a3,c4] [g3,b3,d4] [c3,e3,g3]\`).sound('piano'))
 
-p('bass', note('c2 f2 c2 g2 c2 g2 c2 g2 c2 f2 g2 c2').sound('bass'))
-
-// the voice. Try another: "kizuna", "rise", "raiden".
+// the voice. Try another: "kizuna", "rise".
 sing('barbara',
   \`twin-kle twin-kle lit-tle star how I won-der what you are
    up a-bove the world so high like a dia-mond in the sky

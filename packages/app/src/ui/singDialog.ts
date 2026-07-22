@@ -7,6 +7,31 @@
  * ------------------------------------------------------------------------- */
 import { onSingProgress, onSingError } from '../sing/singMgr'
 
+/** First-time consent: singing needs a large one-time model download, so ask
+ *  before kicking it off (only called when the models aren't cached yet).
+ *  Resolves true to proceed, false to skip. */
+export function confirmSingDownload(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const el = document.createElement('div')
+    el.className = 'sing-consent'
+    el.innerHTML = `
+      <div class="sing-consent-card" role="dialog" aria-modal="true">
+        <div class="sing-consent-title">Download voice models?</div>
+        <div class="sing-consent-body">Singing runs a neural voice entirely on your device. The first play downloads the voice models (~2&nbsp;GB), then they're cached — later plays are instant. This can take a few minutes on your connection.</div>
+        <div class="sing-consent-actions">
+          <button class="sing-consent-cancel" type="button">Not now</button>
+          <button class="sing-consent-go" type="button">Download &amp; play</button>
+        </div>
+      </div>`
+    document.body.appendChild(el)
+    const done = (v: boolean): void => { el.remove(); resolve(v) }
+    el.querySelector<HTMLButtonElement>('.sing-consent-cancel')!.addEventListener('click', () => done(false))
+    el.querySelector<HTMLButtonElement>('.sing-consent-go')!.addEventListener('click', () => done(true))
+    el.addEventListener('click', (e) => { if (e.target === el) done(false) })
+    el.querySelector<HTMLButtonElement>('.sing-consent-go')!.focus()
+  })
+}
+
 export function mountSingDialog(): void {
   if (document.getElementById('sing-dialog')) return
   const el = document.createElement('div')

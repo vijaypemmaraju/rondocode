@@ -15,6 +15,19 @@
 import type { AudioSession } from '../audio/AudioSession'
 import type { SingRequest } from '../session/evalCode'
 import type { SingProgress } from './neural'
+import { SING_MODELS_BASE } from './config'
+
+/** True once the big models have been downloaded (the phoneme model — the
+ *  largest — is in the Cache API). Lets the UI ask for consent only on a first
+ *  play that would actually trigger the ~2 GB download. */
+export async function modelsCached(): Promise<boolean> {
+  try {
+    const c = await caches.open('rondocode-phonemes-v1')
+    return !!(await c.match(`${SING_MODELS_BASE}/phoneme.onnx`))
+  } catch {
+    return false
+  }
+}
 
 let audio: AudioSession | null = null
 let onProgress: ((p: (SingProgress & { active: number; total: number }) | null) => void) | null = null

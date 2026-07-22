@@ -20,7 +20,7 @@ import { ghostCompletion } from './ghost'
 import { codeEditingExtensions } from './setup'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
-import { mountSingDialog } from '../ui/singDialog'
+import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 
 /* ------------------------------------------------------------------------- *
  * The live-coding editor shell: header (logo, example picker, master
@@ -311,19 +311,32 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       lastGood = source
       flasher.onGoodEval(source)
       const firstPlay = autoplay && !session.getState().playing
+      const singCps = result.cps ?? session.getState().cps
       // sing(): bake the vocal clip(s). First play PRELOADS (wait, then play);
       // live edits bake in the BACKGROUND and swap the clip in when ready.
-      const needPreload = firstPlay && result.sings.length > 0 && singMgr.hasUnloaded(result.sings, result.cps ?? session.getState().cps)
-      if (result.sings.length > 0) singMgr.bake(result.sings, result.cps ?? session.getState().cps)
+      const needPreload = firstPlay && result.sings.length > 0 && singMgr.hasUnloaded(result.sings, singCps)
       const startPlayback = (): void => {
         // First Run unlocks audio: resume() runs inside this click/keypress
         // gesture, which is exactly what browsers require. Idempotent after.
         void audio.resume()
         session.transport('play')
       }
-      if (firstPlay) {
-        if (needPreload) void singMgr.whenReady(result.sings, result.cps ?? session.getState().cps).then(startPlayback)
-        else startPlayback()
+      if (needPreload) {
+        // A first play that must bake a vocal. If the models aren't downloaded
+        // yet, ASK first (it's a large one-time download); on consent, bake +
+        // wait + play; if declined, play the track without the vocal.
+        void (async () => {
+          if (!(await singMgr.modelsCached()) && !(await confirmSingDownload())) {
+            startPlayback()
+            return
+          }
+          singMgr.bake(result.sings, singCps)
+          await singMgr.whenReady(result.sings, singCps)
+          startPlayback()
+        })()
+      } else {
+        if (result.sings.length > 0) singMgr.bake(result.sings, singCps) // background bake on live edits
+        if (firstPlay) startPlayback()
       }
     }
     updateDirty(source)

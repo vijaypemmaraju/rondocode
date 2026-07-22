@@ -109,7 +109,7 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
     for (let i = 0; i < MODELS.length; i++) {
       const name = MODELS[i]!
       const buf = await cachedFetch(`${HF}/onnx/${name}.onnx`, (loaded, total) =>
-        onProgress?.({ phase: 'download', label: name, done: (i + loaded / total), total: MODELS.length }),
+        onProgress?.({ phase: 'download', label: `voice model ${i + 1}/${MODELS.length}`, done: loaded, total }),
       )
       sessions.push(await ort.InferenceSession.create(buf, opts))
     }

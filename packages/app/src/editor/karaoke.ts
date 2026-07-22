@@ -173,15 +173,20 @@ export function mountKaraoke(
     subscribeEvents: (fn: (evs: SchedulerEvent[]) => void) => () => void
     getDoc: () => string
     onDoc: (fn: (code: string) => void) => () => void
+    /** True if a `sound` control names a sing() vocal. Defaults to the built-in
+     *  `singv…` hash prefix; the editor supplies the real name set so a
+     *  sing(..., { name }) override is still tracked. */
+    isSingSound?: (sound: string) => boolean
   },
 ): () => void {
+  const isSing = opts.isSingSound ?? ((s: string) => s.startsWith('singv'))
   let trigTime = 0
   let trigDur = 0
   let haveTrig = false
   const unsubEv = opts.subscribeEvents((evs) => {
     for (const ev of evs) {
       const snd = (ev.controls as { sound?: unknown }).sound
-      if (typeof snd === 'string' && snd.startsWith('singv') && ev.durSec > 0) {
+      if (typeof snd === 'string' && isSing(snd) && ev.durSec > 0) {
         trigTime = ev.timeSec
         trigDur = ev.durSec
         haveTrig = true

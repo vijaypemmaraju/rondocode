@@ -341,6 +341,78 @@ describe('evalCode: bus staging', () => {
   })
 })
 
+describe('evalCode: sing() staging', () => {
+  const LYR = "'twin-kle star'"
+  const NOTES = "'c4 c4 g4'"
+
+  it('returns a chainable pattern instead of auto-registering (must be wrapped in p())', () => {
+    // Bare sing() plays nothing now: it stages the bake + returns the trigger.
+    const bare = run(`sing('barbara', ${LYR}, ${NOTES})`)
+    expect(bare.ok).toBe(true)
+    expect(bare.patterns.size).toBe(0) // returned, not registered
+    expect(bare.sings).toHaveLength(1)
+    // Wrapping registers it as a normal named channel.
+    const wrapped = run(`p('vox', sing('barbara', ${LYR}, ${NOTES}))`)
+    expect(wrapped.ok).toBe(true)
+    expect([...wrapped.patterns.keys()]).toEqual(['vox'])
+    expect(wrapped.patterns.get('vox')).toBeInstanceOf(Pattern)
+  })
+
+  it('stages a sampler synth + a bake request under the content-hash name', () => {
+    const r = run(`p('vox', sing('barbara', ${LYR}, ${NOTES}))`)
+    const s = r.sings[0]!
+    expect(s.voice).toBe('barbara')
+    expect(s.synthName).toMatch(/^singv/)
+    expect(s.sampleName).toMatch(/^singclip/)
+    expect(r.synths.has(s.synthName)).toBe(true)
+  })
+
+  it('defaults the voice when called sing(lyrics, notes)', () => {
+    const r = run(`p('vox', sing(${LYR}, ${NOTES}))`)
+    expect(r.ok).toBe(true)
+    expect(r.sings[0]!.voice).toBe('kizuna')
+  })
+
+  it('opts.name overrides the synth/channel name so bus()/sidechain() can target it', () => {
+    const r = run(
+      `p('vox', sing('barbara', ${LYR}, ${NOTES}, { name: 'vox' }))\n` +
+        `bus('verb', ({ input, reverb }) => reverb(input), { vox: 0.4 })`,
+    )
+    expect(r.ok).toBe(true)
+    expect(r.sings[0]!.synthName).toBe('vox')
+    expect(r.synths.has('vox')).toBe(true)
+    // the send targets the named vocal channel
+    expect(r.sends).toEqual([{ synth: 'vox', bus: 'verb', amount: 0.4 }])
+  })
+
+  it('opts.post attaches a per-synth DSP FX chain to the vocal', () => {
+    const r = run(
+      `p('vox', sing('barbara', ${LYR}, ${NOTES}, ` +
+        `{ post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.3) }))`,
+    )
+    expect(r.ok).toBe(true)
+    expect(r.synths.get(r.sings[0]!.synthName)?.post).toBeDefined()
+  })
+
+  it('dedupes identical calls by content hash', () => {
+    const r = run(`p('a', sing('barbara', ${LYR}, ${NOTES}))\np('b', sing('barbara', ${LYR}, ${NOTES}))`)
+    expect(r.ok).toBe(true)
+    expect(r.sings).toHaveLength(2) // both requested; Session dedupes the bake by name
+    expect(r.sings[0]!.synthName).toBe(r.sings[1]!.synthName)
+  })
+
+  it('rejects bad arg shapes, non-function post, and an empty name', () => {
+    expect(run(`p('v', sing('barbara'))`).ok).toBe(false) // no notes string
+    expect(run(`p('v', sing('barbara', ${LYR}, ${NOTES}, { post: 42 }))`).ok).toBe(false)
+    expect(run(`p('v', sing('barbara', ${LYR}, ${NOTES}, { name: '' }))`).ok).toBe(false)
+    expect(run(`p('v', sing('barbara', ${LYR}, ${NOTES}, 'nope'))`).ok).toBe(false)
+  })
+
+  it('is empty when never called', () => {
+    expect(run('const z = 1').sings).toEqual([])
+  })
+})
+
 describe('evalCode: all-or-nothing staging', () => {
   it('discards partial registrations when the eval later throws', () => {
     const r = run(`p('a', n('0'))\nconst k = ${SYNTH_SRC}\nthrow new Error('late')`)

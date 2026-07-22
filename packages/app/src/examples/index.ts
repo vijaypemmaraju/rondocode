@@ -979,7 +979,7 @@ const bass = synth(({ note, gate, adsr, saw, ladder }) =>
   ladder(saw(note.freq), 420, { res: 0.3 }).mul(adsr(gate, { a: 0.005, d: 0.35, s: 0.4, r: 0.2 })).mul(0.22))
 const piano = synth(({ note, gate, adsr, tri, sine }) => {
   const env = adsr(gate, { a: 0.004, d: 0.5, s: 0.25, r: 0.5 })
-  return tri(note.freq).mul(0.5).add(sine(note.freq.mul(2)).mul(0.15)).mul(env).mul(0.14)
+  return tri(note.freq).mul(0.5).add(sine(note.freq.mul(2)).mul(0.15)).mul(env).mul(0.22)
 })
 
 // The verse is one 12-bar cycle, so .fast(12) repeats a 1-bar drum pattern
@@ -995,14 +995,20 @@ p('piano', note(\`[c3,e3,g3,b3,d4] [a2,e3,g3,c4] [f2,a2,c3,e3] [g2,b2,d3,f3]
                   [e2,g3,b3,d4]    [d3,f3,a3,c4] [g2,c3,e3,b3] [g2,b2,f3,a3]
                   [c3,e3,g3,b3,d4] [f2,a2,c3,e3] [g2,c3,d3,f3] [c3,e3,g3,b3]\`).sound('piano'))
 
-// the voice. Try another: "kizuna", "rise".
-sing('barbara',
+// the voice. sing() returns a normal pattern, so the vocal is a first-class
+// channel: chain FX, nudge its timing, route it to buses. Try another voice:
+// "kizuna", "rise". opts.post is a per-synth DSP FX chain (here a touch of
+// reverb ON the vocal); opts.name lets bus()/sidechain() target it by name.
+p('vox', sing('barbara',
   \`twin-kle twin-kle lit-tle star how I won-der what you are
    up a-bove the world so high like a dia-mond in the sky
    twin-kle twin-kle lit-tle star how I won-der what you are\`,
   \`c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2
    g4 g4 f4 f4 e4 e4 d4@2 g4 g4 f4 f4 e4 e4 d4@2
-   c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`)
+   c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`,
+  { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.25) })
+  .late(0.0042) // nudge the vocal onto the beat — tune to taste
+  .gain(0.95))
 `
 
 export const EXAMPLES: Example[] = [

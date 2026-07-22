@@ -289,6 +289,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   let lastAttempted: string | undefined
   let lastGood: string | undefined
   let dirtyVsGood = true
+  // Synth/channel names of the current sing() vocals (for karaoke detection).
+  let singSoundNames = new Set<string>()
   let dirtyVsAttempted = true
 
   const updateDirty = (doc: string): void => {
@@ -311,6 +313,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     if (result.ok) {
       lastGood = source
       flasher.onGoodEval(source)
+      // Track the current vocals' synth/channel names so karaoke can spot their
+      // trigger events even when sing(..., { name }) renames off the singv-hash.
+      singSoundNames = new Set(result.sings.map((s) => s.synthName))
       const firstPlay = autoplay && !session.getState().playing
       const singCps = result.cps ?? session.getState().cps
       // sing(): bake the vocal clip(s). First play PRELOADS (wait, then play);
@@ -616,6 +621,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       docListeners.add(fn)
       return () => docListeners.delete(fn)
     },
+    isSingSound: (snd) => singSoundNames.has(snd),
   })
 
   const dispose = (): void => {

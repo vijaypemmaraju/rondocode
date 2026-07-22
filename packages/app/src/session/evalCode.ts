@@ -480,35 +480,74 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   }
 
   /** Sing `lyrics` (mini-notation) on `notes` (mini-notation) in an RVC `voice`.
-   *  Stages a sampler synth + a once-per-cycle trigger pattern under a stable
-   *  name, plus a render request the editor fulfils (neural, async) — the clip
-   *  plays as soon as it's baked + loaded. First arg may be omitted to use the
-   *  default voice. Last sing() with a given (voice,lyrics,notes) wins. */
-  const sing = (voice: unknown, lyrics?: unknown, notes?: unknown): void => {
+   *  Stages a sampler synth + a render request the editor fulfils (neural,
+   *  async), and RETURNS the once-per-cycle trigger Pattern so the caller
+   *  registers + shapes it like any other voice — the vocal is a first-class
+   *  channel, so it flows through the full FX / post / bus / sidechain chain:
+   *
+   *    p('vox', sing('barbara', lyr, notes).gain(0.9).late(0.004))
+   *
+   *  `opts.post` attaches a per-synth DSP FX chain to the vocal itself
+   *  (reverb/filter/crush/…, the same builder `synth()`'s 2nd arg takes).
+   *  `opts.name` overrides the synth/channel name (default: a content hash) so
+   *  bus() sends and sidechain() can target the vocal by that name.
+   *
+   *  First arg may be omitted to use the default voice. Last sing() with a
+   *  given (voice,lyrics,notes) wins the bake; identical calls dedupe. */
+  const sing = (a: unknown, b?: unknown, c?: unknown, d?: unknown): Pattern<ControlMap> => {
     assertOpen('sing')
-    // allow sing(lyrics, notes) → default voice
-    let v = voice
-    let l = lyrics
-    let nt = notes
-    if (typeof nt !== 'string') {
-      nt = l
-      l = v
+    // Forms: sing(voice, lyrics, notes, opts?) | sing(lyrics, notes, opts?).
+    // If `c` is a string it's the 3-string form (opts is `d`); otherwise `b` is
+    // the notes string (2-string form, default voice) and opts is `c`.
+    let v: unknown, l: unknown, nt: unknown, opts: unknown
+    if (typeof c === 'string') {
+      v = a
+      l = b
+      nt = c
+      opts = d
+    } else {
       v = 'kizuna'
+      l = a
+      nt = b
+      opts = c
     }
     if (typeof v !== 'string' || typeof l !== 'string' || typeof nt !== 'string') {
-      throw new TypeError('sing(): expected sing("voice", "lyrics", "notes") or sing("lyrics", "notes")')
+      throw new TypeError(
+        'sing(): expected sing("voice", "lyrics", "notes"[, opts]) or sing("lyrics", "notes"[, opts])',
+      )
     }
-    // names carry no '_' — the trigger runs the synth name through sound()'s
-    // mini-notation, where a leading/loose '_' is an elongation error.
+    if (opts !== undefined && (typeof opts !== 'object' || opts === null)) {
+      throw new TypeError('sing(): opts must be an object like { name?, post? }')
+    }
+    const o = (opts ?? {}) as { name?: unknown; post?: unknown }
+    if (o.post !== undefined && typeof o.post !== 'function') {
+      throw new TypeError('sing(): opts.post must be a function (a post-FX chain builder)')
+    }
     const id = singId(`${v}\n${l}\n${nt}`)
     const sampleName = `singclip${id}`
-    const synthName = `singv${id}`
-    // sampler synth: plays the (to-be-loaded) clip at natural speed on gate.
-    synths.set(synthName, synth(({ gate, sample }) => sample(gate, sampleName, { root: 60 })))
+    // synth/channel name: default the content hash (also what karaoke + bake
+    // dedup key on); opts.name overrides so bus() + sidechain() can target it.
+    let synthName = `singv${id}`
+    if (o.name !== undefined) {
+      if (typeof o.name !== 'string' || o.name.length === 0) {
+        throw new TypeError('sing(): opts.name must be a non-empty string')
+      }
+      synthName = o.name
+    }
+    // sampler synth: plays the (to-be-loaded) clip at natural speed on gate,
+    // through the optional per-synth post-FX chain when one is given.
+    synths.set(
+      synthName,
+      synth(
+        ({ gate, sample }) => sample(gate, sampleName, { root: 60 }),
+        o.post as Parameters<typeof synth>[1],
+      ),
+    )
+    sings.push({ sampleName, synthName, voice: v, lyrics: l, notes: nt })
     // trigger once per cycle (note c4 = the clip's root = natural speed) so the
     // vocal loops with the transport; cps is set so 1 cycle = the melody length.
-    patterns.set(synthName, note('c4').sound(synthName) as unknown as Pattern<ControlMap>)
-    sings.push({ sampleName, synthName, voice: v, lyrics: l, notes: nt })
+    // Returned (not auto-registered) — the caller wraps it in p(...).
+    return note('c4').sound(synthName) as unknown as Pattern<ControlMap>
   }
 
   const names: string[] = []

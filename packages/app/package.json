@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 6060 --strictPort",
-    "build": "vite build",
+    "build": "vite build && node scripts/postbuild-strip-ort-wasm.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

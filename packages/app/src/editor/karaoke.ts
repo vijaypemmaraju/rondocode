@@ -9,6 +9,7 @@
  * take the lyrics + notes string literals (quoted OR backtick, escape-free so
  * offset math is exact), and tokenize each into per-slot document ranges.
  * ------------------------------------------------------------------------- */
+import './karaoke.css'
 import { StateEffect, StateField } from '@codemirror/state'
 import type { Extension } from '@codemirror/state'
 import { Decoration, EditorView } from '@codemirror/view'

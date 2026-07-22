@@ -23,6 +23,14 @@ export class PreviewPlayer {
   private audio: AudioSession | null = null
   private session: Session | null = null
   private booting: Promise<void> | null = null
+  /** Synth/channel names of the currently-playing snippet's sing() vocals, so a
+   *  docs snippet's karaoke can spot their trigger events (incl. renamed ones). */
+  private _singSounds = new Set<string>()
+
+  /** The current snippet's sing() vocal channel names (for karaoke detection). */
+  get singSounds(): Set<string> {
+    return this._singSounds
+  }
 
   /** Fired whenever playback stops (either explicitly or when replaced), so a
    *  UI can reset its "playing" affordance. */
@@ -104,6 +112,7 @@ export class PreviewPlayer {
       const msg = result.diagnostics.find((d) => d.severity === 'error')?.message
       return { ok: false, error: msg ?? 'evaluation failed' }
     }
+    this._singSounds = new Set(result.sings.map((s) => s.synthName))
     void audio.resume()
     // sing(): if the snippet has a vocal that isn't baked yet, download the
     // models (with first-time consent) and WAIT so it plays in time — the same

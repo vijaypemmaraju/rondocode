@@ -30,6 +30,19 @@ describe('collectStringLiterals', () => {
     expect(collectStringLiterals('const = )')).toEqual([])
   })
 
+  it('collects a no-substitution template literal (incl. multi-line) with exact offsets', () => {
+    const src = "note(`[c3,e3,g3] [f3,a3,c4]\n  [g3,b3,d4]`).sound('piano')"
+    const lits = collectStringLiterals(src)
+    const chord = lits.find((l) => l.content.includes('c3'))!
+    expect(chord.content).toBe('[c3,e3,g3] [f3,a3,c4]\n  [g3,b3,d4]')
+    // the content offset maps back to the exact source text (so flash lands right)
+    expect(src.slice(chord.contentStart, chord.contentStart + chord.content.length)).toBe(chord.content)
+  })
+
+  it('skips template literals with ${} interpolation (offset math would break)', () => {
+    expect(collectStringLiterals('note(`a3 ${x} e4`)')).toEqual([])
+  })
+
   it('collects a `+` concatenation as ONE assembled literal', () => {
     // The pattern engine numbers locs against the assembled value, so the
     // concatenation must be one StringLit whose content is the joined string.

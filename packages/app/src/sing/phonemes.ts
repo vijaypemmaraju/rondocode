@@ -11,7 +11,9 @@
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
 
-const BASE = 'http://127.0.0.1:8790'
+import { SING_MODELS_BASE } from './config'
+import { cachedBytes } from './modelcache'
+const BASE = SING_MODELS_BASE
 const MODEL_URL = `${BASE}/phoneme.onnx`
 const VOCAB_URL = 'https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft/resolve/main/vocab.json'
 const CACHE = 'rondocode-phonemes-v1'
@@ -78,38 +80,6 @@ export function ipaToTokens(ipa: string): { id: number; sym: string; vowel: bool
   return out
 }
 
-async function cachedBytes(url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
-  const cache = await caches.open(CACHE)
-  const hit = await cache.match(url)
-  if (hit) return hit.arrayBuffer()
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`fetch ${url}: ${res.status}`)
-  const total = Number(res.headers.get('content-length') ?? 0)
-  if (onProgress && total > 0 && res.body) {
-    const reader = res.body.getReader()
-    const chunks: Uint8Array[] = []
-    let loaded = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-      loaded += value.length
-      onProgress(loaded, total)
-    }
-    const buf = new Uint8Array(loaded)
-    let off = 0
-    for (const c of chunks) {
-      buf.set(c, off)
-      off += c.length
-    }
-    await cache.put(url, new Response(buf, { headers: { 'content-type': 'application/octet-stream' } }))
-    return buf.buffer
-  }
-  const buf = await res.arrayBuffer()
-  await cache.put(url, new Response(buf))
-  return buf
-}
-
 /** Load (or reuse) the phoneme CTC model + vocab. fp32 (~1.2 GB), cached. */
 export async function loadPhonemes(onProgress?: (p: { label: string; done: number; total: number }) => void): Promise<void> {
   if (session) return
@@ -126,7 +96,7 @@ export async function loadPhonemes(onProgress?: (p: { label: string; done: numbe
       } catch {
         webgpu = false
       }
-      const buf = await cachedBytes(MODEL_URL, (l, t) => onProgress?.({ label: 'phoneme model', done: l, total: t }))
+      const buf = await cachedBytes(MODEL_URL, CACHE, (l, t) => onProgress?.({ label: 'phoneme model', done: l, total: t }))
       session = await ort.InferenceSession.create(buf, { executionProviders: webgpu ? ['webgpu', 'wasm'] : ['wasm'] })
       const res = await fetch(VOCAB_URL)
       if (!res.ok) throw new Error(`vocab fetch: ${res.status}`)

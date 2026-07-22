@@ -955,6 +955,43 @@ p('hats', note('c5*8').sound('hat'))
 p('snare', note('~ c4 ~ c4').sound('snare'))
 `
 
+const singing = `// SINGING — a neural voice sings your lyrics on your melody, over a band.
+// sing(voice, lyrics, notes): both lyrics and notes are mini-notation, one
+// syllable per note (hyphens split a word: "twin-kle" = 2 notes). First Run
+// downloads the voice models once (~a couple hundred MB, then cached); the
+// vocal bakes in the background and loops in time with everything else.
+
+setCps(0.0417) // slow — one full verse per cycle
+
+// soft FM-ish piano: triangle body + an octave sparkle
+const piano = synth(({ note, gate, adsr, tri, sine }) => {
+  const env = adsr(gate, { a: 0.004, d: 0.5, s: 0.25, r: 0.5 })
+  return tri(note.freq).mul(0.5).add(sine(note.freq.mul(2)).mul(0.15)).mul(env).mul(0.16)
+})
+
+// warm filtered-saw bass on the roots
+const bass = synth(({ note, gate, adsr, saw, ladder }) => {
+  const env = adsr(gate, { a: 0.005, d: 0.35, s: 0.4, r: 0.2 })
+  return ladder(saw(note.freq), 420, { res: 0.3 }).mul(env).mul(0.22)
+})
+
+// block chords: I–IV–V under the tune ([a,b,c] = a stacked chord)
+p('piano', note(\`[c3,e3,g3] [f3,a3,c4] [c3,e3,g3] [g3,b3,d4]
+                  [c3,e3,g3] [g3,b3,d4] [c3,e3,g3] [g3,b3,d4]
+                  [c3,e3,g3] [f3,a3,c4] [g3,b3,d4] [c3,e3,g3]\`).sound('piano'))
+
+p('bass', note('c2 f2 c2 g2 c2 g2 c2 g2 c2 f2 g2 c2').sound('bass'))
+
+// the voice. Try another: "kizuna", "rise", "raiden".
+sing('barbara',
+  \`twin-kle twin-kle lit-tle star how I won-der what you are
+   up a-bove the world so high like a dia-mond in the sky
+   twin-kle twin-kle lit-tle star how I won-der what you are\`,
+  \`c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2
+   g4 g4 f4 f4 e4 e4 d4@2 g4 g4 f4 f4 e4 e4 d4@2
+   c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`)
+`
+
 export const EXAMPLES: Example[] = [
   { name: 'acid', code: acid },
   { name: 'visuals', code: visuals },
@@ -974,4 +1011,5 @@ export const EXAMPLES: Example[] = [
   { name: 'arrangement', code: arrangement },
   { name: 'sampler', code: sampler },
   { name: 'granular', code: granular },
+  { name: 'singing', code: singing },
 ]

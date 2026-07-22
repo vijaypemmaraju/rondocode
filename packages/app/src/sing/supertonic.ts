@@ -3,15 +3,18 @@
  * Ported from the upstream MIT `web/helper.js` (github.com/supertone-inc/
  * supertonic), adapted to fetch models straight from HuggingFace with CORS and
  * cache them in the Cache API (one-time ~250MB download, then offline). The
- * speech half of `sing()`; PSOLA (psola.ts) does the singing.
+ * speech half of `sing()`; the phoneme aligner (phonemes.ts) + RVC (rvc.ts) do
+ * the singing.
  *
  * Pipeline per utterance: text → unicode tokens → duration_predictor (total
  * length) → text_encoder → a flow-matching denoise loop (vector_estimator) →
  * vocoder → waveform. See synthesize().
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
+import { SUPERTONIC_BASE } from './config'
+import { cachedBytes } from './modelcache'
 
-const HF = 'https://huggingface.co/Supertone/supertonic-3/resolve/main'
+const HF = SUPERTONIC_BASE
 const CACHE = 'rondocode-supertonic-v3'
 const MODELS = ['duration_predictor', 'text_encoder', 'vector_estimator', 'vocoder'] as const
 
@@ -70,38 +73,8 @@ class UnicodeProcessor {
 
 /* ------------------------------- loading -------------------------------- */
 
-async function cachedFetch(url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
-  const cache = await caches.open(CACHE)
-  const hit = await cache.match(url)
-  if (hit) return hit.arrayBuffer()
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`fetch ${url}: ${res.status}`)
-  // stream with progress when the length is known
-  const total = Number(res.headers.get('content-length') ?? 0)
-  if (onProgress && total > 0 && res.body) {
-    const reader = res.body.getReader()
-    const chunks: Uint8Array[] = []
-    let loaded = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-      loaded += value.length
-      onProgress(loaded, total)
-    }
-    const buf = new Uint8Array(loaded)
-    let off = 0
-    for (const c of chunks) {
-      buf.set(c, off)
-      off += c.length
-    }
-    await cache.put(url, new Response(buf, { headers: { 'content-type': 'application/octet-stream' } }))
-    return buf.buffer
-  }
-  const buf = await res.arrayBuffer()
-  await cache.put(url, new Response(buf))
-  return buf
-}
+const cachedFetch = (url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> =>
+  cachedBytes(url, CACHE, onProgress)
 
 async function cachedJson<T>(url: string): Promise<T> {
   return JSON.parse(new TextDecoder().decode(await cachedFetch(url))) as T

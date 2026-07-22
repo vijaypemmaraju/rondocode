@@ -1735,3 +1735,6 @@ body.shaderviz-on .cm-content {
   0% { margin-left: -40%; }
   100% { margin-left: 100%; }
 }
+.sing-dialog.sing-error .sing-title { color: var(--c-danger, #ff6b6b); }
+.sing-dialog.sing-error .sing-label { opacity: 0.9; }
+.sing-dialog.sing-error .sing-fill { background: var(--c-danger, #ff6b6b); }

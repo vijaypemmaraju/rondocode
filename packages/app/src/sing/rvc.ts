@@ -13,10 +13,12 @@
  * v2 .pth); the ContentVec encoder is shared across voices.
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
+import { SING_MODELS_BASE } from './config'
+import { cachedBytes } from './modelcache'
 
 /** Where the ONNX models are served (CORS). Local static server in dev; swap to
  *  HF/R2 for production (same idea as supertonic.ts). */
-const RVC_BASE = 'http://127.0.0.1:8790'
+const RVC_BASE = SING_MODELS_BASE
 const CONTENTVEC_URL = `${RVC_BASE}/vec-768.onnx`
 const CACHE = 'rondocode-rvc-v1'
 
@@ -43,37 +45,6 @@ let contentVec: ort.InferenceSession | null = null
 const generators = new Map<string, ort.InferenceSession>()
 let ortReady = false
 
-async function cachedBytes(url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
-  const cache = await caches.open(CACHE)
-  const hit = await cache.match(url)
-  if (hit) return hit.arrayBuffer()
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`fetch ${url}: ${res.status}`)
-  const total = Number(res.headers.get('content-length') ?? 0)
-  if (onProgress && total > 0 && res.body) {
-    const reader = res.body.getReader()
-    const chunks: Uint8Array[] = []
-    let loaded = 0
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-      loaded += value.length
-      onProgress(loaded, total)
-    }
-    const buf = new Uint8Array(loaded)
-    let off = 0
-    for (const c of chunks) {
-      buf.set(c, off)
-      off += c.length
-    }
-    await cache.put(url, new Response(buf, { headers: { 'content-type': 'application/octet-stream' } }))
-    return buf.buffer
-  }
-  const buf = await res.arrayBuffer()
-  await cache.put(url, new Response(buf))
-  return buf
-}
 
 async function ortOptions(): Promise<ort.InferenceSession.SessionOptions> {
   if (!ortReady) {
@@ -95,13 +66,13 @@ async function ortOptions(): Promise<ort.InferenceSession.SessionOptions> {
 export async function loadRvc(voiceId: string, onProgress?: (p: RvcProgress) => void): Promise<void> {
   const opts = await ortOptions()
   if (!contentVec) {
-    const buf = await cachedBytes(CONTENTVEC_URL, (l, t) => onProgress?.({ label: 'voice encoder', done: l, total: t }))
+    const buf = await cachedBytes(CONTENTVEC_URL, CACHE, (l, t) => onProgress?.({ label: 'voice encoder', done: l, total: t }))
     contentVec = await ort.InferenceSession.create(buf, opts)
   }
   if (!generators.has(voiceId)) {
     const v = VOICES.find((x) => x.id === voiceId)
     if (!v) throw new Error(`unknown voice ${voiceId}`)
-    const buf = await cachedBytes(v.url, (l, t) => onProgress?.({ label: `voice: ${v.label}`, done: l, total: t }))
+    const buf = await cachedBytes(v.url, CACHE, (l, t) => onProgress?.({ label: `voice: ${v.label}`, done: l, total: t }))
     generators.set(voiceId, await ort.InferenceSession.create(buf, opts))
   }
 }

@@ -18,6 +18,16 @@ import type { SingProgress } from './neural'
 
 let audio: AudioSession | null = null
 let onProgress: ((p: (SingProgress & { active: number; total: number }) | null) => void) | null = null
+let onError: ((msg: string) => void) | null = null
+
+/** Turn a raw load/render error into a short, user-facing message. */
+function humanError(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e)
+  if (/Failed to fetch|NetworkError|ERR_|load failed/i.test(m)) return 'Could not download the voice models — check your connection and run again.'
+  if (/\b(40\d|50\d)\b/.test(m)) return 'Voice models are unavailable right now. Try again shortly.'
+  if (/no available backend|webgpu|wasm/i.test(m)) return "This browser couldn't run the voice models."
+  return `Singing failed: ${m.slice(0, 140)}`
+}
 
 /** sampleName → the render key currently LOADED for it. */
 const loadedKey = new Map<string, string>()
@@ -30,6 +40,10 @@ export function initSing(a: AudioSession): void {
 /** Subscribe to bake progress (for the dialog). Null = idle/done. */
 export function onSingProgress(cb: (p: (SingProgress & { active: number; total: number }) | null) => void): void {
   onProgress = cb
+}
+/** Subscribe to render failures (for the dialog to surface, not swallow). */
+export function onSingError(cb: (msg: string) => void): void {
+  onError = cb
 }
 
 const keyOf = (r: SingRequest, cps: number): string => `${r.voice}\n${r.lyrics}\n${r.notes}\n${cps}`
@@ -61,6 +75,7 @@ export function bake(sings: SingRequest[], cps: number): void {
       .catch((e) => {
         // eslint-disable-next-line no-console
         console.error('[sing] render failed', r.sampleName, e)
+        onError?.(humanError(e))
       })
       .finally(() => {
         if (inflight.get(r.sampleName)?.key === k) inflight.delete(r.sampleName)

@@ -21,6 +21,9 @@ interface Hook {
    *  PSOLA/level/placement tuning can be A/B'd without TTS randomness. Pass a
    *  lyrics string to re-capture; omit to reuse the last capture. */
   resing(melody: Note[], lyrics?: string, opts?: { unpitched?: boolean }): Promise<{ len: number; sr: number; peak: number }>
+  /** DEV: prove in-browser RVC — convert the last say()/sing() audio to a singer
+   *  voice at a constant f0. Verifies ContentVec + generator run via WebGPU. */
+  testRvc(voiceId?: string): Promise<{ len: number; sr: number }>
 }
 
 export function installSingDevHook(): void {
@@ -74,6 +77,16 @@ export function installSingDevHook(): void {
       return { len: audio.length, sr, peak }
     },
     captured: null,
+    async testRvc(voiceId = 'kizuna') {
+      if (!this.audio) throw new Error('call say()/sing() first to get a guide track')
+      const { loadRvc, rvcConvert } = await import('./rvc')
+      await loadRvc(voiceId, (p) => (this.progress = { phase: 'download', label: p.label, done: p.done, total: p.total }))
+      const f0 = new Float32Array(200).fill(330) // constant ~E4 to prove it sings
+      const { audio, sr } = await rvcConvert(this.audio, this.sr, f0, voiceId)
+      this.audio = audio
+      this.sr = sr
+      return { len: audio.length, sr }
+    },
     async resing(melody: Note[], lyrics?: string, opts: { unpitched?: boolean } = {}) {
       if (lyrics && lyrics !== this.captured?.lyrics) {
         // need a fresh capture for new lyrics

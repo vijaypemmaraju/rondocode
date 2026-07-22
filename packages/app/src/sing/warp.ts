@@ -210,41 +210,63 @@ export interface GuideResult {
  *  (with slides) for the given spoken line, phonemes and melody. */
 export function buildGuide(spoken: Float32Array, sr: number, phones: Phone[], notes: MelodyNote[]): GuideResult {
   const spans = groupSyllables(phones, notes.length)
+  // Split every syllable into onset (consonants before the vowel) / vowel / coda
+  // up front, so the hold pass can see the NEXT syllable's onset length.
+  const seg = notes.map((_, i) => {
+    const sp = spans[i]!
+    return {
+      onset: spoken.subarray(Math.floor(sp.s * sr), Math.floor(sp.vs * sr)),
+      vowel: spoken.slice(Math.floor(sp.vs * sr), Math.floor(sp.ve * sr)),
+      coda: spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr)),
+    }
+  })
   const parts: Float32Array[] = []
   const noteLens: number[] = []
   const edge = Math.floor(0.006 * sr)
   for (let i = 0; i < notes.length; i++) {
-    const sp = spans[i]!
     const tgt = Math.floor(notes[i]!.dur * sr)
-    const onset = spoken.subarray(Math.floor(sp.s * sr), Math.floor(sp.vs * sr))
-    const vowel = spoken.slice(Math.floor(sp.vs * sr), Math.floor(sp.ve * sr))
-    const coda = spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr))
-    const vT = Math.max(Math.floor(tgt * 0.25), tgt - onset.length - coda.length)
+    const { onset, vowel, coda } = seg[i]!
+    const nextOnset = i + 1 < notes.length ? seg[i + 1]!.onset.length : 0
+    // VOWEL-ON-BEAT: hold this vowel so it fills the note UP TO the point where
+    // the next syllable's onset consonants must begin — those consonants lead
+    // INTO the next beat and end exactly on it. Net effect: every vowel (the
+    // pitched, perceptually-timed part) lands on its note's beat, and consonants
+    // sit ahead of the beat like a real singer. (Was `tgt - onset - coda`, which
+    // put THIS onset inside the slot so the vowel started late by its length.)
+    const vT = Math.max(Math.floor(tgt * 0.2), tgt - coda.length - nextOnset)
     const held = holdVowel(vowel, vT, sr)
     const note = new Float32Array(onset.length + held.length + coda.length)
     note.set(onset, 0)
     note.set(held, onset.length)
     note.set(coda, onset.length + held.length)
-    const fit = note.length >= tgt ? note.slice(0, tgt) : (() => { const p = new Float32Array(tgt); p.set(note); return p })()
-    for (let k = 0; k < edge && k < fit.length; k++) {
-      fit[k]! *= k / edge
-      fit[fit.length - 1 - k]! *= k / edge
+    for (let k = 0; k < edge && k < note.length; k++) {
+      note[k]! *= k / edge
+      note[note.length - 1 - k]! *= k / edge
     }
-    parts.push(fit)
-    noteLens.push(fit.length)
+    parts.push(note)
+    noteLens.push(note.length)
   }
   let total = 0
   for (const p of parts) total += p.length
-  const guide = new Float32Array(total)
+  const raw = new Float32Array(total)
   let pos = 0
   for (const p of parts) {
-    guide.set(p, pos)
+    raw.set(p, pos)
     pos += p.length
   }
+  // Trim (or pad) to the EXACT musical length (sum of note durations). The
+  // vowel-on-beat hold makes each slot onset+vowel+coda, so the buffer runs
+  // long by the first syllable's lead-in consonant; left unclipped, that lead-in
+  // would push every following chunk — and the whole vocal — progressively late.
+  // The excess we drop is tail off the final (held) vowel: inaudible.
+  let musical = 0
+  for (const n of notes) musical += Math.floor(n.dur * sr)
+  const guide = new Float32Array(musical)
+  guide.set(total >= musical ? raw.subarray(0, musical) : raw)
 
   // f0 contour on a 100 Hz grid over the guide (slides = log-glide, first 35%).
   const fps = 100
-  const nf = Math.max(1, Math.ceil(total / sr * fps))
+  const nf = Math.max(1, Math.ceil(musical / sr * fps))
   const f0 = new Float32Array(nf)
   let accSamp = 0
   let prev: number | null = null

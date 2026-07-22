@@ -20,6 +20,12 @@ export interface MelodyNote {
 
 const mtof = (m: number): number => 440 * 2 ** ((m - 69) / 12)
 
+// Sustained-note vibrato (see assembleGuide). Delay so short notes get none.
+const VIB_DELAY = 0.18 // s before vibrato starts
+const VIB_RAMP = 0.18 // s to ease it in
+const VIB_RATE = 5.5 // Hz
+const VIB_DEPTH = 0.0105 // ≈ 18 cents peak
+
 /** Parse a MELODY from note mini-notation ("c4 e4 g4", "c4@2 e4", "[c4 e4] g4",
  *  "c4 ~ g4") through the real pattern engine — so pitch + rhythm are grid-locked
  *  and tempo-aware exactly like the rest of rondocode. Durations are converted to
@@ -349,6 +355,18 @@ export function assembleGuide(segs: Seg[], notes: MelodyNote[], sr: number): Gui
       for (let f = a + tr; f < b && f < nf; f++) f0[f] = hz
     } else {
       for (let f = a; f < b && f < nf; f++) f0[f] = hz
+    }
+    // Gentle vibrato on the SUSTAINED part of a note. A held vowel rendered from
+    // a looped window comes out as a dead-flat tone (worst on the final long note
+    // — "...you arrre"); a delayed, ramped ±~18-cent / 5.5 Hz vibrato makes it
+    // breathe like a real singer. Short notes never reach the delay, so attacks
+    // stay clean. (This is f0-level vibrato through RVC — smooth, unlike the old
+    // PSOLA vibrato.)
+    for (let f = a; f < b && f < nf; f++) {
+      const t = (f - a) / fps
+      if (t <= VIB_DELAY) continue
+      const env = Math.min(1, (t - VIB_DELAY) / VIB_RAMP)
+      f0[f]! *= 1 + VIB_DEPTH * env * Math.sin(2 * Math.PI * VIB_RATE * (t - VIB_DELAY))
     }
     prev = notes[i]!.midi
   }

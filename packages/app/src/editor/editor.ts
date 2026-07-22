@@ -19,6 +19,8 @@ import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions } from './setup'
 import { synthMeters } from './meters'
+import * as singMgr from '../sing/singMgr'
+import { mountSingDialog } from '../ui/singDialog'
 
 /* ------------------------------------------------------------------------- *
  * The live-coding editor shell: header (logo, example picker, master
@@ -211,6 +213,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
     audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
     audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
+    // sing(): wire the neural render manager + its progress dialog
+    singMgr.initSing(audio)
+    mountSingDialog()
   } catch (e) {
     console.warn('[sample] default sample load failed', e)
   }
@@ -305,11 +310,20 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     if (result.ok) {
       lastGood = source
       flasher.onGoodEval(source)
-      if (autoplay && !session.getState().playing) {
+      const firstPlay = autoplay && !session.getState().playing
+      // sing(): bake the vocal clip(s). First play PRELOADS (wait, then play);
+      // live edits bake in the BACKGROUND and swap the clip in when ready.
+      const needPreload = firstPlay && result.sings.length > 0 && singMgr.hasUnloaded(result.sings, result.cps ?? session.getState().cps)
+      if (result.sings.length > 0) singMgr.bake(result.sings, result.cps ?? session.getState().cps)
+      const startPlayback = (): void => {
         // First Run unlocks audio: resume() runs inside this click/keypress
         // gesture, which is exactly what browsers require. Idempotent after.
         void audio.resume()
         session.transport('play')
+      }
+      if (firstPlay) {
+        if (needPreload) void singMgr.whenReady(result.sings, result.cps ?? session.getState().cps).then(startPlayback)
+        else startPlayback()
       }
     }
     updateDirty(source)

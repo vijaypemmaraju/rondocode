@@ -59,6 +59,7 @@ export class AudioSession {
    *  Throws on failure; callers surface the message. */
   static async start(): Promise<AudioSession> {
     const context = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' })
+    if (import.meta.env.DEV) (window as unknown as { __rcCtx: AudioContext }).__rcCtx = context
     try {
       await context.audioWorklet.addModule(workletUrl)
       const node = new AudioWorkletNode(context, 'rondocode-engine', {
@@ -66,6 +67,7 @@ export class AudioSession {
         numberOfOutputs: 1,
         outputChannelCount: [2], // ask for stereo; processor tolerates mono
       })
+      if (import.meta.env.DEV) (window as unknown as { __rcNode: AudioWorkletNode }).__rcNode = node
       // Visualizer tap: worklet → analyser → destination. FAIL-OPEN: if the
       // analyser can't be created or wired, fall back to a direct
       // worklet → destination connection — audio must NEVER break because a

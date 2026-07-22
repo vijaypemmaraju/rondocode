@@ -1,9 +1,9 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern } from '@rondocode/pattern'
+import { MiniError, Pattern, note } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { busGraph, tapLoc } from '@rondocode/engine'
+import { busGraph, tapLoc, synth } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 
 /* ------------------------------------------------------------------------- *
@@ -70,6 +70,26 @@ export interface SendSpec {
   amount: number
 }
 
+/** A staged sing() request: turn `lyrics` (mini-notation) into a vocal on
+ *  `notes` (mini-notation) in the RVC `voice`. sing() has already staged a
+ *  sampler synth (`synthName`) + a trigger pattern under it, so once the editor
+ *  renders the clip (async, neural) and loadSamplePcm's it as `sampleName`, it
+ *  plays. Pure eval can't await the render, hence this hand-off. */
+export interface SingRequest {
+  sampleName: string
+  synthName: string
+  voice: string
+  lyrics: string
+  notes: string
+}
+
+/** djb2 string hash → short stable id (for the per-sing sample/synth names). */
+function singId(s: string): string {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
 export interface EvalResult {
   /** True when the source parsed and ran to completion (warnings allowed). */
   ok: boolean
@@ -98,6 +118,10 @@ export interface EvalResult {
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
   visual?: string
+  /** Staged sing() requests — the editor renders each neural vocal (async) and
+   *  loadSamplePcm's it under sampleName; the sampler synth + trigger pattern are
+   *  already in `synths`/`patterns`, so the clip plays once loaded. */
+  sings: SingRequest[]
 }
 
 /** Tempo bounds shared with the Session (setCps and transport clamp alike). */
@@ -105,7 +129,7 @@ export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object. */
-const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', '__rcTap'])
+const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -272,7 +296,7 @@ const mapRuntimeError = (e: unknown, sourceLineCount: number): Diagnostic => {
 export function evalCode(source: string, scope: Record<string, unknown>): EvalResult {
   const parsed = parseSource(source)
   if ('error' in parsed) {
-    return { ok: false, diagnostics: [parsed.error], synths: new Map(), patterns: new Map(), buses: new Map(), sends: [] }
+    return { ok: false, diagnostics: [parsed.error], synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   }
   const { program } = parsed
   const { transformed, warnings } = transformSynthDecls(source, program)
@@ -283,6 +307,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   const patterns = new Map<string, Pattern<ControlMap>>()
   const buses = new Map<string, BusDef>()
   const sends: SendSpec[] = []
+  const sings: SingRequest[] = []
   let cps: number | undefined
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
@@ -454,6 +479,38 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
   }
 
+  /** Sing `lyrics` (mini-notation) on `notes` (mini-notation) in an RVC `voice`.
+   *  Stages a sampler synth + a once-per-cycle trigger pattern under a stable
+   *  name, plus a render request the editor fulfils (neural, async) — the clip
+   *  plays as soon as it's baked + loaded. First arg may be omitted to use the
+   *  default voice. Last sing() with a given (voice,lyrics,notes) wins. */
+  const sing = (voice: unknown, lyrics?: unknown, notes?: unknown): void => {
+    assertOpen('sing')
+    // allow sing(lyrics, notes) → default voice
+    let v = voice
+    let l = lyrics
+    let nt = notes
+    if (typeof nt !== 'string') {
+      nt = l
+      l = v
+      v = 'kizuna'
+    }
+    if (typeof v !== 'string' || typeof l !== 'string' || typeof nt !== 'string') {
+      throw new TypeError('sing(): expected sing("voice", "lyrics", "notes") or sing("lyrics", "notes")')
+    }
+    // names carry no '_' — the trigger runs the synth name through sound()'s
+    // mini-notation, where a leading/loose '_' is an elongation error.
+    const id = singId(`${v}\n${l}\n${nt}`)
+    const sampleName = `singclip${id}`
+    const synthName = `singv${id}`
+    // sampler synth: plays the (to-be-loaded) clip at natural speed on gate.
+    synths.set(synthName, synth(({ gate, sample }) => sample(gate, sampleName, { root: 60 })))
+    // trigger once per cycle (note c4 = the clip's root = natural speed) so the
+    // vocal loops with the transport; cps is set so 1 cycle = the melody length.
+    patterns.set(synthName, note('c4').sound(synthName) as unknown as Pattern<ControlMap>)
+    sings.push({ sampleName, synthName, voice: v, lyrics: l, notes: nt })
+  }
+
   const names: string[] = []
   const values: unknown[] = []
   for (const [key, value] of Object.entries(scope)) {
@@ -464,8 +521,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', '__rcTap')
-  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
+  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus, sing, tapLoc)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -478,12 +535,12 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     )
     // All-or-nothing: partial registrations from before the throw are
     // DISCARDED — fresh empty maps, never the staging ones.
-    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [] }
+    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   } finally {
     sealed = true
   }
 
-  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends }
+  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings }
   if (cps !== undefined) result.cps = cps
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg

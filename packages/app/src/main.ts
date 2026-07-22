@@ -89,7 +89,10 @@ AudioSession.start().then(
     mountHeaderOverflow(editor.topbar) // after every module has added its button
     startBridge(editor)
     // DEV-only: singing-engine console hook for bring-up (window.__rcSing).
-    if (import.meta.env.DEV) void import('./sing/devhook').then((m) => m.installSingDevHook())
+    if (import.meta.env.DEV) {
+      void import('./sing/devhook').then((m) => m.installSingDevHook())
+      ;(window as unknown as { __rcEditor: typeof editor }).__rcEditor = editor
+    }
   },
   (e: unknown) => {
     const banner = document.createElement('div')

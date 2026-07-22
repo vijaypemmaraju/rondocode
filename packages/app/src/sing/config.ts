@@ -8,10 +8,11 @@
  * The value is read once at build time (Vite inlines import.meta.env.*).
  * ------------------------------------------------------------------------- */
 
-/** Where the phoneme + RVC models live — a public HuggingFace repo, so it works
- *  everywhere (prod, dev, over Tailnet) with no local server. Override with
- *  VITE_SING_MODELS_BASE (e.g. http://127.0.0.1:8790 for a local model server). */
-const DEFAULT_BASE = 'https://huggingface.co/hi-im-vijay/rondocode-sing/resolve/main'
+/** Where the phoneme + RVC models live — a public Cloudflare R2 bucket on the
+ *  edge CDN (fast, cached, no egress fees), so it works everywhere (prod, dev,
+ *  over Tailnet) with no local server. Override with VITE_SING_MODELS_BASE (e.g.
+ *  http://127.0.0.1:8790 for a local model server). */
+const DEFAULT_BASE = 'https://models.rondocode.com'
 
 const envBase = (import.meta.env.VITE_SING_MODELS_BASE as string | undefined)?.replace(/\/+$/, '')
 

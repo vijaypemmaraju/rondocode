@@ -9,6 +9,7 @@
  * replaces PSOLA/the cepstral vocoder entirely — RVC does the hard part.
  * ------------------------------------------------------------------------- */
 import type { Phone } from './phonemes'
+import { note, TimeSpan, Fraction, hasOnset, type Pattern, type ControlMap } from '@rondocode/pattern'
 
 /** One melody note. */
 export interface MelodyNote {
@@ -20,17 +21,21 @@ export interface MelodyNote {
 
 const mtof = (m: number): number => 440 * 2 ** ((m - 69) / 12)
 
-/** Parse a melody spec: comma-separated `midi:dur[:s]`, `:s` = slide.
- *  e.g. "62:0.32,67:0.72,71:0.34:s". */
-export function parseMelody(spec: string): MelodyNote[] {
-  return spec
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => {
-      const parts = p.split(':')
-      return { midi: parseInt(parts[0]!, 10), dur: parseFloat(parts[1]!), slide: parts[2] === 's' }
-    })
+/** Parse a MELODY from note mini-notation ("c4 e4 g4", "c4@2 e4", "[c4 e4] g4",
+ *  "c4 ~ g4") through the real pattern engine — so pitch + rhythm are grid-locked
+ *  and tempo-aware exactly like the rest of rondocode. Durations are converted to
+ *  seconds via `cps` (cycles/sec). A note tagged with `slide:true` in a companion
+ *  control isn't expressible in bare note mini-notation yet, so slides default off
+ *  (portamento is applied separately, see buildGuide). `cycles` = how many cycles
+ *  of the pattern to unroll (a one-line sequence is 1 cycle). */
+export function parseMelodyMini(src: string, cps = 0.5, cycles = 1): MelodyNote[] {
+  const pat = note(src) as Pattern<ControlMap>
+  const span = new TimeSpan(new Fraction(0), new Fraction(cycles))
+  return pat
+    .query(span)
+    .filter(hasOnset)
+    .sort((a, b) => a.whole!.begin.valueOf() - b.whole!.begin.valueOf())
+    .map((h) => ({ midi: h.value.note!, dur: h.whole!.length.valueOf() / cps, slide: false }))
 }
 
 /* ------------------------------ tiny FFT -------------------------------- */

@@ -25,8 +25,9 @@ interface Hook {
    *  voice at a constant f0. Verifies ContentVec + generator run via WebGPU. */
   testRvc(voiceId?: string): Promise<{ len: number; sr: number }>
   /** DEV: the FULL neural pipeline in-browser — TTS → phoneme CTC → vowel-aware
-   *  warp → RVC. `melody` is a "midi:dur[:s]" spec (see warp.parseMelody). */
-  singNeural(lyrics: string, melody: string, voiceId?: string): Promise<{ len: number; sr: number; phones: string; ms: Record<string, number> }>
+   *  warp → RVC. BOTH lyrics and notes are mini-notation, aligned one note per
+   *  syllable; `cps` (cycles/sec) sets the tempo. */
+  singNeural(lyrics: string, notes: string, cps?: number, voiceId?: string): Promise<{ len: number; sr: number; phones: string; ms: Record<string, number> }>
 }
 
 export function installSingDevHook(): void {
@@ -90,7 +91,7 @@ export function installSingDevHook(): void {
       this.sr = sr
       return { len: audio.length, sr }
     },
-    async singNeural(lyrics: string, melody: string, voiceId = 'kizuna') {
+    async singNeural(lyrics: string, notesMini: string, cps = 0.5, voiceId = 'kizuna') {
       if (!this.engine) throw new Error('not loaded')
       const [{ parseLyrics }, { loadPhonemes, extractPhonemes }, warp, { loadRvc, rvcConvert }] = await Promise.all([
         import('./lyrics'), import('./phonemes'), import('./warp'), import('./rvc'),
@@ -98,7 +99,10 @@ export function installSingDevHook(): void {
       const ms: Record<string, number> = {}
       const clk = (k: string, t: number): void => void (ms[k] = Math.round(performance.now() - t))
       const parsed = parseLyrics(lyrics)
-      const notes = warp.parseMelody(melody)
+      const notes = warp.parseMelodyMini(notesMini, cps)
+      if (parsed.slots.length !== notes.length) {
+        throw new Error(`lyrics has ${parsed.slots.length} syllables but melody has ${notes.length} notes`)
+      }
       const sr = this.engine.sampleRate
       let t = performance.now()
       const spoken = await this.engine.synthesize(parsed.text, { onProgress: (p) => (this.progress = p) })

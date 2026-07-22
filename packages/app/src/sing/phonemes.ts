@@ -31,8 +31,52 @@ export interface Phone {
 let session: ort.InferenceSession | null = null
 let idToSym: string[] = []
 let vowelIds: number[] = []
+const symToId = new Map<string, number>()
+let sortedSyms: string[] = [] // non-special vocab symbols, longest first (for greedy tokenization)
 let loading: Promise<void> | null = null
 let ortReady = false
+
+// eSpeak stress / boundary marks the phonemizer emits that aren't in the vocab.
+const STRIP = /[ˈˌ\-|]/g
+
+/** Build the id↔symbol maps + greedy-match table from the model's vocab. Called
+ *  by loadPhonemes; exported so tests can set up the tokenizer without the ONNX
+ *  session. */
+export function installVocab(vocab: Record<string, number>): void {
+  idToSym = []
+  symToId.clear()
+  for (const [sym, id] of Object.entries(vocab)) {
+    idToSym[id] = sym
+    symToId.set(sym, id)
+  }
+  vowelIds = []
+  for (let id = 0; id < idToSym.length; id++) {
+    const s = idToSym[id]
+    if (id > 3 && s && isVowel(s)) vowelIds.push(id)
+  }
+  // symbols to try during greedy tokenization: skip the specials, longest first
+  sortedSyms = Object.keys(vocab).filter((s) => (symToId.get(s) ?? 0) > 3).sort((a, b) => b.length - a.length)
+}
+
+/** Tokenize an eSpeak IPA string (from g2p) into vocab token ids by greedy
+ *  longest-match, so multi-char symbols (ɑː, eɪ, aʊ, ts…) map to one token.
+ *  Unknown characters are skipped. */
+export function ipaToTokens(ipa: string): { id: number; sym: string; vowel: boolean }[] {
+  const s = ipa.replace(STRIP, '')
+  const out: { id: number; sym: string; vowel: boolean }[] = []
+  let i = 0
+  while (i < s.length) {
+    if (s[i] === ' ') { i++; continue }
+    let matched = ''
+    for (const sym of sortedSyms) {
+      if (sym.length && s.startsWith(sym, i)) { matched = sym; break }
+    }
+    if (!matched) { i++; continue } // unknown char, skip
+    out.push({ id: symToId.get(matched)!, sym: matched, vowel: isVowel(matched) })
+    i += matched.length
+  }
+  return out
+}
 
 async function cachedBytes(url: string, onProgress?: (loaded: number, total: number) => void): Promise<ArrayBuffer> {
   const cache = await caches.open(CACHE)
@@ -87,13 +131,7 @@ export async function loadPhonemes(onProgress?: (p: { label: string; done: numbe
       const res = await fetch(VOCAB_URL)
       if (!res.ok) throw new Error(`vocab fetch: ${res.status}`)
       const vocab = (await res.json()) as Record<string, number>
-      idToSym = []
-      for (const [sym, id] of Object.entries(vocab)) idToSym[id] = sym
-      vowelIds = []
-      for (let id = 0; id < idToSym.length; id++) {
-        const s = idToSym[id]
-        if (id > 3 && s && isVowel(s)) vowelIds.push(id)
-      }
+      installVocab(vocab)
     })()
   }
   await loading
@@ -155,6 +193,20 @@ export async function vowelActivity(audio: Float32Array, sr: number): Promise<{ 
     prob[t] = vs / sum
   }
   return { prob, fps }
+}
+
+/** Raw emission logits [T,V] for `audio`, plus the frames-per-second of that
+ *  grid. Feeds CTC forced alignment (forcedalign.ts) — Viterbi over logits gives
+ *  the same path as over log-softmax (the per-frame normaliser is constant across
+ *  paths), so we skip the softmax. */
+export async function emissions(audio: Float32Array, sr: number): Promise<{ logits: Float32Array; T: number; V: number; fps: number }> {
+  if (!session) throw new Error('phoneme model not loaded')
+  const x16 = normalize(to16k(audio, sr))
+  const out = await session.run({ input_values: new ort.Tensor('float32', x16, [1, x16.length]) })
+  const logits = out['logits']!
+  const T = logits.dims[1]!
+  const V = logits.dims[2]!
+  return { logits: logits.data as Float32Array, T, V, fps: T / (x16.length / 16000) }
 }
 
 /** Phoneme timeline for `audio`. Blank (id 0) + repeats collapsed. */

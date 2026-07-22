@@ -7,8 +7,9 @@
  * ------------------------------------------------------------------------- */
 import { loadEngine } from './supertonic'
 import { parseLyrics } from './lyrics'
-import { loadPhonemes, vowelActivity } from './phonemes'
-import { syllableSegments, assembleGuide, parseMelodyMini, type Seg } from './warp'
+import { loadPhonemes } from './phonemes'
+import { assembleGuide, parseMelodyMini, type Seg } from './warp'
+import { alignedSegments } from './segment'
 import { loadRvc, rvcConvert } from './rvc'
 
 /** Coarse progress for the render dialog. `phase` names the stage; when a model
@@ -75,27 +76,36 @@ export async function renderNeural(
   let from = 0
   for (let bi = 0; bi < bounds.length; bi++) {
     const to = bounds[bi]!
-    // words whose syllable slots fall in [from,to) make this phrase's text
-    const text = parsed.words.filter((w) => w.slots[0]! >= from && w.slots[0]! < to).map((w) => w.text).join(' ')
+    // words whose syllable slots fall in [from,to) make this phrase
+    const phraseWords = parsed.words.filter((w) => w.slots[0]! >= from && w.slots[0]! < to)
+    const text = phraseWords.map((w) => w.text).join(' ')
     if (!text) { from = to; continue }
+    const reqs = phraseWords.map((w) => ({ text: w.text, syllableCount: w.syllableCount }))
     onProgress?.({ phase: 'synthesize', label: `phrase ${bi + 1}/${bounds.length}`, done: bi, total: bounds.length })
-    // BEST-OF-N: Supertonic is non-deterministic and sometimes renders a syllable
-    // (often the 2nd of a repeated word) near-silent. Synthesize a few takes and
-    // keep the one whose WEAKEST syllable is loudest — i.e. no dropped word. Stop
-    // early once a take clears a comfortable floor.
+    // BEST-OF-N: Supertonic is non-deterministic and can render a syllable weakly.
+    // Synthesize a few takes and keep the one whose WEAKEST syllable is loudest.
+    // (Forced alignment already prevents dropped words; this just favours a
+    // cleaner take.) Stop early once a take clears a comfortable floor.
     let best: Seg[] | null = null
     let bestScore = -1
     for (let take = 0; take < 3; take++) {
       const spoken = trimSilence(await engine.synthesize(text, { speed: 1.0 }))
-      const { prob, fps } = await vowelActivity(spoken, sr)
-      const ws = syllableSegments(spoken, sr, prob, fps, to - from)
+      const ws = await alignedSegments(spoken, sr, reqs)
       let minRms = Infinity
       for (const s of ws) minRms = Math.min(minRms, rms(s.vowel))
       if (minRms > bestScore) { bestScore = minRms; best = ws }
       if (minRms > 0.02) break
     }
     const ws = best ?? []
-    for (let k = 0; k < to - from; k++) segs[from + k] = ws[k] ?? silent
+    // map each word's syllable segments onto its slots (melisma slots repeat the
+    // last syllable so it holds across those notes; rests stay silent).
+    let k = 0
+    for (const w of phraseWords) {
+      for (let s = 0; s < w.slots.length; s++) {
+        segs[w.slots[s]!] = ws[k + Math.min(s, w.syllableCount - 1)] ?? silent
+      }
+      k += w.syllableCount
+    }
     from = to
   }
   const { guide, f0 } = assembleGuide(segs, melody, sr)

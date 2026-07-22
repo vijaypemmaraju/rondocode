@@ -24,6 +24,9 @@ interface Hook {
   /** DEV: prove in-browser RVC — convert the last say()/sing() audio to a singer
    *  voice at a constant f0. Verifies ContentVec + generator run via WebGPU. */
   testRvc(voiceId?: string): Promise<{ len: number; sr: number }>
+  /** DEV: the FULL neural pipeline in-browser — TTS → phoneme CTC → vowel-aware
+   *  warp → RVC. `melody` is a "midi:dur[:s]" spec (see warp.parseMelody). */
+  singNeural(lyrics: string, melody: string, voiceId?: string): Promise<{ len: number; sr: number; phones: string; ms: Record<string, number> }>
 }
 
 export function installSingDevHook(): void {
@@ -86,6 +89,34 @@ export function installSingDevHook(): void {
       this.audio = audio
       this.sr = sr
       return { len: audio.length, sr }
+    },
+    async singNeural(lyrics: string, melody: string, voiceId = 'kizuna') {
+      if (!this.engine) throw new Error('not loaded')
+      const [{ parseLyrics }, { loadPhonemes, extractPhonemes }, warp, { loadRvc, rvcConvert }] = await Promise.all([
+        import('./lyrics'), import('./phonemes'), import('./warp'), import('./rvc'),
+      ])
+      const ms: Record<string, number> = {}
+      const clk = (k: string, t: number): void => void (ms[k] = Math.round(performance.now() - t))
+      const parsed = parseLyrics(lyrics)
+      const notes = warp.parseMelody(melody)
+      const sr = this.engine.sampleRate
+      let t = performance.now()
+      const spoken = await this.engine.synthesize(parsed.text, { onProgress: (p) => (this.progress = p) })
+      clk('tts', t)
+      t = performance.now()
+      await loadPhonemes((p) => (this.progress = { phase: 'download', label: p.label, done: p.done, total: p.total }))
+      const phones = await extractPhonemes(spoken, sr)
+      clk('phonemes', t)
+      t = performance.now()
+      const { guide, f0 } = warp.buildGuide(spoken, sr, phones, notes)
+      clk('warp', t)
+      t = performance.now()
+      await loadRvc(voiceId, (p) => (this.progress = { phase: 'download', label: p.label, done: p.done, total: p.total }))
+      const { audio, sr: osr } = await rvcConvert(guide, sr, f0, voiceId)
+      clk('rvc', t)
+      this.audio = audio
+      this.sr = osr
+      return { len: audio.length, sr: osr, phones: phones.map((p) => p.sym).join(' '), ms }
     },
     async resing(melody: Note[], lyrics?: string, opts: { unpitched?: boolean } = {}) {
       if (lyrics && lyrics !== this.captured?.lyrics) {

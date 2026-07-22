@@ -32,7 +32,6 @@ export const VOICES: Voice[] = [
   { id: 'kizuna', label: 'Kizuna (bright F)', url: `${RVC_BASE}/gen_kizuna.onnx` },
   { id: 'barbara', label: 'Barbara (soft F)', url: `${RVC_BASE}/gen_barbara.onnx` },
   { id: 'rise', label: 'Rise (pop F)', url: `${RVC_BASE}/gen_rise.onnx` },
-  { id: 'raiden', label: 'Raiden (deep F)', url: `${RVC_BASE}/gen_raiden.onnx` },
 ]
 
 export interface RvcProgress {

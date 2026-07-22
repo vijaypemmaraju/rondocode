@@ -8,13 +8,15 @@
  * The value is read once at build time (Vite inlines import.meta.env.*).
  * ------------------------------------------------------------------------- */
 
-/** Default production host — override per-deploy with VITE_SING_MODELS_BASE. */
-const DEFAULT_BASE = 'https://huggingface.co/rondocode/sing-models/resolve/main'
+/** Where the phoneme + RVC models live — a public HuggingFace repo, so it works
+ *  everywhere (prod, dev, over Tailnet) with no local server. Override with
+ *  VITE_SING_MODELS_BASE (e.g. http://127.0.0.1:8790 for a local model server). */
+const DEFAULT_BASE = 'https://huggingface.co/hi-im-vijay/rondocode-sing/resolve/main'
 
 const envBase = (import.meta.env.VITE_SING_MODELS_BASE as string | undefined)?.replace(/\/+$/, '')
 
 /** Base URL (no trailing slash) for phoneme.onnx, vec-768.onnx, gen_<voice>.onnx. */
-export const SING_MODELS_BASE = envBase ?? (import.meta.env.DEV ? 'http://127.0.0.1:8790' : DEFAULT_BASE)
+export const SING_MODELS_BASE = envBase ?? DEFAULT_BASE
 
 /** Supertonic TTS models — already public on HuggingFace, overridable too. */
 export const SUPERTONIC_BASE =

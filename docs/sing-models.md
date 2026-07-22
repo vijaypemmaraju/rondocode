@@ -17,28 +17,26 @@ load automatically. You only need to host the phoneme + voice-conversion models:
 | `gen_kizuna.onnx` | ~112 MB | RVC generator — voice "kizuna" |
 | `gen_barbara.onnx` | ~112 MB | RVC generator — voice "barbara" |
 | `gen_rise.onnx` | ~112 MB | RVC generator — voice "rise" |
-| `gen_raiden.onnx` | ~112 MB | RVC generator — voice "raiden" |
 
-These are the exact files the local dev model server (`127.0.0.1:8790`) serves.
+These are hosted at **`hi-im-vijay/rondocode-sing`** (public), which is the
+default in `config.ts` — the app fetches straight from HuggingFace, no local
+server, so it works in prod, dev, and over Tailnet alike.
 
-## One-time upload to HuggingFace
+## Re-uploading / hosting your own copy
 
 ```sh
 pip install -U huggingface_hub
-huggingface-cli login                       # once, with a write token
-huggingface-cli repo create sing-models --type model   # -> <you>/sing-models
+hf auth login                                       # once, with a write token
+hf repo create rondocode-sing --repo-type model     # -> <you>/rondocode-sing
 
-# from the directory that holds the .onnx files:
-huggingface-cli upload <you>/sing-models phoneme.onnx    phoneme.onnx
-huggingface-cli upload <you>/sing-models vec-768.onnx    vec-768.onnx
-huggingface-cli upload <you>/sing-models gen_kizuna.onnx gen_kizuna.onnx
-huggingface-cli upload <you>/sing-models gen_barbara.onnx gen_barbara.onnx
-huggingface-cli upload <you>/sing-models gen_rise.onnx   gen_rise.onnx
-huggingface-cli upload <you>/sing-models gen_raiden.onnx gen_raiden.onnx
+# from the directory holding the .onnx files:
+hf upload <you>/rondocode-sing ./ . --repo-type model
 ```
 
-HuggingFace's `resolve` CDN serves these with permissive CORS, which is all the
-browser needs. Files > 5 GB or private repos need extra setup — not the case here.
+HuggingFace's `resolve` CDN serves these with open CORS (`access-control-allow-
+origin: *`) and range requests, which is all the browser needs.
+
+Then point `DEFAULT_BASE` in `config.ts` (or `VITE_SING_MODELS_BASE`) at your repo.
 
 ## Point the app at your repo
 
@@ -47,7 +45,7 @@ Set it for your deploy:
 
 ```sh
 # .env.production (or your host's env config)
-VITE_SING_MODELS_BASE=https://huggingface.co/<you>/sing-models/resolve/main
+VITE_SING_MODELS_BASE=https://huggingface.co/hi-im-vijay/rondocode-sing/resolve/main
 ```
 
 For **local development** against the static model server instead:

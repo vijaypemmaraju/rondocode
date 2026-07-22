@@ -30,7 +30,7 @@ export async function modelsCached(): Promise<boolean> {
 }
 
 let audio: AudioSession | null = null
-let onProgress: ((p: (SingProgress & { active: number; total: number }) | null) => void) | null = null
+let onProgress: ((p: (SingProgress & { active: number }) | null) => void) | null = null
 let onError: ((msg: string) => void) | null = null
 
 /** Turn a raw load/render error into a short, user-facing message. */
@@ -51,7 +51,7 @@ export function initSing(a: AudioSession): void {
   audio = a
 }
 /** Subscribe to bake progress (for the dialog). Null = idle/done. */
-export function onSingProgress(cb: (p: (SingProgress & { active: number; total: number }) | null) => void): void {
+export function onSingProgress(cb: (p: (SingProgress & { active: number }) | null) => void): void {
   onProgress = cb
 }
 /** Subscribe to render failures (for the dialog to surface, not swallow). */
@@ -99,7 +99,9 @@ export function bake(sings: SingRequest[], cps: number): void {
 }
 
 function emit(p: SingProgress): void {
-  onProgress?.({ ...p, active: inflight.size, total: inflight.size })
+  // Preserve p.total — it's the download byte count the dialog shows as MB.
+  // (`active` = how many clips are baking, for a future multi-bake indicator.)
+  onProgress?.({ ...p, active: inflight.size })
 }
 
 /** Resolve once every current request is loaded (or its render settled). */

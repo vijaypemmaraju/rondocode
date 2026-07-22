@@ -95,6 +95,10 @@ export function bake(sings: SingRequest[], cps: number): void {
         if (inflight.size === 0) onProgress?.(null)
       })
     inflight.set(r.sampleName, { key: k, promise })
+    // Show the dialog IMMEDIATELY. renderOne dynamically imports the (large)
+    // neural chunk before it emits any progress, so without this the dialog
+    // would only appear after a visible delay from clicking play.
+    emit({ phase: 'prepare', label: 'preparing voice…', done: 0, total: 0 })
   }
 }
 

@@ -58,8 +58,13 @@ export type EngineMessage = (
   | { kind: 'noteOn'; synth: string; note: number; velocity?: number; atFrame?: number }
   | { kind: 'noteOff'; synth: string; note: number; atFrame?: number }
   /** Panic: releases every note on every synth NOW and drops all queued
-   *  note events. */
+   *  note events. Envelopes RELEASE (tails ring) — used when a live-coding
+   *  synth swap retires the old voices, so the swap is click-free. */
   | { kind: 'allNotesOff' }
+  /** Hard stop (transport Stop): like allNotesOff but resets every active voice
+   *  immediately, so held tails AND one-shot samples (a sung vocal clip plays to
+   *  its end otherwise) are cut at once. */
+  | { kind: 'silenceAll' }
   /** Set a declared synth param. rampMs (default 0 = instant, clamped to
    *  [0, 10000]) ramps the value linearly, applied at block granularity
    *  (~2.7ms at 48kHz) — params are block-rate in the voice pool. */

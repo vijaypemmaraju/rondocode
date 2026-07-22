@@ -481,7 +481,7 @@ export class Session {
       this.playing = true
     } else {
       this.scheduler.stop()
-      this.audio.send({ kind: 'allNotesOff' })
+      this.audio.send({ kind: 'silenceAll' }) // hard cut: also stops an in-flight sung vocal clip
       this.pendingSlide.clear() // deferred slide releases are moot after a panic
       this.playing = false
     }

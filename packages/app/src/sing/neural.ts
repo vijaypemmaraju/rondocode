@@ -10,6 +10,8 @@ import { parseLyrics } from './lyrics'
 import { loadPhonemes } from './phonemes'
 import { assembleGuide, parseMelodyMini, type Seg } from './warp'
 import { alignedSegments } from './segment'
+import { psola, estimateF0 } from './psola'
+import type { MelodyNote } from './warp'
 import { loadRvc, rvcConvert } from './rvc'
 
 /** Coarse progress for the render dialog. `phase` names the stage; when a model
@@ -109,26 +111,74 @@ export async function renderNeural(
     from = to
   }
   const { guide, f0 } = assembleGuide(segs, melody, sr)
+  const loopN = guide.length // samples at `sr` = one musical cycle
 
-  // Compensate RVC's constant output latency: the guide is on-beat, but the
-  // vocoder delays its output ~110 ms, so the sung vowels land late off the beat.
-  // The clip is a seamless one-cycle LOOP, so rotate the guide (and its f0) LEFT
-  // by the latency — the pre-beat pickup of the first syllable wraps to the tail,
-  // exactly where it belongs ahead of the looped downbeat — and RVC's delay then
-  // brings every vowel back onto its beat.
-  const rot = Math.floor(RVC_LATENCY_S * sr)
-  const rotF = Math.floor(RVC_LATENCY_S * 100) // f0 grid is 100 fps
-  const gr = rotateLeft(guide, rot)
-  const fr = rotateLeft(f0, rotF)
+  // TAIL PAD: RVC's generator rolls its pitch off at the very END of the clip, so
+  // the final held note renders ~50 cents flat (proven: the same word mid-song is
+  // in tune). Repeat the last chunk of the guide + hold its f0 so the roll-off
+  // lands on throwaway padding, then trim it back to the exact loop length.
+  const padN = Math.floor(RVC_TAILPAD_S * sr)
+  const padF = Math.floor(RVC_TAILPAD_S * 100)
+  const gp = new Float32Array(loopN + padN)
+  gp.set(guide)
+  gp.set(guide.subarray(Math.max(0, loopN - padN)), loopN)
+  const fp = new Float32Array(f0.length + padF)
+  fp.set(f0)
+  fp.fill(f0[f0.length - 1] ?? 0, f0.length)
 
   await loadRvc(voice, (p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
   onProgress?.({ phase: 'sing', label: 'singing', done: 0, total: 1 })
-  return rvcConvert(gr, sr, fr, voice)
+  const { audio, sr: osr } = await rvcConvert(gp, sr, fp, voice)
+
+  // HARD-TUNE off notes to the known melody. RVC leaks a little of the content's
+  // own pitch, so some sustained notes (esp. phrase-final ones, low from
+  // declination) render up to ~50 cents flat. We KNOW the exact target pitch per
+  // note, so TD-PSOLA any note that lands >25 cents off back onto it (formants
+  // preserved); in-tune notes are left untouched.
+  hardTune(audio, osr, melody)
+
+  // Trim the padding (+ the roll-off it absorbed) back to the loop length, then
+  // compensate RVC's small output latency by rotating this CLEAN loop LEFT so the
+  // first syllable's pickup wraps to the tail ahead of the looped downbeat.
+  const keep = Math.min(audio.length, Math.round((loopN / sr) * osr))
+  const rotated = rotateLeft(audio.subarray(0, keep), Math.floor(RVC_LATENCY_S * osr))
+  return { audio: rotated, sr: osr }
 }
 
-/** RVC (ContentVec + NSF-HiFiGAN) delays its output by roughly this much;
- *  measured by cross-correlating the sung f0 against the on-beat melody grid. */
-const RVC_LATENCY_S = 0.11
+/** How much to advance the vocal to cancel RVC's output latency (rotate the
+ *  finished loop left). Tuned by ear so the vocal sits with the arrangement. */
+const RVC_LATENCY_S = 0.06
+/** Guide tail repeated before RVC so its end-of-clip pitch roll-off falls on
+ *  padding, not the final sung note; trimmed off afterwards. */
+const RVC_TAILPAD_S = 0.8
+
+/** Snap notes that RVC rendered off-pitch back onto the known melody, in place.
+ *  Each note's output region is measured; if it's >25 cents off, TD-PSOLA retunes
+ *  it to the exact target (formant-preserving, tiny jitter to avoid buzz), with a
+ *  short crossfade at the edges so untouched neighbours don't click. */
+function hardTune(audio: Float32Array, osr: number, notes: MelodyNote[]): void {
+  const mtof = (m: number): number => 440 * 2 ** ((m - 69) / 12)
+  let cum = 0
+  const edge = Math.floor(0.006 * osr)
+  for (const n of notes) {
+    const a = Math.round(cum * osr)
+    cum += n.dur
+    const b = Math.min(audio.length, Math.round(cum * osr))
+    if (b - a < Math.floor(0.06 * osr)) continue
+    const region = audio.slice(a, b)
+    const target = mtof(n.midi)
+    const f0In = estimateF0(region, osr, 90, 700)
+    if (f0In <= 0) continue
+    const cents = 1200 * Math.log2(f0In / target)
+    if (Math.abs(cents) < 25) continue
+    const tuned = psola(region, osr, 1, target, f0In, 0.02)
+    const L = Math.min(tuned.length, b - a)
+    for (let k = 0; k < L; k++) {
+      const g = k < edge ? k / edge : k > L - edge ? (L - k) / edge : 1
+      audio[a + k] = audio[a + k]! * (1 - g) + tuned[k]! * g
+    }
+  }
+}
 
 /** RMS of a buffer (0 for empty), used to score synthesis takes. */
 function rms(a: Float32Array): number {

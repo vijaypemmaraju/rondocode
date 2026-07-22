@@ -172,43 +172,49 @@ interface Span {
  *  greedy phoneme decode does. Each syllable's vowel extent grows out from its
  *  centre while the curve stays above a fraction of its peak; the rest of the
  *  region is onset (before) / coda (after). Times are in seconds. */
-function placeSyllables(prob: Float32Array, fps: number, n: number): Span[] {
+function placeSyllables(prob: Float32Array, energy: Float32Array, fps: number, n: number): Span[] {
   const T = prob.length
   if (T === 0 || n <= 0) return []
-  // light 3-frame smoothing so single-frame spikes don't win a region
+  // Nucleus strength = vowel-probability WEIGHTED BY LOUDNESS. Weighting by energy
+  // is what keeps a centre from snapping into a silent gap between repeated words
+  // (e.g. the 2nd "twinkle"), which used to give that syllable a silent held vowel
+  // — i.e. a dropped word. 3-frame smoothing so single-frame spikes don't win.
+  let emax = 1e-9
+  for (let i = 0; i < T; i++) emax = Math.max(emax, energy[i] ?? 0)
+  const raw = new Float32Array(T)
+  for (let i = 0; i < T; i++) raw[i] = prob[i]! * (0.25 + 0.75 * Math.sqrt((energy[i] ?? 0) / emax))
   const sm = new Float32Array(T)
   for (let i = 0; i < T; i++) {
     let s = 0
     let c = 0
     for (let d = -1; d <= 1; d++) {
       const j = i + d
-      if (j >= 0 && j < T) {
-        s += prob[j]!
-        c++
-      }
+      if (j >= 0 && j < T) { s += raw[j]!; c++ }
     }
     sm[i] = s / c
   }
-  let centers = Array.from({ length: n }, (_, i) => Math.min(T - 1, Math.floor((i + 0.5) * T / n)))
-  const bounds = new Array<number>(n + 1)
-  for (let iter = 0; iter < 4; iter++) {
-    bounds[0] = 0
-    bounds[n] = T
-    for (let i = 1; i < n; i++) bounds[i] = Math.floor((centers[i - 1]! + centers[i]!) / 2)
-    for (let i = 0; i < n; i++) {
-      const lo = bounds[i]!
-      const hi = Math.max(lo + 1, bounds[i + 1]!)
-      let bi = lo
-      let bv = -1
-      for (let t = lo; t < hi; t++) {
-        if (sm[t]! > bv) {
-          bv = sm[t]!
-          bi = t
-        }
-      }
-      centers[i] = bi
+  // Snap each syllable to the strongest nucleus WITHIN A WINDOW around its evenly
+  // spaced position. TTS syllables are close to equal-length, so this prior keeps
+  // a centre from wandering across a pause into the wrong word (which is what put
+  // a whole region — and its held vowel — into the silence between two "twinkle"s).
+  const segW = T / n
+  const win = 0.45 * segW
+  const centers = new Array<number>(n)
+  for (let i = 0; i < n; i++) {
+    const even = (i + 0.5) * segW
+    const lo = Math.max(0, Math.floor(even - win))
+    const hi = Math.min(T, Math.ceil(even + win) + 1)
+    let bi = Math.min(T - 1, Math.floor(even))
+    let bv = -1
+    for (let t = lo; t < hi; t++) {
+      if (sm[t]! > bv) { bv = sm[t]!; bi = t }
     }
+    centers[i] = bi
   }
+  const bounds = new Array<number>(n + 1)
+  bounds[0] = 0
+  bounds[n] = T
+  for (let i = 1; i < n; i++) bounds[i] = Math.floor((centers[i - 1]! + centers[i]!) / 2)
   const spans: Span[] = []
   for (let i = 0; i < n; i++) {
     const segLo = bounds[i]!
@@ -219,6 +225,14 @@ function placeSyllables(prob: Float32Array, fps: number, n: number): Span[] {
     while (vs > segLo && sm[vs - 1]! >= thr) vs--
     let ve = c
     while (ve < segHi - 1 && sm[ve + 1]! >= thr) ve++
+    // floor the vowel width so a mis-centred syllable never holds near-silence:
+    // at least ~40% of the region, centred on c.
+    const minW = Math.max(2, Math.floor(0.4 * (segHi - segLo)))
+    if (ve - vs + 1 < minW) {
+      const half = minW >> 1
+      vs = Math.max(segLo, c - half)
+      ve = Math.min(segHi - 1, c + half)
+    }
     spans.push({ s: segLo / fps, e: segHi / fps, vs: vs / fps, ve: (ve + 1) / fps })
   }
   return spans
@@ -237,73 +251,95 @@ export interface GuideResult {
  *  (phonemes.ts `vowelActivity`) and the melody. The KNOWN note count drives the
  *  syllable segmentation, so alignment never miscounts. */
 export function buildGuide(spoken: Float32Array, sr: number, prob: Float32Array, probFps: number, notes: MelodyNote[]): GuideResult {
-  const spans = placeSyllables(prob, probFps, notes.length)
-  // Split every syllable into onset (consonants before the vowel) / vowel / coda
-  // up front, so the hold pass can see the NEXT syllable's onset length.
-  const seg = notes.map((_, i) => {
-    const sp = spans[i]!
-    return {
-      onset: spoken.subarray(Math.floor(sp.s * sr), Math.floor(sp.vs * sr)),
-      vowel: spoken.slice(Math.floor(sp.vs * sr), Math.floor(sp.ve * sr)),
-      coda: spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr)),
-    }
-  })
-  // Each slot is EXACTLY the note's length and laid out so the VOWEL STARTS ON
-  // THE BEAT: slot i = [ (leading onset, first syllable only) | vowel held |
-  // coda | NEXT syllable's onset ]. The next syllable's onset consonants ride at
-  // the END of this slot, leading INTO the next beat and ending exactly on it —
-  // so syllable i+1's vowel begins right on beat i+1. Every vowel (the pitched,
-  // perceptually-timed part) lands on its beat; consonants sit just ahead of it
-  // like a real singer. (The earlier concat of [onset|vowel|coda] per slot put
-  // each onset *inside* its own slot, so every vowel — and the whole line —
-  // dragged late by its leading-consonant length, 300–640 ms in practice.)
-  const parts: Float32Array[] = []
-  const noteLens: number[] = []
-  const edge = Math.floor(0.006 * sr)
-  const empty = new Float32Array(0)
-  for (let i = 0; i < notes.length; i++) {
-    const tgt = Math.floor(notes[i]!.dur * sr)
-    const { vowel, coda } = seg[i]!
-    const preOnset = i === 0 ? seg[0]!.onset : empty // only the very first vowel keeps a lead-in
-    const nextOnset = i + 1 < notes.length ? seg[i + 1]!.onset : empty
-    const vT = Math.max(Math.floor(tgt * 0.2), tgt - preOnset.length - coda.length - nextOnset.length)
-    const held = holdVowel(vowel, vT, sr)
-    const note = new Float32Array(preOnset.length + held.length + coda.length + nextOnset.length)
-    let o = 0
-    note.set(preOnset, o); o += preOnset.length
-    note.set(held, o); o += held.length
-    note.set(coda, o); o += coda.length
-    note.set(nextOnset, o)
-    // fit to EXACTLY the note length so slot boundaries == beat grid
-    const fit = note.length >= tgt ? note.slice(0, tgt) : (() => { const p = new Float32Array(tgt); p.set(note); return p })()
-    for (let k = 0; k < edge && k < fit.length; k++) {
-      fit[k]! *= k / edge
-      fit[fit.length - 1 - k]! *= k / edge
-    }
-    parts.push(fit)
-    noteLens.push(fit.length)
+  return assembleGuide(syllableSegments(spoken, sr, prob, probFps, notes.length), notes, sr)
+}
+
+/** One syllable, split into onset (consonants before the vowel) / vowel / coda. */
+export interface Seg {
+  onset: Float32Array
+  vowel: Float32Array
+  coda: Float32Array
+}
+
+/** Cut `n` syllables out of a spoken clip using its vowel-probability curve.
+ *  Returned segments feed assembleGuide — collect them across phrase chunks and
+ *  assemble the whole song in one pass so cross-chunk placement stays on-grid. */
+export function syllableSegments(spoken: Float32Array, sr: number, prob: Float32Array, probFps: number, n: number): Seg[] {
+  // RMS energy per prob frame, so the segmenter can weight vowel-probability by
+  // loudness (silent gaps between repeated words no longer attract a centre).
+  const T = prob.length
+  const energy = new Float32Array(T)
+  const hop = sr / probFps
+  for (let f = 0; f < T; f++) {
+    const a = Math.floor(f * hop)
+    const b = Math.min(spoken.length, Math.floor((f + 1) * hop))
+    let s = 0
+    for (let i = a; i < b; i++) s += spoken[i]! * spoken[i]!
+    energy[f] = b > a ? Math.sqrt(s / (b - a)) : 0
   }
-  let musical = 0
-  for (const p of parts) musical += p.length
-  const guide = new Float32Array(musical)
-  {
-    let pos = 0
-    for (const p of parts) {
-      guide.set(p, pos)
-      pos += p.length
+  return placeSyllables(prob, energy, probFps, n).map((sp) => ({
+    onset: spoken.subarray(Math.floor(sp.s * sr), Math.floor(sp.vs * sr)),
+    vowel: new Float32Array(spoken.subarray(Math.floor(sp.vs * sr), Math.floor(sp.ve * sr))),
+    coda: spoken.subarray(Math.floor(sp.ve * sr), Math.floor(sp.e * sr)),
+  }))
+}
+
+/** Assemble the full guide + melody f0 from per-syllable segments, placing EVERY
+ *  vowel's onset exactly on its note's beat. Each syllable's leading consonants
+ *  are borrowed from BEFORE the beat (overlapping the previous syllable's tail
+ *  with a short equal-power crossfade), so consonants lead into the beat and the
+ *  vowel lands on it — like a real singer — with no per-chunk drift. Only the very
+ *  first syllable of the whole song keeps a natural lead-in (nothing precedes it).
+ *  f0 sits on the exact beat grid, so pitch and words stay locked together. */
+export function assembleGuide(segs: Seg[], notes: MelodyNote[], sr: number): GuideResult {
+  const n = notes.length
+  const tgt = notes.map((nn) => Math.floor(nn.dur * sr))
+  const beat = [0]
+  for (let i = 0; i < n; i++) beat.push(beat[i]! + tgt[i]!)
+  const total = beat[n]!
+  const guide = new Float32Array(total)
+  const xf = Math.floor(0.008 * sr)
+  for (let i = 0; i < n; i++) {
+    const { onset, vowel, coda } = segs[i]!
+    // onset ends on the beat; if it can't fit before t=0 (first syllable), it
+    // becomes a lead-in and the vowel starts just after it instead.
+    let oStart = beat[i]! - onset.length
+    let vPos = beat[i]!
+    if (oStart < 0) { oStart = 0; vPos = onset.length }
+    // hold the vowel to fill until the NEXT syllable's onset must begin
+    const nextOnsetLen = i < n - 1 ? segs[i + 1]!.onset.length : 0
+    const budgetEnd = i < n - 1 ? beat[i + 1]! - nextOnsetLen : total
+    const vHeldLen = Math.max(Math.floor(tgt[i]! * 0.2), budgetEnd - vPos - coda.length)
+    const held = holdVowel(vowel, vHeldLen, sr)
+    // write onset: equal-power crossfade over its first xf samples against
+    // whatever is already there (the previous syllable's held tail), then overwrite
+    for (let k = 0; k < onset.length; k++) {
+      const gi = oStart + k
+      if (gi < 0 || gi >= total) continue
+      const s = onset[k]!
+      if (k < xf) {
+        const a = Math.sin((Math.PI / 2) * (k / xf))
+        guide[gi] = guide[gi]! * Math.cos((Math.PI / 2) * (k / xf)) + s * a
+      } else guide[gi] = s
     }
+    for (let k = 0; k < held.length; k++) { const gi = vPos + k; if (gi < total) guide[gi] = held[k]! }
+    for (let k = 0; k < coda.length; k++) { const gi = vPos + held.length + k; if (gi < total) guide[gi] = coda[k]! }
+  }
+  // gentle fade in/out at the very ends only
+  const edge = Math.floor(0.006 * sr)
+  for (let k = 0; k < edge && k < total; k++) {
+    guide[k]! *= k / edge
+    guide[total - 1 - k]! *= k / edge
   }
 
-  // f0 contour on a 100 Hz grid over the guide (slides = log-glide, first 35%).
+  // f0 on a 100 Hz grid, exactly on the beat grid (slides = log-glide, first 35%).
   const fps = 100
-  const nf = Math.max(1, Math.ceil(musical / sr * fps))
+  const nf = Math.max(1, Math.ceil((total / sr) * fps))
   const f0 = new Float32Array(nf)
-  let accSamp = 0
   let prev: number | null = null
-  for (let i = 0; i < notes.length; i++) {
-    const a = Math.floor((accSamp / sr) * fps)
-    accSamp += noteLens[i]!
-    const b = Math.floor((accSamp / sr) * fps)
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor((beat[i]! / sr) * fps)
+    const b = Math.floor((beat[i + 1]! / sr) * fps)
     const hz = mtof(notes[i]!.midi)
     if (notes[i]!.slide && prev !== null && b > a) {
       const tr = Math.max(1, Math.floor((b - a) * 0.35))

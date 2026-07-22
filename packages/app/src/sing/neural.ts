@@ -8,7 +8,7 @@
 import { loadEngine } from './supertonic'
 import { parseLyrics } from './lyrics'
 import { loadPhonemes, vowelActivity } from './phonemes'
-import { buildGuide, parseMelodyMini } from './warp'
+import { syllableSegments, assembleGuide, parseMelodyMini, type Seg } from './warp'
 import { loadRvc, rvcConvert } from './rvc'
 
 /** Coarse progress for the render dialog. `phase` names the stage; when a model
@@ -18,6 +18,23 @@ export interface SingProgress {
   label: string
   done: number
   total: number
+}
+
+/** Trim leading/trailing near-silence (TTS pre/post-roll). Left in, the leading
+ *  silence rides the first syllable's onset and pushes its vowel — hence the
+ *  whole chunk — late off the beat. */
+function trimSilence(x: Float32Array): Float32Array {
+  let peak = 0
+  for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]!))
+  if (peak < 1e-6) return x
+  const thr = peak * 0.02
+  let a = 0
+  while (a < x.length && Math.abs(x[a]!) < thr) a++
+  let b = x.length
+  while (b > a && Math.abs(x[b - 1]!) < thr) b--
+  // keep a touch of pre-onset so a hard consonant isn't clipped at the very edge
+  a = Math.max(0, a - 32)
+  return x.subarray(a, b)
 }
 
 export async function renderNeural(
@@ -37,78 +54,38 @@ export async function renderNeural(
   const sr = engine.sampleRate
   await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
 
-  // CHUNK into short phrases, then synthesize + align each separately (the
-  // phoneme CTC drops/duplicates on long takes — a whole 42-syllable verse
-  // mangles). Cut at MUSICAL PHRASE ENDS: the sustained notes (the `@2` at each
-  // line end) are where a singer breathes AND where the last syllable is stressed
-  // and held — exactly where the CTC is reliable. A count-based cut instead lands
-  // on weak trailing words ("...in the") that the CTC swallows, dropping a vowel
-  // and derailing the whole chunk's alignment. Cap at MAX_SYL so a phrase with no
-  // long note still splits. Line-aligned chunks also keep each line's guide/f0
-  // proportional, so RVC's uniform f0 stretch stays locked to the end.
-  const durs = melody.map((n) => n.dur).sort((a, b) => a - b)
-  const medianDur = durs[durs.length >> 1] ?? 0
-  const isPhraseEnd = (slot: number): boolean => (melody[slot]?.dur ?? 0) >= medianDur * 1.4
-  const MAX_SYL = 9
-  const groups: { text: string; from: number; to: number }[] = []
-  let curWords: string[] = []
-  let curSyl = 0
-  let curFrom = 0
-  const flush = (toExclusive: number): void => {
-    groups.push({ text: curWords.join(' '), from: curFrom, to: toExclusive })
-    curWords = []
-    curSyl = 0
+  // Synthesize per PHRASE (split at the sustained @2 notes = line ends, where a
+  // singer breathes), at NORMAL speed. This is the sweet spot for Supertonic:
+  //  - a whole verse is too long — the CTC/segmentation loses syllables;
+  //  - a single word is too short — Supertonic renders isolated function words
+  //    ("I", "a") and even "twinkle" as near-silence;
+  //  - and SLOW speed makes it drop the second of a repeated word ("twinkle
+  //    twinkle"). A normal-speed phrase keeps every syllable audible and gives the
+  //    segmenter enough context. We segment each phrase into its syllables, then
+  //    assemble the whole song vowel-on-beat in one pass so nothing drifts.
+  const sortedDurs = melody.map((n) => n.dur).sort((a, b) => a - b)
+  const medDur = sortedDurs[sortedDurs.length >> 1] ?? 0
+  const bounds: number[] = []
+  for (let i = 0; i < melody.length; i++) {
+    if (melody[i]!.dur >= medDur * 1.4 || i === melody.length - 1) bounds.push(i + 1)
   }
-  for (let wi = 0; wi < parsed.words.length; wi++) {
-    const w = parsed.words[wi]!
-    // cap overflow: close the current chunk before a word that would exceed it
-    if (curSyl + w.syllableCount > MAX_SYL && curWords.length > 0) {
-      const prev = parsed.words[wi - 1]!
-      flush(prev.slots[prev.slots.length - 1]! + 1)
-    }
-    if (curWords.length === 0) curFrom = w.slots[0]!
-    curWords.push(w.text)
-    curSyl += w.syllableCount
-    // cut AFTER a word that lands on a sustained (phrase-end) note
-    const last = w.slots[w.slots.length - 1]!
-    if (isPhraseEnd(last)) flush(last + 1)
-  }
-  if (curWords.length > 0) {
-    const last = parsed.words[parsed.words.length - 1]!
-    flush(last.slots[last.slots.length - 1]! + 1)
-  }
-
-  const guides: Float32Array[] = []
-  const f0s: Float32Array[] = []
-  for (let gi = 0; gi < groups.length; gi++) {
-    const g = groups[gi]!
-    const chunkNotes = melody.slice(g.from, g.to)
-    // slower TTS is safe here (short chunk = reliable CTC) → crisper phonemes
-    const speed = chunkNotes.length <= 12 ? 0.7 : 0.9
-    onProgress?.({ phase: 'synthesize', label: `phrase ${gi + 1}/${groups.length}`, done: gi, total: groups.length })
-    const spoken = await engine.synthesize(g.text, { speed })
+  const empty = new Float32Array(0)
+  const silent: Seg = { onset: empty, vowel: empty, coda: empty }
+  const segs: Seg[] = new Array<Seg>(parsed.slots.length).fill(silent)
+  let from = 0
+  for (let bi = 0; bi < bounds.length; bi++) {
+    const to = bounds[bi]!
+    // words whose syllable slots fall in [from,to) make this phrase's text
+    const text = parsed.words.filter((w) => w.slots[0]! >= from && w.slots[0]! < to).map((w) => w.text).join(' ')
+    if (!text) { from = to; continue }
+    onProgress?.({ phase: 'synthesize', label: `phrase ${bi + 1}/${bounds.length}`, done: bi, total: bounds.length })
+    const spoken = trimSilence(await engine.synthesize(text, { speed: 1.0 }))
     const { prob, fps } = await vowelActivity(spoken, sr)
-    const built = buildGuide(spoken, sr, prob, fps, chunkNotes)
-    guides.push(built.guide)
-    f0s.push(built.f0)
+    const ws = syllableSegments(spoken, sr, prob, fps, to - from)
+    for (let k = 0; k < to - from; k++) segs[from + k] = ws[k] ?? silent
+    from = to
   }
-
-  let gl = 0
-  let fl = 0
-  for (const x of guides) gl += x.length
-  for (const x of f0s) fl += x.length
-  const guide = new Float32Array(gl)
-  const f0 = new Float32Array(fl)
-  let go = 0
-  let fo = 0
-  for (const x of guides) {
-    guide.set(x, go)
-    go += x.length
-  }
-  for (const x of f0s) {
-    f0.set(x, fo)
-    fo += x.length
-  }
+  const { guide, f0 } = assembleGuide(segs, melody, sr)
 
   await loadRvc(voice, (p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
   onProgress?.({ phase: 'sing', label: 'singing', done: 0, total: 1 })

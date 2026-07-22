@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------- *
- * Supertonic 2 — on-device neural TTS in the browser (ONNX Runtime Web).
+ * Supertonic 3 — on-device neural TTS in the browser (ONNX Runtime Web).
  * Ported from the upstream MIT `web/helper.js` (github.com/supertone-inc/
  * supertonic), adapted to fetch models straight from HuggingFace with CORS and
  * cache them in the Cache API (one-time ~250MB download, then offline). The
@@ -11,8 +11,8 @@
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
 
-const HF = 'https://huggingface.co/Supertone/supertonic-2/resolve/main'
-const CACHE = 'rondocode-supertonic-v1'
+const HF = 'https://huggingface.co/Supertone/supertonic-3/resolve/main'
+const CACHE = 'rondocode-supertonic-v3'
 const MODELS = ['duration_predictor', 'text_encoder', 'vector_estimator', 'vocoder'] as const
 
 const LANGS = new Set([

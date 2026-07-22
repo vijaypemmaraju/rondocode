@@ -16,7 +16,9 @@ const MODEL_URL = `${BASE}/phoneme.onnx`
 const VOCAB_URL = 'https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft/resolve/main/vocab.json'
 const CACHE = 'rondocode-phonemes-v1'
 
-const VOWEL_CHARS = 'aeiouɐɛɪʊəɔæʌɑɜɒyɨʉøœɵɘ'
+// include the r-coloured vowels ɚ/ɝ (the "-er" in wonder, bird) — missing them
+// undercounts syllables and derails the phoneme→syllable grouping.
+const VOWEL_CHARS = 'aeiouɐɛɪʊəɔæʌɑɜɒyɨʉøœɵɘɚɝ'
 const isVowel = (p: string): boolean => [...p].some((c) => VOWEL_CHARS.includes(c))
 
 export interface Phone {

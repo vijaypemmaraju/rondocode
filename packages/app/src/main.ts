@@ -92,6 +92,7 @@ AudioSession.start().then(
     if (import.meta.env.DEV) {
       void import('./sing/devhook').then((m) => m.installSingDevHook())
       ;(window as unknown as { __rcEditor: typeof editor }).__rcEditor = editor
+      ;(window as unknown as { __rcAudio: typeof audio }).__rcAudio = audio
     }
   },
   (e: unknown) => {

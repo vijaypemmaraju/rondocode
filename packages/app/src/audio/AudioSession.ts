@@ -139,6 +139,15 @@ export class AudioSession {
     this.recordSample(name, frames, sampleRate, builtIn)
   }
 
+  /** Every loaded sample's main-thread PCM (built-ins, files, and baked sing()
+   *  clips), keyed by name — the sample bank an OFFLINE bounce needs so its
+   *  sample('name') nodes play the same audio the live engine does. */
+  get loadedSamples(): Record<string, { data: Float32Array; sampleRate: number }> {
+    const out: Record<string, { data: Float32Array; sampleRate: number }> = {}
+    for (const [name, pcm] of this._pcm) out[name] = pcm
+    return out
+  }
+
   /** Preview a loaded sample through the AudioContext (independent of the
    *  engine graph). Interrupts any current preview. No-op for unknown names. */
   previewSample(name: string): void {

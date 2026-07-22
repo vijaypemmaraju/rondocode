@@ -36,7 +36,9 @@ export async function renderNeural(
   const engine = await loadEngine((p) => onProgress?.({ phase: p.phase, label: p.label, done: p.done, total: p.total }))
   const sr = engine.sampleRate
   onProgress?.({ phase: 'synthesize', label: 'speaking', done: 0, total: 1 })
-  const spoken = await engine.synthesize(parsed.text)
+  // Speak SLOWER than default (1.05) → longer, more distinct phonemes, which the
+  // warp + RVC preserve as clearer sung consonants/vowels.
+  const spoken = await engine.synthesize(parsed.text, { speed: 0.7 })
 
   await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
   onProgress?.({ phase: 'align', label: 'aligning phonemes', done: 0, total: 1 })

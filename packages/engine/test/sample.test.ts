@@ -114,3 +114,31 @@ describe('sample() through synth() + renderOffline', () => {
     expect(peak).toBe(0)
   })
 })
+
+describe('SampleKernel: NaN / out-of-bounds hygiene', () => {
+  it('reverse (negative) speed stays finite — loop wraps both directions', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(100), 48000)
+    const out = run(new SampleKernel('r', true, bank), 600, 48000, { speed: -1 })
+    expect(out.every(Number.isFinite)).toBe(true)
+  })
+
+  it('a one-shot with negative speed stops cleanly (no NaN, no dead voice)', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(100), 48000)
+    const out = run(new SampleKernel('r', false, bank), 600, 48000, { speed: -1 })
+    expect(out.every(Number.isFinite)).toBe(true)
+  })
+
+  it('a transient NaN speed does not permanently poison the voice', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(100), 48000)
+    const k = new SampleKernel('r', true, bank)
+    const gate = new Float32Array(600).fill(1)
+    const speed = new Float32Array(600).fill(1)
+    speed[5] = NaN
+    const out = new Float32Array(600)
+    k.process(600, { gate, speed }, out, { sampleRate: 48000 })
+    expect([...out.slice(50)].every(Number.isFinite)).toBe(true) // recovered after the NaN
+  })
+})

@@ -129,7 +129,12 @@ const renderProgram = (
   const events = runPatterns(staged.patterns, { cycles, cps })
   const mix = renderMix(staged.synths, events, durationSec, {
     maxVoices: 12,
+    // Forward buses/sends/masterComp too, so the offline render an agent "hears"
+    // matches the live signal path (renderMix supports all three; omitting them
+    // silently dropped bus FX and the glue compressor from the render).
+    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
+    ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
   })
   const analysis = analyze({ left: mix.left, right: mix.right, sampleRate: mix.sampleRate })
   const unknownSounds = [...events.keys()].filter((s) => !staged.synths.has(s))

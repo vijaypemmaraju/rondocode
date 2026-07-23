@@ -89,6 +89,21 @@ describe('render_code', () => {
     expect(readdirSync(mirrorDir)).toHaveLength(1)
   }, 60_000)
 
+  it('applies masterCompress + bus sends in the render (regression: they were dropped)', async () => {
+    const voice =
+      "const a = synth(({ sine, note, gate, adsr }) => sine(note.freq).mul(adsr(gate, { a: 0.01, d: 0.2, s: 0.4, r: 0.1 })))\np('x', note('c3 e3 g3 c4').sound('a'))"
+    const rms = (r: CallToolResult): number => (asJson(r)['analysis'] as Analysis).rms
+    const base = rms(await call('render_code', { code: voice, cycles: 2 }))
+    // heavy comp (-50 dB threshold, 2:1, +12 makeup) pulls the level well below
+    // dry — if masterCompress were dropped (the bug), rms would be ~unchanged.
+    const comp = rms(await call('render_code', { code: `${voice}\nmasterCompress({ threshold: -50, ratio: 2, makeup: 12 })`, cycles: 2 }))
+    expect(comp).toBeLessThan(base * 0.7)
+    // a reverb bus changes the render; if the send were dropped (the bug) the
+    // render would be byte-identical to dry, so any material rms delta proves it.
+    const withBus = rms(await call('render_code', { code: `${voice}\nbus('rev', ({ input, reverb }) => reverb(input, { roomSize: 0.95 }), { a: 1 })`, cycles: 2 }))
+    expect(Math.abs(withBus - base)).toBeGreaterThan(1e-3)
+  }, 60_000)
+
   it('skips the wav when includeWav is false', async () => {
     const r = await call('render_code', { code: ACID, cycles: 1, includeWav: false })
     expect(r.isError, asText(r)).not.toBe(true)

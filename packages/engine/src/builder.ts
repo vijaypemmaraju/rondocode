@@ -808,7 +808,15 @@ export function synth(
  *  the summed sends as `input` and returns the processed signal — compiled
  *  exactly like a synth's post chain, so bus FX behave identically. */
 export function busGraph(fxFn: (ctx: PostCtx) => Sig): GraphSpec {
-  return buildGraph(makePostCtx, returnsOwnSig, fxFn, (g) => {
+  const graph = buildGraph(makePostCtx, returnsOwnSig, fxFn, (g) => {
     compilePost(g, { sampleRate: 48000 })
   }).graph
+  // A bus has no notes and no .ctrl() route, so a param() in its FX chain could
+  // never be changed — it'd be a silent dead knob. Reject it at build time.
+  if (graph.params.length > 0) {
+    throw new GraphError(
+      `bus(): param('${graph.params[0]!.name}') can't be used in a bus FX chain — a bus has no notes or .ctrl() route, so it could never change. Use a fixed value.`,
+    )
+  }
+  return graph
 }

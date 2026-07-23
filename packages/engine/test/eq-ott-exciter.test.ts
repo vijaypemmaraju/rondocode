@@ -149,6 +149,18 @@ describe('eq/exciter/ott through synth() + renderOffline (builder wiring)', () =
     expect(recover(new OttKernel({ depth: 0.5 }))).toBeGreaterThan(0.05)
   })
 
+  it('exciter recovers from a transient NaN within the SAME block (per-sample scrub)', () => {
+    // regression: exciter scrubbed its lp state only at block END, so one NaN
+    // input NaN'd the rest of the block. Now it scrubs per-sample like eq/ott.
+    const k = new ExciterKernel({ amount: 0.5, drive: 4 })
+    const bad = new Float32Array(128)
+    for (let i = 0; i < 128; i++) bad[i] = 0.3 * Math.sin((2 * Math.PI * 4000 * i) / SR)
+    bad[10] = NaN
+    const out = new Float32Array(128)
+    k.process(128, { in: bad }, out, { sampleRate: SR })
+    expect(out.every((x) => Number.isFinite(x))).toBe(true) // whole block finite, not just the tail
+  })
+
   it('a non-finite eq band field does not silence the whole signal', () => {
     // regression: NaN freq → NaN coefficients → dead biquad. Bad fields must be
     // guarded to a sane default so only that band is off, not the entire chain.

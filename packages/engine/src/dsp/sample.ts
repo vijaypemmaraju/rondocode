@@ -61,25 +61,30 @@ export class SampleKernel implements Kernel {
       }
 
       let p = this.pos
-      if (p >= len) {
-        if (this.loop) {
-          p -= Math.floor(p / len) * len
-          this.pos = p
-        } else {
-          this.playing = false
-          out[i] = 0
-          continue
-        }
+      if (this.loop) {
+        // wrap into [0, len) — works for a NEGATIVE head too (reverse speed);
+        // a NaN head (from a prior bad speed) resets rather than sticking.
+        p -= Math.floor(p / len) * len
+        if (!Number.isFinite(p)) p = 0
+        this.pos = p
+      } else if (!(p >= 0 && p < len)) {
+        // one-shot ran off EITHER end (or went non-finite) — stop cleanly.
+        this.playing = false
+        out[i] = 0
+        continue
       }
 
-      const i0 = p | 0
+      const i0 = p | 0 // p is now in [0, len) -> i0 in [0, len-1]
       const frac = p - i0
       const a = data[i0]!
       // Next frame: wrap for loop, else read the tail (0 past the very end).
       const bNext = i0 + 1 < len ? data[i0 + 1]! : this.loop ? data[0]! : 0
       out[i] = a + frac * (bNext - a)
 
-      const sp = speed !== undefined ? speed[i]! : 1
+      // Sanitize speed: a NaN/Inf multiplier would poison `pos` forever (only a
+      // fresh gate edge clears it). Treat non-finite as 0 (freeze) — self-heals.
+      const spRaw = speed !== undefined ? speed[i]! : 1
+      const sp = Number.isFinite(spRaw) ? spRaw : 0
       this.pos = p + sp * rate
     }
   }

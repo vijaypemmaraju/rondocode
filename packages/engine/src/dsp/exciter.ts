@@ -41,13 +41,15 @@ export class ExciterKernel implements Kernel {
     for (let i = 0; i < n; i++) {
       const dry = input[i]!
       lp = a * lp + (1 - a) * dry
+      if (!Number.isFinite(lp)) lp = 0 // scrub state PER SAMPLE so one NaN input can't burst the rest of the block (match eq/ott)
       const hi = dry - lp
       // saturate the highs; /drive keeps small signals near unity so `amount`
       // reads as a clean mix knob. The added band carries generated harmonics.
       const ex = Math.tanh(hi * drive) / drive
-      out[i] = dry + ex * amount * 2.5
+      const y = dry + ex * amount * 2.5
+      out[i] = Number.isFinite(y) ? y : 0
     }
-    this.lp = Number.isFinite(lp) ? lp : 0
+    this.lp = lp
   }
 
   reset(): void {

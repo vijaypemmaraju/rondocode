@@ -286,10 +286,13 @@ Pattern.prototype.off = function <T>(
  *     `.add(2)` moves two SCALE STEPS and stays in key.
  *  3. Any other control map — shift `n` (pre-scale degree) or `note` (absolute)
  *     directly, a raw/semitone move.
- *  loc and every other control ride along untouched. */
-const applyArith = (op: (a: number, b: number) => number, a: unknown, b: number): unknown => {
+ *  loc and every other control ride along untouched. `transposeCtrl` is false
+ *  for mul/div, which then leave control maps UNTOUCHED — multiplying a MIDI
+ *  note/degree is meaningless, so it's a no-op rather than a nonsensical value
+ *  (add/sub are the transpose ops). Numeric signals still multiply normally. */
+const applyArith = (op: (a: number, b: number) => number, a: unknown, b: number, transposeCtrl: boolean): unknown => {
   if (typeof a === 'number') return op(a, b)
-  if (a !== null && typeof a === 'object') {
+  if (transposeCtrl && a !== null && typeof a === 'object') {
     const m = a as Record<string, unknown>
     if (typeof m['n'] === 'number') {
       const nn = op(m['n'], b)
@@ -325,15 +328,18 @@ const mapNumericField = (fn: (v: number) => number, a: unknown): unknown => {
 
 const arith = (
   op: (a: number, b: number) => number,
+  transposeCtrl: boolean,
 ): (<T>(this: Pattern<T>, other: number | Pattern<number>) => Pattern<T>) =>
   function <T>(this: Pattern<T>, other: number | Pattern<number>): Pattern<T> {
-    return this.appLeft(reify(other), (a: T, b) => applyArith(op, a, b as number) as T)
+    return this.appLeft(reify(other), (a: T, b) => applyArith(op, a, b as number, transposeCtrl) as T)
   }
 
-Pattern.prototype.add = arith((a, b) => a + b)
-Pattern.prototype.sub = arith((a, b) => a - b)
-Pattern.prototype.mul = arith((a, b) => a * b)
-Pattern.prototype.div = arith((a, b) => a / b)
+// add/sub transpose note/degree control maps; mul/div only affect plain numbers
+// (a MIDI-note multiply is meaningless — leave control maps untouched).
+Pattern.prototype.add = arith((a, b) => a + b, true)
+Pattern.prototype.sub = arith((a, b) => a - b, true)
+Pattern.prototype.mul = arith((a, b) => a * b, false)
+Pattern.prototype.div = arith((a, b) => a / b, false)
 
 Pattern.prototype.range = function (
   this: Pattern<number>,

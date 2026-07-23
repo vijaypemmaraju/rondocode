@@ -179,6 +179,18 @@ describe('arithmetic (Pattern<number>)', () => {
     expect(notes(n('0 2 4').scale('c major').invert(1).add(0))).toEqual([72, 76, 79])
   })
 
+  it('mul/div leave note/degree control patterns UNTOUCHED (only add/sub transpose)', () => {
+    // multiplying a MIDI note is meaningless — mul/div no-op on control maps,
+    // but still multiply plain numeric signals.
+    const notes = (p: Pattern<unknown>) =>
+      p.query(new TimeSpan(F(0), F(1))).filter(hasOnset).map((h) => (h.value as { note: number }).note)
+    expect(notes(note('c e g').mul(2))).toEqual([60, 64, 67]) // unchanged
+    expect(notes(note('c e g').div(2))).toEqual([60, 64, 67]) // unchanged
+    expect(notes(note('c e g').add(2))).toEqual([62, 66, 69]) // add still transposes
+    // plain numeric patterns still multiply (bare-number arithmetic unaffected)
+    expect(Pattern.pure(3).mul(4).query(new TimeSpan(F(0), F(1)))[0]!.value).toBe(12)
+  })
+
   it('octave/invert on an UNSCALED n() is a no-op, not a degree collapse', () => {
     // regression: revoice read only .note (absent on unscaled degrees) so every
     // degree sorted as 0 and became pitch 12. Now such events pass through.

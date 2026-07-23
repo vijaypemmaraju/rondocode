@@ -351,17 +351,43 @@ describe('evalCode: sing() staging', () => {
   const LYR = "'twin-kle star'"
   const NOTES = "'c4 c4 g4'"
 
-  it('returns a chainable pattern instead of auto-registering (must be wrapped in p())', () => {
-    // Bare sing() plays nothing now: it stages the bake + returns the trigger.
+  it('a BARE sing() (result not registered) is dropped + warns, not staged for bake', () => {
+    // regression: a dropped sing() used to still stage a SingRequest, which
+    // triggers the (~GB) model download + blocks playback for a vocal that can
+    // never sound. Now it's filtered out with a warning (like bare synth()).
     const bare = run(`sing('barbara', ${LYR}, ${NOTES})`)
     expect(bare.ok).toBe(true)
-    expect(bare.patterns.size).toBe(0) // returned, not registered
-    expect(bare.sings).toHaveLength(1)
-    // Wrapping registers it as a normal named channel.
+    expect(bare.patterns.size).toBe(0)
+    expect(bare.sings).toHaveLength(0) // NOT staged for bake
+    expect(bare.diagnostics.some((d) => d.severity === 'warning' && /never registered/.test(d.message))).toBe(true)
+    // Wrapping in p() registers it as a normal named channel AND keeps the bake.
     const wrapped = run(`p('vox', sing('barbara', ${LYR}, ${NOTES}))`)
     expect(wrapped.ok).toBe(true)
     expect([...wrapped.patterns.keys()]).toEqual(['vox'])
-    expect(wrapped.patterns.get('vox')).toBeInstanceOf(Pattern)
+    expect(wrapped.sings).toHaveLength(1)
+    expect(wrapped.diagnostics.filter((d) => d.severity === 'warning')).toEqual([])
+  })
+
+  it('rejects a vocal opts.name colliding with a synth (both orders)', () => {
+    expect(run(`const lead = ${SYNTH_SRC}\np('v', sing(${LYR}, ${NOTES}, { name: 'lead' }))`).ok).toBe(false)
+    expect(run(`p('v', sing(${LYR}, ${NOTES}, { name: 'lead' }))\nconst lead = ${SYNTH_SRC}`).ok).toBe(false)
+  })
+
+  it('rejects two DIFFERENT vocals sharing an opts.name', () => {
+    const r = run(`p('a', sing('one two three', ${NOTES}, { name: 'x' }))\np('b', sing('four five six', ${NOTES}, { name: 'x' }))`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics.some((d) => /two different vocals/.test(d.message))).toBe(true)
+  })
+
+  it('surfaces a bad note mini-notation as a POSITIONED diagnostic (not an async dialog)', () => {
+    const r = run(`p('v', sing(${LYR}, 'c4['))`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.line).toBe(1) // mapped into the notes literal, not a runtime dialog
+  })
+
+  it('rejects empty lyrics or notes', () => {
+    expect(run(`p('v', sing('', ${NOTES}))`).ok).toBe(false)
+    expect(run(`p('v', sing(${LYR}, ''))`).ok).toBe(false)
   })
 
   it('stages a sampler synth + a bake request under the content-hash name', () => {
@@ -513,6 +539,12 @@ describe('evalCode: bus/sidechain target validation', () => {
     const r = run(`${A}\nsidechain('a', { duck: { ghost: 0.5 } })`)
     expect(r.ok).toBe(false)
     expect(r.diagnostics.some((d) => /duck target synth 'ghost'/.test(d.message))).toBe(true)
+  })
+
+  it('rejects param() inside a bus FX chain (it would be an undrivable dead knob)', () => {
+    const r = run(`${A}\nbus('flt', ({ input, svf, param }) => svf(input, param('cut', 2000, { min: 100, max: 8000 })), { a: 0.4 })`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics.some((d) => /bus.*param|can't be used in a bus/i.test(d.message))).toBe(true)
   })
 
   it('accepts valid bus send + sidechain targets', () => {

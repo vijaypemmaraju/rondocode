@@ -55,8 +55,17 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* Fixed to the visible viewport, not the layout viewport: --app-h / --app-top
+ * are driven from window.visualViewport by ui/viewport.ts so the software
+ * keyboard shrinks the shell (editor scrolls internally) instead of scrolling
+ * the fixed header off-screen. Fallbacks keep the old full-height behaviour
+ * before boot and on browsers without visualViewport. */
 #app {
-  height: 100dvh;
+  position: fixed;
+  top: var(--app-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--app-h, 100dvh);
   display: flex;
   flex-direction: column;
 }
@@ -1337,8 +1346,11 @@ body {
 .shaderviz-canvas {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
+  /* match the visible viewport, not 100vw/100vh: those are the LARGE mobile
+   * viewport (behind the URL bar) and 100vw ignores the scrollbar, both of
+   * which overflow on phones. --app-h tracks the keyboard too (ui/viewport.ts). */
+  width: 100%;
+  height: var(--app-h, 100dvh);
   z-index: 0; /* behind #app content, which sits above */
   display: none;
   pointer-events: none; /* never intercept editor interaction */

@@ -2,6 +2,7 @@ import type { EditorView } from '@codemirror/view'
 import type { AudioSession } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
+import { anchorPopover } from '../ui/viewport'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
  * "what have I loaded and how do I use it": lists the built-in and user
@@ -98,16 +99,12 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
     }
   }
 
-  const position = (): void => {
-    const r = anchor.getBoundingClientRect()
-    pop.style.top = `${Math.round(r.bottom + 6)}px`
-    pop.style.right = `${Math.round(window.innerWidth - r.right)}px`
-  }
+  const position = (): void => anchorPopover(pop, anchor)
 
   const openPop = (): void => {
     render()
+    pop.classList.remove('hidden') // must be visible for anchorPopover to measure it
     position()
-    pop.classList.remove('hidden')
     open = true
   }
   const close = (): void => {

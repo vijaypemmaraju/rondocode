@@ -2,10 +2,15 @@
  * Co-located with the component and imported by it, so any page that mounts
  * the dialog (editor OR docs) gets the styles — no per-page stylesheet drift. */
 
-/* sing() render dialog — centered overlay while a vocal clip bakes */
+/* sing() render dialog — centered overlay while a vocal clip bakes. Tracks the
+ * visible viewport (--app-h/--app-top from ui/viewport.ts) so the card centers
+ * in the on-screen band rather than behind an open keyboard. */
 .sing-dialog {
   position: fixed;
-  inset: 0;
+  top: var(--app-top, 0px);
+  left: 0;
+  right: 0;
+  height: var(--app-h, 100dvh);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -40,7 +45,8 @@
 
 /* first-time "download voice models?" consent modal */
 .sing-consent {
-  position: fixed; inset: 0; z-index: 1000;
+  position: fixed; z-index: 1000;
+  top: var(--app-top, 0px); left: 0; right: 0; height: var(--app-h, 100dvh);
   display: flex; align-items: center; justify-content: center;
   background: rgba(0, 0, 0, 0.55); padding: 20px;
 }

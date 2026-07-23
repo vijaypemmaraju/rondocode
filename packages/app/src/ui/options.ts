@@ -1,5 +1,6 @@
 import { iconEl } from './icons'
 import { tooltip } from './tooltip'
+import { anchorPopover } from './viewport'
 import { SETTING_META, getSetting, setSetting, onSettingsChange } from './settings'
 import type { Settings } from './settings'
 import type { EditorHandle } from '../editor/editor'
@@ -67,14 +68,10 @@ export function mountOptions(editor: EditorHandle): () => void {
   })
 
   let open = false
-  const position = (): void => {
-    const r = btn.getBoundingClientRect()
-    pop.style.top = `${Math.round(r.bottom + 6)}px`
-    pop.style.right = `${Math.round(window.innerWidth - r.right)}px`
-  }
+  const position = (): void => anchorPopover(pop, btn)
   const openPop = (): void => {
+    pop.classList.remove('hidden') // visible first so anchorPopover can measure it
     position()
-    pop.classList.remove('hidden')
     open = true
     btn.setAttribute('aria-expanded', 'true')
     btn.classList.add('active')

@@ -10,3 +10,6 @@ renders/
 # cloudflare/wrangler local state (huge R2 blobs)
 .wrangler/
 !.env.example
+
+# Local, uncommitted example patches (loaded by examples/index.ts via import.meta.glob)
+packages/app/src/examples/local/

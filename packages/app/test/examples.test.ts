@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
-import { EXAMPLES } from '../src/examples'
+import { EXAMPLES, SHIPPED_EXAMPLES } from '../src/examples'
 import { evalCode } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
 
@@ -8,12 +8,15 @@ import { baseScope } from '../src/session/scope'
  * clean against the REAL scope + staging (the exact path the Run button
  * takes) and its patterns must produce sounding events — an event needs a
  * numeric note and a sound to reach the engine (Session.dispatchEvents
- * skips anything else), so that is what "would make sound" means here. */
+ * skips anything else), so that is what "would make sound" means here.
+ * EXAMPLES may also include gitignored ./local/ examples locally, so the
+ * count assertion pins SHIPPED_EXAMPLES; the eval loop covers whatever's loaded. */
 
 describe('examples', () => {
-  it('ships nineteen distinctly named examples', () => {
-    expect(EXAMPLES).toHaveLength(19)
-    expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(19)
+  it('ships nineteen distinctly named examples (local ones may add more)', () => {
+    expect(SHIPPED_EXAMPLES).toHaveLength(19)
+    expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(EXAMPLES.length) // all unique
+    for (const s of SHIPPED_EXAMPLES) expect(EXAMPLES).toContainEqual(s)
   })
 
   for (const ex of EXAMPLES) {

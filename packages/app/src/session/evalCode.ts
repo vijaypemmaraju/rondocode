@@ -5,6 +5,7 @@ import { MiniError, Pattern, note, TimeSpan, F, hasOnset } from '@rondocode/patt
 import type { ControlMap } from '@rondocode/pattern'
 import { busGraph, tapLoc, synth } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
+import { parseMelodyMini } from '../sing/warp'
 
 /* ------------------------------------------------------------------------- *
  * evalCode: source text in, STAGED registrations out. This is the pure core
@@ -491,6 +492,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   const buses = new Map<string, BusDef>()
   const sends: SendSpec[] = []
   const sings: SingRequest[] = []
+  /** sing() synth name -> its content id, to catch name collisions (a different
+   *  vocal or a user synth reusing the name) while allowing identical re-calls. */
+  const singNames = new Map<string, string>()
   let cps: number | undefined
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
@@ -528,6 +532,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
     if (typeof def !== 'object' || def === null || !('graph' in def)) {
       throw new TypeError(`defineSynth('${name}'): second argument must be a synth(...) result`)
+    }
+    if (singNames.has(name)) {
+      throw new TypeError(`synth '${name}' collides with a sing() vocal of the same name — rename one`)
     }
     synths.set(name, def as SynthDef)
   }
@@ -706,6 +713,13 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     if (o.post !== undefined && typeof o.post !== 'function') {
       throw new TypeError('sing(): opts.post must be a function (a post-FX chain builder)')
     }
+    if (l.trim() === '' || nt.trim() === '') {
+      throw new TypeError('sing(): lyrics and notes must both be non-empty')
+    }
+    // Parse the note mini-notation NOW so a syntax error is a POSITIONED editor
+    // diagnostic (a MiniError maps to the notes literal), not a vague async
+    // "Singing failed" dialog only after the model download at bake time.
+    parseMelodyMini(nt)
     const id = singId(`${v}\n${l}\n${nt}`)
     const sampleName = `singclip${id}`
     // synth/channel name: default the content hash (also what karaoke + bake
@@ -717,6 +731,17 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       }
       synthName = o.name
     }
+    // Name-collision guard: two DIFFERENT vocals sharing a name (one silently
+    // wins its bake), or a vocal name colliding with a user synth, both cause
+    // silent wrong/missing audio. An identical re-call (same content id) is fine.
+    const priorId = singNames.get(synthName)
+    if (priorId !== undefined && priorId !== id) {
+      throw new Error(`sing(): the name '${synthName}' is used by two different vocals — give one a distinct opts.name`)
+    }
+    if (priorId === undefined && synths.has(synthName)) {
+      throw new Error(`sing(): name '${synthName}' collides with an existing synth — choose another opts.name`)
+    }
+    singNames.set(synthName, id)
     // sampler synth: plays the (to-be-loaded) clip at natural speed on gate,
     // through the optional per-synth post-FX chain when one is given.
     synths.set(
@@ -777,7 +802,40 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).
   diagnostics.push(...detectMonoChords(synths, patterns))
 
-  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings }
+  // A sing() whose returned pattern was never registered with p(...) still
+  // staged a bake request — which triggers the (~GB) model download and blocks
+  // playback for a vocal that can never sound. Drop unreferenced sing requests
+  // and warn (mirrors the bare-synth() warning).
+  let keptSings = sings
+  if (sings.length > 0) {
+    const routed = new Set<string>()
+    const scanSpan = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
+    for (const pat of patterns.values()) {
+      try {
+        for (const h of pat.query(scanSpan)) {
+          const s = (h.value as ControlMap).sound
+          if (typeof s === 'string') routed.add(s)
+        }
+      } catch {
+        /* ignore a pattern-query bug here */
+      }
+    }
+    keptSings = sings.filter((req) => routed.has(req.synthName))
+    for (const req of sings) {
+      if (!routed.has(req.synthName)) {
+        synths.delete(req.synthName) // drop the orphan sampler synth too
+        diagnostics.push({
+          line: 1,
+          col: 1,
+          message: `sing() result was never registered with p(...), so it can't play (and won't bake) — wrap it: p('vox', sing(…)).`,
+          severity: 'warning',
+          source: 'eval',
+        })
+      }
+    }
+  }
+
+  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings: keptSings }
   if (cps !== undefined) result.cps = cps
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg

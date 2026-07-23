@@ -82,3 +82,23 @@ describe('granular() through synth() + renderOffline', () => {
     expect(peak).toBeGreaterThan(0.02)
   })
 })
+
+describe('GranularKernel: NaN / out-of-bounds hygiene', () => {
+  it('loop:false on a short sample stays finite (grain runs off the end)', () => {
+    const bank = new SampleBank()
+    bank.set('t', tone(500), 48000) // grain (size 0.08s) >> buffer
+    expect(run(mk(bank, { size: 0.08 }), 2000, 48000).every((v) => Number.isFinite(v))).toBe(true)
+  })
+
+  it('pos = NaN stays finite', () => {
+    const bank = new SampleBank()
+    bank.set('t', tone(4800), 48000)
+    expect(run(mk(bank), 2000, 48000, { pos: NaN }).every((v) => Number.isFinite(v))).toBe(true)
+  })
+
+  it('negative rate with loop:false stays finite', () => {
+    const bank = new SampleBank()
+    bank.set('t', tone(4800), 48000)
+    expect(run(mk(bank), 2000, 48000, { rate: -2 }).every((v) => Number.isFinite(v))).toBe(true)
+  })
+})

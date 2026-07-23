@@ -134,8 +134,12 @@ export class GranularKernel implements Kernel {
         this.spawnAcc -= 1
         while (this.spawnAcc <= 0) {
           this.spawnAcc += spawnInterval
-          const pos = posIn !== undefined ? clamp(posIn[i]!, 0, 1) : 0
-          const rate = (rateIn !== undefined ? rateIn[i]! : 1) * srRatio
+          // Sanitize pos/rate: clamp(NaN) passes NaN through, which would spawn
+          // an all-NaN grain — a non-finite value means 0 (pos) / 1 (rate).
+          const posRaw = posIn !== undefined ? posIn[i]! : 0
+          const pos = clamp(Number.isFinite(posRaw) ? posRaw : 0, 0, 1)
+          const rateRaw = rateIn !== undefined ? rateIn[i]! : 1
+          const rate = (Number.isFinite(rateRaw) ? rateRaw : 1) * srRatio
           this.spawn(pos * (len - 1), rate, len, spraySamp)
         }
       }
@@ -153,12 +157,23 @@ export class GranularKernel implements Kernel {
         const w = HANN[wph | 0]!
         // linear-interp read from the source
         let p = this.gPos[g]!
-        if (this.loop) p -= Math.floor(p / len) * len
-        const i0 = p | 0
-        const frac = p - i0
-        const a = data[i0]!
-        const b = i0 + 1 < len ? data[i0 + 1]! : this.loop ? data[0]! : 0
-        acc += w * (a + frac * (b - a))
+        if (this.loop) {
+          p -= Math.floor(p / len) * len
+          if (!Number.isFinite(p)) p = 0
+        }
+        // Only read when the head is IN the buffer. With loop:false a grain can
+        // advance off either end (short sample, rate>1, or negative rate) —
+        // reading data[i0] out of bounds gives `undefined` → NaN. Contribute 0
+        // there (the window keeps advancing, so the grain still ends cleanly).
+        let sample = 0
+        if (p >= 0 && p < len) {
+          const i0 = p | 0
+          const frac = p - i0
+          const a = data[i0]!
+          const b = i0 + 1 < len ? data[i0 + 1]! : this.loop ? data[0]! : 0
+          sample = a + frac * (b - a)
+        }
+        acc += w * sample
         this.gPos[g] = this.gPos[g]! + this.gRate[g]!
         this.gWin[g] = wph + winInc
       }

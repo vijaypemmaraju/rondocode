@@ -1,0 +1,13 @@
+{
+  "name": "@rondocode/rondo",
+  "license": "MIT",
+  "author": "Vijay Pemmaraju",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@rondocode/pattern": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  }
+}

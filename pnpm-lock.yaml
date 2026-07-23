@@ -83,6 +83,16 @@ importers:
 
   packages/pattern: {}
 
+  packages/rondo:
+    dependencies:
+      '@rondocode/pattern':
+        specifier: workspace:*
+        version: link:../pattern
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+
   packages/server:
     dependencies:
       '@anthropic-ai/sdk':

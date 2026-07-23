@@ -1438,6 +1438,19 @@ body.shaderviz-on .cm-content {
   min-width: 6ch;
   text-align: center;
 }
+/* The language toggle is a TEXT pill (js / rondo), not an icon — keep its
+   label visible at every width, since it's the primary way onto the rondo
+   surface (and the default on mobile). Accent it when rondo is active. */
+.lang-btn .btn-label {
+  display: inline-block;
+  min-width: 3.5ch;
+  text-align: center;
+  font-weight: 600;
+}
+.lang-btn.lang-rondo {
+  color: var(--c-accent, #6ea8fe);
+  border-color: var(--c-accent, #6ea8fe);
+}
 @media (max-width: 560px) {
   .run .btn-label {
     display: none;

@@ -25,7 +25,8 @@
     "acorn-walk": "^8.3.0",
     "onnxruntime-web": "^1.27.0",
     "pako": "^3.0.1",
-    "phonemizer": "^1.2.1"
+    "phonemizer": "^1.2.1",
+    "@rondocode/rondo": "workspace:*"
   },
   "devDependencies": {
     "@types/pako": "^2.0.4",

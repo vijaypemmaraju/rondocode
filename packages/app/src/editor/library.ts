@@ -290,8 +290,13 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     examplePick.addEventListener('change', () => {
       const ex = EXAMPLES[Number(examplePick.value)]
       if (!ex) return
+      // In rondo mode, load the example's rondo twin if it has one; if it
+      // doesn't yet, fall back to the JS DSL and switch the editor to match.
+      const useRondo = editor.getLang() === 'rondo' && ex.rondo !== undefined
+      if (editor.getLang() === 'rondo' && ex.rondo === undefined) editor.setLang('rondocode')
+      const code = useRondo ? ex.rondo! : ex.code
       void (async () => {
-        const p = await store.createProject(ex.name, ex.code)
+        const p = await store.createProject(ex.name, code)
         await switchTo(p)
         await render()
       })()

@@ -6,7 +6,12 @@
 
 export interface Example {
   name: string
+  /** rondocode (JS DSL) source. */
   code: string
+  /** optional rondo-language source — the same tune in the terse language.
+   *  Shown when the editor is in rondo mode. Added as rondo gains the features
+   *  to express each example faithfully. */
+  rondo?: string
 }
 
 const acid = `// rondocode, live-codeable synths + mini-notation patterns.
@@ -1092,8 +1097,29 @@ const loadLocalExamples = (): Example[] => {
 }
 
 /** The shipped examples (stable, committed). */
+/** The acid example in the rondo language (transpiles to the same kind of
+ *  patch). The first of the shipped examples to gain a rondo twin. */
+const acidRondo = `# rondo — the terse, mobile-native language. It transpiles to rondocode.
+# A synth is a signal pipeline: one stage per line, each feeds the next.
+# \`name = …\` lines are modulation/CV (envelopes, knobs).
+
+synth acid
+  saw + square note/2          # source: a saw blended with a sub-square
+  ladder cutoff * env^2 res:.85 # this line's input is the line above
+  * env                        # the VCA
+  env    = adsr .003 .2 .3 .1
+  cutoff = knob 800 80..8000 log
+
+play acid
+  0 0 3 5 0 0 7 5  scale:a-min
+  cutoff: sine 200..2400 slow:4  # sweep the filter (drives the knob param)
+  every 4: rev                   # every 4th cycle, backwards
+
+cps .6
+`
+
 export const SHIPPED_EXAMPLES: Example[] = [
-  { name: 'acid', code: acid },
+  { name: 'acid', code: acid, rondo: acidRondo },
   { name: 'visuals', code: visuals },
   { name: 'techno', code: techno },
   { name: 'dubstep', code: dubstep },

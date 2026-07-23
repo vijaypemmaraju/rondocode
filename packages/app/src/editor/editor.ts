@@ -1,8 +1,11 @@
-import { EditorState, Prec } from '@codemirror/state'
+import { Compartment, EditorState, Prec } from '@codemirror/state'
 import type { Text } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
 import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
+import { autocompletion } from '@codemirror/autocomplete'
+import { javascript } from '@codemirror/lang-javascript'
+import { compile } from '@rondocode/rondo'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
@@ -18,7 +21,8 @@ import { EventFlasher, FLASH_MS } from './flash'
 import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
-import { codeEditingExtensions } from './setup'
+import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
+import { rondoLanguage, rondoCompletionSource } from './rondo'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
@@ -38,6 +42,24 @@ import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
  * ------------------------------------------------------------------------- */
 
 const DOC_KEY = 'rondocode-doc'
+const LANG_KEY = 'rondocode-lang'
+
+/** The editor's active language surface. */
+export type EditorLang = 'rondocode' | 'rondo'
+
+/** The initial language: a saved choice wins; otherwise default to rondo on
+ *  touch/small screens (the mobile-native language) and rondocode on desktop. */
+const initialLang = (): EditorLang => {
+  try {
+    const saved = localStorage.getItem(LANG_KEY)
+    if (saved === 'rondo' || saved === 'rondocode') return saved
+  } catch {
+    // ignore storage failures — fall through to the heuristic
+  }
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+  const small = typeof window !== 'undefined' && window.innerWidth < 640
+  return coarse || small ? 'rondo' : 'rondocode'
+}
 /** Eval saves land fast; per-keystroke saves wait a little longer. Both
  *  share one timer, so the LATEST doc always wins. */
 const SAVE_ON_EVAL_MS = 250
@@ -50,7 +72,12 @@ const SAVE_ON_CHANGE_MS = 500
  *  synth — audio keeps running seamlessly. */
 const WIDGET_EVAL_MS = 70
 
-const loadDoc = (): string => {
+const firstExample = (lang: EditorLang): string => {
+  const ex = EXAMPLES[0]!
+  return lang === 'rondo' && ex.rondo !== undefined ? ex.rondo : ex.code
+}
+
+const loadDoc = (lang: EditorLang): string => {
   try {
     const cur = localStorage.getItem(DOC_KEY)
     if (cur !== null) return cur
@@ -61,9 +88,9 @@ const loadDoc = (): string => {
       localStorage.setItem(DOC_KEY, legacy)
       return legacy
     }
-    return EXAMPLES[0]!.code
+    return firstExample(lang)
   } catch {
-    return EXAMPLES[0]!.code
+    return firstExample(lang)
   }
 }
 
@@ -140,6 +167,11 @@ export interface EditorHandle {
    *  stops the transport first — like loading an example — so Run starts the
    *  new program cleanly from cycle 0 rather than hot-swapping mid-cycle. */
   loadCode(code: string): void
+  /** The editor language: 'rondocode' (the JS DSL) or 'rondo' (the terse
+   *  language that transpiles to it). Drives highlighting, intellisense, and
+   *  whether Run transpiles first. */
+  getLang(): EditorLang
+  setLang(lang: EditorLang): void
   /** Apply a literal rewrite to the doc and re-eval — the same path the inline
    *  widget/scrub controls use, exposed so the mixer's bus faders can edit the
    *  bus() literals in the source. A drag passes immediate=false (throttled,
@@ -189,6 +221,13 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
 
   // Right-side control cluster in the header (viz.ts prepends its toggle here).
   const controls = el('div', 'hdr-controls')
+  // Language picker: JavaScript (rondocode) ↔ rondo. Its label shows the ACTIVE
+  // language; clicking toggles. Wired below, once setLang exists.
+  const langBtn = el('button', 'btn lang-btn')
+  langBtn.type = 'button'
+  const langLabel = el('span', 'btn-label')
+  langBtn.append(langLabel)
+  tooltip(langBtn, 'language: JavaScript ↔ rondo')
   const runBtn = el('button', 'btn run')
   runBtn.type = 'button'
   const runLabel = el('span', 'btn-label', 'run')
@@ -204,7 +243,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const exportBtn = el('button', 'btn export-btn')
   exportBtn.type = 'button'
   exportBtn.replaceChildren(iconEl('download'), el('span', 'btn-label', 'export'))
-  controls.append(sampleBtn, exportBtn, stopBtn, runBtn)
+  controls.append(langBtn, sampleBtn, exportBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
 
@@ -284,7 +323,17 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
 
   // ---- editor state --------------------------------------------------
-  const initialDoc = loadDoc()
+  // Language surface (rondocode ↔ rondo). Compartments let us swap the grammar
+  // + completion at runtime; `lang` gates transpile-before-run in applyDoc.
+  let lang: EditorLang = initialLang()
+  const langCompartment = new Compartment()
+  const completionCompartment = new Compartment()
+  const rondoAutocomplete = autocompletion({
+    override: [rondoCompletionSource],
+    activateOnTyping: true,
+    maxRenderedOptions: 20,
+  })
+  const initialDoc = loadDoc(lang)
   /** Source of the last eval attempt / last GOOD eval (dirty tracking). */
   let lastAttempted: string | undefined
   let lastGood: string | undefined
@@ -306,13 +355,33 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     const source = view.state.doc.toString()
     saveDoc(source, SAVE_ON_EVAL_MS) // good or bad: the text is worth keeping
     lastAttempted = source
+    // In rondo mode, transpile first and eval the OUTPUT. A compile failure
+    // shows the rondo diagnostics (their line/col already point at THIS buffer)
+    // and skips the eval entirely.
+    let evalSource = source
+    if (lang === 'rondo') {
+      const compiled = compile(source)
+      if (!compiled.ok) {
+        const diags: Diagnostic[] = compiled.errors.map((e) => ({
+          line: e.line, col: e.col, message: e.message, severity: 'error', source: 'eval',
+        }))
+        view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc, diags)))
+        updateDirty(source)
+        if (autoplay) emitEval(source, false)
+        return true
+      }
+      evalSource = compiled.code
+    }
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
     // synth number glides instead of stuttering.
-    const result = session.evalCode(source, { live: !autoplay }) // diagnostics arrive via callback
+    const result = session.evalCode(evalSource, { live: !autoplay }) // diagnostics arrive via callback
     if (result.ok) {
       lastGood = source
-      flasher.onGoodEval(source)
+      // flash decorations map onset events back to source char-ranges; those
+      // ranges are transpiled positions in rondo mode, so skip until rondo-
+      // source flash mapping lands.
+      if (lang !== 'rondo') flasher.onGoodEval(source)
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.
       singSoundNames = new Set(result.sings.map((s) => s.synthName))
@@ -422,7 +491,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // WGSL), DSL intellisense/hover/note-cards/go-to-def, inline widgets +
         // drag-to-scrub, multicursor, theme. Kept byte-identical to the docs
         // examples via editor/setup.ts so the two can never drift.
-        ...codeEditingExtensions({ requestEval }),
+        ...codeEditingExtensions({ requestEval, langCompartment, completionCompartment }),
         // ---- host-only: things the docs page has no analogue for ----
         // LLM ghost text: DEV-ONLY (a local authoring convenience, not part of
         // the shipped product). On idle, asks the bridge's /complete endpoint
@@ -443,6 +512,31 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       ],
     }),
   })
+
+  // ---- language switching (rondocode ↔ rondo) ----
+  const reflectLang = (): void => {
+    langLabel.textContent = lang === 'rondo' ? 'rondo' : 'js'
+    langBtn.classList.toggle('lang-rondo', lang === 'rondo')
+  }
+  const reconfigureLang = (): void => {
+    view.dispatch({
+      effects: [
+        langCompartment.reconfigure(lang === 'rondo' ? rondoLanguage() : javascript()),
+        completionCompartment.reconfigure(lang === 'rondo' ? rondoAutocomplete : rondocodeAutocomplete),
+      ],
+    })
+  }
+  const setLang = (next: EditorLang): void => {
+    if (next === lang) return
+    lang = next
+    try { localStorage.setItem(LANG_KEY, lang) } catch { /* ignore storage failures */ }
+    reflectLang()
+    reconfigureLang()
+    applyDoc(false) // re-lint the buffer under the new language
+  }
+  reflectLang()
+  if (lang === 'rondo') reconfigureLang() // compartments boot as rondocode
+  langBtn.addEventListener('click', () => setLang(lang === 'rondo' ? 'rondocode' : 'rondo'))
 
   const flasher = new EventFlasher(
     view,
@@ -653,6 +747,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     onProbeTargets: subscribeProbes,
     getDoc: () => view.state.doc.toString(),
     loadCode,
+    getLang: () => lang,
+    setLang,
     rewrite: (change, immediate) => {
       view.dispatch({ changes: change })
       requestEval(immediate)

@@ -1,5 +1,5 @@
 import { EditorState, Prec } from '@codemirror/state'
-import type { Extension } from '@codemirror/state'
+import type { Compartment, Extension } from '@codemirror/state'
 import {
   EditorView,
   drawSelection,
@@ -51,7 +51,19 @@ export interface CodeEditingOpts {
    *  Default true. The docs examples pass false so small snippets stay clean;
    *  every INTERACTIVE feature is unaffected either way. */
   gutter?: boolean
+  /** When present, the language grammar + completion source are wrapped in
+   *  these Compartments so the host can swap them at runtime (rondocode ↔
+   *  rondo). Omit (docs pages) to get the static rondocode grammar. */
+  langCompartment?: Compartment
+  completionCompartment?: Compartment
 }
+
+/** The rondocode DSL autocomplete extension (also swappable via a Compartment). */
+export const rondocodeAutocomplete = autocompletion({
+  override: [wgslCompletionSource, rondocodeCompletionSource],
+  activateOnTyping: true,
+  maxRenderedOptions: 20,
+})
 
 /** The full shared editing stack, in precedence order. Spread it into an
  *  EditorState's `extensions`, then append host-specific extensions. */
@@ -79,14 +91,14 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     ...(gutter ? [highlightActiveLine()] : []),
     highlightSelectionMatches(), // underline other occurrences of the selection
     keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-    javascript(), // the grammar the HighlightStyle colors
+    // the grammar the HighlightStyle colors. In the main editor this is wrapped
+    // in a Compartment so it can be swapped for the rondo grammar at runtime.
+    opts.langCompartment ? opts.langCompartment.of(javascript()) : javascript(),
     // DSL intellisense: context-aware completions (docs-driven, silent inside
     // mini-notation strings) plus WGSL completions inside visual() templates.
-    autocompletion({
-      override: [wgslCompletionSource, rondocodeCompletionSource],
-      activateOnTyping: true,
-      maxRenderedOptions: 20,
-    }),
+    opts.completionCompartment
+      ? opts.completionCompartment.of(rondocodeAutocomplete)
+      : rondocodeAutocomplete,
     wgslHighlight(), // WGSL syntax highlighting inside visual(`…`) templates
     dslHover, // hover a DSL symbol → its docs
     noteHover(), // hover a note/chord → a piano-keyboard hovercard

@@ -21,6 +21,9 @@ const NUM_RE = /^-?\d*\.?\d+$/
 
 const OSC = new Set(['saw', 'square', 'sine', 'tri'])
 const FILTER = new Set(['ladder', 'svf', 'onepole'])
+/** processor-led effects that take only the running signal + named args. */
+const EFFECT = new Set(['reverb', 'chorus', 'exciter', 'ott'])
+const PROC = new Set([...FILTER, ...EFFECT])
 
 const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
 
@@ -145,6 +148,44 @@ function bodyLines(lines: Line[], start: number): { body: Line[]; next: number }
   return { body, next: j }
 }
 
+/** Fold a run of body lines into one spine expression + a list of bindings.
+ *  `initial` is null for a voice body (the first spine line is the source) or
+ *  the `input` node for a post body (every line is a transform of input). */
+function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { spine: Expr | null; bindings: Binding[] } {
+  const bindings: Binding[] = []
+  let spine = initial
+  for (const ln of body) {
+    const c = new Cursor(ln.toks, errors)
+    const t0 = ln.toks[0]
+    // binding: NAME = …
+    if (ln.toks.length >= 2 && t0 && t0.k === 'ident' && ln.toks[1]!.k === 'eq') {
+      const bname = t0.v
+      c.next(); c.next()
+      const rhs = parseExpr(c, 0)
+      if (!c.eof()) c.err('unexpected tokens after binding')
+      bindings.push({ name: bname, expr: rhs, pos: t0.pos })
+      continue
+    }
+    if (spine === null) {
+      spine = parseExpr(c, 0) // the source line
+    } else if (t0 && t0.k === 'op') {
+      const op = t0.v; c.next()
+      spine = { t: 'bin', op, l: spine, r: parseExpr(c, 0), pos: t0.pos }
+    } else if (t0 && t0.k === 'ident' && PROC.has(t0.v)) {
+      const name = t0.v; c.next()
+      const args: Expr[] = [spine]
+      if (FILTER.has(name)) args.push(parseExpr(c, 2)) // filters take a cutoff
+      const named = parseNamed(c)
+      spine = { t: 'call', name, args, named, pos: t0.pos }
+    } else {
+      c.err('expected a transform — an operator (`* env`), a filter (`ladder …`), or an effect (`reverb …`).')
+      continue
+    }
+    if (!c.eof()) c.err('unexpected tokens at end of line')
+  }
+  return { spine, bindings }
+}
+
 function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: SynthBlock; next: number } {
   const header = lines[i]!
   const nameTok = header.toks[1]
@@ -152,43 +193,33 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
   if (!name) errors.push({ message: 'synth needs a name (`synth lead`)', line: header.line, col: header.rawCol })
   const { body, next } = bodyLines(lines, i + 1)
 
-  const bindings: Binding[] = []
-  let spine: Expr | null = null
-  for (const ln of body) {
-    const c = new Cursor(ln.toks, errors)
-    const t0 = ln.toks[0]
-    // binding: NAME = ...
-    if (ln.toks.length >= 2 && t0 && t0.k === 'ident' && ln.toks[1]!.k === 'eq') {
-      const bname = t0.v
-      c.next(); c.next() // name, '='
-      const rhs = parseExpr(c, 0)
-      if (!c.eof()) c.err('unexpected tokens after binding')
-      bindings.push({ name: bname, expr: rhs, pos: t0.pos })
-      continue
-    }
-    // spine line
-    if (spine === null) {
-      spine = parseExpr(c, 0)
-    } else if (t0 && t0.k === 'op') {
-      const op = t0.v; c.next()
-      const rest = parseExpr(c, 0)
-      spine = { t: 'bin', op, l: spine, r: rest, pos: t0.pos }
-    } else if (t0 && t0.k === 'ident' && FILTER.has(t0.v)) {
-      c.next()
-      const cut = parseExpr(c, 2)
-      const named = parseNamed(c)
-      spine = { t: 'call', name: t0.v, args: [spine, cut], named, pos: t0.pos }
-    } else {
-      c.err('expected a transform here — an operator (`* env`) or a filter (`ladder …`). Layer a second source with `+` on the first line.')
-      continue
-    }
-    if (!c.eof()) c.err('unexpected tokens at end of line')
+  // split off a trailing `post` sub-block (a lone `post` line + deeper-indented body)
+  let voiceBody = body
+  let postBody: Line[] | null = null
+  const pIdx = body.findIndex((ln) => ln.toks.length === 1 && ln.toks[0]!.k === 'ident' && ln.toks[0]!.v === 'post')
+  if (pIdx >= 0) {
+    const postIndent = body[pIdx]!.indent
+    const rest = body.slice(pIdx + 1)
+    postBody = rest.filter((ln) => ln.indent > postIndent)
+    if (rest.length !== postBody.length) errors.push({ message: 'post must be the last section of a synth', line: body[pIdx]!.line, col: 1 })
+    voiceBody = body.slice(0, pIdx)
   }
+
+  const voice = foldSpine(voiceBody, null, errors)
+  let spine = voice.spine
   if (spine === null) {
     errors.push({ message: `synth '${name}' has no audio output`, line: header.line, col: header.rawCol })
     spine = { t: 'num', v: 0, pos: header.toks[0]!.pos }
   }
-  return { block: { t: 'synth', name, bindings, spine, pos: header.toks[0]!.pos }, next }
+
+  const block: SynthBlock = { t: 'synth', name, bindings: voice.bindings, spine, pos: header.toks[0]!.pos }
+  if (postBody && postBody.length > 0) {
+    const input: Expr = { t: 'ident', name: 'input', pos: header.toks[0]!.pos }
+    const post = foldSpine(postBody, input, errors)
+    block.post = post.spine ?? input
+    block.postBindings = post.bindings
+  }
+  return { block, next }
 }
 
 /** Parse a modifier value: number | signal (`sine 200..2400 slow:4`) | mini. */

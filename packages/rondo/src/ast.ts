@@ -38,6 +38,9 @@ export interface SynthBlock {
   bindings: Binding[]
   /** the audio spine, already folded into one expression. */
   spine: Expr
+  /** optional post chain (a `post` sub-block): a spine folded from `input`. */
+  post?: Expr
+  postBindings?: Binding[]
   pos: Pos
 }
 

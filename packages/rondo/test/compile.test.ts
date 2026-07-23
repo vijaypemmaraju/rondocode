@@ -69,4 +69,22 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.fast(2)')
     expect(out).toContain(".ctrl('index', '<1 2.5>')")
   })
+
+  it('emits a post chain as the synth() second arg, with mix wet/dry sugar', () => {
+    const out = ok(`synth pad\n  saw\n  * env\n  env = adsr .3 .5 .8 1\n  post\n    reverb room:.85 mix:.35\n`)
+    // two-function synth(): voice then post (post ctx destructures `input`)
+    expect(out).toContain('}, ({ input')
+    // reverb is wet-only, so mix: blends it back over the dry input
+    expect(out).toContain('input.mix(reverb(input, { roomSize: 0.85 }), 0.35)')
+  })
+
+  it('supports a drivable POST param (knob in post → param, driven by .ctrl)', () => {
+    const out = ok(
+      `synth pad\n  saw\n  post\n    reverb room:.85 mix:wet\n    wet = knob .35 0..0.7\n\n` +
+      `play pad\n  0 3 5\n  wet: sine 0..0.7 slow:8\n`,
+    )
+    expect(out).toContain("const wet = param('wet', 0.35, { min: 0, max: 0.7 })")
+    expect(out).toContain('input.mix(reverb(input, { roomSize: 0.85 }), wet)')
+    expect(out).toContain(".ctrl('wet', sine.range(0, 0.7).slow(8))")
+  })
 })

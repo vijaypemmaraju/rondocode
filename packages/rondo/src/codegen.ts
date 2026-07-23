@@ -36,6 +36,7 @@ class SynthGen {
       case 'ident':
         if (e.name === 'note') { this.uses.add('note'); return 'note.freq' }
         if (e.name === 'gate') { this.uses.add('gate'); return 'gate' }
+        if (e.name === 'input') { this.uses.add('input'); return 'input' }
         return e.name // a binding-local const
       case 'bin': {
         const method = BIN_METHOD[e.op]!
@@ -81,6 +82,29 @@ class SynthGen {
       this.uses.add('onepole')
       return `onepole(${a[0]}, ${a[1]})`
     }
+    // ---- effects (voice or post chain) ----
+    const opts = (keys: [string, string][]): string => {
+      const parts = keys.filter(([k]) => e.named[k]).map(([k, out]) => `${out}: ${this.expr(e.named[k]!)}`)
+      return parts.length ? `, { ${parts.join(', ')} }` : ''
+    }
+    if (name === 'reverb') {
+      this.uses.add('reverb')
+      const base = `reverb(${a[0]}${opts([['room', 'roomSize'], ['damp', 'damp']])})`
+      // `mix:` is wet/dry sugar — reverb is wet-only, so blend it back over the dry
+      return e.named.mix ? `${a[0]}.mix(${base}, ${this.expr(e.named.mix)})` : base
+    }
+    if (name === 'chorus') {
+      this.uses.add('chorus')
+      return `chorus(${a[0]}${opts([['rate', 'rate'], ['depth', 'depth'], ['mix', 'mix']])})`
+    }
+    if (name === 'exciter') {
+      this.uses.add('exciter')
+      return `exciter(${a[0]}${opts([['freq', 'freq'], ['amount', 'amount'], ['drive', 'drive']])})`
+    }
+    if (name === 'ott') {
+      this.uses.add('ott')
+      return `ott(${a[0]}${opts([['depth', 'depth'], ['low', 'low'], ['high', 'high'], ['makeup', 'makeup']])})`
+    }
     this.errors.push({ message: `unknown builtin \`${name}\``, line: e.pos.line, col: e.pos.col })
     return '0'
   }
@@ -124,17 +148,26 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
   return out
 }
 
-function cgSynth(block: SynthBlock, errors: RondoError[]): string {
+/** Render one `(ctx) => …` chain function: topo-sorted bindings + `return`. */
+function cgChain(bindings: Binding[], spine: Expr, headOrder: string[], errors: RondoError[]): string {
   const g = new SynthGen(errors)
-  const ordered = orderBindings(block.bindings, errors)
+  const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
-  const spine = g.expr(block.spine)
-  // canonical destructure order: note, gate, param, then the rest sorted
-  const head = ['note', 'gate', 'param'].filter((n) => g.uses.has(n))
+  const spineStr = g.expr(spine)
+  const head = headOrder.filter((n) => g.uses.has(n))
   const rest = [...g.uses].filter((n) => !head.includes(n)).sort()
   const destructure = [...head, ...rest].join(', ')
-  const body = [...bindingLines, `  return ${spine}`].join('\n')
-  return `const ${block.name} = synth(({ ${destructure} }) => {\n${body}\n})`
+  const body = [...bindingLines, `  return ${spineStr}`].join('\n')
+  return `({ ${destructure} }) => {\n${body}\n}`
+}
+
+function cgSynth(block: SynthBlock, errors: RondoError[]): string {
+  const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors)
+  if (block.post) {
+    const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)
+    return `const ${block.name} = synth(${voice}, ${post})`
+  }
+  return `const ${block.name} = synth(${voice})`
 }
 
 const q = (s: string): string => `'${s.replace(/'/g, "\\'")}'`

@@ -1,0 +1,16 @@
+synth pad
+  saw + saw note*1.007
+  svf 1800 res:.2
+  * env
+  env = adsr .3 .5 .8 1
+  post
+    reverb room:.85 mix:wet
+    wet = knob .35 0..0.7
+
+play pad
+  <0 5 3 7>  scale:c-min
+  gain: .5
+  dur: .95
+  wet: sine 0..0.7 slow:8
+
+cps .4

@@ -5,7 +5,7 @@
  * `p('NAME', n('…')…)`, tempo as `setCps(x)`. We collect which synth-ctx
  * members each synth uses and emit exactly that destructure. */
 
-import type { Binding, Expr, Program, RondoError, SynthBlock, TopItem } from './ast'
+import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Program, RondoError, SynthBlock, TopItem } from './ast'
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
 
@@ -137,11 +137,41 @@ function cgSynth(block: SynthBlock, errors: RondoError[]): string {
   return `const ${block.name} = synth(({ ${destructure} }) => {\n${body}\n})`
 }
 
-function cgPlay(block: { name: string; notation: string; scale?: string }): string {
+const q = (s: string): string => `'${s.replace(/'/g, "\\'")}'`
+
+function cgCtrlValue(v: CtrlValue): string {
+  if (v.kind === 'num') return num(v.v)
+  if (v.kind === 'mini') return q(v.text)
+  let s = v.sig
+  if (v.lo !== undefined && v.hi !== undefined) s += `.range(${num(v.lo)}, ${num(v.hi)})`
+  if (v.slow !== undefined) s += `.slow(${num(v.slow)})`
+  if (v.fast !== undefined) s += `.fast(${num(v.fast)})`
+  return s
+}
+
+/** A combinator → a chained method call. `struct` wraps its arg in mini(). */
+function cgComb(c: Comb): string {
+  const name = c.name === 'degradeby' ? 'degradeBy' : c.name
+  if (name === 'struct') return `struct(mini(${q(c.args[0] ?? '')}))`
+  if (name === 'rev' || name === 'degrade' || name === 'palindrome') return `${name}()`
+  return `${name}(${c.args.join(', ')})`
+}
+
+function cgMod(m: Mod): string {
+  switch (m.kind) {
+    case 'ctrl': return `.ctrl(${q(m.name)}, ${cgCtrlValue(m.value)})`
+    case 'method': return `.${m.name}(${cgCtrlValue(m.value)})`
+    case 'every': return `.every(${m.n}, x => x.${cgComb(m.comb)})`
+    case 'comb': return `.${cgComb(m.comb)}`
+  }
+}
+
+function cgPlay(block: PlayBlock): string {
   const entry = /[a-gA-G]/.test(block.notation) ? 'note' : 'n'
-  let pat = `${entry}('${block.notation.replace(/'/g, "\\'")}')`
+  let pat = `${entry}(${q(block.notation)})`
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
   pat += `.sound('${block.name}')`
+  for (const m of block.mods) pat += cgMod(m)
   return `p('${block.name}', ${pat})`
 }
 

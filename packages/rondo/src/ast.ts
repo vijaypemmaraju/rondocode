@@ -41,6 +41,27 @@ export interface SynthBlock {
   pos: Pos
 }
 
+/** A value on a play modifier line: a plain number, a continuous signal
+ *  (`sine 200..2400 slow:4`), or a mini-notation string (`<1 2.5>`). */
+export type CtrlValue =
+  | { kind: 'num'; v: number }
+  | { kind: 'sig'; sig: string; lo?: number; hi?: number; slow?: number; fast?: number }
+  | { kind: 'mini'; text: string }
+
+/** A combinator applied to a pattern (a bare line, or the body of `every N:`). */
+export interface Comb {
+  name: string
+  /** raw arguments — numbers, or (for struct) a mini string. */
+  args: string[]
+}
+
+/** A play-block modifier line, applied in order after `.sound()`. */
+export type Mod =
+  | { kind: 'ctrl'; name: string; value: CtrlValue; pos: Pos }
+  | { kind: 'method'; name: 'gain' | 'dur' | 'pan'; value: CtrlValue; pos: Pos }
+  | { kind: 'every'; n: number; comb: Comb; pos: Pos }
+  | { kind: 'comb'; comb: Comb; pos: Pos }
+
 export interface PlayBlock {
   t: 'play'
   name: string
@@ -48,6 +69,8 @@ export interface PlayBlock {
   notation: string
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
+  /** modifier lines under the notation, applied in order. */
+  mods: Mod[]
   pos: Pos
 }
 

@@ -76,7 +76,10 @@ function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoE
     if (ch === ':') { toks.push({ k: 'colon', pos, sp }); i++; continue }
     if (ch === '=') { toks.push({ k: 'eq', pos, sp }); i++; continue }
     if (OPS.has(ch)) { toks.push({ k: 'op', v: ch as '+', pos, sp }); i++; continue }
-    errors.push({ message: `unexpected character "${ch}"`, line: lineNo, col: base + i })
+    // Any other character (`~ < > [ ] * @ ! , …`) belongs to the notation /
+    // mini sublanguage, which play blocks read from raw text — so we skip it
+    // here rather than error. Synth-expression validity is enforced by the
+    // parser working over the tokens it does produce.
     i++
   }
   return toks

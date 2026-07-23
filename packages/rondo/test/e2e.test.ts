@@ -9,6 +9,7 @@ import { evalCode } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
 
 const acid = readFileSync(fileURLToPath(new URL('../examples/acid.rondo', import.meta.url)), 'utf8')
+const pad = readFileSync(fileURLToPath(new URL('../examples/pad.rondo', import.meta.url)), 'utf8')
 
 describe('rondo end-to-end: source → transpile → evalCode → sound', () => {
   it('the acid example compiles and evals clean with no error diagnostics', () => {
@@ -34,5 +35,17 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
       .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
     expect(sounding.length).toBeGreaterThan(0)
     for (const h of sounding) expect(result.synths.has(h.value.sound as string)).toBe(true)
+  })
+
+  it('the pad example (post chain + drivable post param) evals clean', () => {
+    const c = compile(pad)
+    expect(c.ok, JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    // a .ctrl('wet') driving a POST param('wet') is exactly the interaction the
+    // API audit made valid — it must eval with no error diagnostics
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.synths.get('pad')?.post).toBeDefined()
   })
 })

@@ -1,0 +1,11 @@
+synth acid
+  saw + square note/2
+  ladder cutoff * env^2 res:.85
+  * env
+  env    = adsr .003 .2 .3 .1
+  cutoff = knob 800 80..8000 log
+
+play acid
+  0 0 3 5 0 0 7 5  scale:a-min
+
+cps .6

@@ -1,0 +1,55 @@
+import { describe, expect, it } from 'vitest'
+import { compile } from '../src/compile'
+
+/** unwrap a successful compile or fail loudly with the diagnostics. */
+function ok(src: string): string {
+  const r = compile(src)
+  if (!r.ok) throw new Error('compile failed: ' + JSON.stringify(r.errors))
+  return r.code
+}
+
+describe('rondo → rondocode codegen', () => {
+  it('compiles a bare oscillator synth + degree pattern + cps', () => {
+    const out = ok(`synth blip\n  saw\n\nplay blip\n  0 2 4 2\n\ncps .5\n`)
+    expect(out).toContain('const blip = synth(({ note, saw }) => {')
+    expect(out).toContain('return saw(note.freq)')
+    expect(out).toContain("p('blip', n('0 2 4 2').sound('blip'))")
+    expect(out).toContain('setCps(0.5)')
+  })
+
+  it('threads the audio spine: source, filter (running signal first), VCA', () => {
+    const out = ok(`synth acid\n  saw + square note/2\n  ladder cutoff * env^2 res:.85\n  * env\n  env    = adsr .003 .2 .3 .1\n  cutoff = knob 800 80..8000 log\n`)
+    // oscillator blend
+    expect(out).toContain('saw(note.freq).add(square(note.freq.div(2)))')
+    // filter takes the running signal as its first arg, cutoff*env^2 as second
+    expect(out).toContain('ladder(saw(note.freq).add(square(note.freq.div(2))), cutoff.mul(env.pow(2)), { res: 0.85 })')
+    // final VCA multiply by env
+    expect(out).toContain('.mul(env)')
+    // bindings emitted (decay + knob param)
+    expect(out).toContain('const env = adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })')
+    expect(out).toContain("const cutoff = param('cutoff', 800, { min: 80, max: 8000, curve: 'log' })")
+    // destructure includes exactly what's used
+    expect(out).toContain('synth(({ note, gate, param, adsr, ladder, saw, square }) =>')
+  })
+
+  it('expands short scale names and picks note() for note-name patterns', () => {
+    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5  scale:c-maj\n`)).toContain(".scale('c major')")
+    expect(ok(`synth p\n  saw\n\nplay p\n  c4 e4 g4\n`)).toContain("note('c4 e4 g4')")
+  })
+
+  it('topologically orders bindings so each const precedes its use', () => {
+    const out = ok(`synth s\n  sine mod\n  mod = sine base\n  base = adsr .01 .1 .5 .1\n`)
+    expect(out.indexOf('const base =')).toBeLessThan(out.indexOf('const mod ='))
+  })
+
+  it('reports a positioned error for an unknown top-level block', () => {
+    const r = compile(`wobble foo\n  saw\n`)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors[0]!.line).toBe(1)
+  })
+
+  it('rejects a binding cycle', () => {
+    const r = compile(`synth s\n  saw\n  a = b\n  b = a\n`)
+    expect(r.ok).toBe(false)
+  })
+})

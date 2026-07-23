@@ -1,0 +1,231 @@
+/* rondo parser — lines → AST.
+ *
+ * Top level is a sequence of `synth` / `play` / `cps` blocks (indentation
+ * bodies). Inside a synth, each body line is either a `name = …` binding or a
+ * spine line; spine lines are folded left-to-right into one expression as we
+ * go (the pipe is linear), following the signal/CV rules we designed:
+ *   - the FIRST spine line is the source (a full expression),
+ *   - a line starting with an operator is infix on the running signal (`* env`),
+ *   - a line starting with a filter builtin takes the running signal as its
+ *     first argument (`ladder cutoff res:.85`).
+ *
+ * Expressions use precedence climbing (^ > * / > + -) where the primary is a
+ * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
+
+import type { Binding, CpsItem, Expr, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
+import { lex, type Line, type Tok } from './lexer'
+
+const OSC = new Set(['saw', 'square', 'sine', 'tri'])
+const FILTER = new Set(['ladder', 'svf', 'onepole'])
+
+const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
+
+class Cursor {
+  i = 0
+  constructor(readonly toks: Tok[], readonly errors: RondoError[]) {}
+  peek(): Tok | undefined { return this.toks[this.i] }
+  peek2(): Tok | undefined { return this.toks[this.i + 1] }
+  next(): Tok | undefined { return this.toks[this.i++] }
+  eof(): boolean { return this.i >= this.toks.length }
+  err(message: string, pos?: Pos): void {
+    const p = pos ?? this.peek()?.pos ?? { line: 0, col: 0 }
+    this.errors.push({ message, line: p.line, col: p.col })
+  }
+  /** a `name:` named-argument boundary — stops expression parsing. */
+  atNamedArg(): boolean {
+    const a = this.peek(), b = this.peek2()
+    return !!a && a.k === 'ident' && !!b && b.k === 'colon'
+  }
+}
+
+/* ---- expressions --------------------------------------------------------- */
+
+function parseExpr(c: Cursor, minPrec: number): Expr {
+  let left = parseApp(c)
+  for (;;) {
+    const t = c.peek()
+    if (t && t.k === 'op' && PREC[t.v]! >= minPrec) {
+      c.next()
+      const right = parseExpr(c, PREC[t.v]! + (t.v === '^' ? 0 : 1)) // ^ right-assoc
+      left = { t: 'bin', op: t.v, l: left, r: right, pos: t.pos }
+      continue
+    }
+    if (t && t.k === 'arrow') {
+      c.next()
+      const lo = parseExpr(c, 3)
+      const rt = c.peek()
+      if (!rt || rt.k !== 'range') { c.err('expected `..` in range map (`x -> lo..hi`)'); break }
+      c.next()
+      const hi = parseExpr(c, 3)
+      left = { t: 'map', x: left, lo, hi, pos: t.pos }
+      continue
+    }
+    break
+  }
+  return left
+}
+
+/** True if the next token can begin a space-separated argument. */
+function canStartArg(c: Cursor): boolean {
+  const t = c.peek()
+  return !!t && t.sp && (t.k === 'num' || (t.k === 'ident' && !c.atNamedArg()))
+}
+
+function parseNamed(c: Cursor): Record<string, Expr> {
+  const named: Record<string, Expr> = {}
+  while (c.atNamedArg()) {
+    const name = (c.next() as Tok & { v: string }).v
+    c.next() // colon
+    named[name] = parseExpr(c, 2)
+  }
+  return named
+}
+
+function parseApp(c: Cursor): Expr {
+  const t = c.peek()
+  if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: { line: 0, col: 0 } } }
+  if (t.k === 'num') { c.next(); return { t: 'num', v: t.v, pos: t.pos } }
+  if (t.k === 'ident') {
+    const name = t.v
+    if (OSC.has(name)) {
+      c.next()
+      const args: Expr[] = []
+      if (canStartArg(c)) args.push(parseExpr(c, 2))
+      return { t: 'call', name, args, named: {}, pos: t.pos }
+    }
+    if (name === 'adsr') {
+      c.next()
+      const args = [parseExpr(c, 5), parseExpr(c, 5), parseExpr(c, 5), parseExpr(c, 5)]
+      return { t: 'call', name, args, named: {}, pos: t.pos }
+    }
+    if (FILTER.has(name)) {
+      c.next()
+      const args = [parseExpr(c, 2)]
+      const named = parseNamed(c)
+      return { t: 'call', name, args, named, pos: t.pos }
+    }
+    if (name === 'knob') return parseKnob(c)
+    // a plain reference: a binding name, or note / gate
+    c.next()
+    return { t: 'ident', name, pos: t.pos }
+  }
+  c.err(`unexpected ${t.k}`)
+  c.next()
+  return { t: 'num', v: 0, pos: t.pos }
+}
+
+function parseKnob(c: Cursor): Expr {
+  const kw = c.next()! // 'knob'
+  const def = parseExpr(c, 5)
+  const loT = c.peek()
+  if (!loT || loT.k !== 'num') { c.err('knob needs a range, e.g. `knob 800 80..8000 log`'); return { t: 'knob', def, lo: def, hi: def, pos: kw.pos } }
+  const lo: Expr = { t: 'num', v: loT.v, pos: loT.pos }; c.next()
+  const rg = c.peek()
+  if (!rg || rg.k !== 'range') { c.err('expected `..` in knob range'); return { t: 'knob', def, lo, hi: lo, pos: kw.pos } }
+  c.next()
+  const hiT = c.peek()
+  if (!hiT || hiT.k !== 'num') { c.err('expected a number after `..`'); return { t: 'knob', def, lo, hi: lo, pos: kw.pos } }
+  const hi: Expr = { t: 'num', v: hiT.v, pos: hiT.pos }; c.next()
+  let curve: string | undefined
+  const cv = c.peek()
+  if (cv && cv.k === 'ident') { curve = cv.v; c.next() }
+  return { t: 'knob', def, lo, hi, curve, pos: kw.pos }
+}
+
+/* ---- blocks -------------------------------------------------------------- */
+
+function bodyLines(lines: Line[], start: number): { body: Line[]; next: number } {
+  const body: Line[] = []
+  let j = start
+  while (j < lines.length && lines[j]!.indent > 0) { body.push(lines[j]!); j++ }
+  return { body, next: j }
+}
+
+function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: SynthBlock; next: number } {
+  const header = lines[i]!
+  const nameTok = header.toks[1]
+  const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+  if (!name) errors.push({ message: 'synth needs a name (`synth lead`)', line: header.line, col: header.rawCol })
+  const { body, next } = bodyLines(lines, i + 1)
+
+  const bindings: Binding[] = []
+  let spine: Expr | null = null
+  for (const ln of body) {
+    const c = new Cursor(ln.toks, errors)
+    const t0 = ln.toks[0]
+    // binding: NAME = ...
+    if (ln.toks.length >= 2 && t0 && t0.k === 'ident' && ln.toks[1]!.k === 'eq') {
+      const bname = t0.v
+      c.next(); c.next() // name, '='
+      const rhs = parseExpr(c, 0)
+      if (!c.eof()) c.err('unexpected tokens after binding')
+      bindings.push({ name: bname, expr: rhs, pos: t0.pos })
+      continue
+    }
+    // spine line
+    if (spine === null) {
+      spine = parseExpr(c, 0)
+    } else if (t0 && t0.k === 'op') {
+      const op = t0.v; c.next()
+      const rest = parseExpr(c, 0)
+      spine = { t: 'bin', op, l: spine, r: rest, pos: t0.pos }
+    } else if (t0 && t0.k === 'ident' && FILTER.has(t0.v)) {
+      c.next()
+      const cut = parseExpr(c, 2)
+      const named = parseNamed(c)
+      spine = { t: 'call', name: t0.v, args: [spine, cut], named, pos: t0.pos }
+    } else {
+      c.err('expected a transform here — an operator (`* env`) or a filter (`ladder …`). Layer a second source with `+` on the first line.')
+      continue
+    }
+    if (!c.eof()) c.err('unexpected tokens at end of line')
+  }
+  if (spine === null) {
+    errors.push({ message: `synth '${name}' has no audio output`, line: header.line, col: header.rawCol })
+    spine = { t: 'num', v: 0, pos: header.toks[0]!.pos }
+  }
+  return { block: { t: 'synth', name, bindings, spine, pos: header.toks[0]!.pos }, next }
+}
+
+function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: PlayBlock; next: number } {
+  const header = lines[i]!
+  const nameTok = header.toks[1]
+  const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+  if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
+  const { body, next } = bodyLines(lines, i + 1)
+  if (body.length === 0) errors.push({ message: `play '${name}' has no notation`, line: header.line, col: header.rawCol })
+  // M1: a single notation line (+ optional `scale:`); extra lines land in M2.
+  const first = body[0]
+  let notation = ''
+  let scale: string | undefined
+  if (first) {
+    const m = /\bscale:([a-gA-G][a-z0-9#-]*)/.exec(first.raw)
+    if (m) scale = m[1]
+    notation = (m ? first.raw.replace(m[0], '') : first.raw).replace(/\s+/g, ' ').trim()
+  }
+  return { block: { t: 'play', name, notation, scale, pos: header.toks[0]!.pos }, next }
+}
+
+function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsItem; next: number } {
+  const header = lines[i]!
+  const v = header.toks[1]
+  if (!v || v.k !== 'num') errors.push({ message: 'cps needs a number (`cps .6`)', line: header.line, col: header.rawCol })
+  return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : 0.5, pos: header.toks[0]!.pos }, next: i + 1 }
+}
+
+export function parse(src: string): { program: Program; errors: RondoError[] } {
+  const { lines, errors } = lex(src)
+  const items: TopItem[] = []
+  let i = 0
+  while (i < lines.length) {
+    const ln = lines[i]!
+    if (ln.indent !== 0) { errors.push({ message: 'unexpected indentation', line: ln.line, col: 1 }); i++; continue }
+    const head = ln.toks[0]
+    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, or `cps`', line: ln.line, col: ln.rawCol }); i++; continue }
+    if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
+    else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
+    else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps)`, line: ln.line, col: ln.rawCol }); i++ }
+  }
+  return { program: { items }, errors }
+}

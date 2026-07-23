@@ -4,6 +4,7 @@ import type { EditorView } from '@codemirror/view'
 import type { AudioSession } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
+import { anchorPopover } from '../ui/viewport'
 
 /* Export the current tune to a WAV two ways:
  *   - bounce: render N cycles offline (deterministic, uses the render path)
@@ -139,14 +140,10 @@ export function mountExport({ view, audio, anchor }: ExportOpts): () => void {
 
   // popover open/close, anchored under the button
   let open = false
-  const place = (): void => {
-    const r = anchor.getBoundingClientRect()
-    pop.style.top = `${Math.round(r.bottom + 6)}px`
-    pop.style.right = `${Math.round(window.innerWidth - r.right)}px`
-  }
+  const place = (): void => anchorPopover(pop, anchor)
   const openPop = (): void => {
+    pop.classList.remove('hidden') // visible first so anchorPopover can measure it
     place()
-    pop.classList.remove('hidden')
     open = true
   }
   const close = (): void => {

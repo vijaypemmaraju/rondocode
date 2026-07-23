@@ -1,5 +1,6 @@
 import { iconEl } from './icons'
 import { tooltip } from './tooltip'
+import { anchorPopover } from './viewport'
 
 /* The header gained enough tools to overflow a phone row. On narrow screens
  * this moves the SECONDARY controls (everything except run + stop) into a "⋯"
@@ -36,10 +37,8 @@ export function mountHeaderOverflow(topbar: HTMLElement): () => void {
     open = false
   }
   const openPop = (): void => {
-    const r = more.getBoundingClientRect()
-    pop.style.top = `${Math.round(r.bottom + 6)}px`
-    pop.style.right = `${Math.round(window.innerWidth - r.right)}px`
-    pop.classList.remove('hidden')
+    pop.classList.remove('hidden') // visible first so anchorPopover can measure it
+    anchorPopover(pop, more)
     open = true
   }
   more.addEventListener('click', () => (open ? close() : openPop()))

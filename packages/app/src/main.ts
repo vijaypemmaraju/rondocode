@@ -12,6 +12,7 @@ import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
 import { BridgeClient } from './session/bridge-client'
 import { applyPalette } from './ui/palette'
+import { installViewportFit } from './ui/viewport'
 
 /* MCP bridge wiring: expose the Session command API to the local bridge
  * server (see session/bridge-client.ts for protocol, reach, and the
@@ -67,6 +68,11 @@ const startBridge = (editor: EditorHandle): void => {
 // Palette first: style.css consumes var(--c-*) with no fallbacks, so the
 // custom properties must exist before anything renders (see ui/palette.ts).
 applyPalette()
+
+// Lock the shell to the visible viewport so the mobile keyboard can't scroll
+// the header off-screen (see ui/viewport.ts). Runs before mount so #app is
+// sized correctly on first paint.
+installViewportFit()
 
 const app = document.getElementById('app')
 if (!app) throw new Error('missing #app root')

@@ -110,7 +110,7 @@ a:hover {
   align-self: start;
   font-family: var(--mono);
   font-size: var(--fs-ctrl);
-  max-height: calc(100vh - 100px);
+  max-height: calc(100dvh - 100px);
   overflow-y: auto;
 }
 .doc-nav a {

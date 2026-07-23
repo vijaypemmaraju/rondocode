@@ -2,6 +2,7 @@ import type { EditorHandle } from './editor'
 import type { AudioSession } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
+import { anchorPopover } from '../ui/viewport'
 
 /* Live MIDI input (Web MIDI): play one of the running synths from a connected
  * keyboard/controller in real time. Note-on/off map straight to the engine's
@@ -121,11 +122,9 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     open = false
   }
   const openPop = (): void => {
-    const r = anchor.getBoundingClientRect()
-    pop.style.top = `${Math.round(r.bottom + 6)}px`
-    pop.style.right = `${Math.round(window.innerWidth - r.right)}px`
     refreshPick()
-    pop.classList.remove('hidden')
+    pop.classList.remove('hidden') // visible first so anchorPopover can measure it
+    anchorPopover(pop, anchor)
     open = true
   }
   anchor.addEventListener('click', () => (open ? close() : openPop()))

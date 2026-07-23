@@ -569,6 +569,24 @@ const SYNTH_CTX: DocEntry[] = [
     'The classic VOCODER: a bank of band-pass filters reads the modulator’s per-band loudness (its spectral envelope) and imposes it on the carrier, so the carrier "talks" or "sings" in the modulator’s voice. Give it a harmonically rich carrier (saw/supersaw/pulse) and a modulator with formants — a voice sample, noise, or another synth. opts: bands 2..64 (def 16, more = clearer), low/high band range in Hz (def 120/7500), q band sharpness scale (def 1), response envelope time in seconds (def 0.012, smaller = crisper consonants).',
     "vocoder(supersaw(note.freq), sample(gate, 'vox'), { bands: 20 })",
   ),
+  sc(
+    'eq',
+    'eq(input, bands?: { type, freq, gain, q }[])',
+    "A parametric EQ: a cascade of bands run in series. Each band has a type — 'peak' (a bell that boosts/cuts around freq), 'lowshelf'/'highshelf' (tilt everything below/above freq), or 'lp'/'hp' (12 dB/oct cut) — plus freq (Hz), gain (dB, for shelf/peak), and q (sharpness, higher = narrower). Carve out mud, add air with a high shelf, or notch a resonance.",
+    "eq(pad, [{ type: 'hp', freq: 120 }, { type: 'highshelf', freq: 8000, gain: 4 }])",
+  ),
+  sc(
+    'exciter',
+    'exciter(input, opts?: { freq, amount, drive })',
+    'An aural exciter: it isolates the band above freq (def 3500), saturates it to synthesize harmonically-related upper partials, and mixes that back in — adding air, sheen, and presence WITHOUT the broadband hiss of added noise. amount 0..1 (def 0.3) is the blend, drive (def 3) sets how much harmonic content.',
+    'exciter(lead, { freq: 5000, amount: 0.4 })',
+  ),
+  sc(
+    'ott',
+    'ott(input, opts?: { depth, low, high, makeup })',
+    'The "OTT" multiband compressor: splits the signal into three bands and applies upward AND downward compression to each, squashing dynamics and pulling up detail so the sound reads as louder, fuller, and brighter — the glue behind modern EDM/future-bass. depth 0..1 (def 0.5) blends dry to fully-processed (it is aggressive), low/high are the crossover frequencies in Hz (def 240/2500), makeup is output gain in dB.',
+    'ott(chordBus, { depth: 0.4 })',
+  ),
   sc('pan', 'pan(input, pos)', 'Place the signal in the stereo field: 0 left, 0.5 center, 1 right.', 'pan(osc, 0.3)'),
   sc('mix', 'mix(a, b, t)', 'Crossfade between two signals: t=0 is all a, t=1 all b.', 'mix(saw(note.freq), square(note.freq), 0.3)'),
 ]

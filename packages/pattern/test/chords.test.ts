@@ -47,6 +47,16 @@ describe('chord()', () => {
   it('throws on a non-chord atom', () => {
     expect(() => chord('Cmaj7 xyz')).toThrow()
   })
+
+  it('accepts SLASH-BASS chords (regression: the mini-parser ate the / as slow)', () => {
+    // 'C/E' = C major over an E bass. Documented + advertised in the error text,
+    // but chord() used to throw MiniError because '/' is the slow combinator.
+    expect(notesOf(q(chord('C/E'), 0, 1)).sort((a, b) => a - b)).toEqual([40, 48, 52, 55])
+    expect(notesOf(q(chord('Cmaj7/E'), 0, 1)).sort((a, b) => a - b)).toEqual([40, 48, 52, 55, 59])
+    // non-slash names and sequences still go through the normal path
+    expect(notesOf(q(chord('Am7'), 0, 1)).sort((a, b) => a - b)).toEqual([57, 60, 64, 67])
+    expect(() => chord('Q/E')).toThrow() // bad root still errors
+  })
 })
 
 describe('.arp()', () => {

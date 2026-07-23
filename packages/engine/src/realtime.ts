@@ -107,6 +107,9 @@ interface ParamState {
   max: number
   /** Last value handed to the pool (spec default until first setParam). */
   value: number
+  /** True when this param lives in the POST chain (shared per-synth), so sets
+   *  route to ch.post.setParam instead of the voice pool. */
+  post?: boolean
 }
 
 interface Ramp {
@@ -521,7 +524,8 @@ export class RealtimeEngine {
       const r = ramps[i]!
       const v = rampValue(r, start)
       r.param.value = v
-      ch.pool.setParam(r.name, v)
+      if (r.param.post) ch.post?.setParam(r.name, v)
+      else ch.pool.setParam(r.name, v)
       if (start >= r.endFrame) {
         ramps[i] = ramps[ramps.length - 1]!
         ramps.pop()
@@ -720,6 +724,13 @@ export class RealtimeEngine {
     const params = new Map<string, ParamState>()
     if (Array.isArray(graph.params)) {
       for (const p of graph.params) params.set(p.name, { min: p.min, max: p.max, value: p.default })
+    }
+    // POST-chain params are driveable too (via .ctrl()), sharing one value
+    // across the summed voices. Voice params win a name collision.
+    if (postGraph !== undefined && Array.isArray(postGraph.params)) {
+      for (const p of postGraph.params) {
+        if (!params.has(p.name)) params.set(p.name, { min: p.min, max: p.max, value: p.default, post: true })
+      }
     }
     // Replacement keeps the channel strip (a live coder's fader shouldn't
     // jump on redefine) but resets params to the new graph's defaults and
@@ -951,7 +962,8 @@ export class RealtimeEngine {
     const durFrames = Math.round((rampMs / 1000) * this.ctx.sampleRate)
     if (durFrames < 1) {
       p.value = target
-      ch.pool.setParam(name, target)
+      if (p.post) ch.post?.setParam(name, target)
+      else ch.pool.setParam(name, target)
     } else {
       ramps.push({
         name,

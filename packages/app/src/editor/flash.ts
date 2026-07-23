@@ -217,7 +217,14 @@ export function locToDocRanges(
     // old text-match-anywhere behavior.
     if (loc.src !== undefined && lit.content !== loc.src) continue
     if (loc.end > lit.content.length) continue
-    if (!atomMatches(lit.content.slice(loc.start, loc.end), controls)) continue
+    // A parser-stamped loc (src present, and matched above) already pinpoints the
+    // exact originating atom, so TRUST it — don't re-check the atom text against
+    // the event's note. Transposers (octave/add/invert/voicing) change the note
+    // value while the source atom stays put ("e3" → note 64), so an atomMatches
+    // gate here would wrongly drop every shifted note and it would never flash.
+    // atomMatches is only needed to disambiguate the srcless match-anywhere path.
+    const trusted = loc.src !== undefined
+    if (!trusted && !atomMatches(lit.content.slice(loc.start, loc.end), controls)) continue
     // Map the assembled-string range back to the document via the chunk that
     // fully contains it. An atom that straddles a concatenation boundary maps to
     // no single chunk and is skipped (mini atoms don't span the `+` in practice).

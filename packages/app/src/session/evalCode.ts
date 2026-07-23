@@ -1,7 +1,7 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note } from '@rondocode/pattern'
+import { MiniError, Pattern, note, TimeSpan, F, hasOnset } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
 import { busGraph, tapLoc, synth } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
@@ -285,6 +285,189 @@ const mapRuntimeError = (e: unknown, sourceLineCount: number): Diagnostic => {
     }
   }
   return { line: 1, col: 1, message, severity: 'error', source: 'eval' }
+}
+
+/** Control keys that are NOT synth params (they carry structural meaning and
+ *  never reach setParam). MUST mirror Session.NON_PARAM_KEYS — the dispatch
+ *  loop sends every OTHER numeric control key as a setParam, so those are the
+ *  ones a synth must actually declare. */
+const NON_PARAM_CTRL_KEYS = new Set(['n', 'note', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc'])
+
+/** How many cycles to sample when discovering which (sound, param) controls a
+ *  pattern actually drives. Covers `<a b>` alternations and typical
+ *  `arrange([8,…],[8,…])` / slow `cat` sections that only route a given synth
+ *  after several cycles; a still-slower structural switch can escape (queries
+ *  are cheap, but this stays bounded). */
+const CTRL_SCAN_CYCLES = 16
+
+/**
+ * Catch `.ctrl('name', …)` targets that the engine would reject at play time as
+ * `unknown param 'name'` — a bug that otherwise only surfaces as a per-cycle
+ * console warning (the audio path is typo-tolerant by design). We know the spec
+ * here, so we turn it into a positioned editor diagnostic BEFORE it plays.
+ *
+ * A control key becomes a setParam iff it's numeric and not structural
+ * (NON_PARAM_CTRL_KEYS), and the engine validates it against the routed synth's
+ * VOICE params only (graph.params). A `param()` declared in the POST chain lands
+ * in post.params and is unreachable by .ctrl — the most common trap — so we call
+ * that out specifically. Positions come from the `.ctrl('name', …)` call sites
+ * in the source AST. Best-effort: a pattern whose query throws is skipped.
+ */
+const validateCtrlParams = (
+  synths: Map<string, SynthDef>,
+  patterns: Map<string, Pattern<ControlMap>>,
+  program: Program,
+): Diagnostic[] => {
+  if (patterns.size === 0 || synths.size === 0) return []
+  // Collect `.ctrl('KEY', …)` call sites for positioning, keyed by KEY.
+  const ctrlSites = new Map<string, { line: number; col: number }[]>()
+  walkSimple(program, {
+    CallExpression(node) {
+      const callee = node.callee
+      const arg0 = node.arguments[0] as { type?: string; value?: unknown; loc?: { start: { line: number; column: number } } } | undefined
+      if (
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'ctrl' &&
+        arg0?.type === 'Literal' &&
+        typeof arg0.value === 'string' &&
+        arg0.loc !== undefined
+      ) {
+        const arr = ctrlSites.get(arg0.value) ?? []
+        arr.push({ line: arg0.loc.start.line, col: arg0.loc.start.column + 1 })
+        ctrlSites.set(arg0.value, arr)
+      }
+    },
+  })
+  const diags: Diagnostic[] = []
+  const seen = new Set<string>() // dedup by `${sound}|${key}`
+  const span = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
+  for (const pat of patterns.values()) {
+    let haps
+    try {
+      haps = pat.query(span)
+    } catch {
+      continue // a pattern-query bug must never block eval
+    }
+    for (const h of haps) {
+      const c = h.value
+      const sound = c.sound
+      if (typeof sound !== 'string') continue
+      const def = synths.get(sound)
+      if (def === undefined) continue // unknown sound: not this check's concern
+      for (const [key, val] of Object.entries(c)) {
+        if (NON_PARAM_CTRL_KEYS.has(key) || typeof val !== 'number') continue
+        const dedup = `${sound}|${key}`
+        if (seen.has(dedup)) continue
+        seen.add(dedup)
+        if (def.graph.params.some((p) => p.name === key)) continue // valid voice param
+        if (def.post?.params.some((p) => p.name === key) === true) continue // valid POST param (now driveable)
+        const message = `ctrl('${key}'): synth '${sound}' declares no param '${key}'.`
+        const sites = ctrlSites.get(key) ?? [{ line: 1, col: 1 }]
+        for (const s of sites) {
+          diags.push({ line: s.line, col: s.col, message, severity: 'error', source: 'eval' })
+        }
+      }
+    }
+  }
+  return diags
+}
+
+/**
+ * Catch bus()/sidechain() targeting synth names that don't exist. Like a stray
+ * `.ctrl` target, an unknown send/duck target otherwise VANISHES silently — the
+ * Session guards sends/ducks on `liveSynths.has(...)` and the engine never
+ * checks the sidechain source — so the send never routes and the sidechain
+ * never ducks, with zero feedback. We know the staged synth set here.
+ */
+const validateStagingTargets = (
+  synths: Map<string, SynthDef>,
+  sends: SendSpec[],
+  sidechain: { source: string; amounts?: Record<string, number> } | undefined,
+  program: Program,
+): Diagnostic[] => {
+  const diags: Diagnostic[] = []
+  // Positions: the first bus()/sidechain() call site (good enough to locate it).
+  let busPos: { line: number; col: number } | undefined
+  let scPos: { line: number; col: number } | undefined
+  walkSimple(program, {
+    CallExpression(node) {
+      const callee = node.callee as { type?: string; name?: string }
+      const loc = (node as { loc?: { start: { line: number; column: number } } }).loc
+      if (callee.type === 'Identifier' && loc !== undefined) {
+        if (callee.name === 'bus' && busPos === undefined) busPos = { line: loc.start.line, col: loc.start.column + 1 }
+        if (callee.name === 'sidechain' && scPos === undefined) scPos = { line: loc.start.line, col: loc.start.column + 1 }
+      }
+    },
+  })
+  const push = (message: string, p?: { line: number; col: number }): void => {
+    diags.push({ line: p?.line ?? 1, col: p?.col ?? 1, message, severity: 'error', source: 'eval' })
+  }
+  const seen = new Set<string>()
+  for (const s of sends) {
+    if (!synths.has(s.synth) && !seen.has(`send|${s.synth}`)) {
+      seen.add(`send|${s.synth}`)
+      push(`bus('${s.bus}'): send source synth '${s.synth}' is not defined — the send is silently dropped.`, busPos)
+    }
+  }
+  if (sidechain !== undefined) {
+    if (!synths.has(sidechain.source)) {
+      push(`sidechain('${sidechain.source}'): source synth is not defined — nothing will duck.`, scPos)
+    }
+    for (const name of Object.keys(sidechain.amounts ?? {})) {
+      if (!synths.has(name) && !seen.has(`duck|${name}`)) {
+        seen.add(`duck|${name}`)
+        push(`sidechain(): duck target synth '${name}' is not defined.`, scPos)
+      }
+    }
+  }
+  return diags
+}
+
+/**
+ * Non-fatal WARNING: a chord / stacked simultaneous notes routed to a MONO
+ * synth silently plays only one note (the mono voice retriggers). We caught the
+ * ctrl/param traps as errors; this one is legal but surprising, so warn.
+ */
+const detectMonoChords = (
+  synths: Map<string, SynthDef>,
+  patterns: Map<string, Pattern<ControlMap>>,
+): Diagnostic[] => {
+  if (patterns.size === 0) return []
+  const warned = new Set<string>()
+  const diags: Diagnostic[] = []
+  const span = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
+  for (const pat of patterns.values()) {
+    let haps
+    try {
+      haps = pat.query(span)
+    } catch {
+      continue
+    }
+    const counts = new Map<string, number>() // `${sound}@${onsetTime}` -> notes
+    for (const h of haps) {
+      if (!hasOnset(h)) continue
+      const c = h.value
+      if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
+      const def = synths.get(c.sound)
+      if (def?.voiceOpts?.mono !== true || warned.has(c.sound)) continue
+      const k = `${c.sound}@${h.whole!.begin.toString()}`
+      const next = (counts.get(k) ?? 0) + 1
+      counts.set(k, next)
+      if (next > 1) {
+        warned.add(c.sound)
+        diags.push({
+          line: 1,
+          col: 1,
+          message: `synth '${c.sound}' is mono, but it's fed simultaneous notes (a chord/stack) — only one sounds. Drop mono (or set voices>1) to hear the harmony.`,
+          severity: 'warning',
+          source: 'eval',
+        })
+      }
+    }
+  }
+  return diags
 }
 
 /**
@@ -578,6 +761,21 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   } finally {
     sealed = true
   }
+
+  // The code ran; now catch `.ctrl()` targets the engine would reject at play
+  // time (unknown/post-only params). Treated as errors: like any failed eval,
+  // the broken version is NOT applied (last-good keeps playing) and the editor
+  // shows a positioned diagnostic — instead of a silent per-cycle console warn.
+  const stagingErrors = [
+    ...validateCtrlParams(synths, patterns, program),
+    ...validateStagingTargets(synths, sends, sidechainCfg, program),
+  ]
+  if (stagingErrors.length > 0) {
+    diagnostics.push(...stagingErrors)
+    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
+  }
+  // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).
+  diagnostics.push(...detectMonoChords(synths, patterns))
 
   const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings }
   if (cps !== undefined) result.cps = cps

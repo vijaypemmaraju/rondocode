@@ -2,6 +2,7 @@ import { BLOCK, compilePost } from './compile'
 import type { CompiledPost } from './compile'
 import type { GraphSpec } from './graph'
 import type { DspContext } from './dsp/types'
+import { clamp } from './dsp/util'
 
 /* ------------------------------------------------------------------------- *
  * Per-synth FX post-chain runtime. A synth's POST graph processes the SUMMED
@@ -64,6 +65,25 @@ export class PostChain {
     if (n <= 0) return
     runMono(this.left, L, n, this.ctx)
     runMono(this.right, R, n, this.ctx)
+  }
+
+  /** Drive a POST-chain param() by name — sets the value on both mono instances
+   *  (clamped to the param spec). Returns true if the name is a post param, so
+   *  callers can fall through to the voice pool otherwise. Post params are
+   *  driveable exactly like voice params (via .ctrl()), just shared per-synth. */
+  setParam(name: string, value: number): boolean {
+    const p = this.left.params.get(name)
+    if (p === undefined) return false
+    const v = clamp(value, p.spec.min, p.spec.max)
+    p.buf.fill(v)
+    const pr = this.right.params.get(name)
+    if (pr !== undefined) pr.buf.fill(v)
+    return true
+  }
+
+  /** True if `name` is a param declared in the post chain. */
+  hasParam(name: string): boolean {
+    return this.left.params.has(name)
   }
 
   /** Reset both instances' kernel state (reverb tails, filter/delay memory). */

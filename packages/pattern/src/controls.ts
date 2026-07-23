@@ -278,9 +278,12 @@ Pattern.prototype.scale = function (
   name: string,
 ): Pattern<ControlMap> {
   const { root, intervals } = parseScaleName(name) // eager: bad names throw now
+  // Stamp the scale NAME on each event (a string — skipped by param dispatch)
+  // so a later .add()/.sub() can transpose in SCALE STEPS and re-resolve the
+  // note through this scale, instead of moving by raw semitones.
   return this.withValue((c) =>
     typeof c.n === 'number'
-      ? { ...c, note: root + scaleDegree(intervals, Math.round(c.n)) }
+      ? { ...c, note: root + scaleDegree(intervals, Math.round(c.n)), scale: name }
       : c,
   )
 }

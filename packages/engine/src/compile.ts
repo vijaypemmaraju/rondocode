@@ -35,6 +35,12 @@ import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
+import { EqKernel } from './dsp/eq'
+import type { EqBand } from './dsp/eq'
+import { ExciterKernel } from './dsp/exciter'
+import type { ExciterConfig } from './dsp/exciter'
+import { OttKernel } from './dsp/ott'
+import type { OttConfig } from './dsp/ott'
 import type { CompressConfig } from './dsp/compress'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
@@ -164,6 +170,9 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
   vocoder: [{ name: 'carrier' }, { name: 'modulator' }],
+  eq: [{ name: 'in' }],
+  exciter: [{ name: 'in' }],
+  ott: [{ name: 'in' }],
   pan: [{ name: 'in' }, { name: 'pos', def: 0.5 }],
   const: [],
   param: [],
@@ -228,6 +237,9 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
   vocoder: (c, ctx) => new VocoderKernel(c as VocoderConfig, ctx),
+  eq: (c) => new EqKernel(Array.isArray(c['bands']) ? (c['bands'] as EqBand[]) : []),
+  exciter: (c) => new ExciterKernel(exciterCfg(c)),
+  ott: (c) => new OttKernel(ottCfg(c)),
 }
 
 /** Build a { roomSize?, damp? } config, keeping only the numeric entries so the
@@ -268,6 +280,22 @@ const granularCfg = (c: Record<string, unknown>): GranularConfig => {
 const compressCfg = (c: Record<string, unknown>): CompressConfig => {
   const out: CompressConfig = {}
   for (const k of ['threshold', 'ratio', 'attack', 'release', 'knee', 'makeup'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const exciterCfg = (c: Record<string, unknown>): ExciterConfig => {
+  const out: ExciterConfig = {}
+  for (const k of ['freq', 'amount', 'drive'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const ottCfg = (c: Record<string, unknown>): OttConfig => {
+  const out: OttConfig = {}
+  for (const k of ['depth', 'low', 'high', 'makeup'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out

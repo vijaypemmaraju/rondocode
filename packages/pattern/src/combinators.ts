@@ -4,6 +4,7 @@ import type { Hap } from './types'
 import { Pattern, reify, toF } from './pattern'
 import { bjorklund } from './euclid'
 import { timeHash } from './rand'
+import { scaleDegree, parseScaleName } from './scales'
 
 /**
  * The combinator library: the musical surface that makes patterns feel
@@ -46,14 +47,17 @@ declare module './pattern' {
     iterBack(n: number): Pattern<T>
     /** Superimpose f applied to a copy shifted t cycles later. */
     off(t: Fraction | number, f: (p: Pattern<T>) => Pattern<T>): Pattern<T>
-    /** Pointwise +. Pattern operands combine appLeft: structure from this. */
-    add(this: Pattern<number>, other: number | Pattern<number>): Pattern<number>
-    /** Pointwise - (structure from this). */
-    sub(this: Pattern<number>, other: number | Pattern<number>): Pattern<number>
+    /** Pointwise +. On a numeric pattern (signals, degrees) it adds to the
+     *  value; on a note()/n() pattern it TRANSPOSES (adds semitones to the
+     *  note, or steps to the degree), keeping loc + other controls. Pattern
+     *  operands combine appLeft: structure from this. */
+    add(this: Pattern<T>, other: number | Pattern<number>): Pattern<T>
+    /** Pointwise - (structure from this). Transposes note/degree patterns down. */
+    sub(this: Pattern<T>, other: number | Pattern<number>): Pattern<T>
     /** Pointwise * (structure from this). */
-    mul(this: Pattern<number>, other: number | Pattern<number>): Pattern<number>
+    mul(this: Pattern<T>, other: number | Pattern<number>): Pattern<T>
     /** Pointwise / (structure from this). Float semantics: x/0 is Infinity. */
-    div(this: Pattern<number>, other: number | Pattern<number>): Pattern<number>
+    div(this: Pattern<T>, other: number | Pattern<number>): Pattern<T>
     /** Map a unipolar [0,1] pattern linearly onto [lo, hi]. */
     range(this: Pattern<number>, lo: number, hi: number): Pattern<number>
     /**
@@ -275,11 +279,55 @@ Pattern.prototype.off = function <T>(
   return Pattern.stack(this, f(this.late(t)))
 }
 
+/** Apply a numeric op to a pattern value. Three cases, most-specific first:
+ *  1. A plain number (signals, bare degrees) — operate directly.
+ *  2. A SCALED control map (`n` + a stamped `scale`, from `n(...).scale(...)`)
+ *     — operate on the DEGREE and RE-RESOLVE the note through that scale, so
+ *     `.add(2)` moves two SCALE STEPS and stays in key.
+ *  3. Any other control map — shift `n` (pre-scale degree) or `note` (absolute)
+ *     directly, a raw/semitone move.
+ *  loc and every other control ride along untouched. */
+const applyArith = (op: (a: number, b: number) => number, a: unknown, b: number): unknown => {
+  if (typeof a === 'number') return op(a, b)
+  if (a !== null && typeof a === 'object') {
+    const m = a as Record<string, unknown>
+    if (typeof m['n'] === 'number') {
+      const nn = op(m['n'], b)
+      if (typeof m['scale'] === 'string') {
+        const { root, intervals } = parseScaleName(m['scale'])
+        // Preserve any note-level offset a prior .octave()/.invert()/.voicing()
+        // baked into `note` on top of the scale resolution — don't recompute the
+        // note from the degree alone, or that revoicing is silently discarded.
+        const resolvedOld = root + scaleDegree(intervals, Math.round(m['n']))
+        const offset = typeof m['note'] === 'number' ? m['note'] - resolvedOld : 0
+        return { ...m, n: nn, note: root + scaleDegree(intervals, Math.round(nn)) + offset }
+      }
+      return { ...m, n: nn }
+    }
+    if (typeof m['note'] === 'number') return { ...m, note: op(m['note'], b) }
+  }
+  return a
+}
+
+/** Apply a unary numeric fn to a pattern value: directly for a plain number
+ *  (signals/degrees), else to the pitch field of a control map (note, then n),
+ *  keeping loc + the other controls. Non-numeric values pass through. Used by
+ *  range/rangex so they don't NaN-out a note()/n()/chord() pattern. */
+const mapNumericField = (fn: (v: number) => number, a: unknown): unknown => {
+  if (typeof a === 'number') return fn(a)
+  if (a !== null && typeof a === 'object') {
+    const m = a as Record<string, unknown>
+    if (typeof m['note'] === 'number') return { ...m, note: fn(m['note']) }
+    if (typeof m['n'] === 'number') return { ...m, n: fn(m['n']) }
+  }
+  return a
+}
+
 const arith = (
   op: (a: number, b: number) => number,
-): ((this: Pattern<number>, other: number | Pattern<number>) => Pattern<number>) =>
-  function (this: Pattern<number>, other: number | Pattern<number>): Pattern<number> {
-    return this.appLeft(reify(other), op)
+): (<T>(this: Pattern<T>, other: number | Pattern<number>) => Pattern<T>) =>
+  function <T>(this: Pattern<T>, other: number | Pattern<number>): Pattern<T> {
+    return this.appLeft(reify(other), (a: T, b) => applyArith(op, a, b as number) as T)
   }
 
 Pattern.prototype.add = arith((a, b) => a + b)
@@ -292,7 +340,7 @@ Pattern.prototype.range = function (
   lo: number,
   hi: number,
 ): Pattern<number> {
-  return this.withValue((v) => v * (hi - lo) + lo)
+  return this.withValue((v) => mapNumericField((x) => x * (hi - lo) + lo, v) as number)
 }
 
 Pattern.prototype.rangex = function (
@@ -303,7 +351,7 @@ Pattern.prototype.rangex = function (
   if (!(lo > 0) || !(hi > 0)) {
     throw new RangeError(`rangex requires positive bounds, got ${lo}..${hi}`)
   }
-  return this.withValue((v) => lo * (hi / lo) ** v)
+  return this.withValue((v) => mapNumericField((x) => lo * (hi / lo) ** x, v) as number)
 }
 
 Pattern.prototype.struct = function <T>(

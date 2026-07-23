@@ -1,6 +1,7 @@
 import { BLOCK } from './compile'
 import type { SynthDef } from './builder'
 import { VoicePool } from './voice'
+import { PostChain } from './post'
 import { SampleBank } from './samples'
 import type { DspContext } from './dsp/types'
 
@@ -134,6 +135,12 @@ export function renderOffline(
     ctx.samples = bank
   }
   const pool = new VoicePool(def.graph, ctx, maxVoices, def.voiceOpts)
+  // Per-synth POST chain (reverb/eq/compress over the summed voices), run inline
+  // so a post param() set by a setParam event actually takes effect — live and
+  // offline share this behavior. A param name in BOTH voice and post routes to
+  // the voice (matches the realtime engine).
+  const post = def.post !== undefined ? new PostChain(def.post, ctx) : undefined
+  const voiceParams = new Set((def.graph.params ?? []).map((p) => p.name))
 
   // Stable sort in the SAMPLE domain, not by float time: two events whose
   // times differ only by float error (13 * 0.1 vs 1.3) land on the same
@@ -152,14 +159,27 @@ export function renderOffline(
       const e = timed[next]!.e
       if (e.type === 'noteOn') pool.noteOn(e.note!, e.velocity ?? 1)
       else if (e.type === 'noteOff') pool.noteOff(e.note!)
+      // route a param set to the voice pool, or the post chain if it's a
+      // post-only param (so .ctrl() of a post param works, not just voice params)
+      else if (!voiceParams.has(e.name!) && post !== undefined && post.hasParam(e.name!)) post.setParam(e.name!, e.value!)
       else pool.setParam(e.name!, e.value!)
       next++
     }
     // render up to the next block boundary or event, whichever comes first
     let end = Math.min(cursor + BLOCK, totalSamples)
     if (next < timed.length && timed[next]!.sample < end) end = timed[next]!.sample
-    pool.process(left.subarray(cursor, end), right.subarray(cursor, end), end - cursor)
+    const lo = left.subarray(cursor, end)
+    const ro = right.subarray(cursor, end)
+    pool.process(lo, ro, end - cursor)
+    if (post !== undefined) post.processStereo(lo, ro, end - cursor)
     cursor = end
+  }
+
+  // Scrub non-finite samples (a runaway pow/feedback can emit Inf/NaN) so the
+  // buffer is always encodable and never propagates garbage downstream.
+  for (let i = 0; i < totalSamples; i++) {
+    if (!Number.isFinite(left[i]!)) left[i] = 0
+    if (!Number.isFinite(right[i]!)) right[i] = 0
   }
 
   return { left, right, sampleRate }

@@ -128,7 +128,7 @@ describe('Session.evalCode: apply-on-ok', () => {
 describe('Session.evalCode: sidechain diff & send', () => {
   it('sends setSidechain with the right payload when a config appears', () => {
     const { session, ofKind } = rig()
-    session.evalCode(`sidechain('kick', { depth: 0.7 })\n${GOOD_SRC}`)
+    session.evalCode(`const kick = ${SYNTH_SRC}\nsidechain('kick', { depth: 0.7 })\n${GOOD_SRC}`)
     const scs = ofKind('setSidechain')
     expect(scs).toHaveLength(1)
     expect(scs[0]).toMatchObject({ kind: 'setSidechain', source: 'kick', depth: 0.7, releaseMs: 180 })
@@ -136,7 +136,7 @@ describe('Session.evalCode: sidechain diff & send', () => {
 
   it('does not resend an unchanged sidechain', () => {
     const { session, ofKind } = rig()
-    const src = `sidechain('kick', { depth: 0.7 })\n${GOOD_SRC}`
+    const src = `const kick = ${SYNTH_SRC}\nsidechain('kick', { depth: 0.7 })\n${GOOD_SRC}`
     session.evalCode(src)
     session.evalCode(src)
     expect(ofKind('setSidechain')).toHaveLength(1)
@@ -144,14 +144,14 @@ describe('Session.evalCode: sidechain diff & send', () => {
 
   it('resends when the config changes', () => {
     const { session, ofKind } = rig()
-    session.evalCode(`sidechain('kick', { depth: 0.7 })\n${GOOD_SRC}`)
-    session.evalCode(`sidechain('kick', { depth: 0.5 })\n${GOOD_SRC}`)
+    session.evalCode(`const kick = ${SYNTH_SRC}\nsidechain('kick', { depth: 0.7 })\n${GOOD_SRC}`)
+    session.evalCode(`const kick = ${SYNTH_SRC}\nsidechain('kick', { depth: 0.5 })\n${GOOD_SRC}`)
     expect(ofKind('setSidechain')).toHaveLength(2)
   })
 
   it('sends clearSidechain when the config vanishes', () => {
     const { session, ofKind } = rig()
-    session.evalCode(`sidechain('kick')\n${GOOD_SRC}`)
+    session.evalCode(`const kick = ${SYNTH_SRC}\nsidechain('kick')\n${GOOD_SRC}`)
     session.evalCode(GOOD_SRC)
     expect(ofKind('setSidechain')).toHaveLength(1)
     expect(ofKind('clearSidechain')).toHaveLength(1)
@@ -159,7 +159,7 @@ describe('Session.evalCode: sidechain diff & send', () => {
 
   it('a failed eval sends no sidechain message', () => {
     const { session, ofKind } = rig()
-    session.evalCode(`sidechain('kick')\nthrow new Error('x')`)
+    session.evalCode(`const kick = ${SYNTH_SRC}\nsidechain('kick')\nthrow new Error('x')`)
     expect(ofKind('setSidechain')).toHaveLength(0)
     expect(ofKind('clearSidechain')).toHaveLength(0)
   })
@@ -183,12 +183,12 @@ describe('Session.evalCode: sidechain diff & send', () => {
 
   it('does not resend unchanged duck amounts, resets a dropped one to 1', () => {
     const { session, ofKind } = rig()
-    const src = (amt: string) => `sidechain('k', { duck: { a: ${amt} } })\n${GOOD_SRC}`
+    const src = (amt: string) => `const k = ${SYNTH_SRC}\nsidechain('k', { duck: { a: ${amt} } })\n${GOOD_SRC}`
     session.evalCode(src('0.5'))
     session.evalCode(src('0.5')) // unchanged -> no new setChannel
     expect(ofKind('setChannel').filter((m) => m.sidechain !== undefined)).toHaveLength(1)
     // drop the duck map entirely -> reset 'a' back to full duck (1)
-    session.evalCode(`sidechain('k')\n${GOOD_SRC}`)
+    session.evalCode(`const k = ${SYNTH_SRC}\nsidechain('k')\n${GOOD_SRC}`)
     expect(ofKind('setChannel')).toContainEqual({ kind: 'setChannel', synth: 'a', sidechain: 1 })
   })
 })
@@ -375,7 +375,9 @@ describe('Session: scheduler events → engine messages', () => {
   it('numeric non-transport controls become setParam; gain maps to velocity', () => {
     const { session, audio, tick, ofKind } = rig()
     session.evalCode(
-      `const a = ${SYNTH_SRC}\np('pat', note('60').sound('a').ctrl('cutoff', 500).gain(0.5))`,
+      // synth 'a' declares a 'cutoff' voice param so the .ctrl target is valid
+      // (eval-time ctrl validation now rejects unknown params — see evalCode).
+      `const a = synth(({ sine, note, gate, param, svf }) => svf(sine(note.freq), param('cutoff', 500)).mul(gate))\np('pat', note('60').sound('a').ctrl('cutoff', 500).gain(0.5))`,
     )
     audio.currentTimeFrames = 0
     session.transport('play', { cps: 1 })

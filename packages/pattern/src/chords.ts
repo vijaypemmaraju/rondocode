@@ -3,6 +3,7 @@ import { TimeSpan, hap, hasOnset } from './types'
 import type { Hap } from './types'
 import { Fraction } from './fraction'
 import { MiniError, miniParse } from './mini'
+import type { Loc } from './mini'
 import { noteNameToMidi } from './scales'
 import type { ControlMap } from './controls'
 
@@ -63,6 +64,18 @@ export function parseChord(name: string): number[] | undefined {
  *  of note events. Also accepts a Pattern/array of chord-name strings. */
 export function chord(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
+    // Slash-bass chords ('C/E', 'Cmaj7/E') can't go through the mini-parser: it
+    // reads '/' as the slow combinator. When the WHOLE string is one chord name,
+    // bypass mini and emit it directly (still works for sequences without '/').
+    const trimmed = x.trim()
+    if (trimmed.includes('/')) {
+      const notes = parseChord(trimmed)
+      if (notes === undefined) {
+        throw new MiniError(`'${trimmed}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, 0, x)
+      }
+      const loc: Loc = { start: x.indexOf(trimmed), end: x.indexOf(trimmed) + trimmed.length, src: x }
+      return Pattern.stack(...notes.map((nt) => Pattern.pure<ControlMap>({ note: nt, loc })))
+    }
     const { pattern, atoms } = miniParse(x)
     for (const a of atoms) {
       if (typeof a.value === 'number' || parseChord(a.value) === undefined) {
@@ -131,8 +144,12 @@ const revoice = <T>(pat: Pattern<T>, transform: (notes: number[]) => number[]): 
     const out: Hap<T>[] = []
     const groups = new Map<string, Hap<T>[]>()
     for (const h of pat.query(span)) {
-      if (!hasOnset(h)) {
-        out.push(h) // held tail — leave it be
+      // Only revoice events that carry a resolved numeric note. A held tail,
+      // or an UNSCALED n() degree (no `note` yet), passes through untouched —
+      // otherwise noteVal reads 0 for every degree and octave/invert/voicing
+      // collapse them all to one pitch. Scale first, then revoice.
+      if (!hasOnset(h) || typeof (h.value as { note?: unknown }).note !== 'number') {
+        out.push(h)
         continue
       }
       const w = h.whole!

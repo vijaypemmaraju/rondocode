@@ -300,17 +300,10 @@ export function renderMix(
   for (const [name, evs] of events) {
     const def = synths.get(name)
     if (def === undefined) continue
+    // renderOffline now runs the per-synth POST chain inline (so time-varying
+    // post params from setParam events take effect), returning the post-FX stem
+    // — pre-duck, mirroring the live signal path. No separate post pass here.
     const stem = renderOffline(def, evs, durationSec, { sampleRate, maxVoices: def.maxVoices ?? maxVoices, samples: opts?.samples })
-    // Per-synth FX post-chain over the summed stem (live == offline: the SAME
-    // PostChain the RealtimeEngine runs between the voice sum and the strip).
-    // Runs BEFORE the sidechain duck, mirroring the live signal path.
-    if (def.post !== undefined) {
-      const chain = new PostChain(def.post, { sampleRate })
-      for (let i = 0; i < total; i += BLOCK) {
-        const n = Math.min(BLOCK, total - i)
-        chain.processStereo(stem.left.subarray(i, i + n), stem.right.subarray(i, i + n), n)
-      }
-    }
     // Send tap: pre-duck (raw post-FX), so a reverb send does not pump.
     const stemSends = sendsBySynth.get(name)
     if (stemSends !== undefined) {

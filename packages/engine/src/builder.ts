@@ -2,6 +2,12 @@ import { GraphError, validateGraph } from './graph'
 import type { GraphSpec, InputSource, NodeSpec, NodeType, ParamSpec } from './graph'
 import { compileGraph, compilePost } from './compile'
 import type { VoiceOpts } from './voice'
+import type { EqBand } from './dsp/eq'
+
+/** Control keys the scheduler consumes as STRUCTURAL (never sent as setParam),
+ *  so a param() with one of these names would be permanently undrivable by
+ *  .ctrl(). Mirrors the Session's NON_PARAM_KEYS; rejected at synth() build. */
+const RESERVED_PARAM_NAMES = new Set(['note', 'n', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc'])
 
 /* ------------------------------------------------------------------------- *
  * Synth builder DSL: the user-facing API for defining synths. A build
@@ -174,6 +180,17 @@ export interface SynthCtx {
    *  `response` envelope time in s (def 0.012). Carrier should be harmonically
    *  rich (saw/supersaw); modulator a voice sample, noise, or another synth. */
   vocoder(carrier: SigIn, modulator: SigIn, opts?: { bands?: number; low?: number; high?: number; q?: number; response?: number }): Sig
+  /** Parametric EQ: a cascade of bands run in series. Each band: `type`
+   *  'peak' (bell) | 'lowshelf' | 'highshelf' | 'lp' | 'hp', `freq` (Hz),
+   *  `gain` (dB, shelf/peak only), `q` (sharpness). Carve mud, add air, tilt. */
+  eq(inp: SigIn, bands?: EqBand[]): Sig
+  /** Aural EXCITER: saturates the band ABOVE `freq` (def 3500) to synthesize
+   *  harmonic air/sheen without hiss. `amount` 0..1 (def 0.3), `drive` (def 3). */
+  exciter(inp: SigIn, opts?: { freq?: number; amount?: number; drive?: number }): Sig
+  /** OTT — 3-band upward+downward multiband compressor (glue / loudness /
+   *  brightness). `depth` 0..1 dry→full (def 0.5), `low`/`high` crossovers Hz
+   *  (def 240 / 2500), `makeup` dB. */
+  ott(inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
 }
 
@@ -216,6 +233,17 @@ export interface PostCtx {
    *  `response` envelope time in s (def 0.012). Carrier should be harmonically
    *  rich (saw/supersaw); modulator a voice sample, noise, or another synth. */
   vocoder(carrier: SigIn, modulator: SigIn, opts?: { bands?: number; low?: number; high?: number; q?: number; response?: number }): Sig
+  /** Parametric EQ: a cascade of bands run in series. Each band: `type`
+   *  'peak' (bell) | 'lowshelf' | 'highshelf' | 'lp' | 'hp', `freq` (Hz),
+   *  `gain` (dB, shelf/peak only), `q` (sharpness). Carve mud, add air, tilt. */
+  eq(inp: SigIn, bands?: EqBand[]): Sig
+  /** Aural EXCITER: saturates the band ABOVE `freq` (def 3500) to synthesize
+   *  harmonic air/sheen without hiss. `amount` 0..1 (def 0.3), `drive` (def 3). */
+  exciter(inp: SigIn, opts?: { freq?: number; amount?: number; drive?: number }): Sig
+  /** OTT — 3-band upward+downward multiband compressor (glue / loudness /
+   *  brightness). `depth` 0..1 dry→full (def 0.5), `low`/`high` crossovers Hz
+   *  (def 240 / 2500), `makeup` dB. */
+  ott(inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
 }
 
@@ -423,6 +451,11 @@ const makeShared = (b: Builder) => {
   const src = (x: SigIn, what: string): InputSource => b.src(x, what)
   return {
     param: (name: string, def: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig => {
+      if (RESERVED_PARAM_NAMES.has(name)) {
+        throw new GraphError(
+          `param '${name}' shadows a structural control key — it can never be driven by .ctrl('${name}', …) (those are consumed as note/gain/pan/dur/…). Rename the param.`,
+        )
+      }
       if (b.params.some((p) => p.name === name)) {
         throw new GraphError(`duplicate param name '${name}' in synth()`)
       }
@@ -537,6 +570,20 @@ const makeShared = (b: Builder) => {
         { carrier: src(carrier, 'vocoder carrier'), modulator: src(modulator, 'vocoder modulator') },
         definedConfig({ bands: opts?.bands, low: opts?.low, high: opts?.high, q: opts?.q, response: opts?.response }),
       ),
+    eq: (inp: SigIn, bands?: EqBand[]): Sig =>
+      b.node('eq', { in: src(inp, 'eq in') }, { bands: Array.isArray(bands) ? bands : [] }),
+    exciter: (inp: SigIn, opts?: { freq?: number; amount?: number; drive?: number }): Sig =>
+      b.node(
+        'exciter',
+        { in: src(inp, 'exciter in') },
+        definedConfig({ freq: opts?.freq, amount: opts?.amount, drive: opts?.drive }),
+      ),
+    ott: (inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig =>
+      b.node(
+        'ott',
+        { in: src(inp, 'ott in') },
+        definedConfig({ depth: opts?.depth, low: opts?.low, high: opts?.high, makeup: opts?.makeup }),
+      ),
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
   }
@@ -571,6 +618,9 @@ const makeCtx = (b: Builder): SynthCtx => {
     phaser: shared.phaser,
     formant: shared.formant,
     vocoder: shared.vocoder,
+    eq: shared.eq,
+    exciter: shared.exciter,
+    ott: shared.ott,
     mix: shared.mix,
 
     sine: (freq) => b.node('sine', { freq: src(freq, 'sine freq') }),

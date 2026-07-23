@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { F, Pattern, saw } from '../src/index'
+import { F, Pattern, saw, note, n, hasOnset, TimeSpan } from '../src/index'
 import type { Hap } from '../src/index'
 import { q, qw, sortHaps, span } from './helpers'
 
@@ -137,6 +137,69 @@ describe('arithmetic (Pattern<number>)', () => {
       [0, 0.5, 6],
       [0.5, 1, 10],
     ])
+  })
+
+  it('transposes note()/n() control patterns on the pitch field, keeping loc + controls', () => {
+    // note('c e g') = [60,64,67]; .add(-2) shifts every note down 2 semitones,
+    // leaves the loc intact (so editor flashing still resolves), and touches
+    // nothing else on the control map.
+    const shifted = note('c e g').add(-2).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(shifted.map((h) => (h.value as { note: number }).note)).toEqual([58, 62, 65])
+    expect((shifted[0]!.value as { loc?: unknown }).loc).toBeDefined()
+    // n() degrees shift too
+    const deg = n('0 3 5').add(2).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(deg.map((h) => (h.value as { n: number }).n)).toEqual([2, 5, 7])
+    // sub transposes down; sub(12) is an octave
+    const oct = note('c e g').sub(12).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(oct.map((h) => (h.value as { note: number }).note)).toEqual([48, 52, 55])
+  })
+
+  it('add/sub RESPECT THE SCALE: after .scale(), they move in scale steps', () => {
+    // a major degrees 0,3,5 = A3,D4,F#4 = [57,62,66]. .add(2) moves TWO SCALE
+    // STEPS (not 2 semitones): degrees 2,5,7 = C#4,F#4,A4 = [61,66,69].
+    const up = n('0 3 5').scale('a major').add(2).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(up.map((h) => (h.value as { note: number }).note)).toEqual([61, 66, 69])
+    expect(up.map((h) => (h.value as { n: number }).n)).toEqual([2, 5, 7]) // degree tracked too
+    // down a scale step stays in key: degree 2 (C#4=61) → degree 1 (B3=59)
+    const down = n('2').scale('a major').sub(1).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect((down[0]!.value as { note: number }).note).toBe(59)
+  })
+
+  it('add/sub after .scale() PRESERVE a prior .octave()/.invert()/.voicing()', () => {
+    // regression: the scale re-resolution used to recompute note from the degree
+    // alone, silently discarding octave/invert/voicing. The note OFFSET must ride.
+    const notes = (p: Pattern<unknown>) =>
+      p.query(new TimeSpan(F(0), F(1))).filter(hasOnset).map((h) => (h.value as { note: number }).note)
+    // c major 0,1,2 = 60,62,64; .octave(1) = 72,74,76; then .add(1) scale-step up
+    // must keep the octave: degrees 1,2,3 = 62,64,65, +12 = 74,76,77.
+    expect(notes(n('0 1 2').scale('c major').octave(1).add(1))).toEqual([74, 76, 77])
+    // .add(0) must be a no-op, not a reset of the octave
+    expect(notes(n('0 1 2').scale('c major').octave(1).add(0))).toEqual([72, 74, 76])
+    // invert offset preserved too
+    expect(notes(n('0 2 4').scale('c major').invert(1).add(0))).toEqual([72, 76, 79])
+  })
+
+  it('octave/invert on an UNSCALED n() is a no-op, not a degree collapse', () => {
+    // regression: revoice read only .note (absent on unscaled degrees) so every
+    // degree sorted as 0 and became pitch 12. Now such events pass through.
+    const hs = n('0 3 5').octave(1).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(hs.map((h) => (h.value as { n: number }).n)).toEqual([0, 3, 5]) // degrees intact
+    expect(hs.every((h) => (h.value as { note?: number }).note === undefined)).toBe(true) // no bogus note
+    // scaling afterwards still resolves correctly (c major 0,3,5 = 60,65,69)
+    const scaled = n('0 3 5').octave(1).scale('c major').query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(scaled.map((h) => (h.value as { note: number }).note)).toEqual([60, 65, 69])
+  })
+
+  it('range/rangex do NOT destroy control-map patterns (no NaN, loc kept)', () => {
+    // regression: range used `v*(hi-lo)+lo` on the raw value → object*number = NaN,
+    // wiping note + loc. It must map the pitch field and keep loc for highlighting.
+    const hs = note('c e g').range(0, 12).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    for (const h of hs) {
+      expect(Number.isNaN((h.value as { note: number }).note)).toBe(false)
+      expect((h.value as { loc?: unknown }).loc).toBeDefined()
+    }
+    // and it stays a pass-through / correct mapping on plain numeric signals
+    expect(saw.range(0, 10).segment(2).query(new TimeSpan(F(0), F(1))).filter(hasOnset).length).toBeGreaterThan(0)
   })
 
   it('range maps unipolar [0,1] to [lo,hi]; rangex is exponential', () => {

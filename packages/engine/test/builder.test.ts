@@ -496,3 +496,17 @@ describe('builder: every constructor satisfies the compile port table', () => {
 // can only reference already-created nodes, so no test for them exists here.
 // Delayed feedback (e.g. Karplus-Strong) needs a dedicated feedback()
 // combinator — deferred to v2. See the note in builder.ts.
+
+describe('builder: param() name guards', () => {
+  it('rejects a param() named a structural control key (undrivable by .ctrl)', () => {
+    // regression: param('pan'/'gain'/…) compiled fine but could never be driven
+    // (the scheduler consumes those keys as structural). Now it's caught early.
+    for (const name of ['pan', 'gain', 'note', 'dur']) {
+      expect(() => synth(({ gate, param }) => gate.mul(param(name, 0.5, { min: 0, max: 1 })))).toThrow(
+        /structural control key/,
+      )
+    }
+    // a normal name is fine
+    expect(() => synth(({ gate, param }) => gate.mul(param('cutoff', 0.5, { min: 0, max: 1 })))).not.toThrow()
+  })
+})

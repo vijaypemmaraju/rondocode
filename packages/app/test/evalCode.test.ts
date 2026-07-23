@@ -12,6 +12,12 @@ const SYNTH_SRC = 'synth(({ sine, note, gate }) => sine(note.freq).mul(gate))'
 
 const run = (source: string) => evalCode(source, baseScope)
 
+/** Prefix defining the synths that bus()/sidechain() config tests reference, so
+ *  the (correct) staging-target validation is satisfied while the test still
+ *  exercises config parsing. */
+const DEFS = ['kick', 'a', 'b', 'arp', 'pad'].map((nm) => `const ${nm} = ${SYNTH_SRC}`).join('\n')
+const runD = (source: string) => evalCode(`${DEFS}\n${source}`, baseScope)
+
 /** First cycle's haps of a staged pattern. */
 const cycle0 = (p: Pattern<ControlMap>) => p.query(new TimeSpan(F(0), F(1)))
 
@@ -200,14 +206,14 @@ describe('evalCode: setCps staging', () => {
 
 describe('evalCode: sidechain staging', () => {
   it('stages a config, converting release seconds to releaseMs', () => {
-    const r = run("sidechain('kick', { depth: 0.7 })")
+    const r = runD("sidechain('kick', { depth: 0.7 })")
     expect(r.ok).toBe(true)
     expect(r.sidechain).toEqual({ source: 'kick', depth: 0.7, releaseMs: 180 })
   })
 
   it('defaults depth 0.6 and release 0.18s (releaseMs 180)', () => {
-    expect(run("sidechain('kick')").sidechain).toEqual({ source: 'kick', depth: 0.6, releaseMs: 180 })
-    expect(run("sidechain('kick', { release: 0.25 })").sidechain).toEqual({
+    expect(runD("sidechain('kick')").sidechain).toEqual({ source: 'kick', depth: 0.6, releaseMs: 180 })
+    expect(runD("sidechain('kick', { release: 0.25 })").sidechain).toEqual({
       source: 'kick',
       depth: 0.6,
       releaseMs: 250,
@@ -215,7 +221,7 @@ describe('evalCode: sidechain staging', () => {
   })
 
   it('last call wins', () => {
-    expect(run("sidechain('a')\nsidechain('b', { depth: 0.5 })").sidechain).toEqual({
+    expect(runD("sidechain('a')\nsidechain('b', { depth: 0.5 })").sidechain).toEqual({
       source: 'b',
       depth: 0.5,
       releaseMs: 180,
@@ -228,7 +234,7 @@ describe('evalCode: sidechain staging', () => {
   })
 
   it('stages a per-synth duck map into amounts', () => {
-    const r = run("sidechain('kick', { depth: 0.7, duck: { arp: 1, pad: 0.4 } })")
+    const r = runD("sidechain('kick', { depth: 0.7, duck: { arp: 1, pad: 0.4 } })")
     expect(r.ok).toBe(true)
     expect(r.sidechain).toEqual({
       source: 'kick',
@@ -239,7 +245,7 @@ describe('evalCode: sidechain staging', () => {
   })
 
   it('omits amounts when no duck map is given', () => {
-    expect(run("sidechain('kick')").sidechain).not.toHaveProperty('amounts')
+    expect(runD("sidechain('kick')").sidechain).not.toHaveProperty('amounts')
   })
 
   it('rejects duck amounts that are not numbers in [0, 1]', () => {
@@ -301,7 +307,7 @@ describe('evalCode: bus staging', () => {
   })
 
   it('collects sends from the send map', () => {
-    const r = run(`bus('space', ${REVERB}, { pad: 0.4, arp: 0.2 })`)
+    const r = runD(`bus('space', ${REVERB}, { pad: 0.4, arp: 0.2 })`)
     expect(r.ok).toBe(true)
     expect(r.sends).toEqual([
       { synth: 'pad', bus: 'space', amount: 0.4 },
@@ -314,7 +320,7 @@ describe('evalCode: bus staging', () => {
   })
 
   it('last bus() with a name wins', () => {
-    const r = run(`bus('space', ${REVERB}, { a: 0.1 })\nbus('space', ${REVERB}, { b: 0.9 })`)
+    const r = runD(`bus('space', ${REVERB}, { a: 0.1 })\nbus('space', ${REVERB}, { b: 0.9 })`)
     expect(r.buses.size).toBe(1)
     // both send maps are collected (the Session diffs them); the graph is the last one
     expect(r.sends.map((s) => s.synth)).toEqual(['a', 'b'])
@@ -444,6 +450,92 @@ describe('evalCode: all-or-nothing staging', () => {
     const r2 = run(`p('b', n('1'))`)
     expect([...r1.patterns.keys()]).toEqual(['a'])
     expect([...r2.patterns.keys()]).toEqual(['b'])
+  })
+})
+
+describe('evalCode: ctrl() param validation', () => {
+  // A synth with a VOICE param 'cutoff' and a POST param 'wet'.
+  const VOICE_POST_SYNTH =
+    "const pv = synth(({ note, gate, param, saw, svf }) => svf(saw(note.freq), param('cutoff', 800)).mul(gate), " +
+    "({ input, param, reverb }) => input.mix(reverb(input), param('wet', 0.2)))"
+
+  it('accepts .ctrl() of a declared VOICE param', () => {
+    const r = run(`${VOICE_POST_SYNTH}\np('x', note('c3').sound('pv').ctrl('cutoff', 1200))`)
+    expect(r.ok).toBe(true)
+    expect(r.diagnostics).toEqual([])
+  })
+
+  it('ACCEPTS .ctrl() of a POST-chain param (post params are now driveable)', () => {
+    // regression: post params used to be unreachable — .ctrl('wet') errored.
+    // Now the engine + render paths route sets to the PostChain, so it's valid.
+    const r = run(`${VOICE_POST_SYNTH}\np('x', note('c3').sound('pv').ctrl('wet', 0.5))`)
+    expect(r.ok).toBe(true)
+    expect(r.diagnostics).toEqual([])
+  })
+
+  it('rejects .ctrl() of an entirely unknown param', () => {
+    const r = run(`${VOICE_POST_SYNTH}\np('x', note('c3').sound('pv').ctrl('nope', 1))`)
+    expect(r.ok).toBe(false)
+    const d = r.diagnostics.find((x) => x.message.includes("ctrl('nope')"))
+    expect(d).toBeDefined()
+    expect(d!.message).toMatch(/declares no param/)
+  })
+
+  it('does not flag structural controls (gain/pan/dur) as params', () => {
+    const r = run(`${VOICE_POST_SYNTH}\np('x', note('c3').sound('pv').gain(0.5).pan(0.3).dur(0.9))`)
+    expect(r.ok).toBe(true)
+    expect(r.diagnostics).toEqual([])
+  })
+
+  it('does not flag a ctrl on a sound that is not one of our synths', () => {
+    // routing to an unknown synth is a different concern; param check stays quiet
+    const r = run(`p('x', note('c3').sound('nosuch').ctrl('whatever', 1))`)
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe('evalCode: bus/sidechain target validation', () => {
+  const A = "const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate))"
+
+  it('rejects a bus() send from an undefined synth', () => {
+    const r = run(`${A}\nbus('rev', ({ input, reverb }) => reverb(input), { ghost: 0.4 })`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics.some((d) => /send source synth 'ghost'/.test(d.message))).toBe(true)
+  })
+
+  it('rejects sidechain() with an undefined source', () => {
+    const r = run(`${A}\nsidechain('nokick')`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics.some((d) => /source synth is not defined/.test(d.message))).toBe(true)
+  })
+
+  it('rejects a sidechain duck target that is undefined', () => {
+    const r = run(`${A}\nsidechain('a', { duck: { ghost: 0.5 } })`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics.some((d) => /duck target synth 'ghost'/.test(d.message))).toBe(true)
+  })
+
+  it('accepts valid bus send + sidechain targets', () => {
+    const r = run(`${A}\nconst b = synth(({ sine, note, gate }) => sine(note.freq).mul(gate))\nbus('rev', ({ input, reverb }) => reverb(input), { a: 0.4 })\nsidechain('a', { duck: { b: 0.5 } })`)
+    expect(r.ok).toBe(true)
+    expect(r.diagnostics).toEqual([])
+  })
+})
+
+describe('evalCode: mono-chord warning', () => {
+  it('warns (non-fatally) when a chord/stack routes to a MONO synth', () => {
+    // a mono synth plays only one note of a simultaneous stack — legal but
+    // surprising, so a warning (not an error): the eval still applies.
+    const r = run(`const monosynth = synth(({ sine, note, gate }) => sine(note.freq).mul(gate), { mono: true })\np('x', chord('Am7').sound('monosynth'))`)
+    expect(r.ok).toBe(true)
+    const w = r.diagnostics.find((d) => d.severity === 'warning' && /mono/.test(d.message))
+    expect(w).toBeDefined()
+  })
+
+  it('does NOT warn for a chord routed to a POLY synth', () => {
+    const r = run(`const polysynth = synth(({ sine, note, gate }) => sine(note.freq).mul(gate))\np('x', chord('Am7').sound('polysynth'))`)
+    expect(r.ok).toBe(true)
+    expect(r.diagnostics.filter((d) => d.severity === 'warning')).toEqual([])
   })
 })
 

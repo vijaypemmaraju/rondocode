@@ -117,6 +117,18 @@ describe('locToDocRanges', () => {
     for (const r of ranges) expect(twoSrc.slice(r.from, r.to)).toBe('0')
   })
 
+  it('flashes a TRANSPOSED note via its stamped loc — octave/add shift the note, not the atom', () => {
+    // Regression: `.octave(1)` (and .add/.invert/.voicing) transpose the note
+    // value while the source atom text stays put, so the fired note (e4=64) no
+    // longer equals the atom text ("e3"=52). A stamped loc.src must still light
+    // the origin — earlier the atomMatches gate dropped every shifted note.
+    const s = `p('m', note('e3 a3').octave(1).sound('lead'))`
+    const l = collectStringLiterals(s)
+    const ranges = locToDocRanges(l, { start: 0, end: 2, src: 'e3 a3' }, { note: 64, sound: 'lead' })
+    expect(ranges).toHaveLength(1)
+    expect(s.slice(ranges[0]!.from, ranges[0]!.to)).toBe('e3')
+  })
+
   it('with a stamped loc.src, flashes ONLY the originating literal (the q0/q1/q2 bug)', () => {
     // degree 0 sits at the same offset in both voices — without src both light
     // (above); WITH src the parser stamps, only the source literal lights.

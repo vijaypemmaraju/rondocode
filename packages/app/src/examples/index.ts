@@ -1010,7 +1010,27 @@ p('vox', sing('barbara',
   .gain(0.95)) // (.late()/.early() are free for feel — timing is on-beat already)
 `
 
-export const EXAMPLES: Example[] = [
+/** Locally-added examples from the gitignored `./local/` directory — each file
+ *  default-exports an Example (or Example[]). Loaded via Vite's import.meta.glob
+ *  in the app + tests; a NO-OP under plain node (the tsx render tools, where
+ *  glob is undefined) — render those with scripts/render-local.ts instead.
+ *  Lets you keep private/WIP examples without committing them. */
+const loadLocalExamples = (): Example[] => {
+  const glob = (import.meta as unknown as {
+    glob?: (p: string, o?: { eager?: boolean }) => Record<string, unknown>
+  }).glob
+  if (typeof glob !== 'function') return []
+  const mods = glob('./local/*.{ts,js}', { eager: true })
+  return Object.values(mods).flatMap((m) => {
+    const v = (m as { default?: unknown }).default
+    if (Array.isArray(v)) return v as Example[]
+    if (v !== null && typeof v === 'object' && 'code' in (v as object)) return [v as Example]
+    return []
+  })
+}
+
+/** The shipped examples (stable, committed). */
+export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid },
   { name: 'visuals', code: visuals },
   { name: 'techno', code: techno },
@@ -1031,3 +1051,6 @@ export const EXAMPLES: Example[] = [
   { name: 'granular', code: granular },
   { name: 'singing', code: singing },
 ]
+
+/** Shipped examples + any local (gitignored) ones. This is what the app loads. */
+export const EXAMPLES: Example[] = [...SHIPPED_EXAMPLES, ...loadLocalExamples()]

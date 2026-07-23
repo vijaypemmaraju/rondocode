@@ -12,8 +12,12 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, CpsItem, Expr, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
+import type { Binding, Comb, CpsItem, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
 import { lex, type Line, type Tok } from './lexer'
+
+const SIGNALS = new Set(['sine', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'sine2', 'rand', 'perlin'])
+const CTRL_METHODS = new Set(['gain', 'dur', 'pan'])
+const NUM_RE = /^-?\d*\.?\d+$/
 
 const OSC = new Set(['saw', 'square', 'sine', 'tri'])
 const FILTER = new Set(['ladder', 'svf', 'onepole'])
@@ -187,6 +191,56 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
   return { block: { t: 'synth', name, bindings, spine, pos: header.toks[0]!.pos }, next }
 }
 
+/** Parse a modifier value: number | signal (`sine 200..2400 slow:4`) | mini. */
+function parseCtrlValue(raw: string): CtrlValue {
+  const s = raw.trim()
+  const toks = s.split(/\s+/)
+  if (toks.length === 1 && NUM_RE.test(toks[0]!)) return { kind: 'num', v: Number(toks[0]) }
+  if (SIGNALS.has(toks[0]!)) {
+    const v: CtrlValue = { kind: 'sig', sig: toks[0]! }
+    for (const t of toks.slice(1)) {
+      const rg = /^(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)$/.exec(t)
+      if (rg) { v.lo = Number(rg[1]); v.hi = Number(rg[2]); continue }
+      const sl = /^slow:(-?\d*\.?\d+)$/.exec(t)
+      if (sl) { v.slow = Number(sl[1]); continue }
+      const fa = /^fast:(-?\d*\.?\d+)$/.exec(t)
+      if (fa) { v.fast = Number(fa[1]); continue }
+    }
+    return v
+  }
+  return { kind: 'mini', text: s }
+}
+
+function parseMod(ln: Line, errors: RondoError[]): Mod | null {
+  const raw = ln.raw.trim()
+  const pos: Pos = { line: ln.line, col: ln.rawCol }
+  // every N: <combinator>
+  const ev = /^every\s+(\d+)\s*:\s*(.+)$/.exec(raw)
+  if (ev) return { kind: 'every', n: Number(ev[1]), comb: parseComb(ev[2]!), pos }
+  // NAME: value  (dedicated method for gain/dur/pan, else a .ctrl)
+  const kv = /^([a-zA-Z_]\w*)\s*:\s*(.+)$/.exec(raw)
+  if (kv) {
+    const name = kv[1]!
+    const value = parseCtrlValue(kv[2]!)
+    if (CTRL_METHODS.has(name)) return { kind: 'method', name: name as 'gain', value, pos }
+    return { kind: 'ctrl', name, value, pos }
+  }
+  // bare combinator: rev | fast 2 | struct ~ t ~ t | euclid 3 8
+  if (/^[a-zA-Z_]\w*/.test(raw)) return { kind: 'comb', comb: parseComb(raw), pos }
+  errors.push({ message: `can't parse modifier \`${raw}\``, line: ln.line, col: ln.rawCol })
+  return null
+}
+
+function parseComb(raw: string): Comb {
+  const s = raw.trim()
+  const sp = s.indexOf(' ')
+  const name = sp < 0 ? s : s.slice(0, sp)
+  const rest = sp < 0 ? '' : s.slice(sp + 1).trim()
+  // struct takes the rest as a single mini string; others take numeric args
+  if (name === 'struct') return { name, args: rest ? [rest] : [] }
+  return { name, args: rest ? rest.split(/\s+/) : [] }
+}
+
 function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: PlayBlock; next: number } {
   const header = lines[i]!
   const nameTok = header.toks[1]
@@ -194,7 +248,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
   if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
   const { body, next } = bodyLines(lines, i + 1)
   if (body.length === 0) errors.push({ message: `play '${name}' has no notation`, line: header.line, col: header.rawCol })
-  // M1: a single notation line (+ optional `scale:`); extra lines land in M2.
+  // first body line = notation (+ optional inline `scale:`); the rest = modifiers
   const first = body[0]
   let notation = ''
   let scale: string | undefined
@@ -203,7 +257,12 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
     if (m) scale = m[1]
     notation = (m ? first.raw.replace(m[0], '') : first.raw).replace(/\s+/g, ' ').trim()
   }
-  return { block: { t: 'play', name, notation, scale, pos: header.toks[0]!.pos }, next }
+  const mods: Mod[] = []
+  for (const ln of body.slice(1)) {
+    const mod = parseMod(ln, errors)
+    if (mod) mods.push(mod)
+  }
+  return { block: { t: 'play', name, notation, scale, mods, pos: header.toks[0]!.pos }, next }
 }
 
 function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsItem; next: number } {

@@ -52,4 +52,21 @@ describe('rondo → rondocode codegen', () => {
     const r = compile(`synth s\n  saw\n  a = b\n  b = a\n`)
     expect(r.ok).toBe(false)
   })
+
+  it('compiles play modifier lines: ctrl signal sweep, every, gain', () => {
+    const out = ok(
+      `synth s\n  saw\n  cutoff = knob 800 80..8000\n\n` +
+      `play s\n  0 2 4  scale:a-min\n  cutoff: sine 200..2400 slow:4\n  gain: .8\n  every 4: rev\n`,
+    )
+    expect(out).toContain(".ctrl('cutoff', sine.range(200, 2400).slow(4))")
+    expect(out).toContain('.gain(0.8)')
+    expect(out).toContain('.every(4, x => x.rev())')
+  })
+
+  it('routes bare combinators and a mini-string ctrl value', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
+    expect(out).toContain(".struct(mini('t ~ t t'))")
+    expect(out).toContain('.fast(2)')
+    expect(out).toContain(".ctrl('index', '<1 2.5>')")
+  })
 })

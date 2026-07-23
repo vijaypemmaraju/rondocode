@@ -195,6 +195,22 @@ setCps(0.5)`,
 
 p('chords', chord('<Am7 Dm7 G7 Cmaj7>').sound('stab'))`,
       ),
+      p("A post-chain can declare `param(...)` too, and it is a live control just like a voice param: `.ctrl('wet', ...)` on the pattern automates it as the music plays. Here the reverb blend opens and closes under an LFO — the same `.ctrl` you use for a filter cutoff drives an effect deep in the post-chain."),
+      code(
+        'A drivable post param: .ctrl automates the reverb blend live.',
+        `const lead = synth(
+  ({ note, gate, adsr, saw }) =>
+    saw(note.freq).mul(adsr(gate, { a: 0.005, d: 0.2, s: 0.4, r: 0.2 })).mul(0.5),
+  ({ input, reverb, param }) => {
+    const wet = param('wet', 0.3, { min: 0, max: 0.8 })
+    return input.mix(reverb(input, { roomSize: 0.85, damp: 0.4 }), wet)
+  },
+)
+
+// the LFO sweeps the wash open and shut across four cycles
+p('lead', note('c4 e4 g4 e4').sound('lead').ctrl('wet', sine.range(0.1, 0.7).slow(4)))
+setCps(0.5)`,
+      ),
     ],
   },
   {
@@ -390,6 +406,33 @@ p('kick', note('c1*4').sound('kick'))
 p('pad', chord('<Fmaj7 G Am7 G>').sound('pad').dur(0.98))
 sidechain('kick', { depth: 0.8, release: 0.18 }) // the pump
 masterCompress({ threshold: -12, ratio: 3, makeup: 2 })
+setCps(0.5)`,
+      ),
+    ],
+  },
+  {
+    id: 'mastering',
+    title: 'Mixing & mastering',
+    blocks: [
+      p("Three effects finish a sound. `eq(sig, bands)` is a parametric EQ — carve mud with a high-pass, tame a harsh peak, add air with a high shelf. `exciter(sig, ...)` synthesizes bright harmonics for sheen without adding hiss. `ott(sig, ...)` is the multiband up-and-down compressor behind modern EDM: it squashes each band's dynamics so the sound reads louder and fuller. Reach for them in a post-chain to master one synth, or in a `bus(...)` to glue several at once."),
+      p("The mix discipline underneath them: `.gain()` on a pattern is velocity, clamped 0..1 — for real level use the synth's output `.mul()`. Carve with EQ before you boost. And keep reverb tails in the post-chain so they are shared, not stacked per note."),
+      code(
+        'A supersaw chord mastered in its post-chain: carve, excite, then glue.',
+        `const chords = synth(
+  ({ note, gate, adsr, saw }) => {
+    const f = note.freq
+    const sup = saw(f).add(saw(f.mul(1.007))).add(saw(f.mul(0.993))).mul(0.4)
+    return sup.mul(adsr(gate, { a: 0.05, d: 0.3, s: 0.8, r: 0.3 })).mul(0.4)
+  },
+  ({ input, eq, exciter, ott }) => {
+    // 1) carve: high-pass the mud + a gentle air shelf
+    const shaped = eq(input, [{ type: 'hp', freq: 200 }, { type: 'highshelf', freq: 7000, gain: 3 }])
+    // 2) excite for sheen, then 3) OTT for the fat modern glue (keep it gentle)
+    return ott(exciter(shaped, { amount: 0.3 }), { depth: 0.4 })
+  },
+)
+
+p('chords', chord('<Fmaj9 G Em9 Am9>').sound('chords').dur(0.98))
 setCps(0.5)`,
       ),
     ],

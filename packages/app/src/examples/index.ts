@@ -227,8 +227,10 @@ const bass = synth(({ note, gate, adsr, sine, saw, onepole }) => {
 })
 
 // --- pad: lush 7-voice supersaw. No self-pump, the real sidechain (below)
-// ducks it against the kick, so the pad just holds the chord and breathes. ---
-const pad = synth(({ note, gate, adsr, saw, svf, lfo, reverb }) => {
+// ducks it against the kick, so the pad just holds the chord and breathes.
+// The reverb lives in the POST chain (2nd arg) so it runs ONCE over the summed
+// chord, stereo-decorrelated — not once per voice. ---
+const pad = synth(({ note, gate, adsr, saw, svf, lfo }) => {
   const env = adsr(gate, { a: 0.18, d: 0.5, s: 0.9, r: 1.2 }) // slow swell in
   const f = note.freq
   // seven detuned saws (successive crossfades) = the wide Pryda-style chord
@@ -239,21 +241,27 @@ const pad = synth(({ note, gate, adsr, saw, svf, lfo, reverb }) => {
     .mix(saw(f.mul(0.991)), 0.34)
     .mix(saw(f.mul(1.016)), 0.28)
     .mix(saw(f.mul(0.984)), 0.28)
-  const tone = svf(wide, lfo(0.07).range(1200, 2800), { res: 0.16 }).mul(env)
-  // big algorithmic reverb = the Anjunadeep space: large room, gently damped
-  const wet = reverb(tone, { roomSize: 0.85, damp: 0.4 })
-  return tone.mix(wet, 0.35).mul(0.62)
+  return svf(wide, lfo(0.07).range(1200, 2800), { res: 0.16 }).mul(env).mul(0.62)
+}, ({ input, reverb, eq }) => {
+  // eq high-passes the pad so it leaves the low end to kick + bass; then one
+  // big Anjunadeep reverb (large room, gently damped) is the shared space.
+  const clean = eq(input, [{ type: 'hp', freq: 180 }])
+  return clean.mix(reverb(clean, { roomSize: 0.85, damp: 0.4 }), 0.35)
 })
 
-// --- pluck: bright stab, resonant, drenched in delay for the wash ---
-const pluck = synth(({ note, gate, param, adsr, saw, svf, reverb }) => {
+// --- pluck: bright stab, resonant, with a drivable wash. The exciter adds
+// sheen; 'wet' is a POST param — .ctrl('wet', ...) automates the reverb blend
+// live, exactly like a voice param. That drivable-post-param is the point. ---
+const pluck = synth(({ note, gate, param, adsr, saw, svf }) => {
   const bright = param('bright', 4000, { min: 500, max: 9000, curve: 'log' })
   const env = adsr(gate, { a: 0.002, d: 0.12, s: 0, r: 0.08 })
   const osc = saw(note.freq).mix(saw(note.freq.mul(1.006)), 0.45)
-  const voice = svf(osc, bright.mul(env.range(0.45, 1)), { res: 0.45 }).mul(env)
+  return svf(osc, bright.mul(env.range(0.45, 1)), { res: 0.45 }).mul(env).mul(0.62)
+}, ({ input, reverb, exciter, param }) => {
+  const air = exciter(input, { freq: 4000, amount: 0.25 })
+  const wet = param('wet', 0.35, { min: 0, max: 0.7 })
   // smaller, brighter room keeps the stab tight while smearing it into the wash
-  const wash = reverb(voice, { roomSize: 0.6, damp: 0.3 })
-  return voice.mix(wash, 0.35).mul(0.62)
+  return air.mix(reverb(air, { roomSize: 0.6, damp: 0.3 }), wet)
 })
 
 // The chord progression as stacked scale degrees. <> moves one chord per
@@ -290,13 +298,15 @@ p('bass',
 // --- pad: sustained chords, one held across each bar. The sidechain ducks it
 // against the kick for the pump.
 p('pad', chords.sound('pad').dur(0.98))
-// --- pluck: the offbeat stab, doubled with the pad's chord tones. Filter on
-// a live slider, sweep it for the build.
+// --- pluck: the offbeat stab, doubled with the pad's chord tones. TWO live
+// controls: 'bright' sweeps the voice filter, 'wet' opens the post reverb —
+// a voice param and a post param, driven identically from the pattern.
 p('stab',
   chords
     .struct(mini('~ t ~ t ~ t ~ t'))
     .sound('pluck')
     .ctrl('bright', slider(4000, 500, 9000))
+    .ctrl('wet', slider(0.35, 0, 0.7))
     .gain(0.85)
     .dur(0.16),
 )
@@ -304,6 +314,8 @@ p('stab',
 // THE PUMP: every kick ducks all the other channels ~70% and lets them swell
 // back over 180ms, the smooth sidechain that defines progressive house.
 sidechain('kick', { depth: 0.7, release: 0.18 })
+// glue the whole mix with a gentle master compressor (the last thing in chain)
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
 
 setCps(0.52) // ~125 bpm
 `
@@ -324,11 +336,13 @@ const pad = synth(({ note, gate, adsr, saw, svf, lfo }) => {
     .mix(saw(f.mul(1.009)), 0.34).mix(saw(f.mul(0.991)), 0.34)
     .mix(saw(f.mul(1.015)), 0.28).mix(saw(f.mul(0.985)), 0.28)
   return svf(wide, lfo(0.05).range(900, 2400), { res: 0.15 }).mul(env).mul(0.5)
-}, ({ input, chorus, reverb }) => {
+}, ({ input, chorus, reverb, exciter }) => {
   // post-chain: CHORUS (huge, wide, the engine runs it decorrelated L/R) →
-  // REVERB. This is why the pad sounds enormous.
+  // EXCITER (a little top-end sheen so it glistens) → REVERB. This is why the
+  // pad sounds enormous.
   const wide = chorus(input, { rate: 0.5, depth: 0.004, mix: 0.55 })
-  return wide.mix(reverb(wide, { roomSize: 0.9, damp: 0.35 }), 0.4)
+  const air = exciter(wide, { freq: 6000, amount: 0.2 })
+  return air.mix(reverb(air, { roomSize: 0.9, damp: 0.35 }), 0.4)
 })
 
 // --- arp: bright resonant pluck, short and wet, the rolling sequence ---
@@ -382,6 +396,7 @@ p('kick', note('c1*4').sound('kick').gain(slider(0.75, 0, 1)))
 // per-channel duck: the arp pumps HARD (1.0), the pad only breathes (0.4),
 // the bass sits between, a real mix move, not one global depth
 sidechain('kick', { depth: slider(0.85, 0, 1), release: 0.22, duck: { arp: 1, pad: 0.4, bass: 0.7 } })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 }) // master glue
 
 setCps(0.5)
 `
@@ -412,21 +427,24 @@ const bass = synth(({ note, gate, adsr, sine, saw, onepole }) => {
   const tone = sine(note.freq).mix(saw(note.freq), 0.2)
   return onepole(tone, 420).mul(env).mul(0.9).tanh().mul(0.6)
 })
-const pad = synth(({ note, gate, adsr, saw, svf, lfo, reverb }) => {
+// reverb lives in the POST chain (2nd arg): one shared tail over the summed
+// chord, stereo-wide — the standard for lush synths (see synthscape).
+const pad = synth(({ note, gate, adsr, saw, svf, lfo }) => {
   const env = adsr(gate, { a: 0.12, d: 0.5, s: 0.9, r: 1.0 })
   const f = note.freq
   const wide = saw(f).mix(saw(f.mul(1.005)), 0.5).mix(saw(f.mul(0.995)), 0.4)
     .mix(saw(f.mul(1.011)), 0.3).mix(saw(f.mul(0.989)), 0.3)
-  const tone = svf(wide, lfo(0.06).range(1100, 2600), { res: 0.16 }).mul(env)
-  return tone.mix(reverb(tone, { roomSize: 0.85, damp: 0.4 }), 0.35).mul(0.5)
+  return svf(wide, lfo(0.06).range(1100, 2600), { res: 0.16 }).mul(env).mul(0.5)
+}, ({ input, reverb, eq }) => {
+  const clean = eq(input, [{ type: 'hp', freq: 180 }]) // leave room for kick+bass
+  return clean.mix(reverb(clean, { roomSize: 0.85, damp: 0.4 }), 0.35)
 })
-const pluck = synth(({ note, gate, param, adsr, saw, svf, reverb }) => {
+const pluck = synth(({ note, gate, param, adsr, saw, svf }) => {
   const bright = param('bright', 3800, { min: 500, max: 9000, curve: 'log' })
   const env = adsr(gate, { a: 0.002, d: 0.13, s: 0, r: 0.1 })
   const osc = saw(note.freq).mix(saw(note.freq.mul(1.005)), 0.4)
-  const voice = svf(osc, bright.mul(env.range(0.5, 1)), { res: 0.4 }).mul(env)
-  return voice.mix(reverb(voice, { roomSize: 0.6, damp: 0.3 }), 0.3).mul(0.5)
-})
+  return svf(osc, bright.mul(env.range(0.5, 1)), { res: 0.4 }).mul(env).mul(0.5)
+}, ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.6, damp: 0.3 }), 0.3))
 // riser: white noise whose highpass + level swell over the whole build, the
 // long attack IS the sweep, so it rises smoothly with no automation
 const riser = synth(({ gate, adsr, noise, svf }) => {
@@ -469,6 +487,7 @@ const drop = stack(
 
 p('track', arrange([4, intro], [4, build], [8, drop]))
 sidechain('kick', { depth: 0.6, release: 0.18 })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 }) // master glue
 setCps(0.52)
 `
 
@@ -535,7 +554,10 @@ const keys = synth(({ note, gate, adsr, saw, svf, lfo }) => {
   const env = adsr(gate, { a: 0.008, d: 0.3, s: 0.5, r: 0.5 })
   const cut = lfo(0.1).range(900, 2600) // slow filter drift
   return svf(saw(note.freq), cut, { res: 0.3 }).mul(env).mul(0.5)
-})
+}, ({ input, reverb }) =>
+  // a post chain (2nd synth arg) adds ONE shared reverb tail over all the
+  // notes — the right way to space a synth, vs a reverb per voice
+  input.mix(reverb(input, { roomSize: 0.7, damp: 0.4 }), 0.25))
 
 // a ii-V-I-vi in C, one named chord per bar, held as a pad
 p('pad',
@@ -631,8 +653,14 @@ const stab = synth(
     const sup = saw(f).add(saw(f.mul(1.006))).add(saw(f.mul(0.994))).add(square(f.mul(0.5))).mul(0.3)
     return ladder(sup, env.pow(2).range(320, 3600), { res: 0.62 }).mul(env)
   },
-  ({ input, reverb, delay }) => {
-    const e = input.add(delay(input, 0.28, 0.35))
+  ({ input, reverb, delay, eq }) => {
+    // eq keeps the stab surgical + dark: high-pass out the low end (that's the
+    // sub's job) and shave the harsh 3k so it sits back in the hypnotic groove.
+    const shaped = eq(input, [
+      { type: 'hp', freq: 260 },
+      { type: 'peak', freq: 3000, gain: -3, q: 1 },
+    ])
+    const e = shaped.add(delay(shaped, 0.28, 0.35))
     return e.mix(reverb(e, { roomSize: 0.7, damp: 0.4 }), 0.3)
   },
 )
@@ -706,9 +734,13 @@ const wob = synth(
     const cut = lfo(rate, 'tri').range(160, 4400)
     return ladder(osc, cut, { res: 0.88 }).mul(adsr(gate, { a: 0.004, d: 0.1, s: 0.95, r: 0.06 }))
   },
-  ({ input, shape, bitcrush }) => {
+  ({ input, shape, bitcrush, ott, eq }) => {
     const dirty = shape(input, 2.6, { type: 'hard' })
-    return bitcrush(dirty, { bits: 10, downsample: 1 }).mix(dirty, 0.5)
+    const crushed = bitcrush(dirty, { bits: 10, downsample: 1 }).mix(dirty, 0.5)
+    // eq scoops the boxy low-mid the hard-clip piles up, then OTT slams the
+    // multiband dynamics flat — the aggressive, in-your-face modern wob glue.
+    const carved = eq(crushed, [{ type: 'peak', freq: 450, gain: -4, q: 1.2 }])
+    return ott(carved, { depth: 0.6 })
   },
 )
 
@@ -788,9 +820,19 @@ const lead = synth(
     const sup = saw(f).add(saw(f.mul(1.007))).add(saw(f.mul(0.993))).add(saw(f.mul(1.014))).add(saw(f.mul(0.986))).mul(0.24)
     return sup.mul(adsr(gate, { a: 0.02, d: 0.3, s: 0.6, r: 0.3 }))
   },
-  ({ input, delay, reverb }) => {
-    const e = input.add(delay(input, 0.214, 0.35))
-    return e.mix(reverb(e, { roomSize: 0.85, damp: 0.4 }), 0.4)
+  ({ input, delay, reverb, eq, param }) => {
+    // eq shapes the 5-saw stack: high-pass the low mud so it doesn't fight the
+    // sub, and a gentle 'air' shelf so the lead cuts OVER the pad without just
+    // getting louder — carving, not boosting, is the mix move.
+    const shaped = eq(input, [
+      { type: 'hp', freq: 220 },
+      { type: 'highshelf', freq: 6500, gain: 3 },
+    ])
+    const e = shaped.add(delay(shaped, 0.214, 0.35))
+    // drivable post 'wet': open the reverb live for the breakdown, tighten it
+    // for the drop (.ctrl('wet', ...) on the pattern below)
+    const wet = param('wet', 0.4, { min: 0, max: 0.75 })
+    return e.mix(reverb(e, { roomSize: 0.85, damp: 0.4 }), wet)
   },
 )
 
@@ -801,7 +843,8 @@ const dHat = note('~ c5 ~ c5 ~ c5 ~ c5').sound('hat').gain(0.4)
 const bSub = note('<g#1 e1 b1 f#1>').sound('sub').gain(0.55).dur(0.98)
 const bBass = note('<g#2 e2 b2 f#2>').struct(mini('~ t ~ t ~ t ~ t')).sound('bass').gain(0.6)
 const mPad = chord('<G#m E B F#>').sound('pad').gain(0.32).dur(0.98)
-const mLead = n('<7 ~ 11 ~ 14 12 11 9>').scale('g# minor').sound('lead').gain(0.42).dur(0.85)
+const mLead = n('<7 ~ 11 ~ 14 12 11 9>').scale('g# minor').sound('lead')
+  .ctrl('wet', slider(0.4, 0, 0.75)).gain(0.42).dur(0.85)
 const intro = stack(mPad, bSub)
 const build = stack(dKick, dHat, bSub, bBass, mPad)
 const full = stack(dKick, dClap, dHat, bSub, bBass, mPad, mLead)
@@ -827,6 +870,8 @@ fn render(uv: vec2f) -> vec4f {
 const futureBass = `// FUTURE BASS: bright and colourful. IV-V-iii-vi in C (Fmaj9 - G - Em9 - Am9)
 // on a fat detuned-supersaw chord stack with an LFO filter, a clean sub,
 // punchy half-time drums, and a hard sidechain pump that makes it breathe.
+// The chord's POST chain is the genre in a nutshell: OTT (the multiband
+// glue) + an exciter for sheen, and a live-drivable 'wet' reverb param.
 
 const kick = synth(({ gate, adsr, sine, noise, svf }) => {
   const pitch = adsr(gate, { a: 0.001, d: 0.08, s: 0, r: 0.05 })
@@ -851,9 +896,17 @@ const chords = synth(
     const cut = lfo(param('wob', 1.5, { min: 0.25, max: 8 }), 'sine').range(700, 5400)
     return svf(ladder(sup, cut, { res: 0.3 }), 170, { mode: 'hp' }).mul(adsr(gate, { a: 0.05, d: 0.3, s: 0.8, r: 0.25 }))
   },
-  ({ input, chorus, reverb }) => {
+  ({ input, chorus, reverb, exciter, ott, param }) => {
     const w = chorus(input, { rate: 0.5, depth: 0.007, mix: 0.8 })
-    return w.mix(reverb(w, { roomSize: 0.85, damp: 0.4 }), 0.35)
+    // POST params are drivable too: .ctrl('wet', ...) automates this reverb
+    // blend live, exactly like a voice param (the whole post chain runs once
+    // over the summed voices, stereo-decorrelated).
+    const wet = param('wet', 0.35, { min: 0, max: 0.7 })
+    const spaced = w.mix(reverb(w, { roomSize: 0.85, damp: 0.4 }), wet)
+    // exciter = air/sheen on top; OTT = the future-bass "glue" that makes the
+    // supersaw read louder + fuller. Keep OTT gentle (depth 0.3) so it lifts
+    // detail without pumping the whole chord flat.
+    return ott(exciter(spaced, { freq: 5000, amount: 0.3 }), { depth: 0.3 })
   },
 )
 
@@ -862,7 +915,10 @@ const dKick = note('c1 ~ ~ ~ c1 ~ c1 ~').sound('kick').gain(1.0)
 const dSnare = note('~ ~ c3 ~ ~ ~ c3 ~').sound('snare').gain(0.9)
 const dHat = note('c5*8').sound('hat').gain(rand.range(0.35, 0.6))
 const bSub = note('<a1 e1 a1 f#1>').sound('sub').gain(0.5).dur(0.9)
-const mChords = chord('<Amaj9 E A6 F#m>').sound('chords').ctrl('wob', '<1 2 4 2>').gain(0.5).dur(0.95)
+// .ctrl('wob') sweeps the voice filter LFO; .ctrl('wet') opens the post reverb
+// (a bright drag on the drop) — two params, voice + post, driven the same way.
+const mChords = chord('<Amaj9 E A6 F#m>').sound('chords')
+  .ctrl('wob', '<1 2 4 2>').ctrl('wet', slider(0.35, 0, 0.7)).gain(0.5).dur(0.95)
 const intro = stack(mChords, bSub)
 const full = stack(dKick, dSnare, dHat, bSub, mChords)
 p('song', arrange([8, full], [4, intro], [8, full], [4, intro]))

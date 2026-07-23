@@ -1016,11 +1016,17 @@ p('vox', sing('barbara',
  *  glob is undefined) — render those with scripts/render-local.ts instead.
  *  Lets you keep private/WIP examples without committing them. */
 const loadLocalExamples = (): Example[] => {
-  const glob = (import.meta as unknown as {
-    glob?: (p: string, o?: { eager?: boolean }) => Record<string, unknown>
-  }).glob
-  if (typeof glob !== 'function') return []
-  const mods = glob('./local/*.{ts,js}', { eager: true })
+  let mods: Record<string, unknown> = {}
+  try {
+    // MUST be a direct literal call — Vite rewrites `import.meta.glob('…')` at
+    // build time (reading it into a variable first defeats that and loads
+    // nothing). Under plain node (the tsx render tools) import.meta.glob is
+    // undefined, so the call throws and we fall back to no local examples.
+    // @ts-ignore import.meta.glob is a Vite-only macro, untyped outside the app tsconfig
+    mods = import.meta.glob('./local/*.{ts,js}', { eager: true }) as Record<string, unknown>
+  } catch {
+    return []
+  }
   return Object.values(mods).flatMap((m) => {
     const v = (m as { default?: unknown }).default
     if (Array.isArray(v)) return v as Example[]

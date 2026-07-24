@@ -11,6 +11,9 @@ export interface Block {
   text: string
   /** short caption shown above a code block */
   caption?: string
+  /** code language: omitted = rondocode JS; 'rondo' = the rondo language
+   *  (rendered with rondo highlighting, transpiled before play). */
+  lang?: 'rondo'
 }
 
 export interface Section {
@@ -21,6 +24,8 @@ export interface Section {
 
 const p = (text: string): Block => ({ kind: 'p', text })
 const code = (caption: string, text: string): Block => ({ kind: 'code', caption, text })
+/** a runnable RONDO-language block (transpiled before play). */
+const rondo = (caption: string, text: string): Block => ({ kind: 'code', caption, text, lang: 'rondo' })
 
 export const HERO = {
   title: 'rondocode',
@@ -543,6 +548,235 @@ p('imported', stack(
 setCps(0.5333)`,
       ),
       p('For a clean DAW MIDI, one-synth-per-track is faithful. For a noisy transcription whose instrument labels flicker, pass `--by-register` so notes are grouped by pitch (bass / keys / lead) and play continuously instead of parts popping in and out.'),
+    ],
+  },
+
+  /* ---- THE RONDO LANGUAGE ------------------------------------------------ *
+   * The terse, phone-first language that transpiles to the JS above. Every
+   * snippet here is REAL rondo: it compiles + evals in content.test.ts and
+   * plays from this page (the ▶ transpiles first). Snippets are mobile-
+   * formatted: short lines, comments on their own line. */
+  {
+    id: 'rondo-intro',
+    title: 'rondo: the language',
+    blocks: [
+      p('Everything above is rondocode — JavaScript. `rondo` is a second, terser language made for phones: no braces, no arrows, no quotes. It transpiles to the JavaScript API, so it can do everything the JS can (and anything not yet in the syntax passes through a `js` escape hatch). Flip the editor into rondo with the `js | rondo` toggle in the header — phones start there by default.'),
+      p('Two ideas carry the whole language. A synth is a PIPELINE: one stage per line, each line feeding the next — source, filter, amp, like a modular patch. And modulation lives in `name = …` BINDINGS beside the pipe — envelopes and knobs are CV, not plumbing.'),
+      rondo(
+        'A whole instrument in nine lines. Press play.',
+        `synth acid
+  # a saw + a sub-octave square
+  saw + square note/2
+  # filter; its input is the line above
+  ladder cutoff * env^2 res:.85
+  # the VCA
+  * env
+  env    = adsr .003 .2 .3 .1
+  cutoff = knob 800 80..8000 log
+
+play acid
+  0 0 3 5 0 0 7 5  scale:a-min
+
+cps .6`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-pipeline',
+    title: 'rondo: the pipeline',
+    blocks: [
+      p('Inside a `synth` block, the FIRST expression line is the source. After that, a line starting with an OPERATOR transforms the running signal (`* env` is the VCA). A line starting with a PROCESSOR takes the running signal as its input (`ladder`, `delay`, `shape`, `reverb`…). Bare sig-ops transform in place: `tanh` saturates, `clip -1 1` hard-clips, `mix other .3` crossfades.'),
+      p('Sources: `saw square sine tri pulse supersaw fm noise lfsr wavetable syncsaw` — an oscillator with no argument plays the note. Enum words go bare: `noise pink`, `shape 2 type:tube`, `svf 900 mode:hp`.'),
+      rondo(
+        'Source → filter → drive → delay → VCA → saturation.',
+        `synth growl
+  supersaw detune:.5 mix:.85
+  + square note/2
+  ladder cut res:.8
+  shape 2.2 type:tube
+  delay .375 .25
+  * env
+  tanh
+  cut = lfo 4 tri -> 150..3200
+  env = adsr .005 .1 .9 .06
+
+play growl
+  0 0 ~ 0 0 ~ 3 2  scale:e-min
+  dur: .9
+
+cps .55`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-bindings',
+    title: 'rondo: bindings, knobs & ranges',
+    blocks: [
+      p('`name = …` lines are modulation. `adsr a d s r` is the envelope (it renders as a DRAGGABLE CURVE — pull its handles). `knob DEF lo..hi [log]` declares a live param and renders as a DIAL you can turn; patterns drive it with `name: …` lines. `lfo rate [shape]` is a low-frequency modulator, and `x -> lo..hi` maps any 0..1 signal into a range.'),
+      p('Order between bindings never matters — the compiler sorts them by dependency. Any plain number in the buffer is scrubbable: touch it and drag SIDEWAYS.'),
+      rondo(
+        'A knob-driven wobble rate: turn the dial while it plays.',
+        `synth wub
+  saw
+  ladder cut res:.75
+  * env
+  cut  = lfo rate tri -> 200..2600
+  rate = knob 4 .5..16
+  env  = adsr .004 .1 .85 .06
+
+play wub
+  0 ~ 0 3  scale:e-min
+
+cps .5`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-play',
+    title: 'rondo: playing patterns',
+    blocks: [
+      p('A `play NAME` block routes notation to a synth. Bare digits are scale degrees (`0 3 5` + `scale:a-min`), lowercase letters are note names (`c2 e2`), an UPPERCASE root means chord names (`<Em Cmaj7 G>`). All mini-notation works inside: `~` rests, `<>` alternation, `[]` subdivision, `*` repeat, `@` weights. A simple degree line renders as a TAPPABLE GRID — draw the melody with a finger.'),
+      p('Extra notation lines before the modifiers STACK as voices — a hand-built chord, one line per voice.'),
+      rondo(
+        'Three stacked voices, one chord progression.',
+        `synth pad
+  supersaw detune:.3 mix:.6
+  * env
+  env = adsr .2 .4 .8 .8
+
+play pad
+  <0 5 2 6>
+  <2 7 4 8>
+  <4 9 6 10>
+  scale: c-min
+  dur: .95
+  gain: .5
+
+cps .4`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-modifiers',
+    title: 'rondo: modifiers',
+    blocks: [
+      p("Lines under the notation shape the pattern, in order. `gain: dur: pan:` are the note controls; any other `name: value` drives that synth param (`cutoff: sine 200..2400 slow:4` sweeps it, `wet: rise 8 0..1` ramps a build, `depth: <1 2.5>` patterns it per cycle). Bare combinators chain directly: `rev`, `fast 2`, `euclid 3 8`, `struct ~ t ~ t`, `arp updown`, `degradeby .3`."),
+      p('Function-taking combinators use a colon: `every 4: rev`, `jux: rev` (left dry, right transformed), `off .25: gain .3` (an echoing copy), `superimpose: late .125`, `sometimesby .3: fast 2`.'),
+      rondo(
+        'A line that remixes itself.',
+        `synth keys
+  tri
+  + sine note*2 * .2
+  * env
+  env = adsr .004 .3 .3 .3
+
+play keys
+  0 3 5 7 <10 12> 7 5 3
+  scale: c-min
+  every 4: rev
+  jux: fast 2
+  gain: .8
+
+cps .45`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-post',
+    title: 'rondo: post chains & voice options',
+    blocks: [
+      p('A `post` sub-block runs ONCE over the synth\'s summed voices (stereo-decorrelated) — the right home for space. `reverb room:.85 mix:.3` blends wet over dry; a `knob` in a post chain is a drivable post param (`wet: …` from the pattern automates it).'),
+      p('Voice options sit on the synth header: `synth bass mono glide:.08` is the 303 mono-glide; `unison:5 detune:14 spread:.9` widens a lead; `voices:12` raises polyphony.'),
+      rondo(
+        'A mono glide bass + a drivable post reverb.',
+        `synth bass mono glide:.07
+  saw
+  onepole 500
+  * env
+  tanh
+  env = adsr .006 .15 .7 .08
+  post
+    reverb room:.7 mix:wet
+    wet = knob .15 0..0.6
+
+play bass
+  0 0 3 0 5 0 3 2
+  scale: e-min
+  wet: sine 0..0.5 slow:8
+  dur: .6
+
+cps .5`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-track',
+    title: 'rondo: sections, buses & the pump',
+    blocks: [
+      p('Full tracks: a `section NAME LEN` holds `play` blocks; `song intro drop drop intro` sequences them (omit `song` for definition order). `bus NAME` is a shared FX chain — effect lines fold from `input`, `send SYNTH AMT` routes synths in. `sidechain kick depth:.8 sub:.95` is the pump (extra `name:amount` pairs duck per channel) and `master threshold:-6 ratio:2` glues the mix.'),
+      rondo(
+        'A miniature build → drop.',
+        `synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp  = adsr .001 .2 0 .07
+
+synth stab
+  supersaw detune:.4 mix:.7
+  ladder cut res:.6
+  * env
+  cut = env ^ 2 -> 300..3400
+  env = adsr .002 .16 0 .09
+
+section intro 2
+  play stab
+    <Em Cmaj7>
+    dur: .95
+    gain: .4
+
+section drop 4
+  play kick
+    c2 c2 c2 c2
+  play stab
+    <Em Cmaj7>
+    struct ~ t ~ t t ~ ~ t
+    dur: .2
+
+song intro drop
+
+sidechain kick depth:.8 release:.15 stab:.6
+
+master threshold:-6 ratio:2
+
+cps .55`,
+      ),
+    ],
+  },
+  {
+    id: 'rondo-escape',
+    title: 'rondo: visuals & the escape hatch',
+    blocks: [
+      p('A `visual` block holds a WGSL shader, verbatim — same contract as the JS `visual(...)`. And ANYTHING the syntax lacks passes through the escape hatch: `js{ … }` inline is a raw expression, a `js` block is raw statements. That is the parity guarantee — everything the JS API can say, rondo can say today.'),
+      rondo(
+        'Raw JS inside rondo: an expression and a statement.',
+        `synth harp
+  # any JS expression, inline
+  js{ saw(note.freq).mix(pluck(gate, note.freq), .4) }
+  * env
+  env = adsr .01 .2 .5 .2
+
+play harp
+  0 3 5 7  scale:d-dor
+
+# any JS statements, verbatim
+js
+  p('extra', n('7 ~ 12 ~').scale('d dorian').sound('harp').gain(0.4))
+
+cps .5`,
+      ),
+      p('Cheat sheet — the shapes at a glance: `synth NAME [mono glide:… unison:…]` · pipeline lines (source / `* env` / processor / sig-op) · `name = expr` · `knob DEF lo..hi [log]` · `post` · `play NAME` (notation, voices, `scale:`, modifiers) · `section NAME LEN` + `song …` · `bus NAME` + `send SYNTH AMT` · `sidechain SRC depth:… name:duck` · `master name:value` · `visual` · `js{ … }` / `js` · `cps N`. Comments start with `#`.'),
     ],
   },
 ]

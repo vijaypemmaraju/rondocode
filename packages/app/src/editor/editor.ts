@@ -3,7 +3,6 @@ import type { Text } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
 import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
-import { autocompletion } from '@codemirror/autocomplete'
 import { javascript } from '@codemirror/lang-javascript'
 import { compile } from '@rondocode/rondo'
 import type { NoteSpan } from '@rondocode/rondo'
@@ -23,7 +22,7 @@ import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
-import { rondoLanguage, rondoCompletionSource } from './rondo'
+import { rondoLanguage, rondoAutocomplete } from './rondo'
 import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
@@ -342,11 +341,6 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
   const langCompartment = new Compartment()
   const completionCompartment = new Compartment()
-  const rondoAutocomplete = autocompletion({
-    override: [rondoCompletionSource],
-    activateOnTyping: true,
-    maxRenderedOptions: 20,
-  })
   const initialDoc = loadDoc(lang)
   /** Source of the last eval attempt / last GOOD eval (dirty tracking). */
   let lastAttempted: string | undefined

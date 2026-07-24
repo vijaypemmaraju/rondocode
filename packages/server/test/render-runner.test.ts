@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { GATE_GAP_SEC, renderMix, runPatterns, stageCode } from '../src/render-runner'
 import { duckReleaseCoeff } from '../../engine/src/index'
 import { SECTIONS } from '../../app/src/docs/content'
+import { compile as compileRondo } from '../../rondo/src/index'
 
 /* Unit tests for the headless code→audio pipeline, hitting the pure
  * functions directly (faster and sharper than going through MCP — the
@@ -26,12 +27,19 @@ setCps(1)
 describe('docs guide snippets', () => {
   // Every fenced code block in the guide is a complete, playable program — so
   // it must stage cleanly against the exact browser vocabulary. This guards the
-  // guide against DSL drift (a renamed global, a changed signature).
+  // guide against DSL drift (a renamed global, a changed signature). RONDO
+  // blocks take the docs page's path: compile to rondocode first.
   const snippets = SECTIONS.flatMap((s) =>
-    s.blocks.filter((b) => b.kind === 'code').map((b) => ({ id: s.id, code: b.text })),
+    s.blocks.filter((b) => b.kind === 'code').map((b) => ({ id: s.id, code: b.text, lang: b.lang })),
   )
-  it.each(snippets)('section "$id" snippet stages ok', ({ code }) => {
-    const r = stageCode(code)
+  it.each(snippets)('section "$id" snippet stages ok', ({ code, lang }) => {
+    let source = code
+    if (lang === 'rondo') {
+      const c = compileRondo(code)
+      if (!c.ok) throw new Error(c.errors.map((e) => `${e.line}:${e.col} ${e.message}`).join(' | '))
+      source = c.code
+    }
+    const r = stageCode(source)
     if (!r.ok) {
       throw new Error(r.diagnostics.map((d) => `${d.line}:${d.col} ${d.message}`).join(' | '))
     }

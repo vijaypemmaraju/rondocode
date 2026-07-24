@@ -22,6 +22,7 @@ import { noteHover } from './notehover'
 import { dslHover } from './hover'
 import { widgetExtension } from './widgets/widgets'
 import { scrubExtension } from './widgets/scrub'
+import { rondoLanguage, rondoAutocomplete } from './rondo'
 
 /* ------------------------------------------------------------------------- *
  * The single source of truth for the rondocode code-editing experience,
@@ -56,6 +57,10 @@ export interface CodeEditingOpts {
    *  rondo). Omit (docs pages) to get the static rondocode grammar. */
   langCompartment?: Compartment
   completionCompartment?: Compartment
+  /** STATIC rondo mode (docs rondo snippets): the rondo grammar + hover +
+   *  widgets + completion instead of the JS stack. Mutually exclusive with
+   *  the Compartment pair above. */
+  rondo?: boolean
 }
 
 /** The rondocode DSL autocomplete extension (also swappable via a Compartment). */
@@ -92,13 +97,19 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     highlightSelectionMatches(), // underline other occurrences of the selection
     keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
     // the grammar the HighlightStyle colors. In the main editor this is wrapped
-    // in a Compartment so it can be swapped for the rondo grammar at runtime.
-    opts.langCompartment ? opts.langCompartment.of(javascript()) : javascript(),
+    // in a Compartment so it can be swapped for the rondo grammar at runtime;
+    // docs rondo snippets pass `rondo: true` for a static rondo stack (grammar
+    // + hover + inline knob/env/roll widgets bundled by rondoLanguage).
+    opts.rondo
+      ? rondoLanguage({ requestEval: opts.requestEval })
+      : opts.langCompartment ? opts.langCompartment.of(javascript()) : javascript(),
     // DSL intellisense: context-aware completions (docs-driven, silent inside
     // mini-notation strings) plus WGSL completions inside visual() templates.
-    opts.completionCompartment
-      ? opts.completionCompartment.of(rondocodeAutocomplete)
-      : rondocodeAutocomplete,
+    opts.rondo
+      ? rondoAutocomplete
+      : opts.completionCompartment
+        ? opts.completionCompartment.of(rondocodeAutocomplete)
+        : rondocodeAutocomplete,
     wgslHighlight(), // WGSL syntax highlighting inside visual(`…`) templates
     dslHover, // hover a DSL symbol → its docs
     noteHover(), // hover a note/chord → a piano-keyboard hovercard

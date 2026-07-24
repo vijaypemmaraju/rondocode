@@ -22,7 +22,50 @@ import { formatNumber, niceStep } from '../widgets/rewrite'
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
 
-interface Hooks { requestEval: (immediate: boolean) => void }
+/** A scheduler note event, reduced to what widget animation needs. */
+export interface NoteEv {
+  /** the mini-notation source string the note's Loc indexes into. */
+  src?: string
+  /** char offset of the note's atom within `src`. */
+  start: number
+  /** absolute time (audio clock, seconds) + musical duration. */
+  timeSec: number
+  durSec: number
+  /** the synth/channel the event routes to. */
+  sound?: string
+  /** the event's control map (drives the live knob display). */
+  controls?: Record<string, unknown>
+}
+
+export interface Hooks {
+  requestEval: (immediate: boolean) => void
+  /** audio-clock "now" in seconds — the clock NoteEv.timeSec lives on. */
+  now?: () => number
+  /** subscribe to note events; returns unsubscribe. When present, widgets go
+   *  LIVE: the piano-roll lights with the playhead, the envelope fires its
+   *  marker per note, and a pattern-driven knob's dial follows the drive. */
+  onNoteEvents?: (fn: (evs: NoteEv[]) => void) => () => void
+}
+
+/** Bound how long a note keeps a widget lit. */
+const LIT_MIN_MS = 120
+const LIT_MAX_MS = 1200
+const MAX_PENDING = 64
+
+/** Small per-widget timer pool: schedule audio-clock-aligned UI, drop cleanly
+ *  on destroy (widgets die on every rebuild — leaks would pile up fast). */
+class Timers {
+  private readonly pending = new Set<ReturnType<typeof setTimeout>>()
+  at(delayMs: number, fn: () => void): void {
+    if (this.pending.size >= MAX_PENDING) return
+    const h = setTimeout(() => { this.pending.delete(h); fn() }, Math.max(0, delayMs))
+    this.pending.add(h)
+  }
+  clear(): void {
+    for (const h of this.pending) clearTimeout(h)
+    this.pending.clear()
+  }
+}
 /** Shared drag state. `active` suppresses decoration rebuilds mid-gesture (so
  *  the dragged DOM + its pointer capture survive); `ended` forces ONE rebuild
  *  on the next update after a gesture — the surviving widget instances hold
@@ -50,18 +93,29 @@ export interface KnobMatch {
   lo: number
   hi: number
   log: boolean
+  /** the binding name (`cutoff = knob …`) — the param a `.ctrl` drives. */
+  name?: string
+  /** the enclosing `synth NAME` block, for routing live events. */
+  synth?: string
 }
 
 /** Iterate a doc's CODE lines: the text before any rondo `#` comment, with the
  *  line's absolute offset. Widgets must not match inside comments (a knob in a
  *  comment would render live and drags would rewrite the comment), and per-line
  *  scanning keeps `\s+` in the regexes from crossing newlines. */
-function codeLines(text: string): { line: string; off: number }[] {
-  const out: { line: string; off: number }[] = []
+function codeLines(text: string): { line: string; off: number; synth?: string }[] {
+  const out: { line: string; off: number; synth?: string }[] = []
   let off = 0
+  let synth: string | undefined
   for (const raw of text.split('\n')) {
     const cm = /(^|\s)#/.exec(raw)
-    out.push({ line: cm ? raw.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : raw, off })
+    const line = cm ? raw.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : raw
+    // track block context: a top-level `synth NAME` opens a synth; any other
+    // top-level header (play/cps/js) closes it — bindings inside a synth then
+    // know which channel's events drive them
+    const header = /^(synth|play|cps|js)\b(?:[ \t]+([a-zA-Z_]\w*))?/.exec(line)
+    if (header) synth = header[1] === 'synth' ? header[2] : undefined
+    out.push({ line, off, synth })
     off += raw.length + 1
   }
   return out
@@ -70,14 +124,15 @@ function codeLines(text: string): { line: string; off: number }[] {
 /** Find every `knob DEF lo..hi [curve]` in `text` (pure — unit tested). */
 export function scanKnobs(text: string): KnobMatch[] {
   const out: KnobMatch[] = []
-  for (const { line, off } of codeLines(text)) {
+  for (const { line, off, synth } of codeLines(text)) {
     KNOB_RE.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = KNOB_RE.exec(line)) !== null) {
       const value = Number(m[2]), lo = Number(m[3]), hi = Number(m[4])
       if (!Number.isFinite(value) || !Number.isFinite(lo) || !Number.isFinite(hi)) continue
       const defFrom = off + m.index + m[1]!.length
-      out.push({ defFrom, defTo: defFrom + m[2]!.length, value, lo, hi, log: m[5] === 'log' })
+      const name = /^[ \t]*([a-zA-Z_]\w*)[ \t]*=/.exec(line)?.[1]
+      out.push({ defFrom, defTo: defFrom + m[2]!.length, value, lo, hi, log: m[5] === 'log', name, synth })
     }
   }
   return out
@@ -96,19 +151,21 @@ export interface EnvMatch {
   d: number
   s: number
   r: number
+  /** the enclosing `synth NAME` block — its notes fire the curve's marker. */
+  synth?: string
 }
 
 /** Find every `adsr A D S R` in `text` (pure — unit tested). */
 export function scanEnvs(text: string): EnvMatch[] {
   const out: EnvMatch[] = []
-  for (const { line, off } of codeLines(text)) {
+  for (const { line, off, synth } of codeLines(text)) {
     ENV_RE.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = ENV_RE.exec(line)) !== null) {
       const a = Number(m[2]), d = Number(m[3]), s = Number(m[4]), r = Number(m[5])
       if (![a, d, s, r].every((n) => Number.isFinite(n))) continue
       const from = off + m.index + m[1]!.length
-      out.push({ from, to: off + m.index + m[0].length, a, d, s, r })
+      out.push({ from, to: off + m.index + m[0].length, a, d, s, r, synth })
     }
   }
   return out
@@ -118,8 +175,21 @@ export interface PlayRoll {
   /** char range of the notation string in the source (what a tap rewrites). */
   from: number
   to: number
+  /** the notation text itself — a play event's `loc.src` equals this, which is
+   *  how the grid recognizes its own notes for playhead lighting. */
+  content: string
   /** one entry per step: a scale degree, or null for a rest (`~`). */
   steps: (number | null)[]
+}
+
+/** Char offset of each step token within a notation string — a note event's
+ *  `loc.start` equals one of these, mapping the event to its grid column. */
+export function stepStarts(notation: string): number[] {
+  const out: number[] = []
+  const re = /\S+/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(notation)) !== null) out.push(m.index)
+  return out
 }
 
 /** Find each `play` block's notation line when it's a SIMPLE flat sequence of
@@ -146,12 +216,15 @@ export function scanPlays(text: string): PlayRoll[] {
     if (toks.length === 0) continue
     if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
     const from = offs[i + 1]! + indent
-    out.push({ from, to: from + notation.length, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) })
+    out.push({ from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) })
   }
   return out
 }
 
 class KnobWidget extends WidgetType {
+  private unsub?: () => void
+  private readonly timers = new Timers()
+
   constructor(
     readonly defFrom: number,
     /** end of the DEF literal IN THE SOURCE — must come from scanKnobs, never
@@ -162,13 +235,16 @@ class KnobWidget extends WidgetType {
     readonly lo: number,
     readonly hi: number,
     readonly log: boolean,
+    readonly name: string | undefined,
+    readonly synth: string | undefined,
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
 
   eq(o: KnobWidget): boolean {
     return o.defFrom === this.defFrom && o.defTo === this.defTo && o.value === this.value &&
-      o.lo === this.lo && o.hi === this.hi && o.log === this.log
+      o.lo === this.lo && o.hi === this.hi && o.log === this.log &&
+      o.name === this.name && o.synth === this.synth
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -178,13 +254,41 @@ class KnobWidget extends WidgetType {
     wrap.setAttribute('aria-label', 'knob')
     wrap.title = 'drag to set'
     wrap.innerHTML =
-      '<svg width="15" height="15" viewBox="0 0 15 15">' +
-      '<circle cx="7.5" cy="7.5" r="6" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.35"/>' +
-      '<line class="ptr" x1="7.5" y1="7.5" x2="7.5" y2="2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+      '<svg width="24" height="24" viewBox="0 0 24 24">' +
+      '<circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2" opacity="0.35"/>' +
+      '<line class="ptr" x1="12" y1="12" x2="12" y2="4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' +
       '</svg>'
     const ptr = wrap.querySelector('.ptr') as SVGLineElement
-    const setDial = (t: number): void => { ptr.setAttribute('transform', `rotate(${-135 + 270 * t} 7.5 7.5)`) }
-    setDial(toNorm(this.value, this.lo, this.hi, this.log))
+    const setDial = (t: number): void => { ptr.setAttribute('transform', `rotate(${-135 + 270 * t} 12 12)`) }
+    const baseT = toNorm(this.value, this.lo, this.hi, this.log)
+    setDial(baseT)
+
+    // LIVE DRIVE: when a pattern's `.ctrl` sweeps this param, each note event
+    // carries the driven value — the dial follows it (amber "live" state) and
+    // settles back to the source DEF after the last note. The prototype's
+    // "LFO turns the knob" made real. Dragging always wins over the drive.
+    if (this.hooks.onNoteEvents && this.hooks.now && this.name !== undefined) {
+      const name = this.name
+      const now = this.hooks.now
+      this.unsub = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (this.synth !== undefined && ev.sound !== this.synth) continue
+          const v = ev.controls?.[name]
+          if (typeof v !== 'number' || !Number.isFinite(v)) continue
+          const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
+          this.timers.at((ev.timeSec - now()) * 1000, () => {
+            if (this.drag.active) return // a hand on the knob outranks the drive
+            wrap.classList.add('live')
+            setDial(toNorm(v, this.lo, this.hi, this.log))
+            this.timers.at(litMs, () => {
+              if (this.drag.active) return
+              wrap.classList.remove('live')
+              setDial(baseT)
+            })
+          })
+        }
+      })
+    }
 
     wrap.addEventListener('pointerdown', (e) => {
       e.preventDefault()
@@ -192,6 +296,7 @@ class KnobWidget extends WidgetType {
       wrap.setPointerCapture(e.pointerId)
       this.drag.active = true
       wrap.classList.add('active')
+      wrap.classList.remove('live') // grabbing overrides the pattern drive
       const startY = e.clientY
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
@@ -223,6 +328,11 @@ class KnobWidget extends WidgetType {
     return wrap
   }
 
+  destroy(): void {
+    this.unsub?.()
+    this.timers.clear()
+  }
+
   ignoreEvent(): boolean { return true }
 }
 
@@ -230,6 +340,10 @@ class KnobWidget extends WidgetType {
 const AMAX = 1, DMAX = 1, RMAX = 2
 
 class EnvWidget extends WidgetType {
+  private unsub?: () => void
+  private readonly timers = new Timers()
+  private raf = 0
+
   constructor(
     readonly regionFrom: number,
     readonly regionTo: number,
@@ -237,6 +351,7 @@ class EnvWidget extends WidgetType {
     readonly d: number,
     readonly s: number,
     readonly r: number,
+    readonly synth: string | undefined,
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
@@ -245,7 +360,8 @@ class EnvWidget extends WidgetType {
     // regionTo matters: `.2` → `0.2` keeps the same VALUES but shifts the end;
     // reusing the old DOM would leave its closures rewriting a too-short range
     return o.regionFrom === this.regionFrom && o.regionTo === this.regionTo &&
-      o.a === this.a && o.d === this.d && o.s === this.s && o.r === this.r
+      o.a === this.a && o.d === this.d && o.s === this.s && o.r === this.r &&
+      o.synth === this.synth
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -256,6 +372,7 @@ class EnvWidget extends WidgetType {
     wrap.innerHTML =
       `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
       '<path class="fill"/><path class="line" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+      '<circle class="emark" r="4"/>' +
       '<circle class="h ha" r="5"/><circle class="h hd" r="5"/><circle class="h hr" r="5"/></svg>'
     const line = wrap.querySelector('.line') as SVGPathElement
     const fill = wrap.querySelector('.fill') as SVGPathElement
@@ -281,6 +398,49 @@ class EnvWidget extends WidgetType {
       hr.setAttribute('cx', String(g.rx)); hr.setAttribute('cy', String(base))
     }
     render(this.a, this.d, this.s, this.r)
+
+    // FIRE on each of this synth's notes: a marker rides the curve — up the
+    // attack, down the decay, holding at sustain for the note's duration, then
+    // out the release — while the curve flashes "firing". Watching the shape
+    // shape the sound, per note, like the prototype.
+    const mark = wrap.querySelector('.emark') as SVGCircleElement
+    if (this.hooks.onNoteEvents && this.hooks.now) {
+      const now = this.hooks.now
+      const animate = (durSec: number): void => {
+        cancelAnimationFrame(this.raf)
+        const { a, d, s, r } = this
+        const g = geom(a, d, s, r)
+        const holdSec = Math.max(durSec - a - d, 0.05)
+        const total = a + d + holdSec + r
+        const t0 = performance.now()
+        wrap.classList.add('firing')
+        const frame = (nowMs: number): void => {
+          const t = (nowMs - t0) / 1000
+          if (t >= total || this.drag.active) {
+            wrap.classList.remove('firing')
+            mark.style.opacity = '0'
+            return
+          }
+          let x: number, y: number
+          if (t < a) { const u = t / a; x = pad + (g.ax - pad) * u; y = base + (peak - base) * u }
+          else if (t < a + d) { const u = (t - a) / (d || 1e-6); x = g.ax + (g.dx - g.ax) * u; y = peak + (g.sy - peak) * u }
+          else if (t < a + d + holdSec) { const u = (t - a - d) / holdSec; x = g.dx + (g.hx - g.dx) * u; y = g.sy }
+          else { const u = (t - a - d - holdSec) / (r || 1e-6); x = g.hx + (g.rx - g.hx) * u; y = g.sy + (base - g.sy) * u }
+          mark.setAttribute('cx', x.toFixed(1))
+          mark.setAttribute('cy', y.toFixed(1))
+          mark.style.opacity = '1'
+          this.raf = requestAnimationFrame(frame)
+        }
+        this.raf = requestAnimationFrame(frame)
+      }
+      this.unsub = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (this.synth !== undefined && ev.sound !== this.synth) continue
+          this.timers.at((ev.timeSec - now()) * 1000, () => { if (!this.drag.active) animate(ev.durSec) })
+          break // one fire per batch — the marker is monophonic
+        }
+      })
+    }
 
     const svg = wrap.querySelector('svg') as SVGSVGElement
     wrap.addEventListener('pointerdown', (e) => {
@@ -356,23 +516,33 @@ class EnvWidget extends WidgetType {
     return wrap
   }
 
+  destroy(): void {
+    this.unsub?.()
+    this.timers.clear()
+    cancelAnimationFrame(this.raf)
+  }
+
   ignoreEvent(): boolean { return true }
 }
 
 class PianoRollWidget extends WidgetType {
+  private unsub?: () => void
+  private readonly timers = new Timers()
+
   constructor(
     readonly from: number,
     readonly to: number,
+    readonly content: string,
     readonly steps: (number | null)[],
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
 
   eq(o: PianoRollWidget): boolean {
-    // `to` matters: respacing `0 3 5` → `0  3  5` keeps the same STEPS but
-    // shifts the end; a reused DOM would rewrite a too-short range on tap
-    return o.from === this.from && o.to === this.to && o.steps.length === this.steps.length &&
-      o.steps.every((v, i) => v === this.steps[i])
+    // `to`/`content` matter: respacing `0 3 5` → `0  3  5` keeps the same
+    // STEPS but shifts offsets; a reused DOM would rewrite a too-short range
+    return o.from === this.from && o.to === this.to && o.content === this.content &&
+      o.steps.length === this.steps.length && o.steps.every((v, i) => v === this.steps[i])
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -391,12 +561,41 @@ class PianoRollWidget extends WidgetType {
     for (let dr = rows - 1; dr >= 0; dr--) {
       for (let c = 0; c < cols; c++) {
         const cell = document.createElement('span')
-        cell.className = 'rc' + (steps[c] === dr ? ' on' : '')
+        // every 4th column reads brighter — the beat grid, like the prototype
+        cell.className = 'rc' + (steps[c] === dr ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
         cell.dataset.r = String(dr)
         cell.dataset.c = String(c)
         cellEls[dr]![c] = cell
         grid.appendChild(cell)
       }
+    }
+
+    // PLAYHEAD: this grid's notes carry loc.src === the notation text, and
+    // loc.start maps to a column via stepStarts — light the column + bloom the
+    // sounding cell as the scheduler sweeps, exactly like the prototype.
+    if (this.hooks.onNoteEvents && this.hooks.now) {
+      const now = this.hooks.now
+      const starts = stepStarts(this.content)
+      const lightCol = (c: number, litMs: number): void => {
+        for (let r = 0; r < rows; r++) {
+          const cell = cellEls[r]?.[c]
+          if (!cell) continue
+          cell.classList.add('play')
+          if (cell.classList.contains('on')) cell.classList.add('trig')
+        }
+        this.timers.at(litMs, () => {
+          for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.remove('play', 'trig')
+        })
+      }
+      this.unsub = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (ev.src !== this.content) continue
+          const col = starts.indexOf(ev.start)
+          if (col < 0) continue
+          const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
+          this.timers.at((ev.timeSec - now()) * 1000, () => lightCol(col, litMs))
+        }
+      })
     }
     const refresh = (c: number): void => {
       for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] === r)
@@ -446,6 +645,11 @@ class PianoRollWidget extends WidgetType {
     return grid
   }
 
+  destroy(): void {
+    this.unsub?.()
+    this.timers.clear()
+  }
+
   ignoreEvent(): boolean { return true }
 }
 
@@ -456,13 +660,13 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   // (and the line-oriented play scan) work without slicing bookkeeping.
   const text = view.state.doc.toString()
   for (const k of scanKnobs(text)) {
-    items.push({ pos: k.defTo, deco: Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, hooks, drag), side: 1 }) })
+    items.push({ pos: k.defTo, deco: Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag), side: 1 }) })
   }
   for (const e of scanEnvs(text)) {
-    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, hooks, drag), side: 1 }) })
+    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, hooks, drag), side: 1 }) })
   }
   for (const p of scanPlays(text)) {
-    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.steps, hooks, drag), side: 1 }) })
+    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, hooks, drag), side: 1 }) })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()

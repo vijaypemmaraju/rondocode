@@ -10,7 +10,7 @@ import { BUILTINS } from './builtins'
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
 
-const SCALE_MODE: Record<string, string> = {
+export const SCALE_MODE: Record<string, string> = {
   min: 'minor', maj: 'major', dor: 'dorian', phr: 'phrygian', lyd: 'lydian',
   mix: 'mixolydian', loc: 'locrian', minor: 'minor', major: 'major',
 }

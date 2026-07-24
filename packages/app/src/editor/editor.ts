@@ -4,7 +4,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
 import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { javascript } from '@codemirror/lang-javascript'
-import { compile } from '@rondocode/rondo'
+import { compile, decompile } from '@rondocode/rondo'
 import type { NoteSpan } from '@rondocode/rondo'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
@@ -620,7 +620,31 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
   reflectLang()
   if (lang === 'rondo') reconfigureLang() // compartments boot as rondocode
-  langBtn.addEventListener('click', () => setLang(lang === 'rondo' ? 'rondocode' : 'rondo'))
+  // The USER toggle attempts CONVERSION (programmatic setLang — project
+  // switches, share links — never converts; the code is about to be replaced):
+  //   rondo → js: the compiler's output IS the JS (only when it compiles —
+  //     broken rondo keeps its text and just re-lints under JS).
+  //   js → rondo: the decompiler is TOTAL — recognized statements become real
+  //     rondo, the rest survive verbatim in js blocks. Cmd-Z undoes either way.
+  langBtn.addEventListener('click', () => {
+    const next: EditorLang = lang === 'rondo' ? 'rondocode' : 'rondo'
+    const source = view.state.doc.toString()
+    let converted: string | undefined
+    try {
+      if (next === 'rondocode') {
+        const c = compile(source)
+        if (c.ok) converted = c.code
+      } else {
+        converted = decompile(source)
+      }
+    } catch {
+      converted = undefined // conversion must never block the toggle
+    }
+    if (converted !== undefined && converted !== source) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: converted } })
+    }
+    setLang(next) // re-lints (and re-evals live) the converted buffer
+  })
 
   palette.setVisible(lang === 'rondo')
 

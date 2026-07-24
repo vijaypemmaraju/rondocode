@@ -526,7 +526,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const reconfigureLang = (): void => {
     view.dispatch({
       effects: [
-        langCompartment.reconfigure(lang === 'rondo' ? rondoLanguage() : javascript()),
+        langCompartment.reconfigure(lang === 'rondo' ? rondoLanguage({ requestEval }) : javascript()),
         completionCompartment.reconfigure(lang === 'rondo' ? rondoAutocomplete : rondocodeAutocomplete),
       ],
     })

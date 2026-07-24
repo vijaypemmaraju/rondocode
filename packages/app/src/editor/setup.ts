@@ -23,6 +23,7 @@ import { dslHover } from './hover'
 import { widgetExtension } from './widgets/widgets'
 import { scrubExtension } from './widgets/scrub'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
+import type { RondoWidgetHooks } from './rondo'
 
 /* ------------------------------------------------------------------------- *
  * The single source of truth for the rondocode code-editing experience,
@@ -61,6 +62,9 @@ export interface CodeEditingOpts {
    *  widgets + completion instead of the JS stack. Mutually exclusive with
    *  the Compartment pair above. */
   rondo?: boolean
+  /** Extra rondo widget hooks (audio clock, note events, touch-to-override) —
+   *  the docs page passes its PreviewPlayer's; requestEval is always ours. */
+  rondoExtras?: Omit<RondoWidgetHooks, 'requestEval'>
 }
 
 /** The rondocode DSL autocomplete extension (also swappable via a Compartment). */
@@ -101,7 +105,7 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     // docs rondo snippets pass `rondo: true` for a static rondo stack (grammar
     // + hover + inline knob/env/roll widgets bundled by rondoLanguage).
     opts.rondo
-      ? rondoLanguage({ requestEval: opts.requestEval })
+      ? rondoLanguage({ requestEval: opts.requestEval, ...opts.rondoExtras })
       : opts.langCompartment ? opts.langCompartment.of(javascript()) : javascript(),
     // DSL intellisense: context-aware completions (docs-driven, silent inside
     // mini-notation strings) plus WGSL completions inside visual() templates.

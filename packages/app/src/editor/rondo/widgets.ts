@@ -52,6 +52,23 @@ export interface Hooks {
   releaseParam?: (synth: string, name: string) => void
 }
 
+/** SchedulerEvents → the reduced NoteEv shape widgets animate from (shared by
+ *  the main editor and the docs page so the two feeds can't drift). */
+export function toNoteEvs(
+  evs: readonly { loc?: { src?: string; start: number }; timeSec: number; durSec: number; controls: Record<string, unknown> }[],
+): NoteEv[] {
+  const out: NoteEv[] = []
+  for (const e of evs) {
+    if (e.loc === undefined) continue
+    const ev: NoteEv = { start: e.loc.start, timeSec: e.timeSec, durSec: e.durSec, controls: e.controls }
+    if (e.loc.src !== undefined) ev.src = e.loc.src
+    const sound = e.controls['sound']
+    if (typeof sound === 'string') ev.sound = sound
+    out.push(ev)
+  }
+  return out
+}
+
 /** Bound how long a note keeps a widget lit. */
 const LIT_MIN_MS = 120
 const LIT_MAX_MS = 1200

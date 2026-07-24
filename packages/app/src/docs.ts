@@ -152,6 +152,14 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
     // resolves correctly for THIS block whenever it's the one sounding.
     (snd) => player.singSounds.has(snd),
     lang,
+    // docs knobs are LIVE: hold plays the hand's value immediately through the
+    // preview session (a DEF rewrite alone is rebuild-class — audible only
+    // after the drag settles, which reads as "updates on release")
+    {
+      now: () => player.now(),
+      holdParam: (sy, nm, v) => player.holdParam(sy, nm, v),
+      releaseParam: (sy, nm) => player.releaseParam(sy, nm),
+    },
   )
   await refreshEditLink(src)
 

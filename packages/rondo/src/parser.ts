@@ -175,10 +175,10 @@ function parseKnob(c: Cursor): Expr {
 
 /* ---- blocks -------------------------------------------------------------- */
 
-function bodyLines(lines: Line[], start: number): { body: Line[]; next: number } {
+function bodyLines(lines: Line[], start: number, min = 0): { body: Line[]; next: number } {
   const body: Line[] = []
   let j = start
-  while (j < lines.length && lines[j]!.indent > 0) { body.push(lines[j]!); j++ }
+  while (j < lines.length && lines[j]!.indent > min) { body.push(lines[j]!); j++ }
   return { body, next: j }
 }
 
@@ -363,7 +363,8 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
   const nameTok = header.toks[1]
   const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
   if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
-  const { body, next } = bodyLines(lines, i + 1)
+  // body = lines deeper than the header, so a play nests inside a section too
+  const { body, next } = bodyLines(lines, i + 1, header.indent)
   if (body.length === 0) errors.push({ message: `play '${name}' has no notation`, line: header.line, col: header.rawCol })
   // Leading non-modifier lines are notation VOICES (2+ → a stacked chord of
   // lines, like the JS stack(n(…), n(…)) idiom); the rest are modifiers.
@@ -479,6 +480,46 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
       items.push({ t: 'bus', name, fx: fx.spine ?? input, bindings: fx.bindings, sends, pos: head.pos })
       i = next
     }
+    // `section NAME LEN` block of nested plays; `song A B C` sequences them
+    else if (head.v === 'section') {
+      const nameTok = ln.toks[1]
+      const lenTok = ln.toks[2]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      const len = lenTok && lenTok.k === 'num' ? lenTok.v : 0
+      if (!name || !(len > 0)) {
+        errors.push({ message: 'section needs a name and a length in cycles (`section drop 8`)', line: ln.line, col: ln.rawCol })
+      }
+      const { body, next } = bodyLines(lines, i + 1)
+      const plays: PlayBlock[] = []
+      let j = 0
+      while (j < body.length) {
+        const bl = body[j]!
+        const bh = bl.toks[0]
+        if (bh && bh.k === 'ident' && bh.v === 'play') {
+          // sub-parse against the ABSOLUTE line array so offsets stay global
+          const abs = lines.indexOf(bl)
+          const r = parsePlay(lines, abs, errors)
+          plays.push(r.block)
+          j += r.next - abs
+        } else {
+          errors.push({ message: 'a section holds `play` blocks', line: bl.line, col: bl.rawCol })
+          j++
+        }
+      }
+      if (plays.length === 0) errors.push({ message: `section '${name}' has no plays`, line: ln.line, col: ln.rawCol })
+      items.push({ t: 'section', name, len, plays, pos: head.pos })
+      i = next
+    }
+    else if (head.v === 'song') {
+      const order: string[] = []
+      for (let k = 1; k < ln.toks.length; k++) {
+        const t = ln.toks[k]!
+        if (t.k === 'ident') order.push(t.v)
+        else errors.push({ message: 'song lists section names (`song intro drop drop`)', line: t.pos.line, col: t.pos.col })
+      }
+      items.push({ t: 'song', order, pos: head.pos })
+      i++
+    }
     // `visual` block: raw WGSL, verbatim
     else if (head.v === 'visual' && ln.toks.length === 1) {
       const { body, next } = bodyLines(lines, i + 1)
@@ -491,7 +532,7 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
       items.push({ t: 'raw', code: verbatimBody(src, body), pos: head.pos })
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / section / song / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors }
 }

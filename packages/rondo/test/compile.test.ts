@@ -221,6 +221,27 @@ describe('rondo → rondocode codegen', () => {
     expect(out2).toContain("stack(n('<0 5 2 6>'), n('<2 7 4 8>'), n('<4 9 6 10>')).scale('c minor')")
   })
 
+  it('sections + song compile to arrange() over stacked section patterns', () => {
+    const out = ok(
+      `synth kick\n  sine 60\n\nsynth pad\n  saw\n\n` +
+      `section intro 4\n  play pad\n    <0 5 2 6>\n    scale: c-min\n\n` +
+      `section drop 8\n  play kick\n    c2 c2 c2 c2\n  play pad\n    <0 5 2 6>\n    scale: c-min\n\n` +
+      `song intro drop drop intro\n`,
+    )
+    expect(out).toContain("const __sec_intro = n('<0 5 2 6>').scale('c minor').sound('pad')")
+    expect(out).toContain("const __sec_drop = stack(note('c2 c2 c2 c2').sound('kick'), n('<0 5 2 6>')")
+    expect(out).toContain("p('song', arrange([4, __sec_intro], [8, __sec_drop], [8, __sec_drop], [4, __sec_intro]))")
+  })
+
+  it('sections without a song line arrange in definition order', () => {
+    const out = ok(`synth s\n  saw\n\nsection a 2\n  play s\n    0\n\nsection b 4\n  play s\n    3\n`)
+    expect(out).toContain("p('song', arrange([2, __sec_a], [4, __sec_b]))")
+  })
+
+  it('song referencing an unknown section is an error', () => {
+    expect(compile(`synth s\n  saw\n\nsection a 2\n  play s\n    0\n\nsong a nope\n`).ok).toBe(false)
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")

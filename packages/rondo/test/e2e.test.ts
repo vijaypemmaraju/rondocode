@@ -79,13 +79,16 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     expect(result.masterComp).toBeDefined()
     expect(result.buses.has('space')).toBe(true)
     expect(result.sends).toContainEqual({ synth: 'stab', bus: 'space', amount: 0.3 })
-    for (const name of ['kick', 'sub', 'stab']) {
-      const sounding = result.patterns.get(name)!
-        .query(new TimeSpan(F(0), F(2)))
+    // sections arrange into ONE 'song' pattern; the drop (cycles 4..12) routes
+    // events to all three synths
+    const song = result.patterns.get('song')!
+    const sounds = new Set(
+      song.query(new TimeSpan(F(4), F(6)))
         .filter(hasOnset)
         .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
-      expect(sounding.length, name).toBeGreaterThan(0)
-    }
+        .map((h) => h.value.sound as string),
+    )
+    for (const name of ['kick', 'sub', 'stab']) expect(sounds.has(name), name).toBe(true)
   })
 
   it('parity via escape hatch: a js{ … } sidechain evals clean through the real engine', () => {

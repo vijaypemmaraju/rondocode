@@ -16,6 +16,7 @@ import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
+import { getSetting } from '../ui/settings'
 import { EXAMPLES } from '../examples'
 import { EventFlasher, FLASH_MS, rondoNoteLiterals } from './flash'
 import { karaokeExtension, mountKaraoke } from './karaoke'
@@ -78,6 +79,9 @@ const SAVE_ON_CHANGE_MS = 500
  *  diffs staged synths/patterns, so these evals never redefine an unchanged
  *  synth — audio keeps running seamlessly. */
 const WIDGET_EVAL_MS = 70
+/** LIVE TYPING settle: apply a typed edit this long after the last keystroke
+ *  (opt-in setting; only while the transport is playing). */
+const LIVE_TYPE_SETTLE_MS = 700
 
 const firstExample = (lang: EditorLang): string => {
   const ex = EXAMPLES[0]!
@@ -346,6 +350,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
   const langCompartment = new Compartment()
   const completionCompartment = new Compartment()
+  let liveTypeTimer: ReturnType<typeof setTimeout> | undefined
   const initialDoc = loadDoc(lang)
   /** Source of the last eval attempt / last GOOD eval (dirty tracking). */
   let lastAttempted: string | undefined
@@ -528,6 +533,13 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
           // a phone must not lose work.
           saveDoc(doc, SAVE_ON_CHANGE_MS)
           emitDoc(doc) // library autosaves the active project
+          // LIVE TYPING (opt-in): while playing, a clean edit applies itself
+          // once typing settles — the loop never stops. A failed compile/eval
+          // just shows its squiggles and changes nothing (last-good contract).
+          clearTimeout(liveTypeTimer)
+          if (getSetting('liveType') && session.getState().playing) {
+            liveTypeTimer = setTimeout(() => applyDoc(false), LIVE_TYPE_SETTLE_MS)
+          }
         }),
       ],
     }),
@@ -556,6 +568,20 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // no eval round-trip) and suppresses the pattern drive until release
     holdParam: (synth, name, value) => session.holdParam(synth, name, value),
     releaseParam: (synth, name) => session.releaseParam(synth, name),
+    // grid preview: tapping a piano-roll cell while stopped sounds that note
+    // (a one-shot noteOn/noteOff straight to the engine; the tap is the
+    // audio-unlock gesture)
+    isPlaying: () => session.getState().playing,
+    previewNote: (synth, midi) => {
+      try {
+        void audio.resume()
+        const at = Math.round(audio.currentTimeFrames)
+        audio.send({ kind: 'noteOn', synth, note: midi, velocity: 0.8, atFrame: at })
+        audio.send({ kind: 'noteOff', synth, note: midi, atFrame: at + Math.round(0.3 * audio.sampleRate) })
+      } catch {
+        // preview is a garnish — never let it break a tap
+      }
+    },
     onNoteEvents: (fn) =>
       subscribePatternEvents((evs) => {
         const notes = toNoteEvs(evs)
@@ -779,6 +805,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     window.removeEventListener('pagehide', flushSave)
     document.removeEventListener('visibilitychange', onVisibility)
     clearTimeout(widgetEvalTimer)
+    clearTimeout(liveTypeTimer)
     flushSave() // the last text is still worth keeping
     session.dispose()
     flasher.dispose()

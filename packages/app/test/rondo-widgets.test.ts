@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, stepStarts, toNorm, fromNorm } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, stepStarts, toNorm, fromNorm, rollPreviewMidi } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -111,6 +111,24 @@ describe('live-widget wiring (pure parts)', () => {
     const starts = stepStarts('0 0 3 5 ~ 7')
     expect(starts).toEqual([0, 2, 4, 6, 8, 10])
     expect(starts.indexOf(4)).toBe(2) // atom at offset 4 → column 2
+  })
+})
+
+describe('grid note preview', () => {
+  it('scanPlays captures the synth name and short scale', () => {
+    const [p] = scanPlays('play acid\n  0 3 5 7  scale:a-min\n')
+    expect(p).toMatchObject({ synth: 'acid', scale: 'a-min' })
+  })
+  it('rollPreviewMidi resolves degrees through the scale (a-min root = A above middle C region)', () => {
+    // a minor: degree 0 = the root; degree 7 = the octave
+    const root = rollPreviewMidi('a-min', 0)!
+    expect(rollPreviewMidi('a-min', 7)).toBe(root + 12)
+    // degree 2 in minor = a minor third up
+    expect(rollPreviewMidi('a-min', 2)).toBe(root + 3)
+  })
+  it('returns undefined without a scale (scale-less degree grids are silent anyway)', () => {
+    expect(rollPreviewMidi(undefined, 3)).toBeUndefined()
+    expect(rollPreviewMidi('zz-nope', 3)).toBeUndefined()
   })
 })
 

@@ -18,6 +18,8 @@ import type { Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
+import { parseScaleName, scaleDegree } from '@rondocode/pattern'
+import { expandScale } from '@rondocode/rondo'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -50,6 +52,33 @@ export interface Hooks {
    *  back to the pattern on its next event. */
   holdParam?: (synth: string, name: string, value: number) => void
   releaseParam?: (synth: string, name: string) => void
+  /** GRID PREVIEW: sound one note now (tapping a piano-roll cell while the
+   *  transport is stopped previews what you just placed). */
+  previewNote?: (synth: string, midi: number) => void
+  isPlaying?: () => boolean
+}
+
+/** A tiny haptic tick on widget interactions (Android; a silent no-op where
+ *  the Vibration API is missing, e.g. iOS Safari). */
+export const buzz = (ms = 8): void => {
+  try {
+    ;(navigator as { vibrate?: (ms: number) => void }).vibrate?.(ms)
+  } catch {
+    // vibration is a garnish — never let it throw
+  }
+}
+
+/** Resolve a grid degree to a MIDI note through a SHORT scale name
+ *  ('a-min'). Returns undefined when there is no scale (a scale-less degree
+ *  pattern is silent anyway) or the name doesn't parse. */
+export function rollPreviewMidi(scaleShort: string | undefined, degree: number): number | undefined {
+  if (scaleShort === undefined) return undefined
+  try {
+    const { root, intervals } = parseScaleName(expandScale(scaleShort))
+    return root + scaleDegree(intervals, degree)
+  } catch {
+    return undefined
+  }
 }
 
 /** SchedulerEvents → the reduced NoteEv shape widgets animate from (shared by
@@ -197,6 +226,10 @@ export interface PlayRoll {
   /** char range of the notation string in the source (what a tap rewrites). */
   from: number
   to: number
+  /** the play block's synth (preview routes a tapped note to it). */
+  synth?: string
+  /** short scale name from an inline `scale:a-min`, for degree→pitch preview. */
+  scale?: string
   /** the notation text itself — a play event's `loc.src` equals this, which is
    *  how the grid recognizes its own notes for playhead lighting. */
   content: string
@@ -224,7 +257,7 @@ export function scanPlays(text: string): PlayRoll[] {
   let o = 0
   for (const l of lines) { offs.push(o); o += l.length + 1 }
   for (let i = 0; i < lines.length; i++) {
-    const ph = /^([ \t]*)play\s+\S/.exec(lines[i]!)
+    const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)/.exec(lines[i]!)
     if (!ph) continue // a play header (top-level OR nested in a section)
     const playIndent = ph[1]!.length
     const nx = lines[i + 1]
@@ -240,7 +273,10 @@ export function scanPlays(text: string): PlayRoll[] {
     if (toks.length === 0) continue
     if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
     const from = offs[i + 1]! + indent
-    out.push({ from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) })
+    const roll: PlayRoll = { from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) }
+    roll.synth = ph[2]!
+    if (scale) roll.scale = scale[0]!.slice('scale:'.length)
+    out.push(roll)
   }
   return out
 }
@@ -324,6 +360,7 @@ class KnobWidget extends WidgetType {
       wrap.setPointerCapture(e.pointerId)
       this.drag.active = true
       wrap.classList.add('active')
+      buzz()
       wrap.classList.remove('live') // grabbing overrides the pattern drive
       const startY = e.clientY
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
@@ -486,6 +523,7 @@ class EnvWidget extends WidgetType {
     wrap.addEventListener('pointerdown', (e) => {
       e.preventDefault(); e.stopPropagation()
       wrap.setPointerCapture(e.pointerId)
+      buzz()
       this.drag.active = true; wrap.classList.add('active')
       const rect = svg.getBoundingClientRect()
       const sx = (e.clientX - rect.left) * (W / rect.width)
@@ -574,6 +612,8 @@ class PianoRollWidget extends WidgetType {
     readonly to: number,
     readonly content: string,
     readonly steps: (number | null)[],
+    readonly synth: string | undefined,
+    readonly scale: string | undefined,
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
@@ -656,6 +696,14 @@ class PianoRollWidget extends WidgetType {
       steps[c] = next
       refresh(c)
       write()
+      buzz()
+      // preview the placed note while the transport is stopped — instant
+      // feedback while composing (playing back, the playhead sounds it anyway)
+      if (next !== null && this.synth !== undefined && this.hooks.previewNote !== undefined &&
+          !(this.hooks.isPlaying?.() ?? false)) {
+        const midi = rollPreviewMidi(this.scale, next)
+        if (midi !== undefined) this.hooks.previewNote(this.synth, midi)
+      }
     }
     grid.addEventListener('pointerdown', (e) => {
       const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
@@ -706,7 +754,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, hooks, drag), side: 1 }) })
   }
   for (const p of scanPlays(text)) {
-    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, hooks, drag), side: 1 }) })
+    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag), side: 1 }) })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()

@@ -12,6 +12,7 @@
  * editor never loses focus and the phone keyboard stays up. */
 
 import type { EditorView } from '@codemirror/view'
+import { buzz } from './widgets'
 
 export interface Chip {
   /** what the bar shows. */
@@ -245,6 +246,7 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView): PaletteHa
         // keyboard stays up — tapping the palette must never dismiss it
         b.addEventListener('pointerdown', (e) => {
           e.preventDefault()
+          buzz()
           insert(c)
         })
         return b

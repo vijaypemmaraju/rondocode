@@ -125,3 +125,16 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* Coarse pointers: autocomplete rows big enough for thumbs (the completion
+ * tooltip renders on both the editor and docs pages). */
+@media (pointer: coarse) {
+  .cm-tooltip-autocomplete > ul > li {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+  }
+  .cm-tooltip-autocomplete {
+    max-height: 40vh;
+  }
+}

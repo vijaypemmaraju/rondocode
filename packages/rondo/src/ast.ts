@@ -70,6 +70,8 @@ export interface PlayBlock {
   name: string
   /** raw notation text, handed verbatim to n()/note(). */
   notation: string
+  /** absolute char offset of `notation` in the source (for note-play flash). */
+  notationFrom: number
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
   /** modifier lines under the notation, applied in order. */

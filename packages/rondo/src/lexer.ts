@@ -27,6 +27,9 @@ export interface Line {
   raw: string
   /** column (1-based) where `raw` begins, for accurate positions. */
   rawCol: number
+  /** absolute char offset (into the whole source) where `raw` begins — used to
+   *  map notation ranges back to the editor buffer for note-play highlighting. */
+  offset: number
   toks: Tok[]
 }
 
@@ -89,19 +92,25 @@ export function lex(src: string): { lines: Line[]; errors: RondoError[] } {
   const errors: RondoError[] = []
   const lines: Line[] = []
   const rawLines = src.split('\n')
+  let lineStart = 0 // absolute offset of the current line in `src`
   for (let li = 0; li < rawLines.length; li++) {
     const rawFull = rawLines[li]!
     const lineNo = li + 1
     const noComment = stripComment(rawFull)
-    if (noComment.trim() === '') continue // blank / comment-only line: skip
-    const indentMatch = /^[ \t]*/.exec(noComment)![0]
-    if (indentMatch.includes('\t')) {
-      errors.push({ message: 'use spaces, not tabs, for indentation', line: lineNo, col: 1 })
+    if (noComment.trim() !== '') {
+      const indentMatch = /^[ \t]*/.exec(noComment)![0]
+      if (indentMatch.includes('\t')) {
+        errors.push({ message: 'use spaces, not tabs, for indentation', line: lineNo, col: 1 })
+      }
+      const indent = indentMatch.length
+      const rawCol = indent + 1
+      const text = noComment.slice(indent).replace(/\s+$/, '')
+      lines.push({
+        indent, line: lineNo, raw: text, rawCol, offset: lineStart + indent,
+        toks: tokenizeLine(text, lineNo, rawCol, errors),
+      })
     }
-    const indent = indentMatch.length
-    const rawCol = indent + 1
-    const text = noComment.slice(indent).replace(/\s+$/, '')
-    lines.push({ indent, line: lineNo, raw: text, rawCol, toks: tokenizeLine(text, lineNo, rawCol, errors) })
+    lineStart += rawFull.length + 1 // +1 for the '\n' consumed by split
   }
   return { lines, errors }
 }

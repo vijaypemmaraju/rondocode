@@ -279,21 +279,26 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
   if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
   const { body, next } = bodyLines(lines, i + 1)
   if (body.length === 0) errors.push({ message: `play '${name}' has no notation`, line: header.line, col: header.rawCol })
-  // first body line = notation (+ optional inline `scale:`); the rest = modifiers
+  // first body line = notation (+ optional inline `scale:`); the rest = modifiers.
+  // Keep the notation's internal spacing intact so its char range lines up with
+  // the buffer 1:1 — that's what lets note-play flash highlight the source.
   const first = body[0]
   let notation = ''
+  let notationFrom = first ? first.offset : 0
   let scale: string | undefined
   if (first) {
     const m = /\bscale:([a-gA-G][a-z0-9#-]*)/.exec(first.raw)
     if (m) scale = m[1]
-    notation = (m ? first.raw.replace(m[0], '') : first.raw).replace(/\s+/g, ' ').trim()
+    const raw = m ? first.raw.slice(0, m.index) : first.raw // notation is the part before `scale:`
+    notation = raw.replace(/\s+$/, '')
+    notationFrom = first.offset
   }
   const mods: Mod[] = []
   for (const ln of body.slice(1)) {
     const mod = parseMod(ln, errors)
     if (mod) mods.push(mod)
   }
-  return { block: { t: 'play', name, notation, scale, mods, pos: header.toks[0]!.pos }, next }
+  return { block: { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }, next }
 }
 
 function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsItem; next: number } {

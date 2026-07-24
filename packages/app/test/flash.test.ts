@@ -6,6 +6,7 @@ import {
   MAX_PENDING_FLASHES,
   collectStringLiterals,
   locToDocRanges,
+  rondoNoteLiterals,
 } from '../src/editor/flash'
 
 /* Pure parts of event flashing: string-literal collection and mini-Loc →
@@ -55,6 +56,20 @@ describe('collectStringLiterals', () => {
   it('does NOT merge `+` with a non-string operand', () => {
     const lits = collectStringLiterals(`const x = 'a' + y + 'b'`)
     expect(lits.map((l) => l.content)).toEqual(['a', 'b'])
+  })
+})
+
+describe('rondoNoteLiterals (note-play flash in rondo mode)', () => {
+  it('maps a mini-Loc into the notation’s buffer range', () => {
+    // notation "0 3 5 7" lives at char offset 30 in the rondo buffer
+    const lits = rondoNoteLiterals([{ content: '0 3 5 7', from: 30 }])
+    // the "5" is at index 4..5 of the notation; loc.src pins the exact string
+    const ranges = locToDocRanges(lits, { start: 4, end: 5, src: '0 3 5 7' }, { n: 5, note: 65, sound: 's' })
+    expect(ranges).toEqual([{ from: 34, to: 35 }])
+  })
+  it('ignores a loc whose src is a different notation (no cross-lighting)', () => {
+    const lits = rondoNoteLiterals([{ content: '0 3 5 7', from: 30 }])
+    expect(locToDocRanges(lits, { start: 0, end: 2, src: 'c4 e4' }, { note: 60 })).toEqual([])
   })
 })
 

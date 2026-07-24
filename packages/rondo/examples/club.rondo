@@ -1,6 +1,6 @@
 # a full club track in PURE rondo — no escape hatch anywhere.
-# kick · offbeat sub · chord stabs (named chords) · a shared reverb bus ·
-# sidechain pump · master glue.
+# build→drop SECTIONS · kick · offbeat sub · named-chord stabs · a shared
+# reverb bus · sidechain pump · master glue.
 
 synth kick
   sine drop
@@ -28,18 +28,25 @@ synth stab
     delay .28 .3
     reverb room:.7 mix:.25
 
-play kick
-  c2 c2 c2 c2
+section intro 4
+  play stab
+    <Em Em Cmaj7 G>
+    dur: .95
+    gain: .4
 
-play sub
-  ~ e1 ~ e1 ~ e1 ~ e1
-  dur: .18
+section drop 8
+  play kick
+    c2 c2 c2 c2
+  play sub
+    ~ e1 ~ e1 ~ e1 ~ e1
+    dur: .18
+  play stab
+    <Em Em Cmaj7 G>
+    struct ~ t ~ t t ~ ~ t
+    dur: .2
+    gain: .6
 
-play stab
-  <Em Em Cmaj7 G>
-  struct ~ t ~ t t ~ ~ t
-  dur: .2
-  gain: .6
+song intro drop drop intro
 
 bus space
   reverb room:.9 damp:.35

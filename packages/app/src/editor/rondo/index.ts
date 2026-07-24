@@ -16,7 +16,7 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
 /** Block keywords. */
-const KEYWORDS = new Set(['synth', 'play', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'visual', 'js'])
+const KEYWORDS = new Set(['synth', 'play', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'visual', 'js', 'section', 'song'])
 /** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
  *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([

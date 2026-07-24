@@ -40,7 +40,7 @@ const globalNames = new Set(docsOfKind('global').map((e) => e.name))
  *  chord/stack/mini), and the continuous signals as ctrl values. */
 const FIRST_CLASS_GLOBALS = [
   'synth', 'defineSynth', 'p', 'setCps', 'sidechain', 'masterCompress', 'bus',
-  'n', 'note', 'chord', 'stack', 'mini',
+  'n', 'note', 'chord', 'stack', 'mini', 'arrange',
   'sine', 'sine2', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'rand', 'perlin',
 ]
 
@@ -57,7 +57,7 @@ describe('rondo ⇄ JS DSL parity scoreboard', () => {
       `[parity] globals: ${first.size}/${globalNames.size} first-class · ` +
       `escape-hatch-only (${escapeOnly.length}): ${escapeOnly.join(', ')}`,
     )
-    expect(first.size).toBeGreaterThanOrEqual(24)
+    expect(first.size).toBeGreaterThanOrEqual(25)
     expect(first.size + escapeOnly.length).toBe(globalNames.size)
   })
 

@@ -138,9 +138,28 @@ export interface VisualItem {
   pos: Pos
 }
 
+/** `section NAME LEN` — a named block of nested plays, LEN cycles long.
+ *  Sections stack their plays and sequence via arrange() (see SongItem). */
+export interface SectionBlock {
+  t: 'section'
+  name: string
+  len: number
+  plays: PlayBlock[]
+  pos: Pos
+}
+
+/** `song intro drop drop intro` — the section order. Optional: without it,
+ *  sections play in definition order. */
+export interface SongItem {
+  t: 'song'
+  order: string[]
+  pos: Pos
+}
+
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
+  | SectionBlock | SongItem
 
 export interface Program {
   items: TopItem[]

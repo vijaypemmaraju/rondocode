@@ -267,7 +267,9 @@ function entryFor(notation: string): 'chord' | 'note' | 'n' {
   return 'n'
 }
 
-function cgPlay(block: PlayBlock): string {
+/** The pattern EXPRESSION for a play block (no p() wrapper) — sections stack
+ *  these; a top-level play wraps it in p(). */
+function cgPlayPat(block: PlayBlock): string {
   const lineExpr = (notation: string): string => `${entryFor(notation)}(${q(notation)})`
   // multiple notation lines stack into voices, like the JS stack(n(…), n(…))
   let pat = block.voices !== undefined && block.voices.length > 0
@@ -276,7 +278,17 @@ function cgPlay(block: PlayBlock): string {
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
   pat += `.sound('${block.name}')`
   for (const m of block.mods) pat += cgMod(m)
-  return `p('${block.name}', ${pat})`
+  return pat
+}
+
+function cgPlay(block: PlayBlock): string {
+  return `p('${block.name}', ${cgPlayPat(block)})`
+}
+
+function cgSection(item: Extract<TopItem, { t: 'section' }>): string {
+  const pats = item.plays.map(cgPlayPat)
+  const body = pats.length === 1 ? pats[0]! : `stack(${pats.join(', ')})`
+  return `const __sec_${item.name} = ${body}`
 }
 
 function cgSidechain(item: Extract<TopItem, { t: 'sidechain' }>): string {
@@ -307,6 +319,8 @@ function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
 }
 
 export function codegen(program: Program, errors: RondoError[]): string {
+  const sections = program.items.filter((it): it is Extract<TopItem, { t: 'section' }> => it.t === 'section')
+  const song = program.items.find((it): it is Extract<TopItem, { t: 'song' }> => it.t === 'song')
   const parts = program.items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
@@ -315,7 +329,27 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'master') return cgMaster(item)
     if (item.t === 'bus') return cgBus(item, errors)
     if (item.t === 'visual') return cgVisual(item)
+    if (item.t === 'section') return cgSection(item)
+    if (item.t === 'song') return '' // assembled below, after all sections exist
     return `setCps(${num(item.value)})` // cps
   })
-  return parts.join('\n\n') + '\n'
+  // sections → ONE arranged 'song' pattern, in `song` order (or definition
+  // order without a song line)
+  if (sections.length > 0) {
+    const byName = new Map(sections.map((s) => [s.name, s]))
+    const order = song !== undefined ? song.order : sections.map((s) => s.name)
+    const entries: string[] = []
+    for (const name of order) {
+      const sec = byName.get(name)
+      if (sec === undefined) {
+        errors.push({ message: `song references unknown section '${name}'`, line: song?.pos.line ?? 1, col: song?.pos.col ?? 1 })
+        continue
+      }
+      entries.push(`[${num(sec.len)}, __sec_${name}]`)
+    }
+    parts.push(`p('song', arrange(${entries.join(', ')}))`)
+  } else if (song !== undefined) {
+    errors.push({ message: 'song needs section blocks to sequence', line: song.pos.line, col: song.pos.col })
+  }
+  return parts.filter((s) => s !== '').join('\n\n') + '\n'
 }

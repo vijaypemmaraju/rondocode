@@ -25,7 +25,7 @@ export function compile(src: string): CompileResult {
   const code = codegen(program, errors)
   if (errors.length > 0) return { ok: false, code: null, notes: [], errors }
   const notes: NoteSpan[] = program.items
-    .filter((it): it is Extract<typeof it, { t: 'play' }> => it.t === 'play')
+    .flatMap((it) => (it.t === 'play' ? [it] : it.t === 'section' ? it.plays : []))
     .flatMap((p) => [
       { content: p.notation, from: p.notationFrom },
       ...(p.voices ?? []).map((v) => ({ content: v.notation, from: v.notationFrom })),

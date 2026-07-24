@@ -207,11 +207,13 @@ export function scanPlays(text: string): PlayRoll[] {
   let o = 0
   for (const l of lines) { offs.push(o); o += l.length + 1 }
   for (let i = 0; i < lines.length; i++) {
-    if (!/^play\s+\S/.test(lines[i]!)) continue // header at indent 0
+    const ph = /^([ \t]*)play\s+\S/.exec(lines[i]!)
+    if (!ph) continue // a play header (top-level OR nested in a section)
+    const playIndent = ph[1]!.length
     const nx = lines[i + 1]
     if (nx === undefined) continue
     const indent = /^[ \t]*/.exec(nx)![0].length
-    if (indent === 0) continue // next line isn't a body line
+    if (indent <= playIndent) continue // next line isn't a body line
     // strip a trailing `# comment`, then an inline `scale:…`
     const cm = /(^|\s)#/.exec(nx)
     const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx

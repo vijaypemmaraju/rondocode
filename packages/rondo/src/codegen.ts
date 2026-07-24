@@ -16,6 +16,17 @@ const SCALE_MODE: Record<string, string> = {
 
 const num = (v: number): string => String(v)
 
+/** Synth/post ctx members — when a `js{ … }` escape hatch inside a synth body
+ *  references one, we must destructure it so the raw JS can see it. */
+const KNOWN_CTX = [
+  'note', 'gate', 'velocity', 'param', 'input',
+  'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr',
+  'sample', 'granular', 'pluck', 'modal',
+  'svf', 'ladder', 'onepole', 'adsr', 'env', 'lfo',
+  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
+  'eq', 'exciter', 'ott', 'bitcrush', 'mix',
+]
+
 /** Expand a short scale name (`a-min`) to what .scale() expects (`a minor`). */
 function expandScale(short: string): string {
   const dash = short.indexOf('-')
@@ -36,6 +47,7 @@ class SynthGen {
       case 'ident':
         if (e.name === 'note') { this.uses.add('note'); return 'note.freq' }
         if (e.name === 'gate') { this.uses.add('gate'); return 'gate' }
+        if (e.name === 'input') { this.uses.add('input'); return 'input' }
         return e.name // a binding-local const
       case 'bin': {
         const method = BIN_METHOD[e.op]!
@@ -48,6 +60,11 @@ class SynthGen {
         return `${this.expr(e.x)}.range(${this.expr(e.lo)}, ${this.expr(e.hi)})`
       case 'call':
         return this.call(e)
+      case 'js':
+        // escape hatch: raw JS, verbatim. Destructure any ctx members it names
+        // so the raw code can see them inside the synth fn.
+        for (const name of KNOWN_CTX) if (new RegExp(`\\b${name}\\b`).test(e.code)) this.uses.add(name)
+        return e.code
       case 'knob':
         this.errors.push({ message: 'knob can only appear on a binding (`cutoff = knob …`)', line: e.pos.line, col: e.pos.col })
         return '0'
@@ -81,6 +98,29 @@ class SynthGen {
       this.uses.add('onepole')
       return `onepole(${a[0]}, ${a[1]})`
     }
+    // ---- effects (voice or post chain) ----
+    const opts = (keys: [string, string][]): string => {
+      const parts = keys.filter(([k]) => e.named[k]).map(([k, out]) => `${out}: ${this.expr(e.named[k]!)}`)
+      return parts.length ? `, { ${parts.join(', ')} }` : ''
+    }
+    if (name === 'reverb') {
+      this.uses.add('reverb')
+      const base = `reverb(${a[0]}${opts([['room', 'roomSize'], ['damp', 'damp']])})`
+      // `mix:` is wet/dry sugar — reverb is wet-only, so blend it back over the dry
+      return e.named.mix ? `${a[0]}.mix(${base}, ${this.expr(e.named.mix)})` : base
+    }
+    if (name === 'chorus') {
+      this.uses.add('chorus')
+      return `chorus(${a[0]}${opts([['rate', 'rate'], ['depth', 'depth'], ['mix', 'mix']])})`
+    }
+    if (name === 'exciter') {
+      this.uses.add('exciter')
+      return `exciter(${a[0]}${opts([['freq', 'freq'], ['amount', 'amount'], ['drive', 'drive']])})`
+    }
+    if (name === 'ott') {
+      this.uses.add('ott')
+      return `ott(${a[0]}${opts([['depth', 'depth'], ['low', 'low'], ['high', 'high'], ['makeup', 'makeup']])})`
+    }
     this.errors.push({ message: `unknown builtin \`${name}\``, line: e.pos.line, col: e.pos.col })
     return '0'
   }
@@ -106,6 +146,7 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
       case 'map': return [...refs(e.x), ...refs(e.lo), ...refs(e.hi)]
       case 'call': return [...e.args.flatMap(refs), ...Object.values(e.named).flatMap(refs)]
       case 'knob': return [...refs(e.def), ...refs(e.lo), ...refs(e.hi)]
+      case 'js': return []
       default: return []
     }
   }
@@ -124,17 +165,26 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
   return out
 }
 
-function cgSynth(block: SynthBlock, errors: RondoError[]): string {
+/** Render one `(ctx) => …` chain function: topo-sorted bindings + `return`. */
+function cgChain(bindings: Binding[], spine: Expr, headOrder: string[], errors: RondoError[]): string {
   const g = new SynthGen(errors)
-  const ordered = orderBindings(block.bindings, errors)
+  const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
-  const spine = g.expr(block.spine)
-  // canonical destructure order: note, gate, param, then the rest sorted
-  const head = ['note', 'gate', 'param'].filter((n) => g.uses.has(n))
+  const spineStr = g.expr(spine)
+  const head = headOrder.filter((n) => g.uses.has(n))
   const rest = [...g.uses].filter((n) => !head.includes(n)).sort()
   const destructure = [...head, ...rest].join(', ')
-  const body = [...bindingLines, `  return ${spine}`].join('\n')
-  return `const ${block.name} = synth(({ ${destructure} }) => {\n${body}\n})`
+  const body = [...bindingLines, `  return ${spineStr}`].join('\n')
+  return `({ ${destructure} }) => {\n${body}\n}`
+}
+
+function cgSynth(block: SynthBlock, errors: RondoError[]): string {
+  const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors)
+  if (block.post) {
+    const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)
+    return `const ${block.name} = synth(${voice}, ${post})`
+  }
+  return `const ${block.name} = synth(${voice})`
 }
 
 const q = (s: string): string => `'${s.replace(/'/g, "\\'")}'`
@@ -179,7 +229,8 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const parts = program.items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
-    return `setCps(${num(item.value)})`
+    if (item.t === 'raw') return item.code // escape hatch, verbatim
+    return `setCps(${num(item.value)})` // cps
   })
   return parts.join('\n\n') + '\n'
 }

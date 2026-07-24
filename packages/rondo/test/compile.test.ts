@@ -63,10 +63,59 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.every(4, x => x.rev())')
   })
 
+  it('reports notation spans whose offset exactly matches the source substring', () => {
+    // this invariant is what lets note-play flash light the rondo buffer: a
+    // mini-notation Loc is an offset into `content`, and content sits at
+    // [from, from+len) in the source, so from+loc.start is the buffer position.
+    const src = `synth s\n  saw\n\nplay s\n  0 3 5 7  scale:c-maj\n`
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes).toHaveLength(1)
+    const { content, from } = r.notes[0]!
+    expect(content).toBe('0 3 5 7')
+    expect(src.slice(from, from + content.length)).toBe(content)
+  })
+
+  it('js{ … } escape hatch: inline expression destructures the ctx it names', () => {
+    const out = ok(`synth s\n  js{ saw(note.freq).tanh() }\n`)
+    expect(out).toContain('return saw(note.freq).tanh()')
+    expect(out).toContain('synth(({ note, saw }) =>')
+  })
+
+  it('js{ … } escape hatch: a top-level one-liner passes through verbatim', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs{ sidechain('kick', { depth: 0.7 }) }\n`)
+    expect(out).toContain("sidechain('kick', { depth: 0.7 })")
+  })
+
+  it('js escape hatch: a `js` block emits its indented body verbatim', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs\n  sidechain('kick', { depth: 0.6 })\n  masterCompress({ threshold: -6 })\n`)
+    expect(out).toContain("sidechain('kick', { depth: 0.6 })")
+    expect(out).toContain('masterCompress({ threshold: -6 })')
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")
     expect(out).toContain('.fast(2)')
     expect(out).toContain(".ctrl('index', '<1 2.5>')")
+  })
+
+  it('emits a post chain as the synth() second arg, with mix wet/dry sugar', () => {
+    const out = ok(`synth pad\n  saw\n  * env\n  env = adsr .3 .5 .8 1\n  post\n    reverb room:.85 mix:.35\n`)
+    // two-function synth(): voice then post (post ctx destructures `input`)
+    expect(out).toContain('}, ({ input')
+    // reverb is wet-only, so mix: blends it back over the dry input
+    expect(out).toContain('input.mix(reverb(input, { roomSize: 0.85 }), 0.35)')
+  })
+
+  it('supports a drivable POST param (knob in post → param, driven by .ctrl)', () => {
+    const out = ok(
+      `synth pad\n  saw\n  post\n    reverb room:.85 mix:wet\n    wet = knob .35 0..0.7\n\n` +
+      `play pad\n  0 3 5\n  wet: sine 0..0.7 slow:8\n`,
+    )
+    expect(out).toContain("const wet = param('wet', 0.35, { min: 0, max: 0.7 })")
+    expect(out).toContain('input.mix(reverb(input, { roomSize: 0.85 }), wet)')
+    expect(out).toContain(".ctrl('wet', sine.range(0, 0.7).slow(8))")
   })
 })

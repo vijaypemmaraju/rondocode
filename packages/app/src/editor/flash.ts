@@ -238,6 +238,18 @@ export function locToDocRanges(
   return out
 }
 
+/** Build flash literals from rondo notation spans: `content` is the mini string
+ *  the compiler passed to n()/note() (so it equals each event's `loc.src`), and
+ *  `from` is that string's char offset in the rondo buffer. One single-piece
+ *  literal each — a mini Loc offset indexes straight into it. */
+export function rondoNoteLiterals(notes: { content: string; from: number }[]): StringLit[] {
+  return notes.map((n) => ({
+    contentStart: n.from,
+    content: n.content,
+    pieces: [{ assembledStart: 0, sourceStart: n.from, length: n.content.length }],
+  }))
+}
+
 type SetTimeoutImpl = (fn: () => void, ms: number) => unknown
 type ClearTimeoutImpl = (handle: unknown) => void
 
@@ -276,6 +288,13 @@ export class EventFlasher {
   /** Call after every successful eval with the eval'd source. */
   onGoodEval(source: string): void {
     this.literals = collectStringLiterals(source)
+  }
+
+  /** rondo mode: set flash literals directly. The eval'd source is transpiled
+   *  JS (not the buffer), so we can't scan it here — the rondo compiler supplies
+   *  each notation string + its buffer offset (see rondoNoteLiterals). */
+  onGoodEvalLiterals(literals: StringLit[]): void {
+    this.literals = literals
   }
 
   /** Session.onPatternEvents hook. */

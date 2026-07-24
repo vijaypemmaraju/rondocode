@@ -24,6 +24,8 @@ export type Expr =
   | { t: 'map'; x: Expr; lo: Expr; hi: Expr; pos: Pos }
   /** a live control declared on a binding: `knob DEF lo..hi curve`. */
   | { t: 'knob'; def: Expr; lo: Expr; hi: Expr; curve?: string; pos: Pos }
+  /** raw rondocode/JS passed through verbatim via the `js{ … }` escape hatch. */
+  | { t: 'js'; code: string; pos: Pos }
 
 /* ---- top-level items ----------------------------------------------------- */
 export interface Binding {
@@ -38,6 +40,9 @@ export interface SynthBlock {
   bindings: Binding[]
   /** the audio spine, already folded into one expression. */
   spine: Expr
+  /** optional post chain (a `post` sub-block): a spine folded from `input`. */
+  post?: Expr
+  postBindings?: Binding[]
   pos: Pos
 }
 
@@ -67,6 +72,8 @@ export interface PlayBlock {
   name: string
   /** raw notation text, handed verbatim to n()/note(). */
   notation: string
+  /** absolute char offset of `notation` in the source (for note-play flash). */
+  notationFrom: number
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
   /** modifier lines under the notation, applied in order. */
@@ -80,7 +87,15 @@ export interface CpsItem {
   pos: Pos
 }
 
-export type TopItem = SynthBlock | PlayBlock | CpsItem
+/** Raw rondocode/JS passed through verbatim — a top-level `js{ … }` line or a
+ *  `js` block (header + indented body). The parity escape hatch. */
+export interface RawItem {
+  t: 'raw'
+  code: string
+  pos: Pos
+}
+
+export type TopItem = SynthBlock | PlayBlock | CpsItem | RawItem
 
 export interface Program {
   items: TopItem[]

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
+import { compile } from '@rondocode/rondo'
 import { EXAMPLES, SHIPPED_EXAMPLES } from '../src/examples'
 import { evalCode } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
@@ -17,6 +18,33 @@ describe('examples', () => {
     expect(SHIPPED_EXAMPLES).toHaveLength(19)
     expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(EXAMPLES.length) // all unique
     for (const s of SHIPPED_EXAMPLES) expect(EXAMPLES).toContainEqual(s)
+  })
+
+  // Rondo example twins: whichever examples carry a `rondo` source must
+  // transpile and then eval exactly like the JS version does. This guards the
+  // "every example gets a rondo version" goal as it fills in.
+  const rondoTwins = EXAMPLES.filter((e) => e.rondo !== undefined)
+  describe('rondo twins', () => {
+    it('has at least one rondo example twin', () => {
+      expect(rondoTwins.length).toBeGreaterThanOrEqual(1)
+    })
+    for (const ex of rondoTwins) {
+      it(`'${ex.name}' rondo source transpiles + evals clean + sounds`, () => {
+        const c = compile(ex.rondo!)
+        expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+        if (!c.ok) return
+        const result = evalCode(c.code, baseScope)
+        expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+        expect(result.ok).toBe(true)
+        const span = new TimeSpan(F(0), F(2))
+        for (const [, pat] of result.patterns) {
+          const sounding = pat.query(span).filter(hasOnset).filter(
+            (h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string',
+          )
+          expect(sounding.length).toBeGreaterThanOrEqual(1)
+        }
+      })
+    }
   })
 
   for (const ex of EXAMPLES) {

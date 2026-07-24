@@ -638,7 +638,7 @@ cps .5`,
     blocks: [
       p('A `play NAME` block routes notation to a synth. Bare digits are scale degrees (`0 3 5` + `scale:a-min`), lowercase letters are note names (`c2 e2`), an UPPERCASE root means chord names (`<Em Cmaj7 G>`). All mini-notation works inside: `~` rests, `<>` alternation, `[]` subdivision, `*` repeat, `@` weights. A simple degree line renders as a TAPPABLE GRID — draw the melody with a finger.'),
       p('Extra notation lines before the modifiers STACK as voices — a hand-built chord, one line per voice.'),
-      p('Two more notation forms: a `beat` block\'s words are SYNTH NAMES (`beat` then `kick hat kick hat` — the drum-machine line; modifiers work as usual), and `irand 8 seg:16` plays random scale degrees 0..7, sixteen steps per cycle — a deterministic improviser (same seed every cycle position).'),
+      p('Two more notation forms: a `beat` block\'s words are SYNTH NAMES (`beat` then `kick hat kick hat` — the drum-machine line; modifiers work as usual; a `kick:.6` suffix sets that STEP\'s velocity, and in the grid a tap on an active step cycles full → soft → ghost → off), and `irand 8 seg:16` plays random scale degrees 0..7, sixteen steps per cycle — a deterministic improviser (same seed every cycle position).'),
       rondo(
         'A drum machine: every simple beat line is a tappable STEP GRID.',
         `synth kick

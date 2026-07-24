@@ -182,6 +182,18 @@ describe('rondo → rondocode codegen', () => {
     expect(compile(`beat\n  kick hat\n  scale: a-min\n`).ok).toBe(false)
   })
 
+  it('beat velocity suffixes: `kick:.6` → an aligned per-voice gain pattern', () => {
+    expect(ok(`beat\n  kick ~ kick:.6 ~\n`))
+      .toContain(`s('kick ~ kick ~').gain('1 ~ 0.6 ~')`)
+    // no suffixes → no .gain; each stacked voice carries its OWN accents
+    expect(ok(`beat\n  kick ~ kick ~\n`)).toContain(`s('kick ~ kick ~'))`)
+    expect(ok(`beat\n  kick ~ kick:.6 ~\n  ~ hat:.3 ~ hat\n`))
+      .toContain(`stack(s('kick ~ kick ~').gain('1 ~ 0.6 ~'), s('~ hat ~ hat').gain('~ 0.3 ~ 1'))`)
+    // structure-preserving: works inside any mini nesting
+    expect(ok(`beat\n  [hat:.9 hat]*2 <ohat:.4 ~>\n`))
+      .toContain(`s('[hat hat]*2 <ohat ~>').gain('[0.9 1]*2 <0.4 ~>')`)
+  })
+
   it('irand notation line: `irand N [seg:M]` → n(irand(N).segment(M))', () => {
     expect(ok(`synth s1\n  saw\n\nplay s1\n  irand 8 seg:16\n  scale: e-min\n`))
       .toContain(`n(irand(8).segment(16)).scale('e minor').sound('s1')`)

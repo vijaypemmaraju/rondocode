@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, scanBeats, stepStarts, toNorm, fromNorm, rollPreviewMidi } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, scanBeats, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -100,7 +100,20 @@ describe('scanBeats (whole-block step sequencer)', () => {
     const b = block?.rows[0]
     expect(b).toBeDefined()
     expect(src.slice(b!.from, b!.to)).toBe('kick ~ kick ~') // exactly what a tap rewrites
-    expect(b).toMatchObject({ word: 'kick', steps: [true, false, true, false], hadComment: false })
+    expect(b).toMatchObject({ word: 'kick', steps: [1, null, 1, null], hadComment: false })
+  })
+
+  it('reads `word:v` velocity suffixes into steps; content is the STRIPPED text', () => {
+    const src = 'beat\n  kick ~ kick:.6 hat\n'
+    // mixed words disqualify — but kick:.6 is still a kick
+    expect(scanBeats(src)).toHaveLength(0)
+    const [block] = scanBeats('beat\n  kick ~ kick:.6 kick:0.3\n')
+    const b = block!.rows[0]!
+    expect(b.steps).toEqual([1, null, 0.6, 0.3])
+    // the compiler emits the stripped string into s() — the playhead matches it
+    expect(b.content).toBe('kick ~ kick kick')
+    // …but the rewrite range still covers the ORIGINAL text
+    expect(b.to - b.from).toBe('kick ~ kick:.6 kick:0.3'.length)
   })
 
   it('groups rows per block; named beats and sections get their own widgets', () => {
@@ -115,7 +128,7 @@ describe('scanBeats (whole-block step sequencer)', () => {
     const src = 'beat\n  ~ ~ ~ ~  # kick\n  ~ hat ~ hat\n'
     const [block] = scanBeats(src)
     expect(block!.rows.map((r) => r.word)).toEqual(['kick', 'hat'])
-    expect(block!.rows[0]).toMatchObject({ steps: [false, false, false, false], hadComment: true })
+    expect(block!.rows[0]).toMatchObject({ steps: [null, null, null, null], hadComment: true })
     expect(src.slice(block!.rows[0]!.from, block!.rows[0]!.to)).toBe('~ ~ ~ ~')
     // a non-word comment names nothing — the row stays plain text
     expect(scanBeats('beat\n  ~ ~ ~ ~  # four on floor\n')).toHaveLength(0)
@@ -142,6 +155,21 @@ describe('scanBeats (whole-block step sequencer)', () => {
     const blocks = scanBeats(src)
     expect(blocks).toHaveLength(1)
     expect(blocks[0]!.rows).toHaveLength(1)
+  })
+})
+
+describe('beat velocity helpers', () => {
+  it('nextVelocity cycles full → soft → ghost → off; odd values join the nearest tier', () => {
+    expect(nextVelocity(1)).toBe(0.6)
+    expect(nextVelocity(0.6)).toBe(0.3)
+    expect(nextVelocity(0.3)).toBeNull()
+    expect(nextVelocity(0.8)).toBe(0.6) // text-authored kick:.8 → soft next
+    expect(nextVelocity(0.5)).toBe(0.3)
+    expect(nextVelocity(0.1)).toBeNull()
+  })
+  it('beatTokens serializes velocities back to `word:v` suffixes', () => {
+    expect(beatTokens([1, null, 0.6, 0.3], 'kick')).toBe('kick ~ kick:0.6 kick:0.3')
+    expect(beatTokens([null, null], 'hat')).toBe('~ ~')
   })
 })
 

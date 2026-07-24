@@ -7,7 +7,7 @@
  */
 
 export { compile } from './compile'
-export { expandScale } from './codegen'
+export { expandScale, splitBeatVelocities } from './codegen'
 export { decompile } from './decompile'
 export type { CompileResult, NoteSpan } from './compile'
 export type { Program, TopItem, SynthBlock, PlayBlock, Expr, RondoError } from './ast'

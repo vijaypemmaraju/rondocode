@@ -610,6 +610,11 @@ function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound
       if (cname === undefined || cval === null) return null
       mods.unshift(`${cname}: ${cval}`)
     } else if ((m.method === 'gain' || m.method === 'dur' || m.method === 'pan') && m.args.length === 1) {
+      // .gain directly on s()/sound() is a PER-VOICE velocity pattern — stop
+      // here and let entryNotation zip it into `word:v` suffixes instead of
+      // hoisting it to a block-wide `gain:` modifier
+      if (m.method === 'gain' && isCall(m.obj) &&
+          (calleeName(m.obj) === 's' || calleeName(m.obj) === 'sound')) break
       const cval = ctrlValue(m.args[0]!)
       if (cval === null) return null
       mods.unshift(`${m.method}: ${cval}`)
@@ -650,6 +655,35 @@ function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound
   // the entry: n/note/chord('…'), s/sound('…') (a beat block), or stack(entries…)
   let entry: 'notes' | 'sound' | undefined
   const entryNotation = (e: Node): string | null => {
+    // s('kick ~ kick ~').gain('1 ~ 0.6 ~') → `kick ~ kick:0.6 ~` — zip the
+    // aligned per-voice gain pattern back into velocity suffixes (FLAT lines
+    // only; a structured gain bails the play to a js block — totality holds)
+    const gm = methodCall(e)
+    if (gm !== undefined) {
+      if (gm.method !== 'gain' || gm.args.length !== 1) return null
+      const inner = gm.obj
+      const gv = strValue(gm.args[0]!)
+      if (gv === undefined || !isCall(inner)) return null
+      const ien = calleeName(inner)
+      if (ien !== 's' && ien !== 'sound') return null
+      const notes = strValue((inner['arguments'] as Node[])[0] ?? { type: 'X' } as Node)
+      if (notes === undefined) return null
+      const nToks = notes.trim().split(/\s+/)
+      const gToks = gv.trim().split(/\s+/)
+      if (nToks.length !== gToks.length) return null
+      if (!nToks.every((t) => t === '~' || /^[a-zA-Z_]\w*$/.test(t))) return null // flat words only
+      const merged: string[] = []
+      for (let i = 0; i < nToks.length; i++) {
+        const w = nToks[i]!, g = gToks[i]!
+        if (w === '~') { merged.push('~'); continue }
+        if (g === '1' || g === '~') { merged.push(w); continue }
+        if (!/^\d*\.?\d+$/.test(g)) return null
+        merged.push(`${w}:${g}`)
+      }
+      if (entry !== undefined && entry !== 'sound') return null
+      entry = 'sound'
+      return merged.join(' ')
+    }
     if (!isCall(e)) return null
     const en = calleeName(e)
     const kind = en === 'n' || en === 'note' || en === 'chord' ? 'notes'

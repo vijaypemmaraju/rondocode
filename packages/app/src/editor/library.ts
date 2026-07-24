@@ -291,13 +291,15 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       const ex = EXAMPLES[Number(examplePick.value)]
       if (!ex) return
       // In rondo mode, load the example's rondo twin if it has one; if it
-      // doesn't yet, fall back to the JS DSL and switch the editor to match.
+      // doesn't yet, fall back to the JS DSL — switching the editor's language
+      // AFTER the doc swap, so the old rondo buffer is never re-evaled as JS.
       const useRondo = editor.getLang() === 'rondo' && ex.rondo !== undefined
-      if (editor.getLang() === 'rondo' && ex.rondo === undefined) editor.setLang('rondocode')
+      const needJsSwitch = editor.getLang() === 'rondo' && ex.rondo === undefined
       const code = useRondo ? ex.rondo! : ex.code
       void (async () => {
         const p = await store.createProject(ex.name, code)
         await switchTo(p)
+        if (needJsSwitch) editor.setLang('rondocode')
         await render()
       })()
     })

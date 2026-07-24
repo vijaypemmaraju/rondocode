@@ -88,10 +88,57 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain("sidechain('kick', { depth: 0.7 })")
   })
 
+  it('js block is truly verbatim: `#` inside strings and nested indent survive', () => {
+    // REGRESSION: body lines were taken from the comment-stripped lexer text,
+    // so a '#' inside a JS string got truncated and nested indent flattened.
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\njs\n  bus('space', ({ input, reverb }) => reverb(input), {\n    s: 0.4, // send #1 stays intact\n  })\n`)
+    expect(out).toContain('// send #1 stays intact')
+    expect(out).toContain('  s: 0.4,') // nested indent preserved relative to the block
+  })
+
   it('js escape hatch: a `js` block emits its indented body verbatim', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs\n  sidechain('kick', { depth: 0.6 })\n  masterCompress({ threshold: -6 })\n`)
     expect(out).toContain("sidechain('kick', { depth: 0.6 })")
     expect(out).toContain('masterCompress({ threshold: -6 })')
+  })
+
+  it('numeric-LHS arithmetic: folds constants, rewrites num−sig, rejects the rest', () => {
+    // REGRESSION: `1 - env` emitted `1.sub(env)` — a JS SyntaxError
+    const out = ok(`synth s\n  saw\n  * inv\n  inv = 1 - env\n  env = adsr .01 .1 .5 .1\n`)
+    expect(out).toContain('env.mul(-1).add(1)')
+    // number⊗number folds to a constant
+    expect(ok(`synth s\n  saw\n  * g\n  g = 2 * 3\n`)).toContain('const g = 6')
+    // num / sig and num ^ sig have no Sig form → positioned error, not garbage
+    expect(compile(`synth s\n  saw\n  * x\n  x = 2 / env\n  env = adsr .01 .1 .5 .1\n`).ok).toBe(false)
+  })
+
+  it('`->` binds at statement level, not inside call arguments', () => {
+    // REGRESSION: parsed as sine(2 -> 200..2000) → invalid `2.range(…)`
+    const out = ok(`synth s\n  sine\n  * env\n  env = adsr .01 .1 .5 .1\n  lfo = sine 2 -> 200..2000\n`)
+    expect(out).toContain('sine(2).range(200, 2000)')
+  })
+
+  it('rejects a duplicate binding instead of silently dropping the second', () => {
+    const r = compile(`synth s\n  saw\n  * env\n  env = adsr .01 .1 .7 .2\n  env = adsr .5 .5 .5 .5\n`)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors[0]!.message).toContain('duplicate')
+  })
+
+  it('rejects a near-miss scale instead of shipping it inside the notation', () => {
+    expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
+  })
+
+  it('supports negative number literals (sign glued, space-preceded)', () => {
+    const out = ok(`synth s\n  saw\n  * g\n  g = knob -6 -12..0\n`)
+    expect(out).toContain("param('g', -6, { min: -12, max: 0 })")
+    // subtraction still works, spaced or glued
+    expect(ok(`synth s\n  saw\n  * x\n  x = env - 1\n  env = adsr .01 .1 .5 .1\n`)).toContain('env.sub(1)')
+  })
+
+  it('js{ … } one-liner survives a `#` inside a string', () => {
+    // REGRESSION: comment stripping ran quote-blind and truncated the line
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\njs{ p('x', sound('bd # sn')) }\n`)
+    expect(out).toContain("sound('bd # sn')")
   })
 
   it('routes bare combinators and a mini-string ctrl value', () => {

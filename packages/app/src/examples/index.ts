@@ -42,7 +42,7 @@ p('bass',
     .ctrl('cutoff', sine.range(200, 2400).slow(4))
     // ...or take the wheel yourself: uncomment the next line and it renders
     // as a DRAGGABLE SLIDER right here in the code. (Plain numbers are live
-    // too, Alt+drag one on desktop, press-and-hold then drag on a phone.)
+    // too, Alt+drag one on desktop, touch and drag it sideways on a phone.)
     // .ctrl('cutoff', slider(1200, 200, 2400))
     // every 4th cycle, play the line backwards
     .every(4, x => x.rev()),

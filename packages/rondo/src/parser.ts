@@ -57,7 +57,10 @@ function parseExpr(c: Cursor, minPrec: number): Expr {
       left = { t: 'bin', op: t.v, l: left, r: right, pos: t.pos }
       continue
     }
-    if (t && t.k === 'arrow') {
+    // `x -> lo..hi` binds loosest of all: only at statement/binding level
+    // (minPrec ≤ 1), never inside a space-application argument — so
+    // `sine 2 -> 200..2000` maps the OSCILLATOR, not the literal 2.
+    if (t && t.k === 'arrow' && minPrec <= 1) {
       c.next()
       const lo = parseExpr(c, 3)
       const rt = c.peek()
@@ -164,6 +167,10 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       c.next(); c.next()
       const rhs = parseExpr(c, 0)
       if (!c.eof()) c.err('unexpected tokens after binding')
+      if (bindings.some((b) => b.name === bname)) {
+        c.err(`duplicate binding '${bname}' — each name can be defined once`, t0.pos)
+        continue
+      }
       bindings.push({ name: bname, expr: rhs, pos: t0.pos })
       continue
     }
@@ -293,6 +300,11 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
     const raw = m ? first.raw.slice(0, m.index) : first.raw // notation is the part before `scale:`
     notation = raw.replace(/\s+$/, '')
     notationFrom = first.offset
+    // near-miss like `scale:minor` (no a–g root) doesn't match the extractor —
+    // error rather than silently shipping "scale:minor" inside the notation
+    if (/\bscale:/.test(notation)) {
+      errors.push({ message: 'bad scale — write it like `scale:a-min` (root + mode)', line: first.line, col: first.rawCol })
+    }
   }
   const mods: Mod[] = []
   for (const ln of body.slice(1)) {
@@ -323,10 +335,22 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
     if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
-    // escape hatch, block: a lone `js` header + indented body → raw verbatim JS
+    // escape hatch, block: a lone `js` header + indented body → raw verbatim
+    // JS. Reconstruct each line from the ORIGINAL source (not Line.raw, which
+    // has rondo `#`-comments stripped — a `#` inside a JS string must survive)
+    // and dedent by the block's base indent so relative indentation is kept.
     else if (head.v === 'js' && ln.toks.length === 1) {
       const { body, next } = bodyLines(lines, i + 1)
-      items.push({ t: 'raw', code: body.map((b) => b.raw).join('\n'), pos: head.pos })
+      const base = body.length > 0 ? Math.min(...body.map((b) => b.indent)) : 0
+      const code = body
+        .map((b) => {
+          const lineStart = b.offset - b.indent
+          const nl = src.indexOf('\n', lineStart)
+          const full = src.slice(lineStart, nl === -1 ? src.length : nl).replace(/\s+$/, '')
+          return full.slice(base)
+        })
+        .join('\n')
+      items.push({ t: 'raw', code, pos: head.pos })
       i = next
     }
     else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps / js)`, line: ln.line, col: ln.rawCol }); i++ }

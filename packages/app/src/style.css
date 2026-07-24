@@ -437,6 +437,9 @@ body {
 .cm-scrub {
   text-decoration: underline dotted var(--c-faint) 1px;
   text-underline-offset: 3px;
+  /* touch: vertical pans stay native scrolling; sideways drags are the scrub
+     gesture (engaged instantly in scrub.ts — no long-press, no selection UI) */
+  touch-action: pan-y;
 }
 
 .cm-scrubbing {

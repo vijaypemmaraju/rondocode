@@ -51,12 +51,34 @@ class SynthGen {
         return e.name // a binding-local const
       case 'bin': {
         const method = BIN_METHOD[e.op]!
-        // both operands are Sigs normally; if the left is a bare number and the
-        // op is commutative, call the method on the (Sig) right operand instead
-        if (e.l.t === 'num' && (e.op === '+' || e.op === '*')) return `${this.expr(e.r)}.${method}(${this.expr(e.l)})`
+        // constant-fold number⊗number (a numeric literal has no Sig methods —
+        // `1.sub(env)` would be a JS SyntaxError, `(1).sub` a runtime one)
+        if (e.l.t === 'num' && e.r.t === 'num') {
+          const l = e.l.v, r = e.r.v
+          const v = e.op === '+' ? l + r : e.op === '-' ? l - r : e.op === '*' ? l * r : e.op === '/' ? l / r : Math.pow(l, r)
+          return num(v)
+        }
+        if (e.l.t === 'num') {
+          // commutative ops flip onto the Sig operand; `num - Sig` rewrites
+          // algebraically; the rest have no Sig form — error, don't emit garbage
+          if (e.op === '+' || e.op === '*') return `${this.expr(e.r)}.${method}(${this.expr(e.l)})`
+          if (e.op === '-') return `${this.expr(e.r)}.mul(-1).add(${this.expr(e.l)})`
+          this.errors.push({
+            message: `\`number ${e.op} signal\` isn't expressible — rewrite the expression (or use js{ … })`,
+            line: e.pos.line, col: e.pos.col,
+          })
+          return '0'
+        }
         return `${this.expr(e.l)}.${method}(${this.expr(e.r)})`
       }
       case 'map':
+        if (e.x.t === 'num') {
+          // a constant mapped through a range is a constant — fold when the
+          // bounds are constant too, otherwise it's not a Sig call: error
+          if (e.lo.t === 'num' && e.hi.t === 'num') return num(e.lo.v + e.x.v * (e.hi.v - e.lo.v))
+          this.errors.push({ message: 'the left side of `->` must be a signal (or all three values constant)', line: e.pos.line, col: e.pos.col })
+          return '0'
+        }
         return `${this.expr(e.x)}.range(${this.expr(e.lo)}, ${this.expr(e.hi)})`
       case 'call':
         return this.call(e)

@@ -4,6 +4,8 @@
  * events). The FIRST example ("acid") is what a first visit loads: a gentle,
  * self-documenting tutorial. */
 
+import { compile } from '@rondocode/rondo'
+
 export interface Example {
   name: string
   /** rondocode (JS DSL) source. */
@@ -1096,27 +1098,133 @@ const loadLocalExamples = (): Example[] => {
   })
 }
 
-/** The shipped examples (stable, committed). */
-/** The acid example in the rondo language (transpiles to the same kind of
- *  patch). The first of the shipped examples to gain a rondo twin. */
-const acidRondo = `# rondo — the terse, mobile-native language. It transpiles to rondocode.
-# A synth is a signal pipeline: one stage per line, each feeds the next.
-# \`name = …\` lines are modulation/CV (envelopes, knobs).
+/* Rondo-language example sources. MOBILE-FORMATTED on purpose: rondo is the
+ * phone-first surface, so lines stay under ~44 chars and comments sit on
+ * their OWN line above the code — a long trailing comment wraps mid-word on
+ * a phone and reads terribly. */
+
+/** The acid example in the rondo language. */
+const acidRondo = `# rondo — the terse live-coding language.
+# a synth is a pipeline: one stage per
+# line, each feeding the next.
+# \`name = …\` lines are modulation.
 
 synth acid
-  saw + square note/2          # source: a saw blended with a sub-square
-  ladder cutoff * env^2 res:.85 # this line's input is the line above
-  * env                        # the VCA
+  # a saw + a sub-octave square
+  saw + square note/2
+  # filter; its input is the line above
+  ladder cutoff * env^2 res:.85
+  # the VCA
+  * env
   env    = adsr .003 .2 .3 .1
   cutoff = knob 800 80..8000 log
 
 play acid
   0 0 3 5 0 0 7 5  scale:a-min
-  cutoff: sine 200..2400 slow:4  # sweep the filter (drives the knob param)
-  every 4: rev                   # every 4th cycle, backwards
+  # sweep the filter (turns the knob)
+  cutoff: sine 200..2400 slow:4
+  # every 4th cycle, backwards
+  every 4: rev
 
 cps .6
 `
+
+/** Wobble bass — the registry surface in one patch. */
+const wobbleRondo = `# wobble bass. supersaw + sub through an
+# LFO-swept ladder, tube drive, delay,
+# saturation — a mono glide bass.
+
+synth wob mono glide:.05
+  supersaw detune:.5 mix:.85
+  + square note/2
+  ladder cut res:.8
+  shape 2.2 type:tube
+  delay .375 .25
+  * env
+  tanh
+  cut = lfo rate tri -> 150..3200
+  rate = knob 4 .5..16
+  env = adsr .005 .1 .9 .06
+
+play wob
+  0 0 ~ 0 0 ~ 3 2  scale:e-min
+  gain: .8
+  dur: .9
+
+cps .55
+`
+
+/** A full club track — sections, chords, bus, pump, glue. Pure rondo. */
+const clubRondo = `# a full club track in pure rondo.
+# sections, named chords, a reverb bus,
+# sidechain pump, master glue.
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp  = adsr .001 .2 0 .07
+
+synth sub mono glide:.04
+  sine
+  mix edge .15
+  onepole 380
+  * env
+  tanh
+  edge = saw note
+  env = adsr .008 .12 .5 .07
+
+synth stab
+  supersaw detune:.4 mix:.7
+  ladder cut res:.6
+  * env
+  cut = env ^ 2 -> 300..3400
+  env = adsr .002 .16 0 .09
+  post
+    delay .28 .3
+    reverb room:.7 mix:.25
+
+section intro 4
+  play stab
+    <Em Em Cmaj7 G>
+    dur: .95
+    gain: .4
+
+section drop 8
+  play kick
+    c2 c2 c2 c2
+  play sub
+    ~ e1 ~ e1 ~ e1 ~ e1
+    dur: .18
+  play stab
+    <Em Em Cmaj7 G>
+    struct ~ t ~ t t ~ ~ t
+    dur: .2
+    gain: .6
+
+song intro drop drop intro
+
+bus space
+  reverb room:.9 damp:.35
+  send stab .3
+
+sidechain kick depth:.8 release:.15 sub:.95 stab:.6
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+cps .55
+`
+
+/** Compile a rondo example to its rondocode twin at module load — ONE source
+ *  of truth, and a compile failure is loud in every test run. */
+const fromRondo = (src: string): string => {
+  const r = compile(src)
+  if (!r.ok) throw new Error(`rondo example failed to compile: ${JSON.stringify(r.errors)}`)
+  return r.code
+}
+
+/** The shipped examples (stable, committed). */
 
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
@@ -1138,6 +1246,10 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'sampler', code: sampler },
   { name: 'granular', code: granular },
   { name: 'singing', code: singing },
+  // rondo-first examples: the JS twin is TRANSPILED from the rondo source at
+  // load, so the two can never drift
+  { name: 'wobble', code: fromRondo(wobbleRondo), rondo: wobbleRondo },
+  { name: 'club', code: fromRondo(clubRondo), rondo: clubRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

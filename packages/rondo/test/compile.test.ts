@@ -242,6 +242,22 @@ describe('rondo → rondocode codegen', () => {
     expect(compile(`synth s\n  saw\n\nsection a 2\n  play s\n    0\n\nsong a nope\n`).ok).toBe(false)
   })
 
+  it('function-taking combinators: jux/off/superimpose/sometimesby', () => {
+    const out = ok(
+      `synth s\n  saw\n\nplay s\n  0 2 4\n  jux: rev\n  off .25: gain .3\n  superimpose: late .125\n  sometimesby .3: fast 2\n`,
+    )
+    expect(out).toContain('.jux(x => x.rev())')
+    expect(out).toContain('.off(0.25, x => x.gain(0.3))')
+    expect(out).toContain('.superimpose(x => x.late(0.125))')
+    expect(out).toContain('.sometimesBy(0.3, x => x.fast(2))')
+  })
+
+  it('rise/fall as ctrl values (build ramps)', () => {
+    const out = ok(`synth s\n  saw\n  wet = knob .2 0..1\n\nplay s\n  0 2\n  wet: rise 8 0..1\n  gain: fall 4\n`)
+    expect(out).toContain(".ctrl('wet', rise(8).range(0, 1))")
+    expect(out).toContain('.gain(fall(4))')
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")

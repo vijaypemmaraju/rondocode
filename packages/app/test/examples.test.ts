@@ -14,8 +14,8 @@ import { baseScope } from '../src/session/scope'
  * count assertion pins SHIPPED_EXAMPLES; the eval loop covers whatever's loaded. */
 
 describe('examples', () => {
-  it('ships nineteen distinctly named examples (local ones may add more)', () => {
-    expect(SHIPPED_EXAMPLES).toHaveLength(19)
+  it('ships twenty-one distinctly named examples (local ones may add more)', () => {
+    expect(SHIPPED_EXAMPLES).toHaveLength(21)
     expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(EXAMPLES.length) // all unique
     for (const s of SHIPPED_EXAMPLES) expect(EXAMPLES).toContainEqual(s)
   })

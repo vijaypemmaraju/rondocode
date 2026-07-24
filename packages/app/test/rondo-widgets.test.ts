@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, toNorm, fromNorm } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, toNorm, fromNorm } from '../src/editor/rondo/widgets'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
  * source (and pinpointing the DEF value's range so a drag rewrites the right
@@ -21,6 +21,19 @@ describe('scanKnobs', () => {
 
   it('finds multiple knobs on multiple lines', () => {
     expect(scanKnobs('a = knob 1 0..2\nb = knob 3 0..5 lin')).toHaveLength(2)
+  })
+})
+
+describe('scanEnvs', () => {
+  it('finds an adsr and its four values + region', () => {
+    const src = 'env = adsr .003 .2 .3 .1'
+    const [e] = scanEnvs(src)
+    expect(e).toBeDefined()
+    expect(src.slice(e!.from, e!.to)).toBe('.003 .2 .3 .1') // the region a drag rewrites
+    expect(e).toMatchObject({ a: 0.003, d: 0.2, s: 0.3, r: 0.1 })
+  })
+  it('does not match adsr with fewer than four values', () => {
+    expect(scanEnvs('env = adsr .003 .2')).toHaveLength(0)
   })
 })
 

@@ -25,7 +25,7 @@ export function docsMarkdown(): string {
         out.push(b.text, '')
       } else {
         if (b.caption) out.push(`_${b.caption}_`, '')
-        out.push('```js', b.text, '```', '')
+        out.push(b.lang === 'rondo' ? '```rondo' : '```js', b.text, '```', '')
       }
     }
   }

@@ -7,6 +7,7 @@ import type { DocEntry } from './docs/dsl-docs'
 import { PreviewPlayer } from './docs/player'
 import { createShaderRenderer } from './shaderviz/renderer'
 import { createDocEditor } from './docs/doceditor'
+import { compile as compileRondo } from '@rondocode/rondo'
 import { escapeHtml as esc } from './docs/highlight'
 import { iconEl } from './ui/icons'
 import { docsMarkdown } from './docs/markdown'
@@ -94,7 +95,7 @@ const showViz = (host: HTMLElement): void => {
 
 /** A playable code block: a full editor (syntax highlight + flash-on-play,
  *  editable), a ▶/⏹ toggle, and an "open in editor" link that tracks edits. */
-async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
+async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<HTMLElement> {
   const card = el('div', 'doc-code')
   card.append(el('div', 'doc-code-cap', caption))
 
@@ -120,6 +121,18 @@ async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
     edit.href = shareUrl(location.origin, '/', payload)
   }
 
+  // rondo snippets transpile before the player sees them; a compile failure
+  // surfaces in the block's error line with its rondo position.
+  const toEval = (source: string): { code: string; notes?: import('@rondocode/rondo').NoteSpan[] } | { error: string } => {
+    if (lang !== 'rondo') return { code: source }
+    const r = compileRondo(source)
+    if (!r.ok) {
+      const e = r.errors[0]
+      return { error: e !== undefined ? `line ${e.line}: ${e.message}` : 'rondo compile failed' }
+    }
+    return { code: r.code, notes: r.notes }
+  }
+
   const docEd = createDocEditor(
     body,
     src,
@@ -130,11 +143,15 @@ async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
     () => {
       // a widget/scrub rewrote the code — hot-patch the sound if THIS block is
       // the one currently playing (otherwise the edit just updates the text).
-      if (current?.btn === play) player.update(docEd.getDoc())
+      if (current?.btn === play) {
+        const r = toEval(docEd.getDoc())
+        if (!('error' in r)) player.update(r.code)
+      }
     },
     // karaoke: the playing snippet's vocals live on player.singSounds, so this
     // resolves correctly for THIS block whenever it's the one sounding.
     (snd) => player.singSounds.has(snd),
+    lang,
   )
   await refreshEditLink(src)
 
@@ -149,14 +166,20 @@ async function codeBlock(caption: string, src: string): Promise<HTMLElement> {
       err.textContent = ''
       play.textContent = '…'
       const source = docEd.getDoc()
+      const evalSrc = toEval(source)
+      if ('error' in evalSrc) {
+        setIdle()
+        err.textContent = evalSrc.error
+        return
+      }
       // flash THIS editor and (when it has a visual) feed the shared renderer
       player.onPatternEvents = (evs) => {
         docEd.flash(evs)
         if (latestVisual.wgsl !== null) vizRenderer?.pushEvents(evs)
       }
-      const res = await player.play(source)
+      const res = await player.play(evalSrc.code)
       if (res.ok) {
-        docEd.markPlaying(source)
+        docEd.markPlaying(source, evalSrc.notes)
         play.classList.add('playing')
         play.textContent = '⏹ stop'
         showViz(card) // no-op unless the snippet registered a visual()
@@ -189,7 +212,7 @@ async function renderBlock(b: Block): Promise<HTMLElement> {
     para.innerHTML = esc(b.text).replace(/`([^`]+)`/g, '<code>$1</code>')
     return para
   }
-  return codeBlock(b.caption ?? '', b.text)
+  return codeBlock(b.caption ?? '', b.text, b.lang)
 }
 
 interface RenderedSection {

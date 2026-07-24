@@ -1,7 +1,8 @@
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { SchedulerEvent } from '@rondocode/pattern'
-import { EventFlasher } from '../editor/flash'
+import { EventFlasher, rondoNoteLiterals } from '../editor/flash'
+import type { NoteSpan } from '@rondocode/rondo'
 import { karaokeExtension, mountKaraoke } from '../editor/karaoke'
 import { codeEditingExtensions } from '../editor/setup'
 
@@ -24,8 +25,10 @@ export interface DocEditor {
   getDoc(): string
   /** Feed scheduler events to the flasher (call while this block plays). */
   flash(evs: SchedulerEvent[]): void
-  /** Register the source that was just evaluated so locs map correctly. */
-  markPlaying(source: string): void
+  /** Register the source that was just evaluated so locs map correctly.
+   *  Rondo snippets pass the compiler's notation spans (the eval'd source is
+   *  transpiled JS, so the literal scan can't see the buffer). */
+  markPlaying(source: string, notes?: NoteSpan[]): void
   /** Cancel pending flashes (on stop / when another block takes over). */
   stopFlashes(): void
   destroy(): void
@@ -43,6 +46,8 @@ export function createDocEditor(
    *  syllable/note even when sing(..., { name }) renames off the singv-hash.
    *  Omitted → the built-in singv-prefix default. */
   isSingSound?: (sound: string) => boolean,
+  /** 'rondo' renders with the rondo grammar/hover/widgets and no JS stack. */
+  lang?: 'rondo',
 ): DocEditor {
   let lastGood = doc
   // Karaoke needs to know when THIS block is the one playing, get its events,
@@ -60,7 +65,7 @@ export function createDocEditor(
         // intellisense, multicursor…) — one shared source so the two never
         // drift. `gutter: false` drops line numbers so small snippets stay
         // clean; every interactive feature is identical to the editor.
-        ...codeEditingExtensions({ requestEval: (imm) => requestEval?.(imm), gutter: false }),
+        ...codeEditingExtensions({ requestEval: (imm) => requestEval?.(imm), gutter: false, rondo: lang === 'rondo' }),
         karaokeExtension, // sing() syllable/note highlight while a vocal plays
         EditorView.updateListener.of((u) => {
           if (!u.docChanged) return
@@ -104,10 +109,11 @@ export function createDocEditor(
       flasher.onEvents(evs)
       for (const fn of kEvSubs) fn(evs)
     },
-    markPlaying: (source) => {
+    markPlaying: (source, notes) => {
       lastGood = source
       playing = true
-      flasher.onGoodEval(source)
+      if (notes !== undefined) flasher.onGoodEvalLiterals(rondoNoteLiterals(notes))
+      else flasher.onGoodEval(source)
     },
     stopFlashes: () => {
       playing = false

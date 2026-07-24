@@ -10,6 +10,7 @@
 import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { hoverTooltip } from '@codemirror/view'
+import { autocompletion } from '@codemirror/autocomplete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
 import type { Hooks as RondoWidgetHooks } from './widgets'
@@ -185,6 +186,13 @@ export const rondoHover = hoverTooltip((view, pos) => {
       return { dom }
     },
   }
+})
+
+/** The prebuilt rondo autocomplete extension (main editor + docs share it). */
+export const rondoAutocomplete = autocompletion({
+  override: [rondoCompletionSource],
+  activateOnTyping: true,
+  maxRenderedOptions: 20,
 })
 
 export function rondoCompletionSource(ctx: CompletionContext): CompletionResult | null {

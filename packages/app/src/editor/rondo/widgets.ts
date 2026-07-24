@@ -179,14 +179,14 @@ class EnvWidget extends WidgetType {
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const W = 108, H = 30, pad = 2, base = H - pad, peak = pad, seg = 28, hold = 14
+    const W = 200, H = 58, pad = 5, base = H - pad, peak = pad, seg = 54, hold = 26
     const wrap = document.createElement('span')
     wrap.className = 'rondo-env'
     wrap.title = 'drag the handles: attack · decay/sustain · release'
     wrap.innerHTML =
       `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-      '<path class="fill"/><path class="line" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>' +
-      '<circle class="h ha" r="3"/><circle class="h hd" r="3"/><circle class="h hr" r="3"/></svg>'
+      '<path class="fill"/><path class="line" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+      '<circle class="h ha" r="5"/><circle class="h hd" r="5"/><circle class="h hr" r="5"/></svg>'
     const line = wrap.querySelector('.line') as SVGPathElement
     const fill = wrap.querySelector('.fill') as SVGPathElement
     const ha = wrap.querySelector('.ha') as SVGCircleElement

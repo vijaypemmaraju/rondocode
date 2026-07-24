@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { scanKnobs, scanEnvs, toNorm, fromNorm } from '../src/editor/rondo/widgets'
+import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
  * source (and pinpointing the DEF value's range so a drag rewrites the right
@@ -34,6 +35,23 @@ describe('scanEnvs', () => {
   })
   it('does not match adsr with fewer than four values', () => {
     expect(scanEnvs('env = adsr .003 .2')).toHaveLength(0)
+  })
+})
+
+describe('scanNumbersText (language-agnostic scrub fallback — every number in rondo)', () => {
+  it('finds standalone numbers, skipping a range second-operand', () => {
+    const vals = scanNumbersText('cutoff = knob 800 80..8000 log').map((n) => n.value)
+    expect(vals).toContain(800)
+    expect(vals).toContain(80)
+  })
+  it('handles decimals and flags non-integers', () => {
+    const nums = scanNumbersText('adsr .003 .2 .3 .1')
+    expect(nums.map((n) => n.value)).toEqual([0.003, 0.2, 0.3, 0.1])
+    expect(nums.every((n) => !n.isInt)).toBe(true)
+  })
+  it('folds a unary minus and detects integers', () => {
+    const [n] = scanNumbersText('add -12')
+    expect(n).toMatchObject({ value: -12, isInt: true })
   })
 })
 

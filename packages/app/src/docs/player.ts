@@ -66,6 +66,16 @@ export class PreviewPlayer {
 
   /** Audio clock in seconds (0 before the engine boots) — the time base a
    *  flasher needs to schedule its pulses against. */
+  /** Touch-to-override passthrough for the docs' inline knobs: a held knob
+   *  plays the hand's value NOW and suppresses the pattern drive until
+   *  release. No-ops before the first play (no session yet). */
+  holdParam(synth: string, name: string, value: number): void {
+    this.session?.holdParam(synth, name, value)
+  }
+  releaseParam(synth: string, name: string): void {
+    this.session?.releaseParam(synth, name)
+  }
+
   now(): number {
     return this.audio ? this.audio.currentTimeFrames / this.audio.sampleRate : 0
   }

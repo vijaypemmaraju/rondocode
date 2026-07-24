@@ -5,6 +5,8 @@ import { EventFlasher, rondoNoteLiterals } from '../editor/flash'
 import type { NoteSpan } from '@rondocode/rondo'
 import { karaokeExtension, mountKaraoke } from '../editor/karaoke'
 import { codeEditingExtensions } from '../editor/setup'
+import { toNoteEvs } from '../editor/rondo/widgets'
+import type { NoteEv } from '../editor/rondo/widgets'
 
 /* ------------------------------------------------------------------------- *
  * A small, self-contained CodeMirror editor for a docs example: the same
@@ -48,6 +50,15 @@ export function createDocEditor(
   isSingSound?: (sound: string) => boolean,
   /** 'rondo' renders with the rondo grammar/hover/widgets and no JS stack. */
   lang?: 'rondo',
+  /** rondo LIVE hooks (docs player passthrough): the audio clock and
+   *  touch-to-override, so a docs knob is audible WHILE dragging — not on the
+   *  eval that lands after release. Note events ride this editor's own
+   *  flash() feed (only the playing block receives them). */
+  rondoLive?: {
+    now(): number
+    holdParam(synth: string, name: string, value: number): void
+    releaseParam(synth: string, name: string): void
+  },
 ): DocEditor {
   let lastGood = doc
   // Karaoke needs to know when THIS block is the one playing, get its events,
@@ -56,6 +67,23 @@ export function createDocEditor(
   let playing = false
   const kEvSubs = new Set<(evs: SchedulerEvent[]) => void>()
   const kDocSubs = new Set<(code: string) => void>()
+  // rondo widget liveness: playhead/envelope/knob animation + hold/release,
+  // fed from the SAME flash() event stream (active only while this block plays)
+  const rondoExtras = lang === 'rondo' && rondoLive !== undefined
+    ? {
+        now: () => rondoLive.now(),
+        holdParam: (sy: string, nm: string, v: number) => rondoLive.holdParam(sy, nm, v),
+        releaseParam: (sy: string, nm: string) => rondoLive.releaseParam(sy, nm),
+        onNoteEvents: (fn: (notes: NoteEv[]) => void): (() => void) => {
+          const wrap = (evs: SchedulerEvent[]): void => {
+            const notes = toNoteEvs(evs)
+            if (notes.length > 0) fn(notes)
+          }
+          kEvSubs.add(wrap)
+          return () => kEvSubs.delete(wrap)
+        },
+      }
+    : undefined
   const view = new EditorView({
     parent,
     state: EditorState.create({
@@ -65,7 +93,12 @@ export function createDocEditor(
         // intellisense, multicursor…) — one shared source so the two never
         // drift. `gutter: false` drops line numbers so small snippets stay
         // clean; every interactive feature is identical to the editor.
-        ...codeEditingExtensions({ requestEval: (imm) => requestEval?.(imm), gutter: false, rondo: lang === 'rondo' }),
+        ...codeEditingExtensions({
+          requestEval: (imm) => requestEval?.(imm),
+          gutter: false,
+          rondo: lang === 'rondo',
+          ...(rondoExtras !== undefined ? { rondoExtras } : {}),
+        }),
         karaokeExtension, // sing() syllable/note highlight while a vocal plays
         EditorView.updateListener.of((u) => {
           if (!u.docChanged) return

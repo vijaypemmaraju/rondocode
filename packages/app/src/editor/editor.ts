@@ -24,6 +24,7 @@ import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
 import { mountRondoPalette } from './rondo/palette'
+import { toNoteEvs } from './rondo/widgets'
 import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
@@ -557,16 +558,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     releaseParam: (synth, name) => session.releaseParam(synth, name),
     onNoteEvents: (fn) =>
       subscribePatternEvents((evs) => {
-        const notes = evs
-          .filter((e) => e.loc !== undefined)
-          .map((e) => ({
-            src: e.loc!.src,
-            start: e.loc!.start,
-            timeSec: e.timeSec,
-            durSec: e.durSec,
-            sound: typeof e.controls.sound === 'string' ? e.controls.sound : undefined,
-            controls: e.controls as Record<string, unknown>,
-          }))
+        const notes = toNoteEvs(evs)
         if (notes.length > 0) fn(notes)
       }),
   }

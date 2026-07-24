@@ -281,6 +281,52 @@ export function scanPlays(text: string): PlayRoll[] {
   return out
 }
 
+export interface BeatRow {
+  /** char range of the notation line in the source (what a tap rewrites). */
+  from: number
+  to: number
+  /** the notation text itself — a beat event's `loc.src` equals this. */
+  content: string
+  /** the line's single instrument word — also the synth a tap previews. */
+  word: string
+  /** one entry per step: sounding or rest. */
+  steps: boolean[]
+}
+
+/** Find `beat` block body lines that are SIMPLE flat word/rest sequences with
+ *  ONE distinct word (`kick ~ kick ~`) — the step-sequencer-editable case.
+ *  Mixed words, mini-notation (`kick*4`, `[..]`), and modifier lines are left
+ *  as plain text. Pure. */
+export function scanBeats(text: string): BeatRow[] {
+  const out: BeatRow[] = []
+  const lines = text.split('\n')
+  const offs: number[] = []
+  let o = 0
+  for (const l of lines) { offs.push(o); o += l.length + 1 }
+  for (let i = 0; i < lines.length; i++) {
+    const bh = /^([ \t]*)beat(\s+[a-zA-Z_]\w*)?[ \t]*(#.*)?$/.exec(lines[i]!)
+    if (!bh) continue // a beat header (top-level OR nested in a section)
+    const beatIndent = bh[1]!.length
+    for (let j = i + 1; j < lines.length; j++) {
+      const ln = lines[j]!
+      if (/^[ \t]*$/.test(ln) || /^[ \t]*#/.test(ln)) continue // blank/comment
+      const indent = /^[ \t]*/.exec(ln)![0].length
+      if (indent <= beatIndent) break // dedent — the block ended
+      const cm = /(^|\s)#/.exec(ln)
+      const noComment = cm ? ln.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : ln
+      const notation = noComment.slice(indent).replace(/\s+$/, '')
+      const toks = notation.split(/\s+/).filter(Boolean)
+      if (toks.length < 2) continue // a 1-step row isn't a sequencer
+      if (!toks.every((tk) => tk === '~' || /^[a-zA-Z_]\w*$/.test(tk))) continue
+      const words = new Set(toks.filter((tk) => tk !== '~'))
+      if (words.size !== 1) continue // no single instrument to label the row
+      const from = offs[j]! + indent
+      out.push({ from, to: from + notation.length, content: notation, word: [...words][0]!, steps: toks.map((tk) => tk !== '~') })
+    }
+  }
+  return out
+}
+
 class KnobWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
@@ -741,6 +787,128 @@ class PianoRollWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
+/** One step-sequencer row per simple beat line: tap/drag toggles steps, the
+ *  playhead lights the sweeping column, a placed step previews its drum. */
+class BeatRowWidget extends WidgetType {
+  private unsub?: () => void
+  private readonly timers = new Timers()
+
+  constructor(
+    readonly from: number,
+    readonly to: number,
+    readonly content: string,
+    readonly word: string,
+    readonly steps: boolean[],
+    readonly hooks: Hooks,
+    readonly drag: Drag,
+  ) { super() }
+
+  eq(o: BeatRowWidget): boolean {
+    // `to`/`content` matter: respacing keeps the same STEPS but shifts
+    // offsets; a reused DOM would rewrite a too-short range
+    return o.from === this.from && o.to === this.to && o.content === this.content &&
+      o.word === this.word && o.steps.length === this.steps.length &&
+      o.steps.every((v, i) => v === this.steps[i])
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const cols = this.steps.length
+    const grid = document.createElement('span')
+    grid.className = 'rondo-roll rondo-beatrow'
+    grid.setAttribute('role', 'group')
+    grid.setAttribute('aria-label', `step sequencer: tap or drag to place ${this.word} hits`)
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
+    const steps = this.steps.slice()
+    const cellEls: HTMLElement[] = []
+    for (let c = 0; c < cols; c++) {
+      const cell = document.createElement('span')
+      cell.className = 'rc' + (steps[c] === true ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
+      cell.dataset.c = String(c)
+      cellEls.push(cell)
+      grid.appendChild(cell)
+    }
+
+    // PLAYHEAD: this row's events carry loc.src === the notation text, and
+    // loc.start maps to a column via stepStarts.
+    if (this.hooks.onNoteEvents && this.hooks.now) {
+      const now = this.hooks.now
+      const starts = stepStarts(this.content)
+      this.unsub = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (ev.src !== this.content) continue
+          const col = starts.indexOf(ev.start)
+          if (col < 0) continue
+          const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
+          this.timers.at((ev.timeSec - now()) * 1000, () => {
+            const cell = cellEls[col]
+            if (!cell) return
+            cell.classList.add('play')
+            if (cell.classList.contains('on')) cell.classList.add('trig')
+            this.timers.at(litMs, () => cell.classList.remove('play', 'trig'))
+          })
+        }
+      })
+    }
+    // The doc write is DEFERRED to gesture end: toggling `kick` ↔ `~` changes
+    // the LINE LENGTH, so a mid-gesture write shifts this widget under the
+    // stationary pointer and the next pointermove paints the neighbor cell.
+    // (The piano-roll writes live safely — its tokens are all one char.)
+    let painting = false
+    let dirty = false
+    let mode: 'draw' | 'erase' = 'draw'
+    const set = (c: number): void => {
+      const next = mode === 'draw'
+      if (steps[c] === next) return
+      steps[c] = next
+      dirty = true
+      cellEls[c]?.classList.toggle('on', next)
+      buzz()
+      // preview the placed hit while the transport is stopped — beat events
+      // carry the sound() default note (60); drums ignore the pitch anyway
+      if (next && this.hooks.previewNote !== undefined && !(this.hooks.isPlaying?.() ?? false)) {
+        this.hooks.previewNote(this.word, 60)
+      }
+    }
+    grid.addEventListener('pointerdown', (e) => {
+      const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
+      if (!el) return
+      e.preventDefault(); e.stopPropagation()
+      grid.setPointerCapture(e.pointerId)
+      this.drag.active = true; painting = true
+      const c = Number(el.dataset.c)
+      mode = steps[c] === true ? 'erase' : 'draw' // tap an active step to clear it
+      set(c)
+    })
+    grid.addEventListener('pointermove', (e) => {
+      if (!painting) return
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      const cell = el?.closest?.('.rc') as HTMLElement | null
+      if (cell && grid.contains(cell)) set(Number(cell.dataset.c))
+    })
+    const end = (): void => {
+      if (!painting) return
+      painting = false
+      this.drag.active = false
+      if (!dirty) return // nothing changed — ranges are still valid, no rebuild
+      dirty = false
+      this.drag.ended = true // the write's own transaction triggers ONE rebuild
+      const s = steps.map((v) => (v ? this.word : '~')).join(' ')
+      view.dispatch({ changes: { from: this.from, to: this.to, insert: s } })
+      this.hooks.requestEval(false)
+    }
+    grid.addEventListener('pointerup', end)
+    grid.addEventListener('pointercancel', end)
+    return grid
+  }
+
+  destroy(): void {
+    this.unsub?.()
+    this.timers.clear()
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
 /** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
 function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   const items: { pos: number; deco: Decoration }[] = []
@@ -755,6 +923,9 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   }
   for (const p of scanPlays(text)) {
     items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag), side: 1 }) })
+  }
+  for (const b of scanBeats(text)) {
+    items.push({ pos: b.to, deco: Decoration.widget({ widget: new BeatRowWidget(b.from, b.to, b.content, b.word, b.steps, hooks, drag), side: 1 }) })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()

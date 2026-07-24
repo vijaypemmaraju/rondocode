@@ -14,7 +14,7 @@ import { decompile } from '../src/decompile'
 const read = (rel: string): string =>
   readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
-const EXAMPLES = ['acid', 'pad', 'wob', 'club'].map((name) => ({
+const EXAMPLES = ['acid', 'pad', 'wob', 'club', 'drums'].map((name) => ({
   name,
   src: read(`../examples/${name}.rondo`),
 }))
@@ -85,6 +85,17 @@ describe('decompile round-trips', () => {
       expect(second.code).toBe(first.code)
     })
   }
+})
+
+describe('decompile cosmetics', () => {
+  it('emits SHORT scale names (a-min, not a-minor)', () => {
+    // REGRESSION: SCALE_MODE's identity entries (minor→minor) overwrote the
+    // short forms when inverted, so decompile emitted `scale: a-minor`
+    const r = compile('synth s1\n  saw\n\nplay s1\n  0 3 5  scale:a-min\n')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(decompile(r.code)).toContain('scale: a-min\n')
+  })
 })
 
 describe('decompile totality', () => {

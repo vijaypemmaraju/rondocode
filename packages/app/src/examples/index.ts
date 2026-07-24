@@ -1216,6 +1216,75 @@ master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 cps .55
 `
 
+/** A drum machine in pure rondo: `beat` blocks route words straight to
+ *  synths; the bass improvises with irand. */
+const drumMachineRondo = `# a drum machine. beat blocks route
+# words straight to synths — stack lines
+# for a full kit. the bass improvises
+# with irand (same riff every loop).
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp  = adsr .001 .2 0 .07
+
+synth snare
+  noise
+  svf 1900 res:.5 mode:bp
+  + sine 190 * .5
+  * env
+  env = adsr .001 .11 0 .06
+
+synth hat
+  noise
+  svf 7500 mode:hp
+  * env
+  env = adsr .001 .03 0 .01
+
+synth ohat
+  noise
+  svf 6500 mode:hp
+  * env
+  env = adsr .001 .12 .2 .12
+
+synth clave
+  modal 1700 model:bar decay:.25
+  * env
+  env = adsr .001 .09 0 .05
+
+synth bass mono glide:.06
+  saw
+  onepole 700
+  * env
+  tanh
+  env = adsr .004 .09 .55 .07
+
+beat
+  kick*4
+  ~ snare ~ snare
+  [~ hat]*3 [~ ohat]
+
+beat percs
+  clave
+  euclid 5 8
+  every 4: rev
+  gain: .5
+
+play bass
+  irand 5 seg:8
+  scale: a-min
+  dur: .6
+  gain: .75
+
+sidechain kick depth:.6 release:.12 bass:.9
+
+master threshold:-7 ratio:2 makeup:1
+
+cps .58
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -1250,6 +1319,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   // load, so the two can never drift
   { name: 'wobble', code: fromRondo(wobbleRondo), rondo: wobbleRondo },
   { name: 'club', code: fromRondo(clubRondo), rondo: clubRondo },
+  { name: 'drum machine', code: fromRondo(drumMachineRondo), rondo: drumMachineRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

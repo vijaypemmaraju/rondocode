@@ -14,7 +14,7 @@
 
 import type { Binding, Comb, CpsItem, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
 import { lex, type Line, type Tok } from './lexer'
-import { BUILTINS, isTransform } from './builtins'
+import { BUILTINS, isTransform, isReservedBinding } from './builtins'
 import type { BuiltinSpec } from './builtins'
 
 const SIGNALS = new Set(['sine', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'sine2', 'rand', 'perlin'])
@@ -139,8 +139,11 @@ function parseApp(c: Cursor): Expr {
       // (`wet = reverb osc room:.9`); in a spine line the pipe is the input
       // (handled by foldSpine, which passes it as args[0]).
       if (spec.kind === 'proc' || spec.kind === 'sigop') {
-        if (canStartArg(c)) args.push(parseExpr(c, 2))
-        else c.err(`\`${name}\` needs an input here (or use it as a pipeline line)`)
+        // no input following → this may be a REFERENCE to a same-named chain
+        // binding, not a call; leave it as an ident and let codegen (which
+        // knows the binding names) resolve or reject it.
+        if (!canStartArg(c)) return { t: 'ident', name, pos: t.pos }
+        args.push(parseExpr(c, 2))
       }
       args.push(...parsePositionals(c, spec))
       const named = parseNamed(c, spec)
@@ -199,6 +202,10 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       if (!c.eof()) c.err('unexpected tokens after binding')
       if (bindings.some((b) => b.name === bname)) {
         c.err(`duplicate binding '${bname}' — each name can be defined once`, t0.pos)
+        continue
+      }
+      if (isReservedBinding(bname)) {
+        c.err(`binding '${bname}' shadows a builtin — pick another name`, t0.pos)
         continue
       }
       bindings.push({ name: bname, expr: rhs, pos: t0.pos })

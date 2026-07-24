@@ -39,7 +39,7 @@ export function expandScale(short: string): string {
 
 class SynthGen {
   uses = new Set<string>()
-  constructor(readonly errors: RondoError[]) {}
+  constructor(readonly errors: RondoError[], readonly bound: ReadonlySet<string> = new Set()) {}
 
   expr(e: Expr): string {
     switch (e.t) {
@@ -50,6 +50,12 @@ class SynthGen {
         if (e.name === 'gate') { this.uses.add('gate'); return 'gate' }
         if (e.name === 'input') { this.uses.add('input'); return 'input' }
         if (e.name === 'velocity') { this.uses.add('velocity'); return 'velocity' }
+        // a bare proc/sigop name that is NOT a binding was a call missing its
+        // input (the parser left it as an ident for us to resolve)
+        if (!this.bound.has(e.name) && BUILTINS[e.name] !== undefined) {
+          this.errors.push({ message: `\`${e.name}\` needs an input here (or use it as a pipeline line)`, line: e.pos.line, col: e.pos.col })
+          return '0'
+        }
         return e.name // a binding-local const
       case 'enum':
         return `'${e.name}'`
@@ -88,8 +94,12 @@ class SynthGen {
         return this.call(e)
       case 'js':
         // escape hatch: raw JS, verbatim. Destructure any ctx members it names
-        // so the raw code can see them inside the synth fn.
-        for (const name of KNOWN_CTX) if (new RegExp(`\\b${name}\\b`).test(e.code)) this.uses.add(name)
+        // so the raw code can see them — EXCEPT names shadowed by this chain's
+        // own bindings (destructuring those too would double-declare: a
+        // param `env` + `const env` is a SyntaxError, not a shadow).
+        for (const name of KNOWN_CTX) {
+          if (!this.bound.has(name) && new RegExp(`\\b${name}\\b`).test(e.code)) this.uses.add(name)
+        }
         return e.code
       case 'knob':
         this.errors.push({ message: 'knob can only appear on a binding (`cutoff = knob …`)', line: e.pos.line, col: e.pos.col })
@@ -99,6 +109,14 @@ class SynthGen {
 
   call(e: Extract<Expr, { t: 'call' }>): string {
     const name = e.name
+    // a chain binding shadows a same-named builtin: a bare reference means
+    // the binding; calling the builtin with args is a hard error (destructure
+    // + const would both declare the name — a JS SyntaxError at eval time)
+    if (this.bound.has(name)) {
+      if (e.args.length === 0 && Object.keys(e.named).length === 0) return name
+      this.errors.push({ message: `binding '${name}' shadows the builtin '${name}' — rename the binding to use both`, line: e.pos.line, col: e.pos.col })
+      return '0'
+    }
     if (name === 'adsr') {
       const a = e.args.map((x) => this.expr(x))
       this.uses.add('adsr'); this.uses.add('gate')
@@ -203,10 +221,18 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
 
 /** Render one `(ctx) => …` chain function: topo-sorted bindings + `return`. */
 function cgChain(bindings: Binding[], spine: Expr, headOrder: string[], errors: RondoError[]): string {
-  const g = new SynthGen(errors)
+  const g = new SynthGen(errors, new Set(bindings.map((b) => b.name)))
   const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
   const spineStr = g.expr(spine)
+  // a binding may reuse a builtin's name (lfo = …) — but not while the chain
+  // ALSO calls that builtin: the destructured ctx member and the const would
+  // collide ("Identifier 'x' has already been declared" at eval time)
+  for (const b of bindings) {
+    if (g.uses.has(b.name)) {
+      errors.push({ message: `binding '${b.name}' shadows the builtin '${b.name}' used in this chain — rename the binding`, line: b.pos?.line ?? 1, col: b.pos?.col ?? 1 })
+    }
+  }
   const head = headOrder.filter((n) => g.uses.has(n))
   const rest = [...g.uses].filter((n) => !head.includes(n)).sort()
   const destructure = [...head, ...rest].join(', ')

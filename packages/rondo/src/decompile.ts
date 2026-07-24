@@ -13,7 +13,7 @@
  * When in doubt, bail — a wrapped statement is correct, a wrong sugar isn't. */
 
 import { parse } from 'acorn'
-import { BUILTINS } from './builtins'
+import { BUILTINS, isReservedBinding } from './builtins'
 import { SCALE_MODE } from './codegen'
 
 /* acorn's nodes, loosely typed — we only touch a small surface. */
@@ -390,6 +390,9 @@ function decompileSynth(stmt: Node): string | null {
           const bd = (s['declarations'] as Node[])[0]
           if (bd === undefined || !isIdent(bd['id'] as Node)) return null
           const bname = (bd['id'] as Node)['name'] as string
+          // a rondo binding may not shadow a builtin — bail the whole synth
+          // to a js block rather than emit source that won't compile back
+          if (isReservedBinding(bname)) return null
           const bin = bd['init'] as Node | null
           if (bin === null) return null
           // param('x', d, opts) → knob (name must match the binding)

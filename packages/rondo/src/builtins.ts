@@ -91,3 +91,13 @@ export const isTransform = (name: string): boolean => {
   const s = BUILTINS[name]
   return s !== undefined && (s.kind === 'proc' || s.kind === 'sigop')
 }
+
+/** Names a chain binding may NOT take — the special refs the grammar itself
+ *  leans on (a binding named `adsr` or `note` is unusable). Registry builtin
+ *  names (lfo, delay, …) ARE allowed as bindings; codegen errors only if the
+ *  same chain also calls the builtin (the one case that truly collides).
+ *  The parser errors on these; the decompiler refuses to emit them (bailing
+ *  the synth to a js block instead). */
+export const isReservedBinding = (name: string): boolean =>
+  name === 'note' || name === 'gate' || name === 'input' || name === 'velocity' ||
+  name === 'adsr' || name === 'knob'

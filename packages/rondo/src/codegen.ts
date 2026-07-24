@@ -29,7 +29,7 @@ const KNOWN_CTX = [
 ]
 
 /** Expand a short scale name (`a-min`) to what .scale() expects (`a minor`). */
-function expandScale(short: string): string {
+export function expandScale(short: string): string {
   const dash = short.indexOf('-')
   if (dash < 0) return `${short} major`
   const root = short.slice(0, dash)

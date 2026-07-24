@@ -11,10 +11,15 @@ export interface Settings {
    *  Off by default — opt-in, since it registers engine probes and adds chrome
    *  to the code. */
   liveValues: boolean
+  /** LIVE TYPING: while the transport plays, a clean edit applies itself once
+   *  typing settles (~0.7s) — no Run needed. Off by default: sound changing
+   *  mid-thought should be a choice. */
+  liveType: boolean
 }
 
 export const DEFAULTS: Settings = {
   liveValues: false,
+  liveType: false,
 }
 
 /** Human-facing metadata for the Options panel — label + one-line help. */
@@ -22,6 +27,10 @@ export const SETTING_META: { [K in keyof Settings]: { label: string; help: strin
   liveValues: {
     label: 'Live value readouts',
     help: 'Show a live ⟨value⟩ after modulation expressions (LFO ranges, envelopes) while playing.',
+  },
+  liveType: {
+    label: 'Live typing',
+    help: 'While playing, apply edits automatically shortly after you stop typing — no Run needed. Broken edits change nothing.',
   },
 }
 

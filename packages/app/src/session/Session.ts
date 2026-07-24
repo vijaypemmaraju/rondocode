@@ -426,6 +426,26 @@ export class Session {
     }, REBUILD_DEBOUNCE_MS)
   }
 
+  /** Touch-to-override: params currently held by a hand ("synth.param" →
+   *  value). While held, pattern-driven setParams for that param are
+   *  SUPPRESSED in dispatchEvents — the performer outranks the sequencer —
+   *  and the drive resumes on its next event after release. */
+  private readonly heldParams = new Map<string, number>()
+
+  /** Hold a param at `value` (a hand is on the knob). Applies immediately and
+   *  suppresses the pattern drive for this param until releaseParam. Unknown
+   *  synths are forgiven like setChannel — holds race live evals. */
+  holdParam(synth: string, name: string, value: number): void {
+    this.heldParams.set(`${synth}.${name}`, value)
+    this.audio.send({ kind: 'setParam', synth, name, value })
+  }
+
+  /** Release a held param — the pattern drive takes back over on its next
+   *  event (or the param simply keeps the held value if nothing drives it). */
+  releaseParam(synth: string, name: string): void {
+    this.heldParams.delete(`${synth}.${name}`)
+  }
+
   /** Set a live synth param. `addr` is "synthName.paramName" (split at the
    *  FIRST dot — param names may not contain dots). Throws on a malformed
    *  address: this is programmatic API misuse, not user-code failure. */
@@ -544,6 +564,7 @@ export class Session {
       }
       for (const [key, value] of Object.entries(ev.controls)) {
         if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
+        if (this.heldParams.has(`${sound}.${key}`)) continue // a hand holds this knob
         this.audio.send({ kind: 'setParam', synth: sound, name: key, value })
       }
       const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1

@@ -45,6 +45,11 @@ export interface Hooks {
    *  LIVE: the piano-roll lights with the playhead, the envelope fires its
    *  marker per note, and a pattern-driven knob's dial follows the drive. */
   onNoteEvents?: (fn: (evs: NoteEv[]) => void) => () => void
+  /** TOUCH-TO-OVERRIDE: while a hand holds a knob, the held value plays and
+   *  the pattern drive for that param is suppressed; releasing hands control
+   *  back to the pattern on its next event. */
+  holdParam?: (synth: string, name: string, value: number) => void
+  releaseParam?: (synth: string, name: string) => void
 }
 
 /** Bound how long a note keeps a widget lit. */
@@ -224,6 +229,10 @@ export function scanPlays(text: string): PlayRoll[] {
 class KnobWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
+  /** true while a drag holds the param (touch-to-override) — released in
+   *  end(), and defensively in destroy() so a mid-drag teardown (dispose,
+   *  language switch) can never leave the pattern drive suppressed forever. */
+  private holding = false
 
   constructor(
     readonly defFrom: number,
@@ -302,9 +311,15 @@ class KnobWidget extends WidgetType {
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
       const from = this.defFrom
       let toPos = this.defTo // current DEF end in the SOURCE (only DEF changes)
+      // TOUCH-TO-OVERRIDE: while held, the exact hand value plays NOW (engine
+      // param, no eval round-trip) and the pattern drive is suppressed; the
+      // text rewrite below still records the value (text stays the truth).
+      const canHold = this.hooks.holdParam !== undefined &&
+        this.name !== undefined && this.synth !== undefined
       const move = (ev: PointerEvent): void => {
         const t = clamp(t0 + (startY - ev.clientY) / 170, 0, 1)
         const v = fromNorm(t, this.lo, this.hi, this.log)
+        if (canHold) { this.holding = true; this.hooks.holdParam!(this.synth!, this.name!, v) }
         const text = formatNumber(v, { step, min: Math.min(this.lo, this.hi) })
         view.dispatch({ changes: { from, to: toPos, insert: text } })
         toPos = from + text.length
@@ -315,6 +330,8 @@ class KnobWidget extends WidgetType {
         this.drag.active = false
         this.drag.ended = true
         wrap.classList.remove('active')
+        // hand off the knob: the pattern drive resumes on its next event
+        if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', end)
         window.removeEventListener('pointercancel', end)
@@ -331,6 +348,10 @@ class KnobWidget extends WidgetType {
   destroy(): void {
     this.unsub?.()
     this.timers.clear()
+    if (this.holding && this.synth !== undefined && this.name !== undefined) {
+      this.holding = false
+      this.hooks.releaseParam?.(this.synth, this.name)
+    }
   }
 
   ignoreEvent(): boolean { return true }

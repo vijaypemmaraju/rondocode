@@ -388,6 +388,35 @@ describe('Session: scheduler events → engine messages', () => {
     expect(ofKind('noteOn')[0]).toMatchObject({ velocity: 0.5 })
   })
 
+  it('touch-to-override: a held param suppresses the pattern drive until release', () => {
+    const { session, audio, tick, ofKind } = rig()
+    session.evalCode(
+      `const a = synth(({ sine, note, gate, param, svf }) => svf(sine(note.freq), param('cutoff', 500)).mul(gate))\np('pat', note('60 62').sound('a').ctrl('cutoff', 500))`,
+    )
+    audio.currentTimeFrames = 0
+    session.transport('play', { cps: 1 })
+
+    // the hand grabs the knob: applies immediately…
+    session.holdParam('a', 'cutoff', 1234)
+    const immediate = ofKind('setParam')
+    expect(immediate[immediate.length - 1]).toMatchObject({ synth: 'a', name: 'cutoff', value: 1234 })
+
+    // …and the pattern's ctrl for that param is suppressed while held
+    const before = ofKind('setParam').length
+    tick()
+    const during = ofKind('setParam').slice(before)
+    expect(during.filter((m) => (m as { name?: string }).name === 'cutoff')).toHaveLength(0)
+    expect(ofKind('noteOn').length).toBeGreaterThan(0) // notes still play
+
+    // release: the drive resumes on its next event
+    session.releaseParam('a', 'cutoff')
+    audio.currentTimeFrames = 48000 // next cycle
+    const afterRelease = ofKind('setParam').length
+    tick()
+    const resumed = ofKind('setParam').slice(afterRelease)
+    expect(resumed.filter((m) => (m as { name?: string }).name === 'cutoff').length).toBeGreaterThan(0)
+  })
+
   it('events without sound or note are skipped silently', () => {
     const { session, audio, tick, ofKind } = rig()
     session.evalCode(`p('nosound', note('60'))\np('nonote', n('0 1').sound('a'))`)

@@ -6,6 +6,7 @@
  * members each synth uses and emit exactly that destructure. */
 
 import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Program, RondoError, SynthBlock, TopItem } from './ast'
+import { BUILTINS } from './builtins'
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
 
@@ -20,8 +21,8 @@ const num = (v: number): string => String(v)
  *  references one, we must destructure it so the raw JS can see it. */
 const KNOWN_CTX = [
   'note', 'gate', 'velocity', 'param', 'input',
-  'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr',
-  'sample', 'granular', 'pluck', 'modal',
+  'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr', 'noise',
+  'sample', 'granular', 'pluck', 'modal', 'pan',
   'svf', 'ladder', 'onepole', 'adsr', 'env', 'lfo',
   'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
@@ -48,7 +49,10 @@ class SynthGen {
         if (e.name === 'note') { this.uses.add('note'); return 'note.freq' }
         if (e.name === 'gate') { this.uses.add('gate'); return 'gate' }
         if (e.name === 'input') { this.uses.add('input'); return 'input' }
+        if (e.name === 'velocity') { this.uses.add('velocity'); return 'velocity' }
         return e.name // a binding-local const
+      case 'enum':
+        return `'${e.name}'`
       case 'bin': {
         const method = BIN_METHOD[e.op]!
         // constant-fold number⊗number (a numeric literal has no Sig methods —
@@ -94,57 +98,66 @@ class SynthGen {
   }
 
   call(e: Extract<Expr, { t: 'call' }>): string {
-    const a = e.args.map((x) => this.expr(x))
     const name = e.name
-    if (name === 'saw' || name === 'square' || name === 'sine' || name === 'tri') {
-      this.uses.add(name)
-      if (a.length === 0) { this.uses.add('note'); return `${name}(note.freq)` }
-      return `${name}(${a[0]})`
-    }
     if (name === 'adsr') {
+      const a = e.args.map((x) => this.expr(x))
       this.uses.add('adsr'); this.uses.add('gate')
       return `adsr(gate, { a: ${a[0] ?? '0'}, d: ${a[1] ?? '0'}, s: ${a[2] ?? '0'}, r: ${a[3] ?? '0'} })`
     }
-    if (name === 'ladder') {
-      this.uses.add('ladder')
-      return `ladder(${a[0]}, ${a[1]}, { res: ${e.named.res ? this.expr(e.named.res) : '0.5'} })`
+    const spec = BUILTINS[name]
+    if (spec === undefined) {
+      this.errors.push({ message: `unknown builtin \`${name}\``, line: e.pos.line, col: e.pos.col })
+      return '0'
     }
-    if (name === 'svf') {
-      this.uses.add('svf')
-      const opts: string[] = []
-      if (e.named.res) opts.push(`res: ${this.expr(e.named.res)}`)
-      if (e.named.mode) opts.push(`mode: '${(e.named.mode as { t: 'ident'; name: string }).name}'`)
-      return `svf(${a[0]}, ${a[1]}${opts.length ? `, { ${opts.join(', ')} }` : ''})`
+    // sig-ops are methods on the running signal, not ctx members to destructure
+    if (spec.kind !== 'sigop') this.uses.add(name)
+
+    // positional args (parser already ordered them; procs/sigops carry the
+    // input/running signal as args[0])
+    const a = e.args.map((x) => this.expr(x))
+    // an osc with a freq default and no freq arg reads the note
+    if (spec.kind === 'osc' && spec.freqDefault === true && a.length === 0) {
+      this.uses.add('note')
+      a.push('note.freq')
     }
-    if (name === 'onepole') {
-      this.uses.add('onepole')
-      return `onepole(${a[0]}, ${a[1]})`
+
+    // named args → an opts object (aliases applied; enums quoted by expr();
+    // bool kinds turn a truthy number into `true`)
+    const parts: string[] = []
+    for (const [key, kind] of Object.entries(spec.named ?? {})) {
+      if (name === 'reverb' && key === 'mix') continue // wet/dry sugar, below
+      const v = e.named[key]
+      if (v === undefined) continue
+      const out = spec.alias?.[key] ?? key
+      parts.push(`${out}: ${kind === 'bool' ? (v.t === 'num' && v.v !== 0 ? 'true' : 'false') : this.expr(v)}`)
     }
-    // ---- effects (voice or post chain) ----
-    const opts = (keys: [string, string][]): string => {
-      const parts = keys.filter(([k]) => e.named[k]).map(([k, out]) => `${out}: ${this.expr(e.named[k]!)}`)
-      return parts.length ? `, { ${parts.join(', ')} }` : ''
+    for (const [key, dflt] of Object.entries(spec.defaults ?? {})) {
+      if (!parts.some((p) => p.startsWith(`${key}:`))) parts.push(`${key}: ${e.named[key] !== undefined ? this.expr(e.named[key]!) : dflt}`)
     }
-    if (name === 'reverb') {
-      this.uses.add('reverb')
-      const base = `reverb(${a[0]}${opts([['room', 'roomSize'], ['damp', 'damp']])})`
-      // `mix:` is wet/dry sugar — reverb is wet-only, so blend it back over the dry
-      return e.named.mix ? `${a[0]}.mix(${base}, ${this.expr(e.named.mix)})` : base
+    // warn on named args the builtin doesn't declare — silent drops lie
+    for (const key of Object.keys(e.named)) {
+      if (key === 'mix' && name === 'reverb') continue
+      if (!(key in (spec.named ?? {}))) {
+        this.errors.push({ message: `\`${name}\` has no \`${key}:\` argument`, line: e.pos.line, col: e.pos.col })
+      }
     }
-    if (name === 'chorus') {
-      this.uses.add('chorus')
-      return `chorus(${a[0]}${opts([['rate', 'rate'], ['depth', 'depth'], ['mix', 'mix']])})`
+    const opts = parts.length > 0 ? `, { ${parts.join(', ')} }` : ''
+
+    if (spec.kind === 'sigop') {
+      // a Sig method on the input: input.tanh() / input.clip(-1, 1) / input.mix(other, t)
+      const [input, ...rest] = a
+      return `${input}.${name}(${rest.join(', ')})`
     }
-    if (name === 'exciter') {
-      this.uses.add('exciter')
-      return `exciter(${a[0]}${opts([['freq', 'freq'], ['amount', 'amount'], ['drive', 'drive']])})`
+    if (spec.kind === 'gated') {
+      this.uses.add('gate')
+      return `${name}(gate${a.length > 0 ? ', ' + a.join(', ') : ''}${opts})`
     }
-    if (name === 'ott') {
-      this.uses.add('ott')
-      return `ott(${a[0]}${opts([['depth', 'depth'], ['low', 'low'], ['high', 'high'], ['makeup', 'makeup']])})`
+    if (name === 'reverb' && e.named.mix !== undefined) {
+      // `mix:` is wet/dry sugar — reverb is wet-only, so blend it over the dry
+      const base = `reverb(${a[0]}${opts})`
+      return `${a[0]}.mix(${base}, ${this.expr(e.named.mix)})`
     }
-    this.errors.push({ message: `unknown builtin \`${name}\``, line: e.pos.line, col: e.pos.col })
-    return '0'
+    return `${name}(${a.join(', ')}${opts})`
   }
 
   bindingRHS(b: Binding): string {
@@ -202,11 +215,15 @@ function cgChain(bindings: Binding[], spine: Expr, headOrder: string[], errors: 
 
 function cgSynth(block: SynthBlock, errors: RondoError[]): string {
   const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors)
+  // header voice options: `synth acid mono glide:.08` → the synth() opts arg
+  const opts = block.voiceOpts !== undefined
+    ? `{ ${Object.entries(block.voiceOpts).map(([k, v]) => `${k}: ${v === true ? 'true' : num(v as number)}`).join(', ')} }`
+    : undefined
   if (block.post) {
     const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)
-    return `const ${block.name} = synth(${voice}, ${post})`
+    return `const ${block.name} = synth(${voice}, ${post}${opts !== undefined ? `, ${opts}` : ''})`
   }
-  return `const ${block.name} = synth(${voice})`
+  return `const ${block.name} = synth(${voice}${opts !== undefined ? `, ${opts}` : ''})`
 }
 
 const q = (s: string): string => `'${s.replace(/'/g, "\\'")}'`
@@ -221,12 +238,14 @@ function cgCtrlValue(v: CtrlValue): string {
   return s
 }
 
-/** A combinator → a chained method call. `struct` wraps its arg in mini(). */
+/** A combinator → a chained method call. `struct` wraps its arg in mini();
+ *  word arguments are quoted (`arp updown` → .arp('updown')), numbers stay raw. */
 function cgComb(c: Comb): string {
   const name = c.name === 'degradeby' ? 'degradeBy' : c.name
   if (name === 'struct') return `struct(mini(${q(c.args[0] ?? '')}))`
   if (name === 'rev' || name === 'degrade' || name === 'palindrome') return `${name}()`
-  return `${name}(${c.args.join(', ')})`
+  const args = c.args.map((arg) => (/^-?\d*\.?\d+$/.test(arg) ? arg : q(arg)))
+  return `${name}(${args.join(', ')})`
 }
 
 function cgMod(m: Mod): string {

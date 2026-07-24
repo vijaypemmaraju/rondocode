@@ -10,6 +10,7 @@ import { baseScope } from '../../app/src/session/scope'
 
 const acid = readFileSync(fileURLToPath(new URL('../examples/acid.rondo', import.meta.url)), 'utf8')
 const pad = readFileSync(fileURLToPath(new URL('../examples/pad.rondo', import.meta.url)), 'utf8')
+const wob = readFileSync(fileURLToPath(new URL('../examples/wob.rondo', import.meta.url)), 'utf8')
 
 describe('rondo end-to-end: source → transpile → evalCode → sound', () => {
   it('the acid example compiles and evals clean with no error diagnostics', () => {
@@ -47,6 +48,20 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
     expect(result.ok).toBe(true)
     expect(result.synths.get('pad')?.post).toBeDefined()
+  })
+
+  it('the wob example (registry batch: supersaw/lfo/shape/delay/tanh + mono glide) evals clean and sounds', () => {
+    const c = compile(wob)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    const sounding = result.patterns.get('wob')!
+      .query(new TimeSpan(F(0), F(2)))
+      .filter(hasOnset)
+      .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
+    expect(sounding.length).toBeGreaterThan(0)
   })
 
   it('parity via escape hatch: a js{ … } sidechain evals clean through the real engine', () => {

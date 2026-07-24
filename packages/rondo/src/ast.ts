@@ -18,8 +18,11 @@ export type Expr =
   | { t: 'ident'; name: string; pos: Pos }
   /** infix arithmetic: + - * / ^ (codegen → .add/.sub/.mul/.div/.pow). */
   | { t: 'bin'; op: '+' | '-' | '*' | '/' | '^'; l: Expr; r: Expr; pos: Pos }
-  /** a builtin call: saw, square, adsr, ladder, … (see codegen BUILTINS). */
+  /** a builtin call: saw, square, adsr, ladder, … (see src/builtins.ts). */
   | { t: 'call'; name: string; args: Expr[]; named: Record<string, Expr>; pos: Pos }
+  /** a bare enum word in an arg position (`noise pink`, `mode:hp`) — emitted
+   *  as a quoted string. */
+  | { t: 'enum'; name: string; pos: Pos }
   /** `x -> lo..hi` — map a unipolar signal into a range (codegen → .range). */
   | { t: 'map'; x: Expr; lo: Expr; hi: Expr; pos: Pos }
   /** a live control declared on a binding: `knob DEF lo..hi curve`. */
@@ -43,6 +46,8 @@ export interface SynthBlock {
   /** optional post chain (a `post` sub-block): a spine folded from `input`. */
   post?: Expr
   postBindings?: Binding[]
+  /** header voice options: `synth acid mono glide:.08` → synth() opts. */
+  voiceOpts?: Record<string, number | boolean>
   pos: Pos
 }
 

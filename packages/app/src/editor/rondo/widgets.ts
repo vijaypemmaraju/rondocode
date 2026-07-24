@@ -61,6 +61,34 @@ export function scanKnobs(text: string): KnobMatch[] {
   return out
 }
 
+/** `adsr A D S R` — groups: 1=prefix(`adsr `), 2..5 = a,d,s,r. */
+const ENV_RE = /\b(adsr\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)/g
+
+export interface EnvMatch {
+  /** char offset of the first value (A) within the scanned text. */
+  from: number
+  /** char offset just past the last value (R). */
+  to: number
+  a: number
+  d: number
+  s: number
+  r: number
+}
+
+/** Find every `adsr A D S R` in `text` (pure — unit tested). */
+export function scanEnvs(text: string): EnvMatch[] {
+  const out: EnvMatch[] = []
+  ENV_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = ENV_RE.exec(text)) !== null) {
+    const a = Number(m[2]), d = Number(m[3]), s = Number(m[4]), r = Number(m[5])
+    if (![a, d, s, r].every((n) => Number.isFinite(n))) continue
+    const from = m.index + m[1]!.length
+    out.push({ from, to: m.index + m[0].length, a, d, s, r })
+  }
+  return out
+}
+
 class KnobWidget extends WidgetType {
   constructor(
     readonly defFrom: number,
@@ -130,19 +158,140 @@ class KnobWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
-/** Scan the visible doc for knob bindings → a widget after each DEF value. */
+// envelope handle mapping maxes (seconds); values beyond clamp visually
+const AMAX = 1, DMAX = 1, RMAX = 2
+
+class EnvWidget extends WidgetType {
+  constructor(
+    readonly regionFrom: number,
+    readonly regionTo: number,
+    readonly a: number,
+    readonly d: number,
+    readonly s: number,
+    readonly r: number,
+    readonly hooks: Hooks,
+    readonly drag: Drag,
+  ) { super() }
+
+  eq(o: EnvWidget): boolean {
+    return o.regionFrom === this.regionFrom &&
+      o.a === this.a && o.d === this.d && o.s === this.s && o.r === this.r
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const W = 108, H = 30, pad = 2, base = H - pad, peak = pad, seg = 28, hold = 14
+    const wrap = document.createElement('span')
+    wrap.className = 'rondo-env'
+    wrap.title = 'drag the handles: attack · decay/sustain · release'
+    wrap.innerHTML =
+      `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+      '<path class="fill"/><path class="line" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<circle class="h ha" r="3"/><circle class="h hd" r="3"/><circle class="h hr" r="3"/></svg>'
+    const line = wrap.querySelector('.line') as SVGPathElement
+    const fill = wrap.querySelector('.fill') as SVGPathElement
+    const ha = wrap.querySelector('.ha') as SVGCircleElement
+    const hd = wrap.querySelector('.hd') as SVGCircleElement
+    const hr = wrap.querySelector('.hr') as SVGCircleElement
+    const geom = (a: number, d: number, s: number, r: number) => {
+      const ax = pad + clamp(a / AMAX, 0, 1) * seg
+      const dx = ax + clamp(d / DMAX, 0, 1) * seg
+      const sy = base - clamp(s, 0, 1) * (base - peak)
+      const hx = dx + hold
+      const rx = hx + clamp(r / RMAX, 0, 1) * seg
+      return { ax, dx, sy, hx, rx }
+    }
+    const render = (a: number, d: number, s: number, r: number): void => {
+      const g = geom(a, d, s, r)
+      const p = `M ${pad} ${base} L ${g.ax.toFixed(1)} ${peak} L ${g.dx.toFixed(1)} ${g.sy.toFixed(1)} ` +
+        `L ${g.hx.toFixed(1)} ${g.sy.toFixed(1)} L ${g.rx.toFixed(1)} ${base}`
+      line.setAttribute('d', p)
+      fill.setAttribute('d', `${p} L ${g.rx.toFixed(1)} ${base} L ${pad} ${base} Z`)
+      ha.setAttribute('cx', String(g.ax)); ha.setAttribute('cy', String(peak))
+      hd.setAttribute('cx', String(g.dx)); hd.setAttribute('cy', String(g.sy))
+      hr.setAttribute('cx', String(g.rx)); hr.setAttribute('cy', String(base))
+    }
+    render(this.a, this.d, this.s, this.r)
+
+    const svg = wrap.querySelector('svg') as SVGSVGElement
+    wrap.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation()
+      wrap.setPointerCapture(e.pointerId)
+      this.drag.active = true; wrap.classList.add('active')
+      const rect = svg.getBoundingClientRect()
+      const sx = (e.clientX - rect.left) * (W / rect.width)
+      const sy = (e.clientY - rect.top) * (H / rect.height)
+      let a = this.a, d = this.d, s = this.s, r = this.r
+      const g0 = geom(a, d, s, r)
+      // pick the nearest handle
+      const dist = (x: number, y: number): number => (sx - x) ** 2 + (sy - y) ** 2
+      const which = [
+        ['a', dist(g0.ax, peak)] as const,
+        ['ds', dist(g0.dx, g0.sy)] as const,
+        ['r', dist(g0.rx, base)] as const,
+      ].sort((p, q) => p[1] - q[1])[0]![0]
+      const tStep = niceStep(1 / 200), sStep = 0.01
+      const from = this.regionFrom
+      let toPos = this.regionTo
+      const fmt = (): string => [
+        formatNumber(a, { step: tStep }), formatNumber(d, { step: tStep }),
+        formatNumber(s, { step: sStep }), formatNumber(r, { step: tStep }),
+      ].join(' ')
+      const move = (ev: PointerEvent): void => {
+        const mx = (ev.clientX - rect.left) * (W / rect.width)
+        const my = (ev.clientY - rect.top) * (H / rect.height)
+        if (which === 'a') a = clamp((mx - pad) / seg, 0, 1) * AMAX
+        else if (which === 'ds') {
+          const ax = pad + clamp(a / AMAX, 0, 1) * seg
+          d = clamp((mx - ax) / seg, 0, 1) * DMAX
+          s = clamp((base - my) / (base - peak), 0, 1)
+        } else {
+          const hx = pad + clamp(a / AMAX, 0, 1) * seg + clamp(d / DMAX, 0, 1) * seg + hold
+          r = clamp((mx - hx) / seg, 0, 1) * RMAX
+        }
+        const text = fmt()
+        view.dispatch({ changes: { from, to: toPos, insert: text } })
+        toPos = from + text.length
+        render(a, d, s, r)
+        this.hooks.requestEval(false)
+      }
+      const end = (): void => {
+        this.drag.active = false; wrap.classList.remove('active')
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', end)
+        window.removeEventListener('pointercancel', end)
+        this.hooks.requestEval(false)
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', end)
+      window.addEventListener('pointercancel', end)
+    })
+    return wrap
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
+/** Scan the visible doc for knob + envelope bindings → inline widgets. */
 function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
-  const b = new RangeSetBuilder<Decoration>()
-  for (const { from, to } of view.visibleRanges) {
-    for (const k of scanKnobs(view.state.sliceDoc(from, to))) {
-      const defFrom = from + k.defFrom
-      const defTo = from + k.defTo
-      b.add(defTo, defTo, Decoration.widget({
-        widget: new KnobWidget(defFrom, k.value, k.lo, k.hi, k.log, hooks, drag),
-        side: 1,
-      }))
+  const items: { pos: number; deco: Decoration }[] = []
+  for (const range of view.visibleRanges) {
+    const text = view.state.sliceDoc(range.from, range.to)
+    for (const k of scanKnobs(text)) {
+      items.push({
+        pos: range.from + k.defTo,
+        deco: Decoration.widget({ widget: new KnobWidget(range.from + k.defFrom, k.value, k.lo, k.hi, k.log, hooks, drag), side: 1 }),
+      })
+    }
+    for (const e of scanEnvs(text)) {
+      items.push({
+        pos: range.from + e.to,
+        deco: Decoration.widget({ widget: new EnvWidget(range.from + e.from, range.from + e.to, e.a, e.d, e.s, e.r, hooks, drag), side: 1 }),
+      })
     }
   }
+  items.sort((x, y) => x.pos - y.pos)
+  const b = new RangeSetBuilder<Decoration>()
+  for (const it of items) b.add(it.pos, it.pos, it.deco)
   return b.finish()
 }
 

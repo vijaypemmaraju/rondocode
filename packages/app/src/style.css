@@ -1466,6 +1466,22 @@ body.shaderviz-on .cm-content {
 .rondo-knob:hover { opacity: 1; }
 .rondo-knob.active { opacity: 1; transform: scale(1.25); }
 .rondo-knob svg { display: block; }
+/* inline rondo envelope widget: a draggable A/D/S/R curve after an `adsr` */
+.rondo-env {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin: 0 0 0 6px;
+  color: var(--c-accent, #6ea8fe);
+  cursor: pointer;
+  touch-action: none;
+  opacity: 0.8;
+  transition: opacity 0.1s;
+}
+.rondo-env:hover, .rondo-env.active { opacity: 1; }
+.rondo-env svg { display: block; overflow: visible; }
+.rondo-env .fill { fill: color-mix(in srgb, var(--c-accent, #6ea8fe) 16%, transparent); }
+.rondo-env .h { fill: var(--c-bg, #16181d); stroke: currentColor; stroke-width: 1.5; }
 @media (max-width: 560px) {
   .run .btn-label {
     display: none;

@@ -514,7 +514,13 @@ function decompileSynth(stmt: Node): string | null {
   return out.join('\n')
 }
 
-const SCALE_INV = new Map(Object.entries(SCALE_MODE).map(([short, long]) => [long, short]))
+// Invert keeping the FIRST spelling per long name: SCALE_MODE lists the terse
+// forms first and the identity entries (minor→minor) last — a plain map-from-
+// entries would let the identities overwrite the short forms ('a-minor').
+const SCALE_INV = new Map<string, string>()
+for (const [short, long] of Object.entries(SCALE_MODE)) {
+  if (!SCALE_INV.has(long)) SCALE_INV.set(long, short)
+}
 
 /** A .ctrl/.gain value node → modifier value text, or null. */
 function ctrlValue(n: Node): string | null {

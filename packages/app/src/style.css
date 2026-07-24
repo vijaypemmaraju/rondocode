@@ -1451,6 +1451,21 @@ body.shaderviz-on .cm-content {
   color: var(--c-accent, #6ea8fe);
   border-color: var(--c-accent, #6ea8fe);
 }
+/* inline rondo knob widget: a small draggable dial after a `knob` value */
+.rondo-knob {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin: 0 0 0 4px;
+  color: var(--c-accent, #6ea8fe);
+  cursor: ns-resize;
+  touch-action: none;
+  opacity: 0.75;
+  transition: opacity 0.1s, transform 0.1s;
+}
+.rondo-knob:hover { opacity: 1; }
+.rondo-knob.active { opacity: 1; transform: scale(1.25); }
+.rondo-knob svg { display: block; }
 @media (max-width: 560px) {
   .run .btn-label {
     display: none;

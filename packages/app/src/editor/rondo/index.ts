@@ -10,6 +10,7 @@
 import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
+import { rondoWidgets } from './widgets'
 
 /** Block keywords + `post`. */
 const KEYWORDS = new Set(['synth', 'play', 'cps', 'post'])
@@ -65,8 +66,11 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
   },
 })
 
-export function rondoLanguage(): LanguageSupport {
-  return new LanguageSupport(rondoStreamLang)
+/** The rondo language for CodeMirror: highlighting + (when `hooks` is given)
+ *  the inline widgets (knob, …). Pass hooks in the editor; omit for read-only
+ *  contexts (docs snippets) that only need highlighting. */
+export function rondoLanguage(hooks?: { requestEval: (immediate: boolean) => void }): LanguageSupport {
+  return new LanguageSupport(rondoStreamLang, hooks ? [rondoWidgets(hooks)] : [])
 }
 
 /* ---- autocomplete -------------------------------------------------------- */

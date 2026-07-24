@@ -7,6 +7,7 @@
  * The heavy lifting (parse + diagnostics) is the @rondocode/rondo compiler,
  * driven from editor.ts; this module is only the editor-surface glue. */
 
+import './rondo-ui.css'
 import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { hoverTooltip } from '@codemirror/view'
@@ -106,7 +107,7 @@ const OPTIONS: Completion[] = [
   c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),
   c('send', 'keyword', 'send lead .35', 'Route a synth into this bus (0..1, pre-fader).'),
   c('visual', 'keyword', 'visual', 'A WGSL fragment shader block, rendered behind the code.'),
-  c('js', 'keyword', 'js{ … } / js block', 'Escape hatch: raw rondocode/JS, verbatim — total parity with the JS API.'),
+  c('js', 'keyword', 'js{ … } / js block', 'Escape hatch: raw JavaScript, verbatim — total parity with the JS API.'),
   c('saw', 'function', 'saw [freq]', 'Sawtooth oscillator. Default freq = the note.'),
   c('square', 'function', 'square [freq]', 'Square oscillator. Default freq = the note.'),
   c('sine', 'function', 'sine [freq]', 'Sine oscillator (also a global LFO/continuous signal).'),

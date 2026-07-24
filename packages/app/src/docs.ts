@@ -117,7 +117,7 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
   edit.target = '_blank'
   edit.rel = 'noopener'
   const refreshEditLink = async (code: string): Promise<void> => {
-    const payload = await encodeShare({ name: caption, code })
+    const payload = await encodeShare({ name: caption, code, ...(lang !== undefined ? { lang } : {}) })
     edit.href = shareUrl(location.origin, '/', payload)
   }
 

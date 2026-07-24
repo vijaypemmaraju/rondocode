@@ -100,6 +100,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     const shared = await decodeShare(sharePayload)
     if (shared) {
       active = await store.createProject(shared.name, shared.code)
+      // the payload knows its language — a rondo tune must open in rondo mode
+      // (and a JS tune must not squiggle under a phone's rondo default)
+      editor.setLang(shared.lang === 'rondo' ? 'rondo' : 'rondocode')
       editor.loadCode(shared.code)
       try {
         history.replaceState(null, '', location.pathname + location.search)

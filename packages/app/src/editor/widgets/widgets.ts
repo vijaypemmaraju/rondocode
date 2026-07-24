@@ -1,3 +1,4 @@
+import './widgets.css'
 import { StateEffect, StateField } from '@codemirror/state'
 import type { Extension } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'

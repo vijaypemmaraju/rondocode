@@ -1,0 +1,124 @@
+/* Rondo UI styles: the inline knob/envelope/piano-roll widgets and the tap
+ * palette. Co-located with editor/rondo and imported by it, so the main app
+ * and the docs page render them identically. */
+
+/* --- the rondo tap palette ---
+ * A chip bar docked above the software keyboard (below the editor): the
+ * grammar's legal next moves at the cursor, tappable. Chips insert on
+ * pointerdown + preventDefault so the editor keeps focus and the phone
+ * keyboard never dismisses. Horizontally scrollable, one row. */
+.rondo-palette {
+  flex: none;
+  display: flex;
+  gap: var(--sp-1);
+  align-items: center;
+  padding: var(--sp-1) calc(var(--sp-2) + env(safe-area-inset-right)) var(--sp-1) calc(var(--sp-2) + env(safe-area-inset-left));
+  background: var(--c-bar);
+  border-top: 1px solid var(--c-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.rondo-palette::-webkit-scrollbar { display: none; }
+.rondo-palette.hidden { display: none; }
+.rp-chip {
+  flex: none;
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.rp-chip:active { background: var(--c-surface); border-color: var(--c-accent); }
+.rp-chip.rp-kw { color: var(--c-accent); }
+.rp-chip.rp-note { min-width: 36px; text-align: center; padding: 0 var(--sp-2); }
+.rp-chip.rp-op { color: var(--c-dim); min-width: 36px; padding: 0 var(--sp-2); }
+/* inline rondo knob widget: a draggable dial after a `knob` value. The
+   padding is the touch target — the dial stays visually compact. */
+.rondo-knob {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0 0 2px;
+  padding: 4px;
+  color: var(--c-accent, #6ea8fe);
+  cursor: ns-resize;
+  touch-action: none;
+  opacity: 0.8;
+  transition: opacity 0.1s, transform 0.1s;
+}
+.rondo-knob:hover { opacity: 1; }
+.rondo-knob.active { opacity: 1; transform: scale(1.35); }
+/* pattern-driven: the dial is following a .ctrl sweep — read as "live" */
+.rondo-knob.live { opacity: 1; color: var(--c-accent-alt, #6ea8fe); }
+.rondo-knob svg { display: block; }
+@media (pointer: coarse) {
+  .rondo-knob { padding: 8px; } /* ~40px target under a thumb */
+}
+/* inline rondo envelope widget: a draggable A/D/S/R curve after an `adsr` */
+.rondo-env {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin: 0 0 0 6px;
+  color: var(--c-accent, #6ea8fe);
+  cursor: pointer;
+  touch-action: none;
+  opacity: 0.8;
+  transition: opacity 0.1s;
+}
+.rondo-env:hover, .rondo-env.active { opacity: 1; }
+.rondo-env svg { display: block; overflow: visible; }
+.rondo-env .fill { fill: color-mix(in srgb, var(--c-accent, #6ea8fe) 16%, transparent); }
+.rondo-env .h { fill: var(--c-bg, #16181d); stroke: currentColor; stroke-width: 1.5; }
+/* the note-fired marker riding the curve + the "firing" flash */
+.rondo-env .emark {
+  fill: var(--c-accent-alt, #6ea8fe);
+  opacity: 0;
+  filter: drop-shadow(0 0 4px var(--c-accent-alt, #6ea8fe));
+}
+.rondo-env.firing .line { stroke: var(--c-accent-alt, #6ea8fe); }
+.rondo-env.firing .fill { fill: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 22%, transparent); }
+/* inline rondo piano-roll: tap/drag the notation as a step grid */
+.rondo-roll {
+  display: inline-grid;
+  gap: 2px;
+  vertical-align: text-bottom;
+  margin: 0 0 0 8px;
+  padding: 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 28%, transparent);
+  touch-action: none;
+}
+.rondo-roll .rc {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 55%, transparent);
+  cursor: pointer;
+  transition: background 0.06s, box-shadow 0.06s, transform 0.06s;
+}
+.rondo-roll .rc:hover { background: color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent); }
+/* every 4th column brighter: the beat grid */
+.rondo-roll .rc.beat { background: color-mix(in srgb, var(--c-border, #2a2e37) 90%, transparent); }
+.rondo-roll .rc.on {
+  background: var(--c-accent, #6ea8fe);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 30%, var(--c-accent, #6ea8fe));
+}
+/* playhead: the sweeping column lights, the sounding cell blooms */
+.rondo-roll .rc.play { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c-accent, #6ea8fe) 55%, transparent); }
+.rondo-roll .rc.trig {
+  background: var(--c-accent-alt, #6ea8fe);
+  box-shadow: 0 0 10px -1px var(--c-accent-alt, #6ea8fe);
+  transform: scale(1.12);
+}
+@media (pointer: coarse) {
+  .rondo-roll .rc { width: 16px; height: 16px; } /* thumb-sized steps */
+}

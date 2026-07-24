@@ -11,7 +11,7 @@ export interface Block {
   text: string
   /** short caption shown above a code block */
   caption?: string
-  /** code language: omitted = rondocode JS; 'rondo' = the rondo language
+  /** code language: omitted = JavaScript; 'rondo' = the rondo language
    *  (rendered with rondo highlighting, transpiled before play). */
   lang?: 'rondo'
 }
@@ -31,7 +31,7 @@ export const HERO = {
   title: 'rondocode',
   tagline: 'Live-codeable synths and mini-notation patterns, in your browser.',
   blurb:
-    'There are two kinds of code here. Synths are functions that turn oscillators, filters, and envelopes into a sound. Patterns are sequences that trigger those sounds in time. Press play on any example to hear it, or open it in the editor to change it.',
+    'There are two kinds of code here — synths, which turn oscillators, filters, and envelopes into a sound, and patterns, which trigger those sounds in time. And two languages to write them in: JavaScript (the full API, below) and rondo (the terse phone-first language — see \u201crondo: the language\u201d). Press play on any example to hear it, or open it in the editor to change it.',
 }
 
 export const SECTIONS: Section[] = [
@@ -560,7 +560,7 @@ setCps(0.5333)`,
     id: 'rondo-intro',
     title: 'rondo: the language',
     blocks: [
-      p('Everything above is rondocode — JavaScript. `rondo` is a second, terser language made for phones: no braces, no arrows, no quotes. It transpiles to the JavaScript API, so it can do everything the JS can (and anything not yet in the syntax passes through a `js` escape hatch). Flip the editor into rondo with the `js | rondo` toggle in the header — phones start there by default.'),
+      p('rondocode speaks two languages. Everything above is the JAVASCRIPT language — the full API. `rondo` is the second: a terser language made for phones, with no braces, no arrows, no quotes. It compiles to the same JavaScript API, so it can do everything JS can (and anything not yet in the syntax passes through a `js` escape hatch). Flip the editor between them with the `js | rondo` toggle in the header — phones start in rondo by default.'),
       p('Two ideas carry the whole language. A synth is a PIPELINE: one stage per line, each line feeding the next — source, filter, amp, like a modular patch. And modulation lives in `name = …` BINDINGS beside the pipe — envelopes and knobs are CV, not plumbing.'),
       rondo(
         'A whole instrument in nine lines. Press play.',

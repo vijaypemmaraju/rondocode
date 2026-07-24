@@ -150,6 +150,30 @@ describe('rondo → rondocode codegen', () => {
     if (r.ok) expect(() => new Function(r.code)).not.toThrow()
   })
 
+  it('env: flat time/level pairs → a breakpoint envelope call', () => {
+    const out = ok(`synth s\n  saw\n  * e\n  e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1\n`)
+    expect(out).toContain('env(gate, [[0.005, 1], [0.15, 0.4], [0.5, 0.6]], { release: 0.3, curve: 3, loop: true })')
+    // odd number of values = half a pair — error, not a silent drop
+    expect(compile(`synth s\n  saw\n  * e\n  e = env .005 1 .15\n`).ok).toBe(false)
+    // bare `env` is still a reference to a binding named env
+    expect(ok(`synth s\n  saw\n  * env\n  env = adsr .01 .1 .5 .1\n`)).toContain('.mul(env)')
+  })
+
+  it('eq: word-then-numbers band groups → the bands array', () => {
+    const out = ok(`synth s\n  saw\n  eq hp 170 highshelf 7000 4\n`)
+    expect(out).toContain("eq(saw(note.freq), [{ type: 'hp', freq: 170 }, { type: 'highshelf', freq: 7000, gain: 4 }])")
+    // peak takes freq gain q
+    expect(ok(`synth s\n  saw\n  eq peak 300 -3 2\n`)).toContain("{ type: 'peak', freq: 300, gain: -3, q: 2 }")
+    // unknown band type + missing freq are positioned errors
+    expect(compile(`synth s\n  saw\n  eq bandpass 300\n`).ok).toBe(false)
+    expect(compile(`synth s\n  saw\n  eq hp\n`).ok).toBe(false)
+  })
+
+  it('vocoder: the pipe is the carrier, the positional is the modulator', () => {
+    const out = ok(`synth s\n  supersaw\n  vocoder m bands:20\n  m = noise\n`)
+    expect(out).toContain('vocoder(supersaw(note.freq), m, { bands: 20 })')
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

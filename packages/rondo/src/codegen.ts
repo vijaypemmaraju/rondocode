@@ -53,7 +53,10 @@ class SynthGen {
         // a bare proc/sigop name that is NOT a binding was a call missing its
         // input (the parser left it as an ident for us to resolve)
         if (!this.bound.has(e.name) && BUILTINS[e.name] !== undefined) {
-          this.errors.push({ message: `\`${e.name}\` needs an input here (or use it as a pipeline line)`, line: e.pos.line, col: e.pos.col })
+          const msg = e.name === 'env'
+            ? '`env` needs time/level pairs (`env .005 1 .15 .4`) — or define a binding named env'
+            : `\`${e.name}\` needs an input here (or use it as a pipeline line)`
+          this.errors.push({ message: msg, line: e.pos.line, col: e.pos.col })
           return '0'
         }
         return e.name // a binding-local const
@@ -130,9 +133,17 @@ class SynthGen {
     // sig-ops are methods on the running signal, not ctx members to destructure
     if (spec.kind !== 'sigop') this.uses.add(name)
 
+    if (name === 'eq') return this.eqCall(e)
+
     // positional args (parser already ordered them; procs/sigops carry the
     // input/running signal as args[0])
-    const a = e.args.map((x) => this.expr(x))
+    let a = e.args.map((x) => this.expr(x))
+    // env: flat time/level pairs → ONE [[t, l], …] points argument
+    if (name === 'env') {
+      const pairs: string[] = []
+      for (let i = 0; i + 1 < a.length; i += 2) pairs.push(`[${a[i]}, ${a[i + 1]}]`)
+      a = [`[${pairs.join(', ')}]`]
+    }
     // an osc with a freq default and no freq arg reads the note
     if (spec.kind === 'osc' && spec.freqDefault === true && a.length === 0) {
       this.uses.add('note')
@@ -177,6 +188,32 @@ class SynthGen {
       return `((x) => x.mix(reverb(x${opts}), ${this.expr(e.named.mix)}))(${a[0]})`
     }
     return `${name}(${a.join(', ')}${opts})`
+  }
+
+  /** eq: regroup the parser's flat [input, enum, num…] args into band objects.
+   *  hp/lp numbers mean freq q; peak/shelves mean freq gain q. */
+  eqCall(e: Extract<Expr, { t: 'call' }>): string {
+    const input = e.args[0] !== undefined ? this.expr(e.args[0]) : 'input'
+    const bands: string[] = []
+    let cur: string[] | null = null
+    let keys: string[] = []
+    const close = (): void => { if (cur !== null) bands.push(`{ ${cur.join(', ')} }`) }
+    for (const x of e.args.slice(1)) {
+      if (x.t === 'enum') {
+        if (cur !== null && cur.length < 2) this.errors.push({ message: 'eq band is missing its freq', line: x.pos.line, col: x.pos.col })
+        close()
+        cur = [`type: '${x.name}'`]
+        keys = x.name === 'hp' || x.name === 'lp' ? ['freq', 'q'] : ['freq', 'gain', 'q']
+      } else if (cur !== null) {
+        const k = keys.shift()
+        if (k === undefined) { this.errors.push({ message: 'too many numbers in an eq band', line: e.pos.line, col: e.pos.col }); continue }
+        cur.push(`${k}: ${this.expr(x)}`)
+      }
+    }
+    if (cur !== null && cur.length < 2) this.errors.push({ message: 'eq band is missing its freq', line: e.pos.line, col: e.pos.col })
+    close()
+    for (const key of Object.keys(e.named)) this.errors.push({ message: `\`eq\` has no \`${key}:\` argument`, line: e.pos.line, col: e.pos.col })
+    return `eq(${input}, [${bands.join(', ')}])`
   }
 
   bindingRHS(b: Binding): string {

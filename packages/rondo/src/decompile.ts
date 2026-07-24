@@ -133,6 +133,41 @@ function posArg(n: Node): string | null {
   return r !== null && r.prec >= 2 ? r.s : null
 }
 
+/** eq band objects → rondo's word-then-numbers groups (`hp 170 peak 300 -3 2`),
+ *  or null when a band isn't expressible positionally (a q without a gain). */
+const EQ_KEYS: Record<string, string[]> = {
+  hp: ['freq', 'q'], lp: ['freq', 'q'],
+  peak: ['freq', 'gain', 'q'], lowshelf: ['freq', 'gain', 'q'], highshelf: ['freq', 'gain', 'q'],
+}
+function eqBands(n: Node): string | null {
+  if (n.type !== 'ArrayExpression') return null
+  const parts: string[] = []
+  for (const el of n['elements'] as (Node | null)[]) {
+    if (el === null) return null
+    const o = objEntries(el)
+    if (o === undefined) return null
+    const t = o['type'] !== undefined ? strValue(o['type']!) : undefined
+    if (t === undefined) return null
+    const keys = EQ_KEYS[t]
+    if (keys === undefined) return null
+    const known = new Set(['type', ...keys])
+    if (Object.keys(o).some((k) => !known.has(k))) return null
+    const toks: string[] = [t]
+    let stopped = false
+    for (const k of keys) {
+      const v = o[k]
+      if (v === undefined) { stopped = true; continue }
+      if (stopped) return null // positional gap — not expressible
+      const x = numValue(v)
+      if (x === undefined) return null
+      toks.push(num(x))
+    }
+    if (toks.length < 2) return null // freq is required
+    parts.push(toks.join(' '))
+  }
+  return parts.join(' ')
+}
+
 function rExpr(n: Node): R | null {
   // identifiers + the special refs
   if (n.type === 'Identifier') {
@@ -182,6 +217,36 @@ function rExpr(n: Node): R | null {
         }
       }
       return null
+    }
+    if (name === 'env') {
+      // env(gate, [[t, l], …], opts?) → `env t l t l release:… curve:… loop:1`
+      if ((args.length === 2 || args.length === 3) && isIdent(args[0], 'gate')) {
+        const pts = args[1]!
+        if (pts.type !== 'ArrayExpression') return null
+        const flat: string[] = []
+        for (const el of pts['elements'] as (Node | null)[]) {
+          if (el === null || el.type !== 'ArrayExpression') return null
+          const pair = el['elements'] as (Node | null)[]
+          if (pair.length !== 2) return null
+          for (const p of pair) {
+            const x = p !== null ? numValue(p) : undefined
+            if (x === undefined) return null
+            flat.push(num(x))
+          }
+        }
+        if (flat.length === 0) return null
+        const named = namedArgs(BUILTINS['env']!, args[2])
+        if (named === null) return null
+        return { s: `env ${flat.join(' ')}${named}`, prec: 5 }
+      }
+      return null
+    }
+    if (name === 'eq') {
+      if (args.length !== 2) return null
+      const input = posArg(args[0]!)
+      const bands = eqBands(args[1]!)
+      if (input === null || bands === null) return null
+      return { s: `eq ${input} ${bands}`, prec: 5 }
     }
     const spec = name !== undefined ? BUILTINS[name] : undefined
     if (spec === undefined) return null
@@ -315,6 +380,14 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
       return false
     }
     const name = calleeName(n)
+    if (name === 'eq' && args.length === 2) {
+      // eq(inner, bands) → an `eq hp 170 …` transform line
+      const bands = eqBands(args[1]!)
+      if (bands === null) return false
+      if (!unfoldPipeline(args[0]!, lines)) return false
+      lines.push(`eq ${bands}`)
+      return true
+    }
     const spec = name !== undefined ? BUILTINS[name] : undefined
     if (spec !== undefined && spec.kind === 'proc' && args.length >= 1) {
       let rest = args.slice(1)

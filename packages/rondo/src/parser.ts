@@ -118,6 +118,26 @@ function parsePositionals(c: Cursor, spec: BuiltinSpec): Expr[] {
   return args
 }
 
+/** eq band groups: a type word starts a band, following numbers are its
+ *  params in order (`hp 170` / `peak 300 -3 2` = freq gain q). Emitted flat
+ *  with enum markers; codegen regroups them into band objects. */
+const EQ_BAND_TYPES = new Set(['hp', 'lp', 'peak', 'lowshelf', 'highshelf'])
+function parseEqBands(c: Cursor): Expr[] {
+  const args: Expr[] = []
+  while (canStartArg(c)) {
+    const t = c.peek()!
+    if (t.k === 'ident') {
+      c.next()
+      if (!EQ_BAND_TYPES.has(t.v)) { c.err(`unknown eq band type \`${t.v}\` (hp, lp, peak, lowshelf, highshelf)`, t.pos); continue }
+      args.push({ t: 'enum', name: t.v, pos: t.pos })
+    } else {
+      if (args.length === 0) { c.err('eq bands start with a type word (`eq hp 170 highshelf 7000 4`)', t.pos); c.next(); continue }
+      args.push(parseExpr(c, 5))
+    }
+  }
+  return args
+}
+
 function parseApp(c: Cursor): Expr {
   const t = c.peek()
   if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: { line: 0, col: 0 } } }
@@ -131,6 +151,17 @@ function parseApp(c: Cursor): Expr {
       return { t: 'call', name, args, named: {}, pos: t.pos }
     }
     if (name === 'knob') return parseKnob(c)
+    if (name === 'env') {
+      // breakpoint envelope: variadic time/level pairs, then named args.
+      // Bare `env` stays an ident — it's a reference to a binding named env.
+      c.next()
+      const args: Expr[] = []
+      while (canStartArg(c)) args.push(parseExpr(c, 5))
+      const named = parseNamed(c, BUILTINS['env'])
+      if (args.length === 0 && Object.keys(named).length === 0) return { t: 'ident', name, pos: t.pos }
+      if (args.length === 0 || args.length % 2 !== 0) c.err('env takes time/level pairs, e.g. `env .005 1 .15 .4 release:.3`', t.pos)
+      return { t: 'call', name, args, named, pos: t.pos }
+    }
     const spec = BUILTINS[name]
     if (spec !== undefined) {
       c.next()
@@ -145,7 +176,7 @@ function parseApp(c: Cursor): Expr {
         if (!canStartArg(c)) return { t: 'ident', name, pos: t.pos }
         args.push(parseExpr(c, 2))
       }
-      args.push(...parsePositionals(c, spec))
+      args.push(...(name === 'eq' ? parseEqBands(c) : parsePositionals(c, spec)))
       const named = parseNamed(c, spec)
       return { t: 'call', name, args, named, pos: t.pos }
     }
@@ -220,7 +251,7 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       // a processor/sig-op line: the running signal is the implicit input
       const name = t0.v; c.next()
       const spec = BUILTINS[name]!
-      const args: Expr[] = [spine, ...parsePositionals(c, spec)]
+      const args: Expr[] = [spine, ...(name === 'eq' ? parseEqBands(c) : parsePositionals(c, spec))]
       const named = parseNamed(c, spec)
       spine = { t: 'call', name, args, named, pos: t0.pos }
     } else {

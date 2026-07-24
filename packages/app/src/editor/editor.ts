@@ -550,6 +550,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const rondoWidgetHooks: RondoWidgetHooks = {
     requestEval,
     now: () => audio.currentTimeFrames / audio.sampleRate,
+    // touch-to-override: a held knob plays the hand's value NOW (engine param,
+    // no eval round-trip) and suppresses the pattern drive until release
+    holdParam: (synth, name, value) => session.holdParam(synth, name, value),
+    releaseParam: (synth, name) => session.releaseParam(synth, name),
     onNoteEvents: (fn) =>
       subscribePatternEvents((evs) => {
         const notes = evs

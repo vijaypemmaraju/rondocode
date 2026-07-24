@@ -77,6 +77,23 @@ describe('rondo → rondocode codegen', () => {
     expect(src.slice(from, from + content.length)).toBe(content)
   })
 
+  it('js{ … } escape hatch: inline expression destructures the ctx it names', () => {
+    const out = ok(`synth s\n  js{ saw(note.freq).tanh() }\n`)
+    expect(out).toContain('return saw(note.freq).tanh()')
+    expect(out).toContain('synth(({ note, saw }) =>')
+  })
+
+  it('js{ … } escape hatch: a top-level one-liner passes through verbatim', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs{ sidechain('kick', { depth: 0.7 }) }\n`)
+    expect(out).toContain("sidechain('kick', { depth: 0.7 })")
+  })
+
+  it('js escape hatch: a `js` block emits its indented body verbatim', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs\n  sidechain('kick', { depth: 0.6 })\n  masterCompress({ threshold: -6 })\n`)
+    expect(out).toContain("sidechain('kick', { depth: 0.6 })")
+    expect(out).toContain('masterCompress({ threshold: -6 })')
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")

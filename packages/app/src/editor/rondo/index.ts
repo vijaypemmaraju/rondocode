@@ -32,7 +32,14 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
   token(stream) {
     if (stream.eatSpace()) return null
     const ch = stream.peek()!
-    if (ch === '#') { stream.skipToEnd(); return 'comment' }
+    if (ch === '#') {
+      // a comment only at line start or after whitespace — matching the
+      // lexer's rule, so `c#4` keeps its sharp instead of greying out
+      const prev = stream.pos === 0 ? ' ' : stream.string.charAt(stream.pos - 1)
+      if (/\s/.test(prev)) { stream.skipToEnd(); return 'comment' }
+      stream.next()
+      return 'note'
+    }
     if (stream.match('..') || stream.match('->')) return 'op'
     // number (single decimal; never eats a `..` range)
     if (/[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(stream.string.charAt(stream.pos + 1)))) {

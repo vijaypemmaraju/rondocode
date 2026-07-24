@@ -35,9 +35,21 @@ export interface Line {
 }
 
 const stripComment = (s: string): string => {
-  // a '#' at start, or preceded by whitespace, begins a comment
-  const m = /(^|\s)#/.exec(s)
-  return m ? s.slice(0, m.index + (m[1] ? m[1].length : 0)) : s
+  // A '#' at line start, or preceded by whitespace, begins a comment — but only
+  // OUTSIDE quotes, so a js{ … } line like `s("bd # sn")` survives intact.
+  // (`c#4` also survives: its '#' follows a letter.)
+  let str = '' // active string delimiter (' " `) or ''
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!
+    if (str) {
+      if (c === '\\') { i++; continue }
+      if (c === str) str = ''
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') { str = c; continue }
+    if (c === '#' && (i === 0 || /\s/.test(s[i - 1]!))) return s.slice(0, i)
+  }
+  return s
 }
 
 const OPS = new Set(['+', '-', '*', '/', '^'])
@@ -87,11 +99,18 @@ function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoE
     // two-char tokens
     if (ch === '.' && text[i + 1] === '.') { toks.push({ k: 'range', pos, sp }); i += 2; continue }
     if (ch === '-' && text[i + 1] === '>') { toks.push({ k: 'arrow', pos, sp }); i += 2; continue }
-    // number: 12, 12.5, .5 — a single decimal point only, never eating `..`
-    if (/[0-9]/.test(ch) || (ch === '.' && /[0-9]/.test(text[i + 1] ?? ''))) {
-      let j = i
-      while (j < text.length && /[0-9]/.test(text[j]!)) j++
-      if (text[j] === '.' && text[j + 1] !== '.') { j++; while (j < text.length && /[0-9]/.test(text[j]!)) j++ }
+    // number: 12, 12.5, .5, and NEGATIVE literals (`knob -6 -12..0`). A '-' that
+    // is space-preceded AND glued to its digits is a sign — so `env - 1` and
+    // `env-1` both stay subtraction. A single decimal point only, never `..`.
+    const digitAt = (k: number): boolean => /[0-9]/.test(text[k] ?? '')
+    const startsNum =
+      digitAt(i) ||
+      (ch === '.' && digitAt(i + 1)) ||
+      (ch === '-' && sp && (digitAt(i + 1) || (text[i + 1] === '.' && digitAt(i + 2))))
+    if (startsNum) {
+      let j = ch === '-' ? i + 1 : i
+      while (j < text.length && digitAt(j)) j++
+      if (text[j] === '.' && text[j + 1] !== '.') { j++; while (j < text.length && digitAt(j)) j++ }
       const t = text.slice(i, j)
       const v = Number(t)
       if (!Number.isFinite(v)) errors.push({ message: `bad number "${t}"`, line: lineNo, col: base + i })

@@ -14,15 +14,15 @@ import { formatNumber, niceStep } from './rewrite'
  * ACTIVATION — two paths, chosen to never fight normal editing:
  * - Desktop: Alt+drag. preventDefault on pointerdown, so no selection ever
  *   starts.
- * - Touch: long-press (350 ms) then drag. We must NOT preventDefault on
- *   touchstart — that would kill scrolling and caret placement for every
- *   tap that happens to land on a number — so the browser's own long-press
- *   behaviors (iOS text loupe) race us. Tradeoff accepted: we fire at
- *   350 ms (before the ~500 ms native loupe), suppress user-select while
- *   scrubbing, and block scroll only once the hold has fired (a
- *   passive:false touchmove blocker installed for the drag's duration).
- *   Moving >8 px before the hold fires cancels it, so scrolling that
- *   starts on a number still scrolls.
+ * - Touch/pen: INSTANT sideways engage — touch a number and drag
+ *   horizontally, no long-press. The first ~8 px of travel decide the
+ *   gesture: sideways ⇒ scrub (the doc line-wraps, so horizontal has no
+ *   native meaning; `.cm-scrub { touch-action: pan-y }` tells the browser
+ *   the same), vertical ⇒ cancel and let native scrolling run, an unmoved
+ *   tap ⇒ falls through to normal caret placement. No hold window means
+ *   the iOS text loupe / selection UI never races the gesture — the
+ *   control-surface feel of touching a value and hearing it change.
+ *   Scroll is blocked (passive:false touchmove) only once a scrub is live.
  *
  * DISCOVERABILITY: every scrubbable literal carries a faint dotted
  * underline, always on (not just while a modifier is held) — on phones
@@ -43,15 +43,15 @@ import { formatNumber, niceStep } from './rewrite'
  * rewrites; any external doc change mid-gesture (another widget, HMR,
  * collaborative edit) ABORTS the gesture — the tracked range is stale and
  * guessing at a remap is worse than ending the drag. detect() runs fresh
- * at long-press fire time and on each pointerdown, so stale literals
- * cannot leak between gestures.
+ * at engage time and on each pointerdown, so stale literals cannot leak
+ * between gestures.
  * ------------------------------------------------------------------------- */
 
 export const SCRUB_MIN_STEP = 0.01
-export const SCRUB_HOLD_MS = 350
 export const SCRUB_THROTTLE_MS = 30
-/** Finger travel that cancels an armed (not yet fired) long-press. */
-const HOLD_SLOP_PX = 8
+/** Finger travel that decides a touch gesture: sideways past this = scrub
+ *  engages instantly; vertical past this = it's a scroll, hand it back. */
+const TOUCH_ENGAGE_PX = 8
 
 /** Per-pixel delta and output quantum for a scrub starting at `start`. */
 export function scrubStep(start: number, isInt: boolean): { perPixel: number; quantum: number } {
@@ -101,16 +101,19 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     const pos = view.posAtCoords({ x, y })
     if (pos === null) return null
     const doc = view.state.doc.toString()
-    let numbers = detect(doc, syntaxTree(view.state)).numbers
+    const tree = syntaxTree(view.state)
+    let numbers = detect(doc, tree).numbers
     // The tree walk is JS-grammar-specific; in rondo mode (a StreamLanguage
-    // tree) it finds nothing, so fall back to a plain-text scan — every number
-    // stays scrubbable regardless of the active language.
-    if (numbers.length === 0) numbers = scanNumbersText(doc)
+    // tree, top node "Document" not "Script") it finds nothing, so fall back to
+    // a plain-text scan — every number stays scrubbable in rondo. Gated on the
+    // grammar, NOT on numbers.length: a JS doc whose only digits sit inside
+    // mini-notation strings must keep them non-scrubbable as before.
+    if (numbers.length === 0 && tree.type.name !== 'Script') numbers = scanNumbersText(doc)
     return numbers.find((n) => pos >= n.from && pos <= n.to) ?? null
   }
 
   let active: ActiveScrub | null = null
-  let hold: { timer: ReturnType<typeof setTimeout>; cancel: () => void } | null = null
+  let hold: { cancel: () => void } | null = null
   /** True while OUR dispatch is in flight — distinguishes our own doc
    *  changes from external ones in the plugin's update hook. */
   let selfDispatch = false
@@ -194,16 +197,19 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     window.addEventListener('touchmove', blockTouch, { passive: false })
   }
 
-  /** `_lit` gated the arming (we know the press is on a number) but the
-   *  literal itself is re-resolved when the hold fires — see the timer. */
-  const armLongPress = (view: EditorView, _lit: ScrubLit, e: PointerEvent): void => {
-    hold?.cancel() // one armed hold at a time — a second touch re-arms
+  /** Touch: engage INSTANTLY on a horizontal drag — no long-press. The first
+   *  move decides: sideways ⇒ scrub (the free axis; the doc line-wraps, so
+   *  horizontal has no native meaning), vertical ⇒ hand the gesture back to
+   *  native scrolling. A plain tap falls through to normal caret placement.
+   *  This is the control-surface feel: touch a value, drag, hear it change —
+   *  with none of the selection UI a press-and-hold used to trigger. */
+  const armTouchScrub = (view: EditorView, e: PointerEvent): void => {
+    hold?.cancel() // one armed gesture at a time — a second touch re-arms
     const { pointerId, clientX, clientY } = e
     const target = e.target
-    // cancel closes over ITS OWN timer/listeners, so a stale hold record
-    // can never clear a newer one (multi-touch safety)
+    // cancel closes over ITS OWN listeners, so a stale record can never
+    // clear a newer one (multi-touch safety)
     const cancel = (): void => {
-      clearTimeout(timer)
       if (hold !== null && hold.cancel === cancel) hold = null
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', cancel)
@@ -211,23 +217,19 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     }
     const onMove = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return
-      if (Math.hypot(ev.clientX - clientX, ev.clientY - clientY) > HOLD_SLOP_PX) cancel()
-    }
-    const timer = setTimeout(() => {
+      const dx = ev.clientX - clientX
+      const dy = ev.clientY - clientY
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > TOUCH_ENGAGE_PX) { cancel(); return } // scrolling
+      if (Math.abs(dx) < TOUCH_ENGAGE_PX) return // undecided — keep watching
       cancel()
-      // RE-RESOLVE at fire time: the doc may have changed during the hold
-      // (debounced eval, another widget) — the armed literal could be stale
+      // RE-RESOLVE at engage time: the doc may have changed since the press
+      // (debounced eval, another widget) — the pressed literal could be stale
       const fresh = litAt(view, clientX, clientY)
       if (fresh === null) return
-      // re-fire with the original press point as the drag origin
-      startScrub(view, fresh, {
-        pointerId,
-        clientX,
-        clientY,
-        target,
-      } as PointerEvent)
-    }, SCRUB_HOLD_MS)
-    hold = { timer, cancel }
+      // engage with the original press point as the drag origin
+      startScrub(view, fresh, { pointerId, clientX, clientY, target } as PointerEvent)
+    }
+    hold = { cancel }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', cancel)
     window.addEventListener('pointercancel', cancel)
@@ -251,7 +253,13 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       }
 
       private build(view: EditorView): DecorationSet {
-        const { numbers } = detect(view.state.doc.toString(), syntaxTree(view.state))
+        const doc = view.state.doc.toString()
+        const tree = syntaxTree(view.state)
+        let numbers = detect(doc, tree).numbers
+        // rondo mode: same fallback as litAt — without it the numbers scrub
+        // but carry no underline (and no touch-action) — the one teaching
+        // signal on phones, and the CSS that keeps sideways drags ours.
+        if (numbers.length === 0 && tree.type.name !== 'Script') numbers = scanNumbersText(doc)
         return Decoration.set(
           numbers.map((n) => scrubMark.range(n.from, n.to)),
           true,
@@ -272,7 +280,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
               startScrub(view, lit, e)
               return true
             }
-            if (e.pointerType === 'touch') armLongPress(view, lit, e)
+            if (e.pointerType !== 'mouse') armTouchScrub(view, e) // touch/pen: instant sideways engage
             return false // let CM place the caret / start scrolling as usual
           } catch {
             return false // scrubbing must never break pointer handling

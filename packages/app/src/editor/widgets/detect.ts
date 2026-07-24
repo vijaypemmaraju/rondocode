@@ -71,7 +71,14 @@ export function scanNumbersText(text: string): ScrubLit[] {
     const raw = m[0]
     const prev = text[m.index - 1]
     const next = text[m.index + raw.length]
-    if (prev !== undefined && /[\w.]/.test(prev)) continue // part of an ident / after a dot
+    if (prev === '.') {
+      // `80..8000`: the regex first lands on ".8000" — rewind one char so the
+      // hi end matches as "8000" (both ends of a range must stay scrubbable)
+      if (raw.startsWith('.')) { re.lastIndex = m.index + 1; continue }
+      // "8000" straight after a dot: keep it only for a `..` range; skip a
+      // decimal/property continuation like the "5" in "x.5"
+      if (text[m.index - 2] !== '.') continue
+    } else if (prev !== undefined && /\w/.test(prev)) continue // glued to an ident
     if (next !== undefined && /\w/.test(next)) continue
     const value = Number(raw)
     if (!Number.isFinite(value)) continue

@@ -23,7 +23,12 @@ import { formatNumber, niceStep } from '../widgets/rewrite'
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
 
 interface Hooks { requestEval: (immediate: boolean) => void }
-interface Drag { active: boolean }
+/** Shared drag state. `active` suppresses decoration rebuilds mid-gesture (so
+ *  the dragged DOM + its pointer capture survive); `ended` forces ONE rebuild
+ *  on the next update after a gesture — the surviving widget instances hold
+ *  stale ranges/values (their doc text changed under them), and a second drag
+ *  seeded from those would corrupt the source. */
+interface Drag { active: boolean; ended: boolean }
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v)
 
@@ -47,22 +52,40 @@ export interface KnobMatch {
   log: boolean
 }
 
-/** Find every `knob DEF lo..hi [curve]` in `text` (pure — unit tested). */
-export function scanKnobs(text: string): KnobMatch[] {
-  const out: KnobMatch[] = []
-  KNOB_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = KNOB_RE.exec(text)) !== null) {
-    const value = Number(m[2]), lo = Number(m[3]), hi = Number(m[4])
-    if (!Number.isFinite(value) || !Number.isFinite(lo) || !Number.isFinite(hi)) continue
-    const defFrom = m.index + m[1]!.length
-    out.push({ defFrom, defTo: defFrom + m[2]!.length, value, lo, hi, log: m[5] === 'log' })
+/** Iterate a doc's CODE lines: the text before any rondo `#` comment, with the
+ *  line's absolute offset. Widgets must not match inside comments (a knob in a
+ *  comment would render live and drags would rewrite the comment), and per-line
+ *  scanning keeps `\s+` in the regexes from crossing newlines. */
+function codeLines(text: string): { line: string; off: number }[] {
+  const out: { line: string; off: number }[] = []
+  let off = 0
+  for (const raw of text.split('\n')) {
+    const cm = /(^|\s)#/.exec(raw)
+    out.push({ line: cm ? raw.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : raw, off })
+    off += raw.length + 1
   }
   return out
 }
 
-/** `adsr A D S R` — groups: 1=prefix(`adsr `), 2..5 = a,d,s,r. */
-const ENV_RE = /\b(adsr\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\s+(-?\d*\.?\d+)/g
+/** Find every `knob DEF lo..hi [curve]` in `text` (pure — unit tested). */
+export function scanKnobs(text: string): KnobMatch[] {
+  const out: KnobMatch[] = []
+  for (const { line, off } of codeLines(text)) {
+    KNOB_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = KNOB_RE.exec(line)) !== null) {
+      const value = Number(m[2]), lo = Number(m[3]), hi = Number(m[4])
+      if (!Number.isFinite(value) || !Number.isFinite(lo) || !Number.isFinite(hi)) continue
+      const defFrom = off + m.index + m[1]!.length
+      out.push({ defFrom, defTo: defFrom + m[2]!.length, value, lo, hi, log: m[5] === 'log' })
+    }
+  }
+  return out
+}
+
+/** `adsr A D S R` — groups: 1=prefix(`adsr `), 2..5 = a,d,s,r. Spaces only
+ *  ([ \t]) so a match can never span lines. */
+const ENV_RE = /\b(adsr[ \t]+)(-?\d*\.?\d+)[ \t]+(-?\d*\.?\d+)[ \t]+(-?\d*\.?\d+)[ \t]+(-?\d*\.?\d+)/g
 
 export interface EnvMatch {
   /** char offset of the first value (A) within the scanned text. */
@@ -78,13 +101,52 @@ export interface EnvMatch {
 /** Find every `adsr A D S R` in `text` (pure — unit tested). */
 export function scanEnvs(text: string): EnvMatch[] {
   const out: EnvMatch[] = []
-  ENV_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = ENV_RE.exec(text)) !== null) {
-    const a = Number(m[2]), d = Number(m[3]), s = Number(m[4]), r = Number(m[5])
-    if (![a, d, s, r].every((n) => Number.isFinite(n))) continue
-    const from = m.index + m[1]!.length
-    out.push({ from, to: m.index + m[0].length, a, d, s, r })
+  for (const { line, off } of codeLines(text)) {
+    ENV_RE.lastIndex = 0
+    let m: RegExpExecArray | null
+    while ((m = ENV_RE.exec(line)) !== null) {
+      const a = Number(m[2]), d = Number(m[3]), s = Number(m[4]), r = Number(m[5])
+      if (![a, d, s, r].every((n) => Number.isFinite(n))) continue
+      const from = off + m.index + m[1]!.length
+      out.push({ from, to: off + m.index + m[0].length, a, d, s, r })
+    }
+  }
+  return out
+}
+
+export interface PlayRoll {
+  /** char range of the notation string in the source (what a tap rewrites). */
+  from: number
+  to: number
+  /** one entry per step: a scale degree, or null for a rest (`~`). */
+  steps: (number | null)[]
+}
+
+/** Find each `play` block's notation line when it's a SIMPLE flat sequence of
+ *  degrees / rests (`0 0 3 5 ~ 7`) — the grid-editable case. Notation with
+ *  richer mini-notation (`<> [] * @`, note names) is left as plain text. Pure. */
+export function scanPlays(text: string): PlayRoll[] {
+  const out: PlayRoll[] = []
+  const lines = text.split('\n')
+  const offs: number[] = []
+  let o = 0
+  for (const l of lines) { offs.push(o); o += l.length + 1 }
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^play\s+\S/.test(lines[i]!)) continue // header at indent 0
+    const nx = lines[i + 1]
+    if (nx === undefined) continue
+    const indent = /^[ \t]*/.exec(nx)![0].length
+    if (indent === 0) continue // next line isn't a body line
+    // strip a trailing `# comment`, then an inline `scale:…`
+    const cm = /(^|\s)#/.exec(nx)
+    const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
+    const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
+    const notation = noComment.slice(indent, scale ? scale.index : noComment.length).replace(/\s+$/, '')
+    const toks = notation.trim().split(/\s+/).filter(Boolean)
+    if (toks.length === 0) continue
+    if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
+    const from = offs[i + 1]! + indent
+    out.push({ from, to: from + notation.length, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) })
   }
   return out
 }
@@ -92,6 +154,10 @@ export function scanEnvs(text: string): EnvMatch[] {
 class KnobWidget extends WidgetType {
   constructor(
     readonly defFrom: number,
+    /** end of the DEF literal IN THE SOURCE — must come from scanKnobs, never
+     *  re-derived from the value (String(0.35) is "0.35" but the source may
+     *  spell it ".35"; a length mismatch would eat the char after the value). */
+    readonly defTo: number,
     readonly value: number,
     readonly lo: number,
     readonly hi: number,
@@ -101,7 +167,7 @@ class KnobWidget extends WidgetType {
   ) { super() }
 
   eq(o: KnobWidget): boolean {
-    return o.defFrom === this.defFrom && o.value === this.value &&
+    return o.defFrom === this.defFrom && o.defTo === this.defTo && o.value === this.value &&
       o.lo === this.lo && o.hi === this.hi && o.log === this.log
   }
 
@@ -130,7 +196,7 @@ class KnobWidget extends WidgetType {
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
       const from = this.defFrom
-      let toPos = from + String(this.value).length // current DEF end (only DEF changes)
+      let toPos = this.defTo // current DEF end in the SOURCE (only DEF changes)
       const move = (ev: PointerEvent): void => {
         const t = clamp(t0 + (startY - ev.clientY) / 170, 0, 1)
         const v = fromNorm(t, this.lo, this.hi, this.log)
@@ -142,10 +208,12 @@ class KnobWidget extends WidgetType {
       }
       const end = (): void => {
         this.drag.active = false
+        this.drag.ended = true
         wrap.classList.remove('active')
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', end)
         window.removeEventListener('pointercancel', end)
+        view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
         this.hooks.requestEval(false)
       }
       window.addEventListener('pointermove', move)
@@ -174,7 +242,9 @@ class EnvWidget extends WidgetType {
   ) { super() }
 
   eq(o: EnvWidget): boolean {
-    return o.regionFrom === this.regionFrom &&
+    // regionTo matters: `.2` → `0.2` keeps the same VALUES but shifts the end;
+    // reusing the old DOM would leave its closures rewriting a too-short range
+    return o.regionFrom === this.regionFrom && o.regionTo === this.regionTo &&
       o.a === this.a && o.d === this.d && o.s === this.s && o.r === this.r
   }
 
@@ -229,13 +299,29 @@ class EnvWidget extends WidgetType {
         ['ds', dist(g0.dx, g0.sy)] as const,
         ['r', dist(g0.rx, base)] as const,
       ].sort((p, q) => p[1] - q[1])[0]![0]
-      const tStep = niceStep(1 / 200), sStep = 0.01
+      const tStep = 0.001, sStep = 0.01
       const from = this.regionFrom
       let toPos = this.regionTo
-      const fmt = (): string => [
-        formatNumber(a, { step: tStep }), formatNumber(d, { step: tStep }),
-        formatNumber(s, { step: sStep }), formatNumber(r, { step: tStep }),
-      ].join(' ')
+      // Preserve the SOURCE spelling of untouched fields: only the dragged
+      // handle's value(s) are reformatted — otherwise touching release would
+      // silently re-quantize a `.003` attack onto the step grid. parts is
+      // [aRaw, ws, dRaw, ws, sRaw, ws, rRaw] (values at even indices).
+      const region = view.state.doc.sliceString(from, toPos)
+      const parts = region.split(/([ \t]+)/)
+      const canSplice = parts.length === 7
+      const fmt = (): string => {
+        if (!canSplice) {
+          return [
+            formatNumber(a, { step: tStep }), formatNumber(d, { step: tStep }),
+            formatNumber(s, { step: sStep }), formatNumber(r, { step: tStep }),
+          ].join(' ')
+        }
+        const p = parts.slice()
+        if (which === 'a') p[0] = formatNumber(a, { step: tStep })
+        else if (which === 'ds') { p[2] = formatNumber(d, { step: tStep }); p[4] = formatNumber(s, { step: sStep }) }
+        else p[6] = formatNumber(r, { step: tStep })
+        return p.join('')
+      }
       const move = (ev: PointerEvent): void => {
         const mx = (ev.clientX - rect.left) * (W / rect.width)
         const my = (ev.clientY - rect.top) * (H / rect.height)
@@ -255,10 +341,12 @@ class EnvWidget extends WidgetType {
         this.hooks.requestEval(false)
       }
       const end = (): void => {
-        this.drag.active = false; wrap.classList.remove('active')
+        this.drag.active = false; this.drag.ended = true
+        wrap.classList.remove('active')
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', end)
         window.removeEventListener('pointercancel', end)
+        view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
         this.hooks.requestEval(false)
       }
       window.addEventListener('pointermove', move)
@@ -271,23 +359,110 @@ class EnvWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
-/** Scan the visible doc for knob + envelope bindings → inline widgets. */
+class PianoRollWidget extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly to: number,
+    readonly steps: (number | null)[],
+    readonly hooks: Hooks,
+    readonly drag: Drag,
+  ) { super() }
+
+  eq(o: PianoRollWidget): boolean {
+    // `to` matters: respacing `0 3 5` → `0  3  5` keeps the same STEPS but
+    // shifts the end; a reused DOM would rewrite a too-short range on tap
+    return o.from === this.from && o.to === this.to && o.steps.length === this.steps.length &&
+      o.steps.every((v, i) => v === this.steps[i])
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const cols = this.steps.length
+    let maxDeg = 7
+    for (const s of this.steps) if (s !== null && s > maxDeg) maxDeg = s
+    const rows = maxDeg + 1
+    const grid = document.createElement('span')
+    grid.className = 'rondo-roll'
+    grid.setAttribute('role', 'group')
+    grid.setAttribute('aria-label', 'notation grid: tap or drag to write the melody')
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
+    const steps = this.steps.slice()
+    const cellEls: HTMLElement[][] = Array.from({ length: rows }, () => [])
+    // rows top (high degree) → bottom (low), so pitch goes up the screen
+    for (let dr = rows - 1; dr >= 0; dr--) {
+      for (let c = 0; c < cols; c++) {
+        const cell = document.createElement('span')
+        cell.className = 'rc' + (steps[c] === dr ? ' on' : '')
+        cell.dataset.r = String(dr)
+        cell.dataset.c = String(c)
+        cellEls[dr]![c] = cell
+        grid.appendChild(cell)
+      }
+    }
+    const refresh = (c: number): void => {
+      for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] === r)
+    }
+    const from = this.from
+    let toPos = this.to
+    const write = (): void => {
+      const s = steps.map((v) => (v === null ? '~' : String(v))).join(' ')
+      view.dispatch({ changes: { from, to: toPos, insert: s } })
+      toPos = from + s.length
+      this.hooks.requestEval(false)
+    }
+    let painting = false
+    let mode: 'draw' | 'erase' = 'draw'
+    const set = (r: number, c: number): void => {
+      const next = mode === 'draw' ? r : null
+      if (steps[c] === next) return // no-op: don't spam identical rewrites/evals mid-drag
+      steps[c] = next
+      refresh(c)
+      write()
+    }
+    grid.addEventListener('pointerdown', (e) => {
+      const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
+      if (!el) return
+      e.preventDefault(); e.stopPropagation()
+      grid.setPointerCapture(e.pointerId)
+      this.drag.active = true; painting = true
+      const r = Number(el.dataset.r), c = Number(el.dataset.c)
+      mode = steps[c] === r ? 'erase' : 'draw' // tap an active note to clear it
+      set(r, c)
+    })
+    grid.addEventListener('pointermove', (e) => {
+      if (!painting) return
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      const cell = el?.closest?.('.rc') as HTMLElement | null
+      if (cell && grid.contains(cell)) set(Number(cell.dataset.r), Number(cell.dataset.c))
+    })
+    const end = (): void => {
+      painting = false
+      this.drag.active = false
+      this.drag.ended = true
+      view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
+      this.hooks.requestEval(false)
+    }
+    grid.addEventListener('pointerup', end)
+    grid.addEventListener('pointercancel', end)
+    return grid
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
+/** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
 function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   const items: { pos: number; deco: Decoration }[] = []
-  for (const range of view.visibleRanges) {
-    const text = view.state.sliceDoc(range.from, range.to)
-    for (const k of scanKnobs(text)) {
-      items.push({
-        pos: range.from + k.defTo,
-        deco: Decoration.widget({ widget: new KnobWidget(range.from + k.defFrom, k.value, k.lo, k.hi, k.log, hooks, drag), side: 1 }),
-      })
-    }
-    for (const e of scanEnvs(text)) {
-      items.push({
-        pos: range.from + e.to,
-        deco: Decoration.widget({ widget: new EnvWidget(range.from + e.from, range.from + e.to, e.a, e.d, e.s, e.r, hooks, drag), side: 1 }),
-      })
-    }
+  // Docs are tiny (<10 KB); scan the whole thing so widgets past the viewport
+  // (and the line-oriented play scan) work without slicing bookkeeping.
+  const text = view.state.doc.toString()
+  for (const k of scanKnobs(text)) {
+    items.push({ pos: k.defTo, deco: Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, hooks, drag), side: 1 }) })
+  }
+  for (const e of scanEnvs(text)) {
+    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, hooks, drag), side: 1 }) })
+  }
+  for (const p of scanPlays(text)) {
+    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.steps, hooks, drag), side: 1 }) })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()
@@ -295,17 +470,21 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   return b.finish()
 }
 
-/** The rondo inline-widget extension (currently: the knob). */
+/** The rondo inline-widget extension (knob · envelope · piano-roll). */
 export function rondoWidgets(hooks: Hooks): Extension {
-  const drag: Drag = { active: false }
+  const drag: Drag = { active: false, ended: false }
   return ViewPlugin.fromClass(
     class {
       decos: DecorationSet
       constructor(view: EditorView) { this.decos = build(view, hooks, drag) }
       update(u: ViewUpdate): void {
-        // Keep the dragged knob's DOM stable: map our own edits through instead
-        // of rebuilding (which would destroy the element mid-gesture).
+        // Keep the dragged widget's DOM stable: map our own edits through
+        // instead of rebuilding (which would destroy the element mid-gesture)…
         if (drag.active) { this.decos = this.decos.map(u.changes); return }
+        // …then rebuild ONCE when the gesture ends (each end() dispatches an
+        // empty transaction): surviving instances hold stale ranges/values, and
+        // a second drag seeded from them would rewrite the wrong chars.
+        if (drag.ended) { drag.ended = false; this.decos = build(u.view, hooks, drag); return }
         if (u.docChanged || u.viewportChanged) this.decos = build(u.view, hooks, drag)
       }
     },

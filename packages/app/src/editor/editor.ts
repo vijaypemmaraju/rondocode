@@ -54,6 +54,10 @@ const initialLang = (): EditorLang => {
   try {
     const saved = localStorage.getItem(LANG_KEY)
     if (saved === 'rondo' || saved === 'rondocode') return saved
+    // A saved buffer with no saved lang predates the toggle — it's rondocode
+    // JS. Booting it into rondo mode would squiggle the user's own work, so
+    // the mobile default only applies to FRESH visits.
+    if (localStorage.getItem(DOC_KEY) !== null) return 'rondocode'
   } catch {
     // ignore storage failures — fall through to the heuristic
   }
@@ -327,6 +331,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Language surface (rondocode ↔ rondo). Compartments let us swap the grammar
   // + completion at runtime; `lang` gates transpile-before-run in applyDoc.
   let lang: EditorLang = initialLang()
+  // Persist the heuristic's choice immediately: once a doc autosaves, a fresh
+  // mobile visit's rondo buffer must not be reclassified as rondocode on
+  // reload by the saved-doc guard in initialLang().
+  try {
+    if (localStorage.getItem(LANG_KEY) === null) localStorage.setItem(LANG_KEY, lang)
+  } catch {
+    // storage failures leave the heuristic re-running each visit — harmless
+  }
   const langCompartment = new Compartment()
   const completionCompartment = new Compartment()
   const rondoAutocomplete = autocompletion({
@@ -553,12 +565,22 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const renderDiagnostics = (diags: Diagnostic[]): void => {
     try {
       const evalDiags = diags.filter((d) => d.source === 'eval')
-      view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc, evalDiags)))
-      const runtime = diags.filter((d) => d.source !== 'eval').slice(-2)
-      strip.replaceChildren(
-        ...runtime.map((d) => el('div', 'status-line', `[${d.source}] ${d.message}`)),
+      // rondo mode: eval diagnostics reference the TRANSPILED JS, not this
+      // buffer — clamped squiggles would land on unrelated rondo text, so they
+      // join the status strip instead. (Rondo COMPILE errors, whose positions
+      // do point at this buffer, are dispatched directly from applyDoc.)
+      // A successful eval still clears stale compile squiggles: empty set.
+      view.dispatch(
+        setDiagnostics(view.state, lang === 'rondo' ? [] : toCmDiagnostics(view.state.doc, evalDiags)),
       )
-      strip.hidden = runtime.length === 0
+      const stripDiags = [
+        ...(lang === 'rondo' ? evalDiags : []),
+        ...diags.filter((d) => d.source !== 'eval'),
+      ].slice(-2)
+      strip.replaceChildren(
+        ...stripDiags.map((d) => el('div', 'status-line', `[${d.source}] ${d.message}`)),
+      )
+      strip.hidden = stripDiags.length === 0
     } catch (e) {
       console.warn('[editor] diagnostics render failed', e)
     }

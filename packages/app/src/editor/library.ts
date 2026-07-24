@@ -21,6 +21,7 @@ import { MemoryDb, ProjectStore } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, shareUrl } from '../session/share'
+import { compile as compileRondo } from '@rondocode/rondo'
 
 const ACTIVE_KEY = 'rondocode-active-project'
 const SAVE_DEBOUNCE_MS = 600
@@ -33,6 +34,29 @@ p('lead', n('0 3 5 7').scale('c major').sound('blip'))
 
 setCps(0.5)
 `
+
+const BLANK_STARTER_RONDO = `# new tune. a synth, a pattern, a tempo.
+
+synth blip
+  sine
+  * env
+  env = adsr .005 .15 0 .1
+
+play blip
+  0 3 5 7  scale:c-maj
+
+cps .5
+`
+
+/** The blank starter for the editor's CURRENT language. */
+const blankStarter = (lang: 'rondocode' | 'rondo'): string =>
+  lang === 'rondo' ? BLANK_STARTER_RONDO : BLANK_STARTER
+
+/** Which language is a LEGACY project (no lang field) written in? A rondo doc
+ *  compiles as rondo; a JS doc essentially never does (\`const\` is an unknown
+ *  block). Cheap, deterministic, only runs for pre-lang records. */
+const sniffLang = (code: string): 'rondocode' | 'rondo' =>
+  compileRondo(code).ok ? 'rondo' : 'rondocode'
 
 const getActiveId = (): string | undefined => {
   try {
@@ -99,7 +123,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   if (sharePayload) {
     const shared = await decodeShare(sharePayload)
     if (shared) {
-      active = await store.createProject(shared.name, shared.code)
+      active = await store.createProject(shared.name, shared.code, shared.lang === 'rondo' ? 'rondo' : 'rondocode')
       // the payload knows its language — a rondo tune must open in rondo mode
       // (and a JS tune must not squiggle under a phone's rondo default)
       editor.setLang(shared.lang === 'rondo' ? 'rondo' : 'rondocode')
@@ -191,6 +215,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     active = p
     setActiveId(p.id)
     setLabel(p.name)
+    // a project remembers its language; legacy records are sniffed once
+    editor.setLang(p.lang ?? sniffLang(p.code))
     editor.loadCode(p.code)
   }
 
@@ -259,7 +285,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       void (async () => {
         await store.deleteProject(current.id)
         const rest = await store.listProjects()
-        const next = rest[0] ?? (await store.createProject('untitled', BLANK_STARTER))
+        const next = rest[0] ?? (await store.createProject('untitled', blankStarter(editor.getLang()), editor.getLang()))
         await switchTo(next)
         await render()
       })()
@@ -274,7 +300,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     newBtn.type = 'button'
     newBtn.addEventListener('click', () => {
       void (async () => {
-        const p = await store.createProject('untitled', BLANK_STARTER)
+        const p = await store.createProject('untitled', blankStarter(editor.getLang()), editor.getLang())
         await switchTo(p)
         await render()
       })()
@@ -293,16 +319,14 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     examplePick.addEventListener('change', () => {
       const ex = EXAMPLES[Number(examplePick.value)]
       if (!ex) return
-      // In rondo mode, load the example's rondo twin if it has one; if it
-      // doesn't yet, fall back to the JS DSL — switching the editor's language
-      // AFTER the doc swap, so the old rondo buffer is never re-evaled as JS.
+      // In rondo mode, load the example's rondo twin if it has one; otherwise
+      // the JS source. The project records its language and switchTo applies
+      // it, so the editor always lands in the right mode.
       const useRondo = editor.getLang() === 'rondo' && ex.rondo !== undefined
-      const needJsSwitch = editor.getLang() === 'rondo' && ex.rondo === undefined
       const code = useRondo ? ex.rondo! : ex.code
       void (async () => {
-        const p = await store.createProject(ex.name, code)
+        const p = await store.createProject(ex.name, code, useRondo ? 'rondo' : 'rondocode')
         await switchTo(p)
-        if (needJsSwitch) editor.setLang('rondocode')
         await render()
       })()
     })
@@ -458,6 +482,11 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     if (!ok) return
     void store.snapshot(activeId, code) // deduped against the latest snapshot
   })
+  // the active project remembers its language: persist on every toggle (this
+  // also migrates legacy no-lang records the first time switchTo sniffs them)
+  const offLang = editor.onLang((lang) => {
+    void store.setProjectLang(activeId, lang)
+  })
 
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape' && !backdrop.classList.contains('hidden')) {
@@ -477,6 +506,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   const dispose = (): void => {
     offDoc()
     offEval()
+    offLang()
     flushSave() // persist any debounced edit before tearing down
     document.removeEventListener('keydown', onKey)
     backdrop.remove()

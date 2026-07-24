@@ -20,6 +20,9 @@ export interface Project {
   id: string
   name: string
   code: string
+  /** which language `code` is written in. Absent on legacy records — callers
+   *  sniff (a rondo doc compiles as rondo; a JS doc doesn't). */
+  lang?: 'rondocode' | 'rondo'
   createdAt: number
   updatedAt: number
 }
@@ -79,12 +82,20 @@ export class ProjectStore {
   }
 
   /** Create a project and take an initial snapshot of its code. */
-  async createProject(name: string, code: string): Promise<Project> {
+  async createProject(name: string, code: string, lang?: 'rondocode' | 'rondo'): Promise<Project> {
     const t = this.now()
     const project: Project = { id: this.uid(), name, code, createdAt: t, updatedAt: t }
+    if (lang !== undefined) project.lang = lang
     await this.db.put('projects', project)
     await this.snapshot(project.id, code)
     return project
+  }
+
+  /** Record which language a project is written in (the editor's toggle). */
+  async setProjectLang(id: string, lang: 'rondocode' | 'rondo'): Promise<void> {
+    const p = await this.getProject(id)
+    if (!p || p.lang === lang) return
+    await this.db.put('projects', { ...p, lang, updatedAt: this.now() })
   }
 
   async renameProject(id: string, name: string): Promise<void> {
@@ -98,7 +109,7 @@ export class ProjectStore {
   async duplicateProject(id: string): Promise<Project | undefined> {
     const p = await this.getProject(id)
     if (!p) return undefined
-    return this.createProject(`${p.name} copy`, p.code)
+    return this.createProject(`${p.name} copy`, p.code, p.lang)
   }
 
   async deleteProject(id: string): Promise<void> {

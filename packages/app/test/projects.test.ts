@@ -17,6 +17,19 @@ const makeStore = (opts: { maxVersions?: number } = {}) => {
 }
 
 describe('ProjectStore projects', () => {
+  it('remembers a project language: at creation, via setProjectLang, and through duplicate', async () => {
+    const { store } = makeStore()
+    const p = await store.createProject('tune', 'synth s\n  saw\n', 'rondo')
+    expect((await store.getProject(p.id))!.lang).toBe('rondo')
+    await store.setProjectLang(p.id, 'rondocode')
+    expect((await store.getProject(p.id))!.lang).toBe('rondocode')
+    const copy = (await store.duplicateProject(p.id))!
+    expect((await store.getProject(copy.id))!.lang).toBe('rondocode')
+    // legacy record: no lang at all — stays undefined for the caller to sniff
+    const legacy = await store.createProject('old', 'const x = 1')
+    expect((await store.getProject(legacy.id))!.lang).toBeUndefined()
+  })
+
   it('creates a project with an initial snapshot and lists it', async () => {
     const { store } = makeStore()
     const p = await store.createProject('untitled', 'n("0 3")')

@@ -183,6 +183,9 @@ export interface EditorHandle {
    *  whether Run transpiles first. */
   getLang(): EditorLang
   setLang(lang: EditorLang): void
+  /** Fired after the language toggles (user or programmatic) — the library
+   *  persists the active project's language from this. Returns unsubscribe. */
+  onLang(fn: (lang: EditorLang) => void): () => void
   /** Apply a literal rewrite to the doc and re-eval — the same path the inline
    *  widget/scrub controls use, exposed so the mixer's bus faders can edit the
    *  bus() literals in the source. A drag passes immediate=false (throttled,
@@ -604,6 +607,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       ],
     })
   }
+  const langListeners = new Set<(l: EditorLang) => void>()
   const setLang = (next: EditorLang): void => {
     if (next === lang) return
     lang = next
@@ -612,6 +616,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     reconfigureLang()
     palette.setVisible(lang === 'rondo')
     applyDoc(false) // re-lint the buffer under the new language
+    for (const fn of langListeners) fn(lang)
   }
   reflectLang()
   if (lang === 'rondo') reconfigureLang() // compartments boot as rondocode
@@ -833,6 +838,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     loadCode,
     getLang: () => lang,
     setLang,
+    onLang: (fn) => {
+      langListeners.add(fn)
+      return () => langListeners.delete(fn)
+    },
     rewrite: (change, immediate) => {
       view.dispatch({ changes: change })
       requestEval(immediate)

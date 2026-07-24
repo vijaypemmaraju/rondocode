@@ -18,6 +18,8 @@ import { deflateRaw, inflateRaw } from 'pako'
 export interface SharePayload {
   name: string
   code: string
+  /** which language `code` is written in (omitted = JavaScript). */
+  lang?: 'rondo'
 }
 
 /* The preset dictionary: common rondocode source fragments, ordered with the
@@ -63,7 +65,7 @@ const fromB64Url = (str: string): Uint8Array => {
 
 /** Encode a tune into a URL-safe payload string. */
 export async function encodeShare(p: SharePayload): Promise<string> {
-  const json = new TextEncoder().encode(JSON.stringify({ n: p.name, c: p.code }))
+  const json = new TextEncoder().encode(JSON.stringify({ n: p.name, c: p.code, ...(p.lang !== undefined ? { l: p.lang } : {}) }))
   try {
     const packed = deflateRaw(json, { level: 9, dictionary: DICT })
     // keep whichever is shorter (a pathological tiny tune can grow)
@@ -88,9 +90,11 @@ export async function decodeShare(payload: string): Promise<SharePayload | null>
             ? bytes
             : null
     if (json === null) return null
-    const obj = JSON.parse(new TextDecoder().decode(json)) as { n?: unknown; c?: unknown }
+    const obj = JSON.parse(new TextDecoder().decode(json)) as { n?: unknown; c?: unknown; l?: unknown }
     if (typeof obj.c !== 'string') return null
-    return { name: typeof obj.n === 'string' ? obj.n : 'shared', code: obj.c }
+    const out: SharePayload = { name: typeof obj.n === 'string' ? obj.n : 'shared', code: obj.c }
+    if (obj.l === 'rondo') out.lang = 'rondo'
+    return out
   } catch {
     return null
   }

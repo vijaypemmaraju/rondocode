@@ -1,0 +1,127 @@
+/* Inline-widget styles for BOTH languages' code editors (slider/toggle/pick/
+ * xy + number-scrub). Co-located with the widgets and imported by them, so
+ * every page that mounts an editor (main app AND docs) gets identical
+ * visuals — no per-page stylesheet drift. Tokens are var(--c-*) from
+ * ui/palette.ts, applied on both pages. */
+
+/* --- inline widgets: slider()/toggle()/pick()/xy() render as controls ---
+ *
+ * Widgets sit inside 24px editor lines, so their VISUAL height stays ~20px;
+ * the ::before pseudo-element inflates each hitbox toward the 44px touch
+ * target without moving layout. Tradeoff: the invisible hitbox overlaps a
+ * few px of the neighboring lines — taps very close above/below a widget
+ * hit the widget, which in practice is what a finger aiming at it wants. */
+.cm-w {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  vertical-align: middle;
+  height: 20px;
+  padding: 0 var(--sp-2);
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--c-text);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.cm-w::before {
+  /* hitbox inflation: ~44px tall, slightly wider than the control */
+  content: '';
+  position: absolute;
+  inset: -12px -6px;
+}
+.cm-w-slider {
+  /* drag handlers live on the wrap (its ::before is the 44px hitbox), so
+   * the whole wrap owns the gesture — never scroll from it */
+  touch-action: none;
+}
+.cm-w-track {
+  position: relative;
+  width: 120px;
+  height: 6px;
+  background: var(--c-bar);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.cm-w-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--c-accent), var(--c-accent-alt));
+}
+.cm-w-readout {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-accent);
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cm-w-toggle {
+  min-width: 52px;
+  justify-content: center;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--c-dim);
+}
+.cm-w-toggle.on {
+  color: var(--c-accent);
+  background: var(--c-green-deep);
+  border-color: var(--c-green);
+}
+.cm-w-pick {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--c-accent);
+  white-space: nowrap;
+}
+.cm-w-xy {
+  width: 26px;
+  justify-content: center;
+  touch-action: none;
+}
+.cm-w-xy-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.cm-w-xy-pad {
+  position: fixed;
+  z-index: 30;
+  background: var(--c-bar);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  touch-action: none;
+}
+.cm-w-xy-pad .cm-w-xy-dot {
+  width: 13px;
+  height: 13px;
+}
+/* --- scrubbable numeric literals ---
+ * Always-on faint dotted underline (not modifier-gated): phones have no
+ * modifier key, and a permanent hint is how the gesture gets discovered.
+ * Kept dim on purpose so code stays readable. */
+.cm-scrub {
+  text-decoration: underline dotted var(--c-faint) 1px;
+  text-underline-offset: 3px;
+  /* touch: vertical pans stay native scrolling; sideways drags are the scrub
+     gesture (engaged instantly in scrub.ts — no long-press, no selection UI) */
+  touch-action: pan-y;
+}
+.cm-scrubbing {
+  cursor: ew-resize;
+}
+.cm-scrubbing .cm-content {
+  -webkit-user-select: none;
+  user-select: none;
+}

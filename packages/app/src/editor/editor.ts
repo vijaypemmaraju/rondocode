@@ -23,6 +23,7 @@ import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
+import { mountRondoPalette } from './rondo/palette'
 import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
@@ -266,10 +267,13 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
 
   const host = el('div', 'editor-host')
+  // the rondo tap palette: a chip bar docked above the software keyboard,
+  // offering the grammar's legal next moves at the cursor (rondo mode only)
+  const paletteBar = el('div', 'rondo-palette hidden')
   const strip = el('div', 'status-strip')
   strip.hidden = true
 
-  root.append(topbar, host, strip)
+  root.append(topbar, host, paletteBar, strip)
 
   // ---- doc persistence -----------------------------------------------
   // Debounced writes + an eager flush on pagehide/visibility-hidden: iOS
@@ -513,6 +517,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         meters.extension, // per-synth meter gutter (audio-driven)
         karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
+          // the tap palette re-derives its chips from the cursor context
+          // (palette is declared below; updates only fire post-mount)
+          if ((u.docChanged || u.selectionSet) && lang === 'rondo') palette.refresh()
           if (!u.docChanged) return
           const doc = u.state.doc.toString()
           updateDirty(doc)
@@ -563,6 +570,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         if (notes.length > 0) fn(notes)
       }),
   }
+  // the tap palette: grammar-legal chips above the keyboard (rondo mode).
+  // Mounted BEFORE the language wiring: the mount-time Compartment reconfigure
+  // fires the view's update listener, which refreshes the palette.
+  const palette = mountRondoPalette(paletteBar, view)
   const reflectLang = (): void => {
     langLabel.textContent = lang === 'rondo' ? 'rondo' : 'js'
     langBtn.classList.toggle('lang-rondo', lang === 'rondo')
@@ -581,11 +592,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     try { localStorage.setItem(LANG_KEY, lang) } catch { /* ignore storage failures */ }
     reflectLang()
     reconfigureLang()
+    palette.setVisible(lang === 'rondo')
     applyDoc(false) // re-lint the buffer under the new language
   }
   reflectLang()
   if (lang === 'rondo') reconfigureLang() // compartments boot as rondocode
   langBtn.addEventListener('click', () => setLang(lang === 'rondo' ? 'rondocode' : 'rondo'))
+
+  palette.setVisible(lang === 'rondo')
 
   const flasher = new EventFlasher(
     view,

@@ -1219,9 +1219,9 @@ cps .55
 /** A drum machine in pure rondo: `beat` blocks route words straight to
  *  synths; the bass improvises with irand. */
 const drumMachineRondo = `# a drum machine. beat blocks route
-# words straight to synths — stack lines
-# for a full kit. the bass improvises
-# with irand (same riff every loop).
+# words straight to synths — every line
+# is a tappable STEP GRID. the bass
+# improvises with irand.
 
 synth kick
   sine drop
@@ -1262,9 +1262,10 @@ synth bass mono glide:.06
   env = adsr .004 .09 .55 .07
 
 beat
-  kick*4
-  ~ snare ~ snare
-  [~ hat]*3 [~ ohat]
+  kick ~ kick ~ kick ~ kick ~
+  ~ ~ snare ~ ~ ~ snare ~
+  ~ hat ~ hat ~ hat ~ hat
+  ~ ~ ~ ~ ~ ~ ~ ohat
 
 beat percs
   clave

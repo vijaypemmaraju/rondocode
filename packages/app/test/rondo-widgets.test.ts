@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, stepStarts, toNorm, fromNorm, rollPreviewMidi } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, scanBeats, stepStarts, toNorm, fromNorm, rollPreviewMidi } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -90,6 +90,43 @@ describe('scanPlays (piano-roll)', () => {
   it('leaves richer notation as plain text (note names, brackets, alternation)', () => {
     expect(scanPlays('play s\n  c4 e4 g4\n')).toHaveLength(0)
     expect(scanPlays('play s\n  <0 3> [5 7]\n')).toHaveLength(0)
+  })
+})
+
+describe('scanBeats (beat-line step sequencer)', () => {
+  it('finds a simple word/rest line and pinpoints its range', () => {
+    const src = 'beat\n  kick ~ kick ~\n'
+    const [b] = scanBeats(src)
+    expect(b).toBeDefined()
+    expect(src.slice(b!.from, b!.to)).toBe('kick ~ kick ~') // exactly what a tap rewrites
+    expect(b).toMatchObject({ word: 'kick', steps: [true, false, true, false] })
+  })
+
+  it('scans every qualifying line of a block; named beats and sections too', () => {
+    const src = 'beat fills\n  kick ~ kick ~\n  ~ snare ~ snare\n\nsection drop 4\n  beat\n    hat hat hat hat\n'
+    const rows = scanBeats(src)
+    expect(rows.map((b) => b.word)).toEqual(['kick', 'snare', 'hat'])
+  })
+
+  it('leaves rich notation, mixed words, and modifier lines as plain text', () => {
+    expect(scanBeats('beat\n  kick*4\n')).toHaveLength(0) // mini repeat
+    expect(scanBeats('beat\n  [~ hat]*3 [~ ohat]\n')).toHaveLength(0) // brackets
+    expect(scanBeats('beat\n  kick snare kick ~\n')).toHaveLength(0) // two words — no single row label
+    expect(scanBeats('beat\n  kick ~ kick ~\n  every 4: rev\n  gain: .5\n')).toHaveLength(1)
+    expect(scanBeats('beat\n  clave\n')).toHaveLength(0) // one step isn't a sequencer
+  })
+
+  it('never matches play-block bodies or comments', () => {
+    expect(scanBeats('play acid\n  kick ~ kick ~\n')).toHaveLength(0)
+    expect(scanBeats('beat\n  # kick ~ kick ~\n')).toHaveLength(0)
+    // a trailing comment is stripped from the rewrite range
+    const [b] = scanBeats('beat\n  kick ~ kick ~  # four on the floor\n')
+    expect(b!.content).toBe('kick ~ kick ~')
+  })
+
+  it('stops at the dedent — lines after the block are not rows', () => {
+    const src = 'beat\n  kick ~ kick ~\n\nsynth kick\n  sine 55\n'
+    expect(scanBeats(src)).toHaveLength(1)
   })
 })
 

@@ -640,6 +640,27 @@ cps .5`,
       p('Extra notation lines before the modifiers STACK as voices — a hand-built chord, one line per voice.'),
       p('Two more notation forms: a `beat` block\'s words are SYNTH NAMES (`beat` then `kick hat kick hat` — the drum-machine line; modifiers work as usual), and `irand 8 seg:16` plays random scale degrees 0..7, sixteen steps per cycle — a deterministic improviser (same seed every cycle position).'),
       rondo(
+        'A drum machine: every simple beat line is a tappable STEP GRID.',
+        `synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp = adsr .001 .2 0 .07
+
+synth hat
+  noise
+  svf 7500 mode:hp
+  * env
+  env = adsr .001 .03 0 .01
+
+beat
+  kick ~ kick ~ kick ~ kick ~
+  ~ hat ~ hat ~ hat ~ hat
+
+cps .55`,
+      ),
+      rondo(
         'Three stacked voices, one chord progression.',
         `synth pad
   supersaw detune:.3 mix:.6

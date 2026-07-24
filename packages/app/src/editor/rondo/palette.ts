@@ -54,7 +54,7 @@ function topChips(doc: string): Chip[] {
   return [
     chip('＋ synth', `synth ${next}\n  saw\n  ladder cutoff res:.5\n  * env\n  env = adsr .01 .15 .6 .2\n  cutoff = knob 1200 100..6000 log\n`, 'kw'),
     chip('＋ play', `play ${target}\n  0 3 5 7  scale:a-min\n`, 'kw'),
-    chip('＋ beat', `beat\n  kick hat kick hat\n`, 'kw'),
+    chip('＋ beat', `beat\n  kick ~ kick ~\n  ~ hat ~ hat\n`, 'kw'),
     chip('＋ section', `section part 4\n  play ${target}\n    0 3 5 7  scale:a-min\n`, 'kw'),
     chip('＋ bus', `bus space\n  reverb room:.9 damp:.35\n  send ${target} .3\n`, 'kw'),
     chip('sidechain', `sidechain kick depth:.7 release:.12\n`, 'kw'),

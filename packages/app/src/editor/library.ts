@@ -305,24 +305,37 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
         await render()
       })()
     })
+    // The language is an EXPLICIT part of the choice, never inferred from the
+    // editor's current mode: examples group by language, and picking one
+    // creates a project in that language (switchTo flips the editor to match).
     const examplePick = el('select', 'lib-example') as HTMLSelectElement
     const ph = el('option', undefined, 'new from example…')
     ph.value = ''
     ph.disabled = true
     ph.selected = true
     examplePick.append(ph)
+    const rondoGroup = el('optgroup') as HTMLOptGroupElement
+    rondoGroup.label = 'rondo'
+    const jsGroup = el('optgroup') as HTMLOptGroupElement
+    jsGroup.label = 'javascript'
     EXAMPLES.forEach((ex, i) => {
+      if (ex.rondo !== undefined) {
+        const opt = el('option', undefined, ex.name)
+        opt.value = `r:${i}`
+        rondoGroup.append(opt)
+      }
       const opt = el('option', undefined, ex.name)
-      opt.value = String(i)
-      examplePick.append(opt)
+      opt.value = `j:${i}`
+      jsGroup.append(opt)
     })
+    // rondo first when the editor is IN rondo (the likelier intent stays one
+    // flick away) — but both groups are always there, labeled
+    examplePick.append(...(editor.getLang() === 'rondo' ? [rondoGroup, jsGroup] : [jsGroup, rondoGroup]))
     examplePick.addEventListener('change', () => {
-      const ex = EXAMPLES[Number(examplePick.value)]
-      if (!ex) return
-      // In rondo mode, load the example's rondo twin if it has one; otherwise
-      // the JS source. The project records its language and switchTo applies
-      // it, so the editor always lands in the right mode.
-      const useRondo = editor.getLang() === 'rondo' && ex.rondo !== undefined
+      const m = /^([jr]):(\d+)$/.exec(examplePick.value)
+      const ex = m ? EXAMPLES[Number(m[2])] : undefined
+      if (!m || !ex) return
+      const useRondo = m[1] === 'r' && ex.rondo !== undefined
       const code = useRondo ? ex.rondo! : ex.code
       void (async () => {
         const p = await store.createProject(ex.name, code, useRondo ? 'rondo' : 'rondocode')

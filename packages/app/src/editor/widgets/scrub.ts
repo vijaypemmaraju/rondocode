@@ -2,7 +2,7 @@ import { syntaxTree } from '@codemirror/language'
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import type { Extension } from '@codemirror/state'
-import { detect } from './detect'
+import { detect, scanNumbersText } from './detect'
 import type { ScrubLit } from './detect'
 import { formatNumber, niceStep } from './rewrite'
 
@@ -100,7 +100,12 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
   const litAt = (view: EditorView, x: number, y: number): ScrubLit | null => {
     const pos = view.posAtCoords({ x, y })
     if (pos === null) return null
-    const { numbers } = detect(view.state.doc.toString(), syntaxTree(view.state))
+    const doc = view.state.doc.toString()
+    let numbers = detect(doc, syntaxTree(view.state)).numbers
+    // The tree walk is JS-grammar-specific; in rondo mode (a StreamLanguage
+    // tree) it finds nothing, so fall back to a plain-text scan — every number
+    // stays scrubbable regardless of the active language.
+    if (numbers.length === 0) numbers = scanNumbersText(doc)
     return numbers.find((n) => pos >= n.from && pos <= n.to) ?? null
   }
 

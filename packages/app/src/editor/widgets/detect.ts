@@ -58,6 +58,28 @@ export interface ScrubLit {
   isInt: boolean
 }
 
+/** Language-agnostic numeric-literal scan (plain decimals, folded unary minus).
+ *  scrub falls back to this when the syntax tree yields no numbers — e.g. rondo
+ *  mode, where the tree is the StreamLanguage grammar, not JS, so the tree walk
+ *  finds nothing. Skips numbers glued to identifiers and the second operand of a
+ *  `..` range (its leading dot). */
+export function scanNumbersText(text: string): ScrubLit[] {
+  const out: ScrubLit[] = []
+  const re = /-?(?:\d+\.\d+|\.\d+|\d+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const raw = m[0]
+    const prev = text[m.index - 1]
+    const next = text[m.index + raw.length]
+    if (prev !== undefined && /[\w.]/.test(prev)) continue // part of an ident / after a dot
+    if (next !== undefined && /\w/.test(next)) continue
+    const value = Number(raw)
+    if (!Number.isFinite(value)) continue
+    out.push({ from: m.index, to: m.index + raw.length, value, isInt: !/[.eE]/.test(raw) })
+  }
+  return out
+}
+
 export interface DetectResult {
   widgets: WidgetDesc[]
   numbers: ScrubLit[]

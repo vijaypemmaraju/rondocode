@@ -91,6 +91,9 @@ importers:
       '@rondocode/pattern':
         specifier: workspace:*
         version: link:../pattern
+      acorn:
+        specifier: ^8.14.0
+        version: 8.17.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

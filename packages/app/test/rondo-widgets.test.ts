@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, toNorm, fromNorm } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, toNorm, fromNorm } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -52,6 +52,23 @@ describe('scanNumbersText (language-agnostic scrub fallback — every number in 
   it('folds a unary minus and detects integers', () => {
     const [n] = scanNumbersText('add -12')
     expect(n).toMatchObject({ value: -12, isInt: true })
+  })
+})
+
+describe('scanPlays (piano-roll)', () => {
+  it('parses a degree sequence and pinpoints the notation range (excludes scale)', () => {
+    const src = 'play acid\n  0 0 3 5 0 0 7 5  scale:a-min\n'
+    const [p] = scanPlays(src)
+    expect(p).toBeDefined()
+    expect(src.slice(p!.from, p!.to)).toBe('0 0 3 5 0 0 7 5') // exactly what a tap rewrites
+    expect(p!.steps).toEqual([0, 0, 3, 5, 0, 0, 7, 5])
+  })
+  it('represents rests as null', () => {
+    expect(scanPlays('play s\n  0 ~ 3 ~\n')[0]!.steps).toEqual([0, null, 3, null])
+  })
+  it('leaves richer notation as plain text (note names, brackets, alternation)', () => {
+    expect(scanPlays('play s\n  c4 e4 g4\n')).toHaveLength(0)
+    expect(scanPlays('play s\n  <0 3> [5 7]\n')).toHaveLength(0)
   })
 })
 

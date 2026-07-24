@@ -89,6 +89,43 @@ export function scanEnvs(text: string): EnvMatch[] {
   return out
 }
 
+export interface PlayRoll {
+  /** char range of the notation string in the source (what a tap rewrites). */
+  from: number
+  to: number
+  /** one entry per step: a scale degree, or null for a rest (`~`). */
+  steps: (number | null)[]
+}
+
+/** Find each `play` block's notation line when it's a SIMPLE flat sequence of
+ *  degrees / rests (`0 0 3 5 ~ 7`) — the grid-editable case. Notation with
+ *  richer mini-notation (`<> [] * @`, note names) is left as plain text. Pure. */
+export function scanPlays(text: string): PlayRoll[] {
+  const out: PlayRoll[] = []
+  const lines = text.split('\n')
+  const offs: number[] = []
+  let o = 0
+  for (const l of lines) { offs.push(o); o += l.length + 1 }
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^play\s+\S/.test(lines[i]!)) continue // header at indent 0
+    const nx = lines[i + 1]
+    if (nx === undefined) continue
+    const indent = /^[ \t]*/.exec(nx)![0].length
+    if (indent === 0) continue // next line isn't a body line
+    // strip a trailing `# comment`, then an inline `scale:…`
+    const cm = /(^|\s)#/.exec(nx)
+    const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
+    const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
+    const notation = noComment.slice(indent, scale ? scale.index : noComment.length).replace(/\s+$/, '')
+    const toks = notation.trim().split(/\s+/).filter(Boolean)
+    if (toks.length === 0) continue
+    if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
+    const from = offs[i + 1]! + indent
+    out.push({ from, to: from + notation.length, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) })
+  }
+  return out
+}
+
 class KnobWidget extends WidgetType {
   constructor(
     readonly defFrom: number,
@@ -271,23 +308,96 @@ class EnvWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
-/** Scan the visible doc for knob + envelope bindings → inline widgets. */
+class PianoRollWidget extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly to: number,
+    readonly steps: (number | null)[],
+    readonly hooks: Hooks,
+    readonly drag: Drag,
+  ) { super() }
+
+  eq(o: PianoRollWidget): boolean {
+    return o.from === this.from && o.steps.length === this.steps.length &&
+      o.steps.every((v, i) => v === this.steps[i])
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const cols = this.steps.length
+    let maxDeg = 7
+    for (const s of this.steps) if (s !== null && s > maxDeg) maxDeg = s
+    const rows = maxDeg + 1
+    const grid = document.createElement('span')
+    grid.className = 'rondo-roll'
+    grid.setAttribute('role', 'group')
+    grid.setAttribute('aria-label', 'notation grid: tap or drag to write the melody')
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
+    const steps = this.steps.slice()
+    const cellEls: HTMLElement[][] = Array.from({ length: rows }, () => [])
+    // rows top (high degree) → bottom (low), so pitch goes up the screen
+    for (let dr = rows - 1; dr >= 0; dr--) {
+      for (let c = 0; c < cols; c++) {
+        const cell = document.createElement('span')
+        cell.className = 'rc' + (steps[c] === dr ? ' on' : '')
+        cell.dataset.r = String(dr)
+        cell.dataset.c = String(c)
+        cellEls[dr]![c] = cell
+        grid.appendChild(cell)
+      }
+    }
+    const refresh = (c: number): void => {
+      for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] === r)
+    }
+    const from = this.from
+    let toPos = this.to
+    const write = (): void => {
+      const s = steps.map((v) => (v === null ? '~' : String(v))).join(' ')
+      view.dispatch({ changes: { from, to: toPos, insert: s } })
+      toPos = from + s.length
+      this.hooks.requestEval(false)
+    }
+    let painting = false
+    let mode: 'draw' | 'erase' = 'draw'
+    const set = (r: number, c: number): void => { steps[c] = mode === 'draw' ? r : null; refresh(c); write() }
+    grid.addEventListener('pointerdown', (e) => {
+      const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
+      if (!el) return
+      e.preventDefault(); e.stopPropagation()
+      grid.setPointerCapture(e.pointerId)
+      this.drag.active = true; painting = true
+      const r = Number(el.dataset.r), c = Number(el.dataset.c)
+      mode = steps[c] === r ? 'erase' : 'draw' // tap an active note to clear it
+      set(r, c)
+    })
+    grid.addEventListener('pointermove', (e) => {
+      if (!painting) return
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      const cell = el?.closest?.('.rc') as HTMLElement | null
+      if (cell && grid.contains(cell)) set(Number(cell.dataset.r), Number(cell.dataset.c))
+    })
+    const end = (): void => { painting = false; this.drag.active = false; this.hooks.requestEval(false) }
+    grid.addEventListener('pointerup', end)
+    grid.addEventListener('pointercancel', end)
+    return grid
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
+/** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
 function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   const items: { pos: number; deco: Decoration }[] = []
-  for (const range of view.visibleRanges) {
-    const text = view.state.sliceDoc(range.from, range.to)
-    for (const k of scanKnobs(text)) {
-      items.push({
-        pos: range.from + k.defTo,
-        deco: Decoration.widget({ widget: new KnobWidget(range.from + k.defFrom, k.value, k.lo, k.hi, k.log, hooks, drag), side: 1 }),
-      })
-    }
-    for (const e of scanEnvs(text)) {
-      items.push({
-        pos: range.from + e.to,
-        deco: Decoration.widget({ widget: new EnvWidget(range.from + e.from, range.from + e.to, e.a, e.d, e.s, e.r, hooks, drag), side: 1 }),
-      })
-    }
+  // Docs are tiny (<10 KB); scan the whole thing so widgets past the viewport
+  // (and the line-oriented play scan) work without slicing bookkeeping.
+  const text = view.state.doc.toString()
+  for (const k of scanKnobs(text)) {
+    items.push({ pos: k.defTo, deco: Decoration.widget({ widget: new KnobWidget(k.defFrom, k.value, k.lo, k.hi, k.log, hooks, drag), side: 1 }) })
+  }
+  for (const e of scanEnvs(text)) {
+    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, hooks, drag), side: 1 }) })
+  }
+  for (const p of scanPlays(text)) {
+    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.steps, hooks, drag), side: 1 }) })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()

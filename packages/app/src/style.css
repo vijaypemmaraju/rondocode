@@ -1482,6 +1482,30 @@ body.shaderviz-on .cm-content {
 .rondo-env svg { display: block; overflow: visible; }
 .rondo-env .fill { fill: color-mix(in srgb, var(--c-accent, #6ea8fe) 16%, transparent); }
 .rondo-env .h { fill: var(--c-bg, #16181d); stroke: currentColor; stroke-width: 1.5; }
+/* inline rondo piano-roll: tap/drag the notation as a step grid */
+.rondo-roll {
+  display: inline-grid;
+  gap: 2px;
+  vertical-align: text-bottom;
+  margin: 0 0 0 8px;
+  padding: 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 28%, transparent);
+  touch-action: none;
+}
+.rondo-roll .rc {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 55%, transparent);
+  cursor: pointer;
+  transition: background 0.06s;
+}
+.rondo-roll .rc:hover { background: color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent); }
+.rondo-roll .rc.on {
+  background: var(--c-accent, #6ea8fe);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 30%, var(--c-accent, #6ea8fe));
+}
 @media (max-width: 560px) {
   .run .btn-label {
     display: none;

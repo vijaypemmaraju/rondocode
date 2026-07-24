@@ -11,6 +11,9 @@ import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
+import type { Hooks as RondoWidgetHooks } from './widgets'
+
+export type { Hooks as RondoWidgetHooks } from './widgets'
 
 /** Block keywords + `post`. */
 const KEYWORDS = new Set(['synth', 'play', 'cps', 'post'])
@@ -74,9 +77,11 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
 })
 
 /** The rondo language for CodeMirror: highlighting + (when `hooks` is given)
- *  the inline widgets (knob, …). Pass hooks in the editor; omit for read-only
- *  contexts (docs snippets) that only need highlighting. */
-export function rondoLanguage(hooks?: { requestEval: (immediate: boolean) => void }): LanguageSupport {
+ *  the inline widgets (knob · envelope · piano-roll). Pass `now` +
+ *  `onNoteEvents` too and the widgets go LIVE — playhead lighting, envelope
+ *  firing, pattern-driven knobs. Omit hooks for read-only contexts (docs
+ *  snippets) that only need highlighting. */
+export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
   return new LanguageSupport(rondoStreamLang, hooks ? [rondoWidgets(hooks)] : [])
 }
 

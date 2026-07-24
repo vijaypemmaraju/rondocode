@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, toNorm, fromNorm } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, stepStarts, toNorm, fromNorm } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -90,6 +90,27 @@ describe('scanPlays (piano-roll)', () => {
   it('leaves richer notation as plain text (note names, brackets, alternation)', () => {
     expect(scanPlays('play s\n  c4 e4 g4\n')).toHaveLength(0)
     expect(scanPlays('play s\n  <0 3> [5 7]\n')).toHaveLength(0)
+  })
+})
+
+describe('live-widget wiring (pure parts)', () => {
+  it('scanKnobs reports the binding name + enclosing synth', () => {
+    const src = 'synth acid\n  saw\n  cutoff = knob 800 80..8000 log\n\nsynth pad\n  saw\n  wet = knob .3 0..1\n'
+    const [k1, k2] = scanKnobs(src)
+    expect(k1).toMatchObject({ name: 'cutoff', synth: 'acid' })
+    expect(k2).toMatchObject({ name: 'wet', synth: 'pad' })
+  })
+  it('scanEnvs reports the enclosing synth; a play block closes it', () => {
+    const src = 'synth acid\n  env = adsr .01 .1 .5 .1\n\nplay acid\n  0 3\n'
+    expect(scanEnvs(src)[0]).toMatchObject({ synth: 'acid' })
+  })
+  it('scanPlays carries the notation content (matches events by loc.src)', () => {
+    expect(scanPlays('play s\n  0 0 3 5\n')[0]!.content).toBe('0 0 3 5')
+  })
+  it('stepStarts maps a note event loc.start to its grid column', () => {
+    const starts = stepStarts('0 0 3 5 ~ 7')
+    expect(starts).toEqual([0, 2, 4, 6, 8, 10])
+    expect(starts.indexOf(4)).toBe(2) // atom at offset 4 → column 2
   })
 })
 

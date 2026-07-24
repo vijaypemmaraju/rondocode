@@ -24,6 +24,7 @@ import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { rondoLanguage, rondoCompletionSource } from './rondo'
+import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
@@ -530,7 +531,40 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     }),
   })
 
+  // Pattern-event fanout: the Session's onPatternEvents is single-consumer, and
+  // the flasher already owns it — so we route it through here to also feed the
+  // shader visualizer and the live rondo widgets without stealing it from the
+  // flasher. Declared BEFORE the language wiring: widget toDOM runs
+  // synchronously inside the mount-time Compartment reconfigure and subscribes
+  // immediately — a later declaration is a TDZ crash.
+  const patternListeners = new Set<(evs: SchedulerEvent[]) => void>()
+  const subscribePatternEvents = (fn: (evs: SchedulerEvent[]) => void): (() => void) => {
+    patternListeners.add(fn)
+    return () => patternListeners.delete(fn)
+  }
+
   // ---- language switching (rondocode ↔ rondo) ----
+  // Live-widget hooks: the audio clock + a note-event feed make the rondo
+  // widgets ANIMATE — playhead lighting on the piano-roll, the envelope's
+  // marker firing per note, pattern-driven knobs turning themselves.
+  const rondoWidgetHooks: RondoWidgetHooks = {
+    requestEval,
+    now: () => audio.currentTimeFrames / audio.sampleRate,
+    onNoteEvents: (fn) =>
+      subscribePatternEvents((evs) => {
+        const notes = evs
+          .filter((e) => e.loc !== undefined)
+          .map((e) => ({
+            src: e.loc!.src,
+            start: e.loc!.start,
+            timeSec: e.timeSec,
+            durSec: e.durSec,
+            sound: typeof e.controls.sound === 'string' ? e.controls.sound : undefined,
+            controls: e.controls as Record<string, unknown>,
+          }))
+        if (notes.length > 0) fn(notes)
+      }),
+  }
   const reflectLang = (): void => {
     langLabel.textContent = lang === 'rondo' ? 'rondo' : 'js'
     langBtn.classList.toggle('lang-rondo', lang === 'rondo')
@@ -538,7 +572,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const reconfigureLang = (): void => {
     view.dispatch({
       effects: [
-        langCompartment.reconfigure(lang === 'rondo' ? rondoLanguage({ requestEval }) : javascript()),
+        langCompartment.reconfigure(lang === 'rondo' ? rondoLanguage(rondoWidgetHooks) : javascript()),
         completionCompartment.reconfigure(lang === 'rondo' ? rondoAutocomplete : rondocodeAutocomplete),
       ],
     })
@@ -598,14 +632,6 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const subscribeState = (fn: (s: SessionState) => void): (() => void) => {
     stateListeners.add(fn)
     return () => stateListeners.delete(fn)
-  }
-  // Pattern-event fanout: the Session's onPatternEvents is single-consumer, and
-  // the flasher already owns it — so we route it through here to also feed the
-  // shader visualizer (note-driven hits) without stealing it from the flasher.
-  const patternListeners = new Set<(evs: SchedulerEvent[]) => void>()
-  const subscribePatternEvents = (fn: (evs: SchedulerEvent[]) => void): (() => void) => {
-    patternListeners.add(fn)
-    return () => patternListeners.delete(fn)
   }
   // Visual (WGSL) fanout: the Session fires onVisual on each good eval, with
   // the current synth names (for per-synth hit_<name> channels).

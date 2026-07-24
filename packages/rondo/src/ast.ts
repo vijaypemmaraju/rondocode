@@ -69,7 +69,9 @@ export interface Comb {
 export type Mod =
   | { kind: 'ctrl'; name: string; value: CtrlValue; pos: Pos }
   | { kind: 'method'; name: 'gain' | 'dur' | 'pan'; value: CtrlValue; pos: Pos }
-  | { kind: 'every'; n: number; comb: Comb; pos: Pos }
+  /** a function-taking combinator: `every 4: rev`, `jux: rev`,
+   *  `off .25: gain .3` → .name(...pre, x => x.comb()). */
+  | { kind: 'fncomb'; name: string; pre: number[]; comb: Comb; pos: Pos }
   | { kind: 'comb'; comb: Comb; pos: Pos }
 
 export interface PlayBlock {

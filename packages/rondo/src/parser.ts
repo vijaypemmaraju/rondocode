@@ -278,14 +278,40 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
   return { block, next }
 }
 
-/** Parse a modifier value: number | signal (`sine 200..2400 slow:4`) | mini. */
+/** Function-taking pattern combinators usable as `NAME [pre…]: <comb>` lines.
+ *  `pre` = leading numeric args before the colon; `js` = the JS method name. */
+const FN_COMBS: Record<string, { pre: number; js: string }> = {
+  every: { pre: 1, js: 'every' },
+  off: { pre: 1, js: 'off' },
+  chunk: { pre: 1, js: 'chunk' },
+  sometimesby: { pre: 1, js: 'sometimesBy' },
+  juxby: { pre: 1, js: 'juxBy' },
+  sometimes: { pre: 0, js: 'sometimes' },
+  often: { pre: 0, js: 'often' },
+  rarely: { pre: 0, js: 'rarely' },
+  always: { pre: 0, js: 'always' },
+  superimpose: { pre: 0, js: 'superimpose' },
+  jux: { pre: 0, js: 'jux' },
+}
+
+/** Parse a modifier value: number | signal (`sine 200..2400 slow:4`,
+ *  `rise 8 0..1`) | mini. */
 function parseCtrlValue(raw: string): CtrlValue {
   const s = raw.trim()
   const toks = s.split(/\s+/)
   if (toks.length === 1 && NUM_RE.test(toks[0]!)) return { kind: 'num', v: Number(toks[0]) }
+  // `rise 8` / `fall 4` — arrange ramps as ctrl values (cycles arg optional)
+  let sig: string | undefined
+  let rest = toks.slice(1)
   if (SIGNALS.has(toks[0]!)) {
-    const v: CtrlValue = { kind: 'sig', sig: toks[0]! }
-    for (const t of toks.slice(1)) {
+    sig = toks[0]!
+  } else if ((toks[0] === 'rise' || toks[0] === 'fall')) {
+    if (rest[0] !== undefined && NUM_RE.test(rest[0])) { sig = `${toks[0]}(${rest[0]})`; rest = rest.slice(1) }
+    else sig = `${toks[0]}()`
+  }
+  if (sig !== undefined) {
+    const v: CtrlValue = { kind: 'sig', sig }
+    for (const t of rest) {
       const rg = /^(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)$/.exec(t)
       if (rg) { v.lo = Number(rg[1]); v.hi = Number(rg[2]); continue }
       const sl = /^slow:(-?\d*\.?\d+)$/.exec(t)
@@ -301,9 +327,19 @@ function parseCtrlValue(raw: string): CtrlValue {
 function parseMod(ln: Line, errors: RondoError[]): Mod | null {
   const raw = ln.raw.trim()
   const pos: Pos = { line: ln.line, col: ln.rawCol }
-  // every N: <combinator>
-  const ev = /^every\s+(\d+)\s*:\s*(.+)$/.exec(raw)
-  if (ev) return { kind: 'every', n: Number(ev[1]), comb: parseComb(ev[2]!), pos }
+  // function-taking combinators: `every 4: rev`, `jux: rev`, `off .25: gain .3`
+  const fc = /^([a-zA-Z_]\w*)((?:\s+-?\d*\.?\d+)*)\s*:\s*(.+)$/.exec(raw)
+  if (fc) {
+    const spec = FN_COMBS[fc[1]!.toLowerCase()]
+    if (spec !== undefined) {
+      const pre = (fc[2] ?? '').trim().split(/\s+/).filter(Boolean).map(Number)
+      if (pre.length !== spec.pre) {
+        errors.push({ message: `\`${fc[1]}\` takes ${spec.pre} argument(s) before the colon`, line: ln.line, col: ln.rawCol })
+        return null
+      }
+      return { kind: 'fncomb', name: spec.js, pre, comb: parseComb(fc[3]!), pos }
+    }
+  }
   // NAME: value  (dedicated method for gain/dur/pan, else a .ctrl)
   const kv = /^([a-zA-Z_]\w*)\s*:\s*(.+)$/.exec(raw)
   if (kv) {

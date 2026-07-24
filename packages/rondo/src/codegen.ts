@@ -245,7 +245,7 @@ function cgComb(c: Comb): string {
   const name = c.name === 'degradeby' ? 'degradeBy' : c.name
   if (name === 'struct') return `struct(mini(${q(c.args[0] ?? '')}))`
   if (name === 'rev' || name === 'degrade' || name === 'palindrome') return `${name}()`
-  const args = c.args.map((arg) => (/^-?\d*\.?\d+$/.test(arg) ? arg : q(arg)))
+  const args = c.args.map((arg) => (/^-?\d*\.?\d+$/.test(arg) ? String(Number(arg)) : q(arg)))
   return `${name}(${args.join(', ')})`
 }
 
@@ -253,7 +253,10 @@ function cgMod(m: Mod): string {
   switch (m.kind) {
     case 'ctrl': return `.ctrl(${q(m.name)}, ${cgCtrlValue(m.value)})`
     case 'method': return `.${m.name}(${cgCtrlValue(m.value)})`
-    case 'every': return `.every(${m.n}, x => x.${cgComb(m.comb)})`
+    case 'fncomb': {
+      const pre = m.pre.map(num)
+      return `.${m.name}(${[...pre, `x => x.${cgComb(m.comb)}`].join(', ')})`
+    }
     case 'comb': return `.${cgComb(m.comb)}`
   }
 }

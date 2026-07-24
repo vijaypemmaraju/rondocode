@@ -9,6 +9,7 @@
 
 import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
+import { hoverTooltip } from '@codemirror/view'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
 import type { Hooks as RondoWidgetHooks } from './widgets'
@@ -87,7 +88,7 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
  *  firing, pattern-driven knobs. Omit hooks for read-only contexts (docs
  *  snippets) that only need highlighting. */
 export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
-  return new LanguageSupport(rondoStreamLang, hooks ? [rondoWidgets(hooks)] : [])
+  return new LanguageSupport(rondoStreamLang, [rondoHover, ...(hooks ? [rondoWidgets(hooks)] : [])])
 }
 
 /* ---- autocomplete -------------------------------------------------------- */
@@ -148,6 +149,43 @@ const OPTIONS: Completion[] = [
   c('slow', 'keyword', 'slow N', 'Slow the pattern down N×.'),
   c('euclid', 'keyword', 'euclid p s', 'Euclidean rhythm: p pulses over s steps.'),
 ]
+
+/* ---- hover docs ---------------------------------------------------------- *
+ * Rondo-SPECIFIC vocabulary only (block keywords, knob, modifiers): shared
+ * builtin names (saw, ladder, reverb, …) fall through to the JS DSL's
+ * dslHover, which documents the underlying call accurately — two tooltips
+ * for one word would just stack. */
+const HOVER_DOCS = new Map<string, Completion>(
+  OPTIONS.filter((o) => o.type === 'keyword' || o.label === 'knob').map((o) => [o.label as string, o]),
+)
+
+export const rondoHover = hoverTooltip((view, pos) => {
+  const line = view.state.doc.lineAt(pos)
+  const text = line.text
+  const off = pos - line.from
+  let a = off, b = off
+  while (a > 0 && /[\w]/.test(text.charAt(a - 1))) a--
+  while (b < text.length && /[\w]/.test(text.charAt(b))) b++
+  if (a === b) return null
+  const doc = HOVER_DOCS.get(text.slice(a, b))
+  if (doc === undefined) return null
+  return {
+    pos: line.from + a,
+    end: line.from + b,
+    above: true,
+    create: () => {
+      const dom = document.createElement('div')
+      dom.className = 'cm-rondo-hover'
+      const sig = document.createElement('div')
+      sig.className = 'cm-rondo-hover-sig'
+      sig.textContent = String(doc.detail ?? doc.label)
+      const body = document.createElement('div')
+      body.textContent = String(doc.info ?? '')
+      dom.append(sig, body)
+      return { dom }
+    },
+  }
+})
 
 export function rondoCompletionSource(ctx: CompletionContext): CompletionResult | null {
   const word = ctx.matchBefore(/[a-zA-Z_]\w*/)

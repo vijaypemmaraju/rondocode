@@ -394,8 +394,14 @@ class KnobWidget extends WidgetType {
       '<svg width="24" height="24" viewBox="0 0 24 24">' +
       '<circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2" opacity="0.35"/>' +
       '<line class="ptr" x1="12" y1="12" x2="12" y2="4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' +
-      '</svg>'
+      '</svg><span class="kv"></span>'
     const ptr = wrap.querySelector('.ptr') as SVGLineElement
+    const kv = wrap.querySelector('.kv') as HTMLElement
+    // the readout shows the CURRENT value while it differs from the source
+    // text: the driven value during a .ctrl sweep, the hand value during a
+    // drag. Idle it's empty — the DEF literal is right there in the code.
+    const kvStep = niceStep(Math.abs(this.hi - this.lo) / 200)
+    const showValue = (v: number): void => { kv.textContent = formatNumber(v, { step: kvStep, min: Math.min(this.lo, this.hi) }) }
     const setDial = (t: number): void => { ptr.setAttribute('transform', `rotate(${-135 + 270 * t} 12 12)`) }
     const baseT = toNorm(this.value, this.lo, this.hi, this.log)
     setDial(baseT)
@@ -417,10 +423,12 @@ class KnobWidget extends WidgetType {
             if (this.drag.active) return // a hand on the knob outranks the drive
             wrap.classList.add('live')
             setDial(toNorm(v, this.lo, this.hi, this.log))
+            showValue(v)
             this.timers.at(litMs, () => {
               if (this.drag.active) return
               wrap.classList.remove('live')
               setDial(baseT)
+              kv.textContent = ''
             })
           })
         }
@@ -453,12 +461,14 @@ class KnobWidget extends WidgetType {
         view.dispatch({ changes: { from, to: toPos, insert: text } })
         toPos = from + text.length
         setDial(t)
+        kv.textContent = text
         this.hooks.requestEval(false)
       }
       const end = (): void => {
         this.drag.active = false
         this.drag.ended = true
         wrap.classList.remove('active')
+        kv.textContent = ''
         // hand off the knob: the pattern drive resumes on its next event
         if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
         window.removeEventListener('pointermove', move)
@@ -502,6 +512,9 @@ class EnvWidget extends WidgetType {
     readonly s: number,
     readonly r: number,
     readonly synth: string | undefined,
+    /** render width, measured by build() — part of eq() so a width change
+     *  produces a FRESH DOM instead of reusing the old geometry. */
+    readonly width: number,
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
@@ -511,11 +524,24 @@ class EnvWidget extends WidgetType {
     // reusing the old DOM would leave its closures rewriting a too-short range
     return o.regionFrom === this.regionFrom && o.regionTo === this.regionTo &&
       o.a === this.a && o.d === this.d && o.s === this.s && o.r === this.r &&
-      o.synth === this.synth
+      o.synth === this.synth && o.width === this.width
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const W = 200, H = 58, pad = 5, base = H - pad, peak = pad, seg = 54, hold = 26
+    // FULL-WIDTH: the curve spans the editor's content width (capped) — line
+    // wrapping puts it on its own visual row with big drag targets. All the
+    // pointer math normalizes through the rect, so scale is free; the plugin
+    // rebuilds when the editor width changes (geometryChanged + width check).
+    const W = this.width
+    const H = W >= 340 ? 76 : 58
+    const pad = 5, base = H - pad, peak = pad
+    const HOLD_MIN = 26
+    const seg = (W - 2 * pad - HOLD_MIN) / 3
+    // sqrt time→x mapping: musical envelope times cluster near 0, so a linear
+    // scale crams every handle into the left edge at full width — sqrt gives
+    // fine drag resolution exactly where the values live (invertible: t = u²)
+    const tx = (t: number, max: number): number => Math.sqrt(clamp(t / max, 0, 1)) * seg
+    const xt = (x: number, max: number): number => clamp(x / seg, 0, 1) ** 2 * max
     const wrap = document.createElement('span')
     wrap.className = 'rondo-env'
     wrap.title = 'drag the handles: attack · decay/sustain · release'
@@ -529,16 +555,22 @@ class EnvWidget extends WidgetType {
     const ha = wrap.querySelector('.ha') as SVGCircleElement
     const hd = wrap.querySelector('.hd') as SVGCircleElement
     const hr = wrap.querySelector('.hr') as SVGCircleElement
-    const geom = (a: number, d: number, s: number, r: number) => {
-      const ax = pad + clamp(a / AMAX, 0, 1) * seg
-      const dx = ax + clamp(d / DMAX, 0, 1) * seg
+    const geom = (a: number, d: number, s: number, r: number, holdOverride?: number) => {
+      const ax = pad + tx(a, AMAX)
+      const dx = ax + tx(d, DMAX)
       const sy = base - clamp(s, 0, 1) * (base - peak)
+      // the sustain plateau ABSORBS the leftover width so the curve always
+      // spans the full editor width. During a gesture the hold is FROZEN
+      // (holdOverride): recomputing it per move would shift hx under the
+      // finger and feed back into the release inverse.
+      const rw = tx(r, RMAX)
+      const hold = holdOverride ?? Math.max(HOLD_MIN, W - pad - rw - dx)
       const hx = dx + hold
-      const rx = hx + clamp(r / RMAX, 0, 1) * seg
-      return { ax, dx, sy, hx, rx }
+      const rx = hx + rw
+      return { ax, dx, sy, hx, rx, hold }
     }
-    const render = (a: number, d: number, s: number, r: number): void => {
-      const g = geom(a, d, s, r)
+    const render = (a: number, d: number, s: number, r: number, holdOverride?: number): void => {
+      const g = geom(a, d, s, r, holdOverride)
       const p = `M ${pad} ${base} L ${g.ax.toFixed(1)} ${peak} L ${g.dx.toFixed(1)} ${g.sy.toFixed(1)} ` +
         `L ${g.hx.toFixed(1)} ${g.sy.toFixed(1)} L ${g.rx.toFixed(1)} ${base}`
       line.setAttribute('d', p)
@@ -603,6 +635,7 @@ class EnvWidget extends WidgetType {
       const sy = (e.clientY - rect.top) * (H / rect.height)
       let a = this.a, d = this.d, s = this.s, r = this.r
       const g0 = geom(a, d, s, r)
+      const holdFrozen = g0.hold // stable geometry for the whole gesture
       // pick the nearest handle
       const dist = (x: number, y: number): number => (sx - x) ** 2 + (sy - y) ** 2
       const which = [
@@ -636,19 +669,19 @@ class EnvWidget extends WidgetType {
       const move = (ev: PointerEvent): void => {
         const mx = (ev.clientX - rect.left) * (W / rect.width)
         const my = (ev.clientY - rect.top) * (H / rect.height)
-        if (which === 'a') a = clamp((mx - pad) / seg, 0, 1) * AMAX
+        if (which === 'a') a = xt(mx - pad, AMAX)
         else if (which === 'ds') {
-          const ax = pad + clamp(a / AMAX, 0, 1) * seg
-          d = clamp((mx - ax) / seg, 0, 1) * DMAX
+          const ax = pad + tx(a, AMAX)
+          d = xt(mx - ax, DMAX)
           s = clamp((base - my) / (base - peak), 0, 1)
         } else {
-          const hx = pad + clamp(a / AMAX, 0, 1) * seg + clamp(d / DMAX, 0, 1) * seg + hold
-          r = clamp((mx - hx) / seg, 0, 1) * RMAX
+          const hx = pad + tx(a, AMAX) + tx(d, DMAX) + holdFrozen
+          r = xt(mx - hx, RMAX)
         }
         const text = fmt()
         view.dispatch({ changes: { from, to: toPos, insert: text } })
         toPos = from + text.length
-        render(a, d, s, r)
+        render(a, d, s, r, holdFrozen)
         this.hooks.requestEval(false)
       }
       const end = (): void => {
@@ -1013,6 +1046,11 @@ class BeatBlockWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
+/** The envelope's render width for this editor: full content width, capped. */
+function envWidth(view: EditorView): number {
+  return Math.max(200, Math.min(640, view.contentDOM.clientWidth - 48))
+}
+
 /** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
 function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   const items: { pos: number; deco: Decoration }[] = []
@@ -1022,8 +1060,9 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   for (const k of scanKnobs(text)) {
     items.push({ pos: k.defTo, deco: Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag), side: 1 }) })
   }
+  const envW = envWidth(view)
   for (const e of scanEnvs(text)) {
-    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, hooks, drag), side: 1 }) })
+    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag), side: 1 }) })
   }
   for (const p of scanPlays(text)) {
     items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag), side: 1 }) })
@@ -1045,7 +1084,11 @@ export function rondoWidgets(hooks: Hooks): Extension {
   return ViewPlugin.fromClass(
     class {
       decos: DecorationSet
-      constructor(view: EditorView) { this.decos = build(view, hooks, drag) }
+      lastEnvW: number
+      constructor(view: EditorView) {
+        this.decos = build(view, hooks, drag)
+        this.lastEnvW = envWidth(view)
+      }
       update(u: ViewUpdate): void {
         // Keep the dragged widget's DOM stable: map our own edits through
         // instead of rebuilding (which would destroy the element mid-gesture)…
@@ -1054,7 +1097,11 @@ export function rondoWidgets(hooks: Hooks): Extension {
         // empty transaction): surviving instances hold stale ranges/values, and
         // a second drag seeded from them would rewrite the wrong chars.
         if (drag.ended) { drag.ended = false; this.decos = build(u.view, hooks, drag); return }
-        if (u.docChanged || u.viewportChanged) this.decos = build(u.view, hooks, drag)
+        // the full-width envelope tracks the editor width (rotation, resize)
+        const envW = envWidth(u.view)
+        const widthChanged = u.geometryChanged && envW !== this.lastEnvW
+        this.lastEnvW = envW
+        if (u.docChanged || u.viewportChanged || widthChanged) this.decos = build(u.view, hooks, drag)
       }
     },
     { decorations: (v) => v.decos },

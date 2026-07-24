@@ -59,6 +59,17 @@
 /* pattern-driven: the dial is following a .ctrl sweep — read as "live" */
 .rondo-knob.live { opacity: 1; color: var(--c-accent-alt, #6ea8fe); }
 .rondo-knob svg { display: block; }
+/* live readout: the CURRENT value while dragging or pattern-driven (empty =
+ * hidden — idle knobs already show their DEF literal in the code) */
+.rondo-knob .kv {
+  font-size: 10px;
+  line-height: 1;
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+  pointer-events: none;
+}
+.rondo-knob .kv:empty { display: none; }
 @media (pointer: coarse) {
   .rondo-knob { padding: 8px; } /* ~40px target under a thumb */
 }

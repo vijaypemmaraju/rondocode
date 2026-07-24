@@ -49,6 +49,35 @@ describe('decompile totality', () => {
     }
   })
 
+  it('a JS binding reusing a builtin name (const delay) still decompiles — JS scoping guarantees the builtin is unused', () => {
+    const js = `const ok = synth(({ note, gate, adsr, saw }) => {
+  const delay = adsr(gate, { a: 0.1, d: 0.1, s: 0.5, r: 0.1 })
+  return saw(note.freq).mul(delay)
+})
+`
+    const r = decompile(js)
+    expect(r).toContain('delay = adsr 0.1 0.1 0.5 0.1')
+    const c = compile(r)
+    expect(c.ok).toBe(true)
+    if (c.ok) expect(() => new Function(c.code)).not.toThrow()
+  })
+
+  it('bails a synth whose binding name is a reserved special ref', () => {
+    // `const knob = 2` is fine in JS, but a rondo binding named `knob`
+    // shadows the grammar's own keyword — the synth must stay a js block
+    // instead of round-tripping into a compile error.
+    const js = `const bad = synth(({ note, saw }) => {
+  const knob = 2
+  return saw(note.freq).mul(knob)
+})
+`
+    const r = decompile(js)
+    expect(r).toContain('js\n')
+    const c = compile(r)
+    expect(c.ok).toBe(true)
+    if (c.ok) expect(() => new Function(c.code)).not.toThrow()
+  })
+
   it('non-JS input comes back wrapped, not lost', () => {
     const r = decompile('this is not (valid js')
     expect(r).toContain('js\n')

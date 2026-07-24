@@ -124,6 +124,32 @@ describe('rondo → rondocode codegen', () => {
     if (!r.ok) expect(r.errors[0]!.message).toContain('duplicate')
   })
 
+  it('rejects a binding named after a special ref (note/gate/adsr/knob/…)', () => {
+    const r = compile(`synth s\n  saw\n  gate = 1\n  * gate\n`)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors[0]!.message).toContain('shadows a builtin')
+  })
+
+  it('allows a binding named after an unused builtin, rejects it when the chain calls that builtin', () => {
+    // `lfo = sine 2` is idiomatic — legal while the chain never calls lfo()
+    expect(compile(`synth s\n  saw\n  * lfo\n  lfo = sine 2 -> 0..1\n`).ok).toBe(true)
+    // but binding `fm` AND calling the builtin fm() collides: the ctx
+    // destructure and the const would both declare `fm`
+    const r = compile(`synth s\n  saw\n  * fm 200\n  fm = adsr .1 .1 .5 .1\n`)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors[0]!.message).toContain("shadows the builtin 'fm'")
+  })
+
+  it('js{} escape does not destructure ctx names shadowed by chain bindings', () => {
+    // REGRESSION (user report): a js{ } mentioning `env` + an `env = …` binding
+    // emitted `({ …, env, … }) => { const env = … }` → "Identifier 'env' has
+    // already been declared" at eval time.
+    const src = `synth pad\n  js{ saw(note.freq).mul(env.range(0, 1)) }\n  * env\n  env = adsr .01 .2 .5 .2\n`
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(() => new Function(r.code)).not.toThrow()
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

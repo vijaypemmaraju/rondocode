@@ -99,14 +99,17 @@ function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoE
     // two-char tokens
     if (ch === '.' && text[i + 1] === '.') { toks.push({ k: 'range', pos, sp }); i += 2; continue }
     if (ch === '-' && text[i + 1] === '>') { toks.push({ k: 'arrow', pos, sp }); i += 2; continue }
-    // number: 12, 12.5, .5, and NEGATIVE literals (`knob -6 -12..0`). A '-' that
-    // is space-preceded AND glued to its digits is a sign — so `env - 1` and
-    // `env-1` both stay subtraction. A single decimal point only, never `..`.
+    // number: 12, 12.5, .5, and NEGATIVE literals (`knob -6 -12..0`,
+    // `threshold:-6`). A '-' is a sign when glued to its digits AND either
+    // space-preceded or following a `:` `=` `..` or operator — so `env - 1`
+    // and `env-1` both stay subtraction. Single decimal point only, never `..`.
     const digitAt = (k: number): boolean => /[0-9]/.test(text[k] ?? '')
+    const last = toks[toks.length - 1]
+    const signCtx = sp || (last !== undefined && (last.k === 'colon' || last.k === 'eq' || last.k === 'range' || last.k === 'op'))
     const startsNum =
       digitAt(i) ||
       (ch === '.' && digitAt(i + 1)) ||
-      (ch === '-' && sp && (digitAt(i + 1) || (text[i + 1] === '.' && digitAt(i + 2))))
+      (ch === '-' && signCtx && (digitAt(i + 1) || (text[i + 1] === '.' && digitAt(i + 2))))
     if (startsNum) {
       let j = ch === '-' ? i + 1 : i
       while (j < text.length && digitAt(j)) j++

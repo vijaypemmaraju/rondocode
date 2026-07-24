@@ -33,7 +33,34 @@ const FIRST_CLASS_CTX = [
   'mix',
 ]
 
+const globalNames = new Set(docsOfKind('global').map((e) => e.name))
+
+/** Scope globals rondo expresses natively: blocks (synth/play/bus/…), staging
+ *  lines (cps/sidechain/master), entry points picked by notation (n/note/
+ *  chord/stack/mini), and the continuous signals as ctrl values. */
+const FIRST_CLASS_GLOBALS = [
+  'synth', 'defineSynth', 'p', 'setCps', 'sidechain', 'masterCompress', 'bus',
+  'n', 'note', 'chord', 'stack', 'mini',
+  'sine', 'sine2', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'rand', 'perlin',
+]
+
 describe('rondo ⇄ JS DSL parity scoreboard', () => {
+  it('every first-class global really exists (no phantom sugar)', () => {
+    const phantom = FIRST_CLASS_GLOBALS.filter((n) => !globalNames.has(n))
+    expect(phantom, `first-class rondo globals not in dsl-docs: ${phantom.join(', ')}`).toEqual([])
+  })
+
+  it('globals sugar coverage only grows (floor); logs what still needs sugar', () => {
+    const first = new Set(FIRST_CLASS_GLOBALS.filter((n) => globalNames.has(n)))
+    const escapeOnly = [...globalNames].filter((n) => !first.has(n)).sort()
+    console.log(
+      `[parity] globals: ${first.size}/${globalNames.size} first-class · ` +
+      `escape-hatch-only (${escapeOnly.length}): ${escapeOnly.join(', ')}`,
+    )
+    expect(first.size).toBeGreaterThanOrEqual(24)
+    expect(first.size + escapeOnly.length).toBe(globalNames.size)
+  })
+
   it('every first-class ctx name really exists in the DSL surface (no phantom sugar)', () => {
     const phantom = FIRST_CLASS_CTX.filter((n) => !ctxNames.has(n))
     expect(phantom, `first-class rondo ctx names not in dsl-docs: ${phantom.join(', ')}`).toEqual([])

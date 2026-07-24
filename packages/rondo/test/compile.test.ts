@@ -189,6 +189,38 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain(".arp('updown')")
   })
 
+  it('sidechain line: depth/release reserved, other named args are duck amounts', () => {
+    const out = ok(`synth kick\n  sine 60\n\nplay kick\n  c2 ~\n\nsidechain kick depth:.7 release:.09 lead:.5 pad:.65\n`)
+    expect(out).toContain("sidechain('kick', { depth: 0.7, release: 0.09, duck: { lead: 0.5, pad: 0.65 } })")
+  })
+
+  it('master line → masterCompress (negative values glued to the colon work)', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0\n\nmaster threshold:-6 ratio:2 makeup:1\n`)
+    expect(out).toContain('masterCompress({ threshold: -6, ratio: 2, makeup: 1 })')
+  })
+
+  it('bus block: FX folded from input + send routing; knobs are rejected', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\nbus space\n  reverb room:.9 damp:.3\n  send s .35\n`)
+    expect(out).toContain("bus('space', ({ input, reverb }) => {")
+    expect(out).toContain('reverb(input, { roomSize: 0.9, damp: 0.3 })')
+    expect(out).toContain(', { s: 0.35 })')
+    expect(compile(`synth s\n  saw\n\nbus b\n  reverb mix:g\n  g = knob .3 0..1\n`).ok).toBe(false)
+  })
+
+  it('visual block passes WGSL through verbatim', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n`)
+    expect(out).toContain('visual(`')
+    expect(out).toContain('fn render(uv: vec2f) -> vec4f {')
+    expect(out).toContain('  return vec4f(uv, 0.0, 1.0);') // nested indent kept
+  })
+
+  it('chord names (uppercase root) pick chord(); stacked lines pick stack()', () => {
+    const out = ok(`synth pad\n  saw\n\nplay pad\n  <Am F C G>\n  dur: .95\n`)
+    expect(out).toContain("chord('<Am F C G>')")
+    const out2 = ok(`synth pad\n  saw\n\nplay pad\n  <0 5 2 6>\n  <2 7 4 8>\n  <4 9 6 10>\n  scale: c-min\n  dur: .98\n`)
+    expect(out2).toContain("stack(n('<0 5 2 6>'), n('<2 7 4 8>'), n('<4 9 6 10>')).scale('c minor')")
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")
@@ -201,7 +233,7 @@ describe('rondo → rondocode codegen', () => {
     // two-function synth(): voice then post (post ctx destructures `input`)
     expect(out).toContain('}, ({ input')
     // reverb is wet-only, so mix: blends it back over the dry input
-    expect(out).toContain('input.mix(reverb(input, { roomSize: 0.85 }), 0.35)')
+    expect(out).toContain('((x) => x.mix(reverb(x, { roomSize: 0.85 }), 0.35))(input)')
   })
 
   it('supports a drivable POST param (knob in post → param, driven by .ctrl)', () => {
@@ -210,7 +242,7 @@ describe('rondo → rondocode codegen', () => {
       `play pad\n  0 3 5\n  wet: sine 0..0.7 slow:8\n`,
     )
     expect(out).toContain("const wet = param('wet', 0.35, { min: 0, max: 0.7 })")
-    expect(out).toContain('input.mix(reverb(input, { roomSize: 0.85 }), wet)')
+    expect(out).toContain('((x) => x.mix(reverb(x, { roomSize: 0.85 }), wet))(input)')
     expect(out).toContain(".ctrl('wet', sine.range(0, 0.7).slow(8))")
   })
 })

@@ -1,0 +1,52 @@
+# a full club track in PURE rondo — no escape hatch anywhere.
+# kick · offbeat sub · chord stabs (named chords) · a shared reverb bus ·
+# sidechain pump · master glue.
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp  = adsr .001 .2 0 .07
+
+synth sub mono glide:.04
+  sine
+  mix edge .15
+  onepole 380
+  * env
+  tanh
+  edge = saw note
+  env = adsr .008 .12 .5 .07
+
+synth stab
+  supersaw detune:.4 mix:.7
+  ladder cut res:.6
+  * env
+  cut = env ^ 2 -> 300..3400
+  env = adsr .002 .16 0 .09
+  post
+    delay .28 .3
+    reverb room:.7 mix:.25
+
+play kick
+  c2 c2 c2 c2
+
+play sub
+  ~ e1 ~ e1 ~ e1 ~ e1
+  dur: .18
+
+play stab
+  <Em Em Cmaj7 G>
+  struct ~ t ~ t t ~ ~ t
+  dur: .2
+  gain: .6
+
+bus space
+  reverb room:.9 damp:.35
+  send stab .3
+
+sidechain kick depth:.8 release:.15 sub:.95 stab:.6
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+cps .55

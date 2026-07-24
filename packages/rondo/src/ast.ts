@@ -79,6 +79,8 @@ export interface PlayBlock {
   notation: string
   /** absolute char offset of `notation` in the source (for note-play flash). */
   notationFrom: number
+  /** additional stacked voice lines (multi-line play block → stack(...)). */
+  voices?: { notation: string; notationFrom: number }[]
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
   /** modifier lines under the notation, applied in order. */
@@ -100,7 +102,45 @@ export interface RawItem {
   pos: Pos
 }
 
-export type TopItem = SynthBlock | PlayBlock | CpsItem | RawItem
+/** `sidechain kick depth:.7 release:.09 lead:.5 …` — named args other than
+ *  depth/release are per-channel duck amounts. */
+export interface SidechainItem {
+  t: 'sidechain'
+  source: string
+  depth?: number
+  release?: number
+  duck: Record<string, number>
+  pos: Pos
+}
+
+/** `master threshold:-6 ratio:2 …` → masterCompress(opts). */
+export interface MasterItem {
+  t: 'master'
+  opts: Record<string, number>
+  pos: Pos
+}
+
+/** A `bus NAME` block: an FX spine folded from `input` + `send SYNTH AMT`
+ *  routing lines. */
+export interface BusBlock {
+  t: 'bus'
+  name: string
+  fx: Expr
+  bindings: Binding[]
+  sends: Record<string, number>
+  pos: Pos
+}
+
+/** A `visual` block: raw WGSL body passed verbatim to visual(`…`). */
+export interface VisualItem {
+  t: 'visual'
+  wgsl: string
+  pos: Pos
+}
+
+export type TopItem =
+  | SynthBlock | PlayBlock | CpsItem | RawItem
+  | SidechainItem | MasterItem | BusBlock | VisualItem
 
 export interface Program {
   items: TopItem[]

@@ -26,7 +26,10 @@ export function compile(src: string): CompileResult {
   if (errors.length > 0) return { ok: false, code: null, notes: [], errors }
   const notes: NoteSpan[] = program.items
     .filter((it): it is Extract<typeof it, { t: 'play' }> => it.t === 'play')
-    .filter((p) => p.notation.length > 0)
-    .map((p) => ({ content: p.notation, from: p.notationFrom }))
+    .flatMap((p) => [
+      { content: p.notation, from: p.notationFrom },
+      ...(p.voices ?? []).map((v) => ({ content: v.notation, from: v.notationFrom })),
+    ])
+    .filter((s) => s.content.length > 0)
   return { ok: true, code, notes, errors: [] }
 }

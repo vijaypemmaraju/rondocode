@@ -11,6 +11,7 @@ import { baseScope } from '../../app/src/session/scope'
 const acid = readFileSync(fileURLToPath(new URL('../examples/acid.rondo', import.meta.url)), 'utf8')
 const pad = readFileSync(fileURLToPath(new URL('../examples/pad.rondo', import.meta.url)), 'utf8')
 const wob = readFileSync(fileURLToPath(new URL('../examples/wob.rondo', import.meta.url)), 'utf8')
+const club = readFileSync(fileURLToPath(new URL('../examples/club.rondo', import.meta.url)), 'utf8')
 
 describe('rondo end-to-end: source → transpile → evalCode → sound', () => {
   it('the acid example compiles and evals clean with no error diagnostics', () => {
@@ -62,6 +63,29 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
       .filter(hasOnset)
       .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
     expect(sounding.length).toBeGreaterThan(0)
+  })
+
+  it('the club example (pure rondo: bus + sidechain + master + chords + gated) stages everything', () => {
+    const c = compile(club)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    // every song-level staging feature landed, no js{ } anywhere in the source
+    expect(club).not.toContain('js{')
+    expect(result.sidechain?.source).toBe('kick')
+    expect(result.sidechain?.amounts).toBeDefined()
+    expect(result.masterComp).toBeDefined()
+    expect(result.buses.has('space')).toBe(true)
+    expect(result.sends).toContainEqual({ synth: 'stab', bus: 'space', amount: 0.3 })
+    for (const name of ['kick', 'sub', 'stab']) {
+      const sounding = result.patterns.get(name)!
+        .query(new TimeSpan(F(0), F(2)))
+        .filter(hasOnset)
+        .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
+      expect(sounding.length, name).toBeGreaterThan(0)
+    }
   })
 
   it('parity via escape hatch: a js{ … } sidechain evals clean through the real engine', () => {

@@ -328,6 +328,36 @@ function parseComb(raw: string): Comb {
   return { name, args: rest ? rest.split(/\s+/) : [] }
 }
 
+/** Combinator words that mark a play-body line as a MODIFIER rather than
+ *  another stacked notation line. */
+const COMB_WORDS = new Set([
+  'rev', 'fast', 'slow', 'struct', 'euclid', 'euclidinv', 'euclidInv', 'arp', 'ply', 'iter', 'iterBack',
+  'palindrome', 'degrade', 'degradeby', 'degradeBy', 'undegradeBy', 'segment', 'chunk', 'swing', 'swingBy',
+  'linger', 'roll', 'echo', 'ping', 'add', 'sub', 'mul', 'div', 'invert', 'octave', 'voicing', 'voiceLead',
+  'onsetsOnly', 'early', 'late', 'jux',
+])
+
+/** Is this play-body line a modifier (`name: value`, `every 4: rev`, bare
+ *  combinator) as opposed to another stacked notation voice? */
+function isModifierLine(ln: Line): boolean {
+  if (/^[a-zA-Z_]\w*[ \t]*:/.test(ln.raw)) return true
+  const first = /^([a-zA-Z_]\w*)/.exec(ln.raw)?.[1]
+  return first !== undefined && COMB_WORDS.has(first)
+}
+
+/** Extract notation text (before an inline `scale:`) from a body line. */
+function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: number; scale?: string } {
+  const m = /\bscale:([a-gA-G][a-z0-9#-]*)/.exec(ln.raw)
+  const raw = m ? ln.raw.slice(0, m.index) : ln.raw
+  const notation = raw.replace(/\s+$/, '')
+  // near-miss like `scale:minor` (no a–g root) doesn't match the extractor —
+  // error rather than silently shipping "scale:minor" inside the notation
+  if (/\bscale:/.test(notation)) {
+    errors.push({ message: 'bad scale — write it like `scale:a-min` (root + mode)', line: ln.line, col: ln.rawCol })
+  }
+  return { notation, from: ln.offset, scale: m?.[1] }
+}
+
 function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: PlayBlock; next: number } {
   const header = lines[i]!
   const nameTok = header.toks[1]
@@ -335,31 +365,42 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
   if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
   const { body, next } = bodyLines(lines, i + 1)
   if (body.length === 0) errors.push({ message: `play '${name}' has no notation`, line: header.line, col: header.rawCol })
-  // first body line = notation (+ optional inline `scale:`); the rest = modifiers.
-  // Keep the notation's internal spacing intact so its char range lines up with
-  // the buffer 1:1 — that's what lets note-play flash highlight the source.
-  const first = body[0]
+  // Leading non-modifier lines are notation VOICES (2+ → a stacked chord of
+  // lines, like the JS stack(n(…), n(…)) idiom); the rest are modifiers.
+  // Notation keeps its internal spacing so char ranges line up with the buffer
+  // 1:1 — that's what lets note-play flash highlight the source.
+  const noteLines: Line[] = []
+  const modLines: Line[] = []
+  for (const ln of body) {
+    if (modLines.length === 0 && !isModifierLine(ln)) noteLines.push(ln)
+    else modLines.push(ln)
+  }
   let notation = ''
-  let notationFrom = first ? first.offset : 0
+  let notationFrom = body[0]?.offset ?? 0
   let scale: string | undefined
-  if (first) {
-    const m = /\bscale:([a-gA-G][a-z0-9#-]*)/.exec(first.raw)
-    if (m) scale = m[1]
-    const raw = m ? first.raw.slice(0, m.index) : first.raw // notation is the part before `scale:`
-    notation = raw.replace(/\s+$/, '')
-    notationFrom = first.offset
-    // near-miss like `scale:minor` (no a–g root) doesn't match the extractor —
-    // error rather than silently shipping "scale:minor" inside the notation
-    if (/\bscale:/.test(notation)) {
-      errors.push({ message: 'bad scale — write it like `scale:a-min` (root + mode)', line: first.line, col: first.rawCol })
+  let voices: { notation: string; notationFrom: number }[] | undefined
+  for (let v = 0; v < noteLines.length; v++) {
+    const parsed = notationOf(noteLines[v]!, errors)
+    if (parsed.scale !== undefined) scale = parsed.scale
+    if (v === 0) {
+      notation = parsed.notation
+      notationFrom = parsed.from
+    } else {
+      ;(voices ??= []).push({ notation: parsed.notation, notationFrom: parsed.from })
     }
   }
   const mods: Mod[] = []
-  for (const ln of body.slice(1)) {
+  for (const ln of modLines) {
+    // `scale: a-min` as a modifier line (the stacked-voices form needs it
+    // somewhere other than inline)
+    const sm = /^scale[ \t]*:[ \t]*([a-gA-G][a-z0-9#-]*)[ \t]*$/.exec(ln.raw)
+    if (sm) { scale = sm[1]; continue }
     const mod = parseMod(ln, errors)
     if (mod) mods.push(mod)
   }
-  return { block: { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }, next }
+  const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
+  if (voices !== undefined) block.voices = voices
+  return { block, next }
 }
 
 function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsItem; next: number } {
@@ -383,25 +424,89 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
     if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
-    // escape hatch, block: a lone `js` header + indented body → raw verbatim
-    // JS. Reconstruct each line from the ORIGINAL source (not Line.raw, which
-    // has rondo `#`-comments stripped — a `#` inside a JS string must survive)
-    // and dedent by the block's base indent so relative indentation is kept.
-    else if (head.v === 'js' && ln.toks.length === 1) {
+    // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
+    // per-channel duck amounts
+    else if (head.v === 'sidechain') {
+      const srcTok = ln.toks[1]
+      const source = srcTok && srcTok.k === 'ident' ? srcTok.v : ''
+      if (!source) errors.push({ message: 'sidechain needs a source synth (`sidechain kick …`)', line: ln.line, col: ln.rawCol })
+      const item: TopItem = { t: 'sidechain', source, duck: {}, pos: head.pos }
+      for (let k = 2; k + 2 < ln.toks.length + 1; k += 3) {
+        const nameT = ln.toks[k], colonT = ln.toks[k + 1], valT = ln.toks[k + 2]
+        if (!nameT || nameT.k !== 'ident' || colonT?.k !== 'colon' || valT?.k !== 'num') {
+          if (nameT) errors.push({ message: 'sidechain args are `name:number` pairs (depth: / release: / <synth>:duck)', line: nameT.pos.line, col: nameT.pos.col })
+          break
+        }
+        const v = (valT as Tok & { v: number }).v
+        if (nameT.v === 'depth') item.depth = v
+        else if (nameT.v === 'release') item.release = v
+        else item.duck[nameT.v] = v
+      }
+      items.push(item)
+      i++
+    }
+    // `master threshold:-6 ratio:2 …` → masterCompress(opts)
+    else if (head.v === 'master') {
+      const opts: Record<string, number> = {}
+      for (let k = 1; k + 2 < ln.toks.length + 1; k += 3) {
+        const nameT = ln.toks[k], colonT = ln.toks[k + 1], valT = ln.toks[k + 2]
+        if (!nameT || nameT.k !== 'ident' || colonT?.k !== 'colon' || valT?.k !== 'num') {
+          if (nameT) errors.push({ message: 'master args are `name:number` pairs (threshold: ratio: attack: release: knee: makeup:)', line: nameT.pos.line, col: nameT.pos.col })
+          break
+        }
+        opts[nameT.v] = (valT as Tok & { v: number }).v
+      }
+      items.push({ t: 'master', opts, pos: head.pos })
+      i++
+    }
+    // `bus NAME` block: FX lines fold from `input`; `send SYNTH AMT` routes
+    else if (head.v === 'bus') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!name) errors.push({ message: 'bus needs a name (`bus space`)', line: ln.line, col: ln.rawCol })
       const { body, next } = bodyLines(lines, i + 1)
-      const base = body.length > 0 ? Math.min(...body.map((b) => b.indent)) : 0
-      const code = body
-        .map((b) => {
-          const lineStart = b.offset - b.indent
-          const nl = src.indexOf('\n', lineStart)
-          const full = src.slice(lineStart, nl === -1 ? src.length : nl).replace(/\s+$/, '')
-          return full.slice(base)
-        })
-        .join('\n')
-      items.push({ t: 'raw', code, pos: head.pos })
+      const sends: Record<string, number> = {}
+      const fxLines: Line[] = []
+      for (const b of body) {
+        const s = /^send[ \t]+([a-zA-Z_]\w*)[ \t]+(-?\d*\.?\d+)[ \t]*$/.exec(b.raw)
+        if (s) { sends[s[1]!] = Number(s[2]) } else fxLines.push(b)
+      }
+      const input: Expr = { t: 'ident', name: 'input', pos: head.pos }
+      const fx = foldSpine(fxLines, input, errors)
+      for (const b of fx.bindings) {
+        if (b.expr.t === 'knob') errors.push({ message: 'a knob can\'t live in a bus — buses have no .ctrl route (use a fixed value)', line: b.pos.line, col: b.pos.col })
+      }
+      items.push({ t: 'bus', name, fx: fx.spine ?? input, bindings: fx.bindings, sends, pos: head.pos })
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    // `visual` block: raw WGSL, verbatim
+    else if (head.v === 'visual' && ln.toks.length === 1) {
+      const { body, next } = bodyLines(lines, i + 1)
+      items.push({ t: 'visual', wgsl: verbatimBody(src, body), pos: head.pos })
+      i = next
+    }
+    // escape hatch, block: a lone `js` header + indented body → raw verbatim JS
+    else if (head.v === 'js' && ln.toks.length === 1) {
+      const { body, next } = bodyLines(lines, i + 1)
+      items.push({ t: 'raw', code: verbatimBody(src, body), pos: head.pos })
+      i = next
+    }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors }
+}
+
+/** Reconstruct a block body VERBATIM from the original source (Line.raw has
+ *  rondo `#`-comments stripped — a `#` inside a JS/WGSL string must survive),
+ *  dedented by the block's base indent so relative indentation is kept. */
+function verbatimBody(src: string, body: Line[]): string {
+  const base = body.length > 0 ? Math.min(...body.map((b) => b.indent)) : 0
+  return body
+    .map((b) => {
+      const lineStart = b.offset - b.indent
+      const nl = src.indexOf('\n', lineStart)
+      const full = src.slice(lineStart, nl === -1 ? src.length : nl).replace(/\s+$/, '')
+      return full.slice(base)
+    })
+    .join('\n')
 }

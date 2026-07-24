@@ -15,8 +15,8 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
-/** Block keywords + `post`. */
-const KEYWORDS = new Set(['synth', 'play', 'cps', 'post'])
+/** Block keywords. */
+const KEYWORDS = new Set(['synth', 'play', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'visual', 'js'])
 /** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
  *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([
@@ -99,6 +99,12 @@ const OPTIONS: Completion[] = [
   c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
   c('post', 'keyword', 'post', 'A post FX chain over the summed voices (reverb/eq/…), folded from `input`.'),
   c('cps', 'keyword', 'cps N', 'Set tempo in cycles per second.'),
+  c('sidechain', 'keyword', 'sidechain kick depth:.7 lead:.5', 'The pump: every kick ducks the other channels. Extra name:amount pairs are per-channel duck.'),
+  c('master', 'keyword', 'master threshold:-6 ratio:2', 'Master-bus glue compressor.'),
+  c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),
+  c('send', 'keyword', 'send lead .35', 'Route a synth into this bus (0..1, pre-fader).'),
+  c('visual', 'keyword', 'visual', 'A WGSL fragment shader block, rendered behind the code.'),
+  c('js', 'keyword', 'js{ … } / js block', 'Escape hatch: raw rondocode/JS, verbatim — total parity with the JS API.'),
   c('saw', 'function', 'saw [freq]', 'Sawtooth oscillator. Default freq = the note.'),
   c('square', 'function', 'square [freq]', 'Square oscillator. Default freq = the note.'),
   c('sine', 'function', 'sine [freq]', 'Sine oscillator (also a global LFO/continuous signal).'),

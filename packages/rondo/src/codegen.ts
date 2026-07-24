@@ -153,9 +153,10 @@ class SynthGen {
       return `${name}(gate${a.length > 0 ? ', ' + a.join(', ') : ''}${opts})`
     }
     if (name === 'reverb' && e.named.mix !== undefined) {
-      // `mix:` is wet/dry sugar — reverb is wet-only, so blend it over the dry
-      const base = `reverb(${a[0]}${opts})`
-      return `${a[0]}.mix(${base}, ${this.expr(e.named.mix)})`
+      // `mix:` is wet/dry sugar — reverb is wet-only, so blend it over the dry.
+      // Bind the input once (an inline arrow) so a long upstream chain isn't
+      // emitted twice — duplicated nodes waste the graph.
+      return `((x) => x.mix(reverb(x${opts}), ${this.expr(e.named.mix)}))(${a[0]})`
     }
     return `${name}(${a.join(', ')}${opts})`
   }
@@ -257,13 +258,52 @@ function cgMod(m: Mod): string {
   }
 }
 
+/** Pick the pattern entry point for a notation line: an UPPERCASE root means
+ *  chord names (`<Am F C G>`, `Dm7`); lowercase letters mean note names
+ *  (`c4 e4`); bare digits/rests mean scale degrees. */
+function entryFor(notation: string): 'chord' | 'note' | 'n' {
+  if (/(^|[\s<[(])[A-G][#b]?[A-Za-z0-9]*/.test(notation)) return 'chord'
+  if (/[a-g]/.test(notation)) return 'note'
+  return 'n'
+}
+
 function cgPlay(block: PlayBlock): string {
-  const entry = /[a-gA-G]/.test(block.notation) ? 'note' : 'n'
-  let pat = `${entry}(${q(block.notation)})`
+  const lineExpr = (notation: string): string => `${entryFor(notation)}(${q(notation)})`
+  // multiple notation lines stack into voices, like the JS stack(n(…), n(…))
+  let pat = block.voices !== undefined && block.voices.length > 0
+    ? `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
+    : lineExpr(block.notation)
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
   pat += `.sound('${block.name}')`
   for (const m of block.mods) pat += cgMod(m)
   return `p('${block.name}', ${pat})`
+}
+
+function cgSidechain(item: Extract<TopItem, { t: 'sidechain' }>): string {
+  const parts: string[] = []
+  if (item.depth !== undefined) parts.push(`depth: ${num(item.depth)}`)
+  if (item.release !== undefined) parts.push(`release: ${num(item.release)}`)
+  const duckEntries = Object.entries(item.duck)
+  if (duckEntries.length > 0) parts.push(`duck: { ${duckEntries.map(([k, v]) => `${k}: ${num(v)}`).join(', ')} }`)
+  return `sidechain('${item.source}'${parts.length > 0 ? `, { ${parts.join(', ')} }` : ''})`
+}
+
+function cgMaster(item: Extract<TopItem, { t: 'master' }>): string {
+  const parts = Object.entries(item.opts).map(([k, v]) => `${k}: ${num(v)}`)
+  return `masterCompress(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
+}
+
+function cgBus(item: Extract<TopItem, { t: 'bus' }>, errors: RondoError[]): string {
+  const fx = cgChain(item.bindings, item.fx, ['input'], errors)
+  const sendEntries = Object.entries(item.sends)
+  const sends = sendEntries.length > 0 ? `, { ${sendEntries.map(([k, v]) => `${k}: ${num(v)}`).join(', ')} }` : ''
+  return `bus('${item.name}', ${fx}${sends})`
+}
+
+function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
+  // WGSL has no backticks/template holes, but escape defensively
+  const body = item.wgsl.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+  return `visual(\`\n${body}\n\`)`
 }
 
 export function codegen(program: Program, errors: RondoError[]): string {
@@ -271,6 +311,10 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
+    if (item.t === 'sidechain') return cgSidechain(item)
+    if (item.t === 'master') return cgMaster(item)
+    if (item.t === 'bus') return cgBus(item, errors)
+    if (item.t === 'visual') return cgVisual(item)
     return `setCps(${num(item.value)})` // cps
   })
   return parts.join('\n\n') + '\n'

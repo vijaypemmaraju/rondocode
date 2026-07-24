@@ -287,18 +287,28 @@ export interface BeatRow {
   to: number
   /** the notation text itself — a beat event's `loc.src` equals this. */
   content: string
-  /** the line's single instrument word — also the synth a tap previews. */
+  /** the row's single instrument word — also the synth a tap previews. */
   word: string
   /** one entry per step: sounding or rest. */
   steps: boolean[]
+  /** the line already ends in a `# …` comment — the widget must not add its
+   *  own word-keeper comment after erasing the row. */
+  hadComment: boolean
 }
 
-/** Find `beat` block body lines that are SIMPLE flat word/rest sequences with
- *  ONE distinct word (`kick ~ kick ~`) — the step-sequencer-editable case.
+export interface BeatBlock {
+  /** the block's qualifying rows, in source order — ONE widget renders them
+   *  all with shared (time-proportional) column alignment. */
+  rows: BeatRow[]
+}
+
+/** Find each `beat` block's SIMPLE rows: flat word/rest lines with ONE
+ *  distinct word (`kick ~ kick ~`), plus all-rest lines whose trailing
+ *  `# word` comment names the instrument (how an erased row keeps its word).
  *  Mixed words, mini-notation (`kick*4`, `[..]`), and modifier lines are left
  *  as plain text. Pure. */
-export function scanBeats(text: string): BeatRow[] {
-  const out: BeatRow[] = []
+export function scanBeats(text: string): BeatBlock[] {
+  const out: BeatBlock[] = []
   const lines = text.split('\n')
   const offs: number[] = []
   let o = 0
@@ -307,22 +317,34 @@ export function scanBeats(text: string): BeatRow[] {
     const bh = /^([ \t]*)beat(\s+[a-zA-Z_]\w*)?[ \t]*(#.*)?$/.exec(lines[i]!)
     if (!bh) continue // a beat header (top-level OR nested in a section)
     const beatIndent = bh[1]!.length
+    const rows: BeatRow[] = []
     for (let j = i + 1; j < lines.length; j++) {
       const ln = lines[j]!
       if (/^[ \t]*$/.test(ln) || /^[ \t]*#/.test(ln)) continue // blank/comment
       const indent = /^[ \t]*/.exec(ln)![0].length
       if (indent <= beatIndent) break // dedent — the block ended
       const cm = /(^|\s)#/.exec(ln)
+      const comment = cm ? ln.slice(cm.index + (cm[1] ? cm[1].length : 0)) : undefined
       const noComment = cm ? ln.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : ln
       const notation = noComment.slice(indent).replace(/\s+$/, '')
       const toks = notation.split(/\s+/).filter(Boolean)
       if (toks.length < 2) continue // a 1-step row isn't a sequencer
       if (!toks.every((tk) => tk === '~' || /^[a-zA-Z_]\w*$/.test(tk))) continue
       const words = new Set(toks.filter((tk) => tk !== '~'))
-      if (words.size !== 1) continue // no single instrument to label the row
+      let word = words.size === 1 ? [...words][0]! : undefined
+      if (words.size === 0) {
+        // an ALL-REST row: its `# word` comment is the instrument's memory
+        const cw = comment !== undefined ? /^#[ \t]*([a-zA-Z_]\w*)[ \t]*$/.exec(comment) : null
+        word = cw?.[1] ?? undefined
+      }
+      if (word === undefined) continue // no single instrument to label the row
       const from = offs[j]! + indent
-      out.push({ from, to: from + notation.length, content: notation, word: [...words][0]!, steps: toks.map((tk) => tk !== '~') })
+      rows.push({
+        from, to: from + notation.length, content: notation, word,
+        steps: toks.map((tk) => tk !== '~'), hadComment: comment !== undefined,
+      })
     }
+    if (rows.length > 0) out.push({ rows })
   }
   return out
 }
@@ -787,118 +809,148 @@ class PianoRollWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
-/** One step-sequencer row per simple beat line: tap/drag toggles steps, the
- *  playhead lights the sweeping column, a placed step previews its drum. */
-class BeatRowWidget extends WidgetType {
+/** ONE step sequencer per beat block: a labeled row per simple line, columns
+ *  aligned in musical time (every row spans the same width, so a 4-step row's
+ *  cells are twice as wide as an 8-step row's). Tap toggles, drag paints —
+ *  across rows too — the playhead lights the sweeping cells, and a placed
+ *  step previews its drum. */
+class BeatBlockWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
 
   constructor(
-    readonly from: number,
-    readonly to: number,
-    readonly content: string,
-    readonly word: string,
-    readonly steps: boolean[],
+    readonly rows: BeatRow[],
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
 
-  eq(o: BeatRowWidget): boolean {
-    // `to`/`content` matter: respacing keeps the same STEPS but shifts
-    // offsets; a reused DOM would rewrite a too-short range
-    return o.from === this.from && o.to === this.to && o.content === this.content &&
-      o.word === this.word && o.steps.length === this.steps.length &&
-      o.steps.every((v, i) => v === this.steps[i])
+  eq(o: BeatBlockWidget): boolean {
+    // from/to/content matter: respacing keeps the same STEPS but shifts
+    // offsets; a reused DOM would rewrite too-short ranges
+    return o.rows.length === this.rows.length && o.rows.every((r, i) => {
+      const m = this.rows[i]!
+      return r.from === m.from && r.to === m.to && r.content === m.content &&
+        r.word === m.word && r.hadComment === m.hadComment &&
+        r.steps.length === m.steps.length && r.steps.every((v, k) => v === m.steps[k])
+    })
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const cols = this.steps.length
-    const grid = document.createElement('span')
-    grid.className = 'rondo-roll rondo-beatrow'
-    grid.setAttribute('role', 'group')
-    grid.setAttribute('aria-label', `step sequencer: tap or drag to place ${this.word} hits`)
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
-    const steps = this.steps.slice()
-    const cellEls: HTMLElement[] = []
-    for (let c = 0; c < cols; c++) {
-      const cell = document.createElement('span')
-      cell.className = 'rc' + (steps[c] === true ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
-      cell.dataset.c = String(c)
-      cellEls.push(cell)
-      grid.appendChild(cell)
+    const maxCols = Math.max(...this.rows.map((r) => r.steps.length))
+    const wrap = document.createElement('span')
+    wrap.className = 'rondo-beatgrid'
+    wrap.setAttribute('role', 'group')
+    wrap.setAttribute('aria-label', 'step sequencer: tap or drag to place hits')
+    const steps = this.rows.map((r) => r.steps.slice())
+    const cellEls: HTMLElement[][] = []
+    for (let r = 0; r < this.rows.length; r++) {
+      const row = this.rows[r]!
+      const label = document.createElement('span')
+      label.className = 'bl'
+      label.textContent = row.word
+      wrap.appendChild(label)
+      const lane = document.createElement('span')
+      lane.className = 'rondo-roll lane'
+      // shared TIME alignment: every lane spans maxCols worth of width; a
+      // row with fewer steps gets proportionally wider cells
+      lane.style.gridTemplateColumns = `repeat(${row.steps.length}, 1fr)`
+      lane.style.width = `calc(${maxCols} * var(--beat-cell, 18px))`
+      const cells: HTMLElement[] = []
+      const beatEvery = row.steps.length % 4 === 0 ? row.steps.length / 4 : 4
+      for (let c = 0; c < row.steps.length; c++) {
+        const cell = document.createElement('span')
+        cell.className = 'rc' + (steps[r]![c] === true ? ' on' : '') + (c % beatEvery === 0 ? ' beat' : '')
+        cell.dataset.r = String(r)
+        cell.dataset.c = String(c)
+        cells.push(cell)
+        lane.appendChild(cell)
+      }
+      cellEls.push(cells)
+      wrap.appendChild(lane)
     }
 
-    // PLAYHEAD: this row's events carry loc.src === the notation text, and
+    // PLAYHEAD: a row's events carry loc.src === its notation text, and
     // loc.start maps to a column via stepStarts.
     if (this.hooks.onNoteEvents && this.hooks.now) {
       const now = this.hooks.now
-      const starts = stepStarts(this.content)
+      const starts = this.rows.map((r) => stepStarts(r.content))
       this.unsub = this.hooks.onNoteEvents((evs) => {
         for (const ev of evs) {
-          if (ev.src !== this.content) continue
-          const col = starts.indexOf(ev.start)
-          if (col < 0) continue
-          const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
-          this.timers.at((ev.timeSec - now()) * 1000, () => {
-            const cell = cellEls[col]
-            if (!cell) return
-            cell.classList.add('play')
-            if (cell.classList.contains('on')) cell.classList.add('trig')
-            this.timers.at(litMs, () => cell.classList.remove('play', 'trig'))
-          })
+          for (let r = 0; r < this.rows.length; r++) {
+            if (ev.src !== this.rows[r]!.content) continue
+            const col = starts[r]!.indexOf(ev.start)
+            if (col < 0) continue
+            const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
+            this.timers.at((ev.timeSec - now()) * 1000, () => {
+              const cell = cellEls[r]?.[col]
+              if (!cell) return
+              cell.classList.add('play')
+              if (cell.classList.contains('on')) cell.classList.add('trig')
+              this.timers.at(litMs, () => cell.classList.remove('play', 'trig'))
+            })
+          }
         }
       })
     }
     // The doc write is DEFERRED to gesture end: toggling `kick` ↔ `~` changes
-    // the LINE LENGTH, so a mid-gesture write shifts this widget under the
-    // stationary pointer and the next pointermove paints the neighbor cell.
+    // LINE LENGTHS, so a mid-gesture write would shift this widget under the
+    // stationary pointer and the next pointermove would paint a neighbor.
     // (The piano-roll writes live safely — its tokens are all one char.)
     let painting = false
-    let dirty = false
+    const dirty = new Set<number>()
     let mode: 'draw' | 'erase' = 'draw'
-    const set = (c: number): void => {
+    const set = (r: number, c: number): void => {
+      const row = this.rows[r]
+      if (row === undefined || c < 0 || c >= row.steps.length) return
       const next = mode === 'draw'
-      if (steps[c] === next) return
-      steps[c] = next
-      dirty = true
-      cellEls[c]?.classList.toggle('on', next)
+      if (steps[r]![c] === next) return
+      steps[r]![c] = next
+      dirty.add(r)
+      cellEls[r]?.[c]?.classList.toggle('on', next)
       buzz()
       // preview the placed hit while the transport is stopped — beat events
       // carry the sound() default note (60); drums ignore the pitch anyway
       if (next && this.hooks.previewNote !== undefined && !(this.hooks.isPlaying?.() ?? false)) {
-        this.hooks.previewNote(this.word, 60)
+        this.hooks.previewNote(row.word, 60)
       }
     }
-    grid.addEventListener('pointerdown', (e) => {
+    wrap.addEventListener('pointerdown', (e) => {
       const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
       if (!el) return
       e.preventDefault(); e.stopPropagation()
-      grid.setPointerCapture(e.pointerId)
+      wrap.setPointerCapture(e.pointerId)
       this.drag.active = true; painting = true
-      const c = Number(el.dataset.c)
-      mode = steps[c] === true ? 'erase' : 'draw' // tap an active step to clear it
-      set(c)
+      const r = Number(el.dataset.r), c = Number(el.dataset.c)
+      mode = steps[r]?.[c] === true ? 'erase' : 'draw' // tap an active step to clear it
+      set(r, c)
     })
-    grid.addEventListener('pointermove', (e) => {
+    wrap.addEventListener('pointermove', (e) => {
       if (!painting) return
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
       const cell = el?.closest?.('.rc') as HTMLElement | null
-      if (cell && grid.contains(cell)) set(Number(cell.dataset.c))
+      if (cell && wrap.contains(cell)) set(Number(cell.dataset.r), Number(cell.dataset.c))
     })
     const end = (): void => {
       if (!painting) return
       painting = false
       this.drag.active = false
-      if (!dirty) return // nothing changed — ranges are still valid, no rebuild
-      dirty = false
+      if (dirty.size === 0) return // nothing changed — ranges are still valid
       this.drag.ended = true // the write's own transaction triggers ONE rebuild
-      const s = steps.map((v) => (v ? this.word : '~')).join(' ')
-      view.dispatch({ changes: { from: this.from, to: this.to, insert: s } })
+      const changes = [...dirty].map((r) => {
+        const row = this.rows[r]!
+        let insert = steps[r]!.map((v) => (v ? row.word : '~')).join(' ')
+        // an erased row keeps its instrument as a `# word` comment — that's
+        // what lets the scanner (and the next session) rebuild this row
+        if (!steps[r]!.some(Boolean) && !row.hadComment) insert += `  # ${row.word}`
+        return { from: row.from, to: row.to, insert }
+      })
+      dirty.clear()
+      view.dispatch({ changes })
       this.hooks.requestEval(false)
     }
-    grid.addEventListener('pointerup', end)
-    grid.addEventListener('pointercancel', end)
-    return grid
+    wrap.addEventListener('pointerup', end)
+    wrap.addEventListener('pointercancel', end)
+    return wrap
   }
 
   destroy(): void {
@@ -925,7 +977,9 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag), side: 1 }) })
   }
   for (const b of scanBeats(text)) {
-    items.push({ pos: b.to, deco: Decoration.widget({ widget: new BeatRowWidget(b.from, b.to, b.content, b.word, b.steps, hooks, drag), side: 1 }) })
+    // one sequencer per block, hanging off the LAST qualifying row's line
+    const pos = b.rows[b.rows.length - 1]!.to
+    items.push({ pos, deco: Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }) })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()

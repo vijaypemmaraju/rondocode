@@ -93,26 +93,39 @@ describe('scanPlays (piano-roll)', () => {
   })
 })
 
-describe('scanBeats (beat-line step sequencer)', () => {
+describe('scanBeats (whole-block step sequencer)', () => {
   it('finds a simple word/rest line and pinpoints its range', () => {
     const src = 'beat\n  kick ~ kick ~\n'
-    const [b] = scanBeats(src)
+    const [block] = scanBeats(src)
+    const b = block?.rows[0]
     expect(b).toBeDefined()
     expect(src.slice(b!.from, b!.to)).toBe('kick ~ kick ~') // exactly what a tap rewrites
-    expect(b).toMatchObject({ word: 'kick', steps: [true, false, true, false] })
+    expect(b).toMatchObject({ word: 'kick', steps: [true, false, true, false], hadComment: false })
   })
 
-  it('scans every qualifying line of a block; named beats and sections too', () => {
+  it('groups rows per block; named beats and sections get their own widgets', () => {
     const src = 'beat fills\n  kick ~ kick ~\n  ~ snare ~ snare\n\nsection drop 4\n  beat\n    hat hat hat hat\n'
-    const rows = scanBeats(src)
-    expect(rows.map((b) => b.word)).toEqual(['kick', 'snare', 'hat'])
+    const blocks = scanBeats(src)
+    expect(blocks.map((bl) => bl.rows.map((r) => r.word))).toEqual([['kick', 'snare'], ['hat']])
+  })
+
+  it('an ALL-REST row keeps its instrument via a trailing `# word` comment', () => {
+    // this is how an erased row survives: the widget writes `~ ~ ~ ~  # kick`
+    // and the scanner reads the word back
+    const src = 'beat\n  ~ ~ ~ ~  # kick\n  ~ hat ~ hat\n'
+    const [block] = scanBeats(src)
+    expect(block!.rows.map((r) => r.word)).toEqual(['kick', 'hat'])
+    expect(block!.rows[0]).toMatchObject({ steps: [false, false, false, false], hadComment: true })
+    expect(src.slice(block!.rows[0]!.from, block!.rows[0]!.to)).toBe('~ ~ ~ ~')
+    // a non-word comment names nothing — the row stays plain text
+    expect(scanBeats('beat\n  ~ ~ ~ ~  # four on floor\n')).toHaveLength(0)
   })
 
   it('leaves rich notation, mixed words, and modifier lines as plain text', () => {
     expect(scanBeats('beat\n  kick*4\n')).toHaveLength(0) // mini repeat
     expect(scanBeats('beat\n  [~ hat]*3 [~ ohat]\n')).toHaveLength(0) // brackets
     expect(scanBeats('beat\n  kick snare kick ~\n')).toHaveLength(0) // two words — no single row label
-    expect(scanBeats('beat\n  kick ~ kick ~\n  every 4: rev\n  gain: .5\n')).toHaveLength(1)
+    expect(scanBeats('beat\n  kick ~ kick ~\n  every 4: rev\n  gain: .5\n')[0]!.rows).toHaveLength(1)
     expect(scanBeats('beat\n  clave\n')).toHaveLength(0) // one step isn't a sequencer
   })
 
@@ -120,13 +133,15 @@ describe('scanBeats (beat-line step sequencer)', () => {
     expect(scanBeats('play acid\n  kick ~ kick ~\n')).toHaveLength(0)
     expect(scanBeats('beat\n  # kick ~ kick ~\n')).toHaveLength(0)
     // a trailing comment is stripped from the rewrite range
-    const [b] = scanBeats('beat\n  kick ~ kick ~  # four on the floor\n')
-    expect(b!.content).toBe('kick ~ kick ~')
+    const [block] = scanBeats('beat\n  kick ~ kick ~  # four on the floor\n')
+    expect(block!.rows[0]).toMatchObject({ content: 'kick ~ kick ~', hadComment: true })
   })
 
   it('stops at the dedent — lines after the block are not rows', () => {
     const src = 'beat\n  kick ~ kick ~\n\nsynth kick\n  sine 55\n'
-    expect(scanBeats(src)).toHaveLength(1)
+    const blocks = scanBeats(src)
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.rows).toHaveLength(1)
   })
 })
 

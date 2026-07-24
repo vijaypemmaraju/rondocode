@@ -119,9 +119,34 @@
   box-shadow: 0 0 10px -1px var(--c-accent-alt, #6ea8fe);
   transform: scale(1.12);
 }
-/* beat-line step sequencer: one chunky row per instrument line */
-.rondo-beatrow .rc { width: 16px; height: 16px; border-radius: 3px; }
+/* whole-block step sequencer: instrument labels + lanes aligned in TIME —
+ * every lane spans the same width, so a 4-step row's cells are twice as wide
+ * as an 8-step row's and downbeats line up vertically */
+.rondo-beatgrid {
+  --beat-cell: 18px;
+  display: inline-grid;
+  grid-template-columns: auto max-content;
+  gap: 3px 8px;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin: 2px 0 2px 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 28%, transparent);
+  touch-action: none;
+}
+.rondo-beatgrid .bl {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.75;
+  text-align: right;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rondo-beatgrid .lane { margin: 0; padding: 0; background: none; border-radius: 0; }
+.rondo-beatgrid .lane .rc { width: auto; height: 16px; border-radius: 3px; }
 @media (pointer: coarse) {
   .rondo-roll .rc { width: 16px; height: 16px; } /* thumb-sized steps */
-  .rondo-beatrow .rc { width: 20px; height: 20px; }
+  .rondo-beatgrid { --beat-cell: 22px; }
+  .rondo-beatgrid .lane .rc { height: 20px; }
 }

@@ -73,6 +73,27 @@ describe('decompile round-trips', () => {
     expect(second.code).toBe(first.code)
   })
 
+  it('beat velocity suffixes survive the round trip (flat rows zip back)', () => {
+    const src = 'beat\n  kick ~ kick:0.6 ~\n  ~ hat:0.3 ~ hat\n'
+    const first = compile(src)
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('kick ~ kick:0.6 ~')
+    expect(rondo2).toContain('~ hat:0.3 ~ hat')
+    const second = compile(rondo2)
+    expect(second.ok).toBe(true)
+    if (second.ok) expect(second.code).toBe(first.code)
+    // a STRUCTURED gain bails to a js block — totality holds
+    const rich = compile('beat\n  [hat:0.9 hat]*2 ~\n')
+    if (!rich.ok) return
+    const d2 = decompile(rich.code)
+    expect(d2).toContain('js\n')
+    const back = compile(d2)
+    expect(back.ok).toBe(true)
+    if (back.ok) expect(back.code).toBe(rich.code)
+  })
+
   for (const { name, src } of EXAMPLES) {
     it(`${name}.rondo: compile → decompile → compile is a fixed point`, () => {
       const first = compile(src)

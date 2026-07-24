@@ -44,7 +44,7 @@ synth bass mono glide:.06
 beat
   kick ~ kick ~ kick ~ kick ~
   ~ ~ snare ~ ~ ~ snare ~
-  ~ hat ~ hat ~ hat ~ hat
+  ~ hat:.6 ~ hat ~ hat:.6 ~ hat
   ~ ~ ~ ~ ~ ~ ~ ohat
 
 beat percs

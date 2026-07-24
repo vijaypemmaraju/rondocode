@@ -100,7 +100,7 @@ const c = (label: string, type: string, detail: string, info: string): Completio
 const OPTIONS: Completion[] = [
   c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings.'),
   c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
-  c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names (`kick hat kick hat`).'),
+  c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.'),
   c('irand', 'keyword', 'irand N seg:M', 'Random scale degrees 0..N−1, M steps per cycle — a deterministic improviser.'),
   c('post', 'keyword', 'post', 'A post FX chain over the summed voices (reverb/eq/…), folded from `input`.'),
   c('cps', 'keyword', 'cps N', 'Set tempo in cycles per second.'),

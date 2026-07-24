@@ -19,7 +19,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
 import { parseScaleName, scaleDegree } from '@rondocode/pattern'
-import { expandScale } from '@rondocode/rondo'
+import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -285,12 +285,13 @@ export interface BeatRow {
   /** char range of the notation line in the source (what a tap rewrites). */
   from: number
   to: number
-  /** the notation text itself — a beat event's `loc.src` equals this. */
+  /** the notation with `:v` velocity suffixes STRIPPED — the compiler emits
+   *  this string into s(), so a beat event's `loc.src` equals it. */
   content: string
   /** the row's single instrument word — also the synth a tap previews. */
   word: string
-  /** one entry per step: sounding or rest. */
-  steps: boolean[]
+  /** one entry per step: a velocity (plain word = 1), or null for a rest. */
+  steps: (number | null)[]
   /** the line already ends in a `# …` comment — the widget must not add its
    *  own word-keeper comment after erasing the row. */
   hadComment: boolean
@@ -329,8 +330,10 @@ export function scanBeats(text: string): BeatBlock[] {
       const notation = noComment.slice(indent).replace(/\s+$/, '')
       const toks = notation.split(/\s+/).filter(Boolean)
       if (toks.length < 2) continue // a 1-step row isn't a sequencer
-      if (!toks.every((tk) => tk === '~' || /^[a-zA-Z_]\w*$/.test(tk))) continue
-      const words = new Set(toks.filter((tk) => tk !== '~'))
+      // a token is a rest, a word, or a word with a `:v` velocity suffix
+      const parsed = toks.map((tk) => tk === '~' ? null : /^([a-zA-Z_]\w*)(?::(\d*\.?\d+))?$/.exec(tk))
+      if (parsed.some((p, i) => p === null && toks[i] !== '~')) continue
+      const words = new Set(parsed.filter((p) => p !== null).map((p) => p![1]!))
       let word = words.size === 1 ? [...words][0]! : undefined
       if (words.size === 0) {
         // an ALL-REST row: its `# word` comment is the instrument's memory
@@ -340,8 +343,10 @@ export function scanBeats(text: string): BeatBlock[] {
       if (word === undefined) continue // no single instrument to label the row
       const from = offs[j]! + indent
       rows.push({
-        from, to: from + notation.length, content: notation, word,
-        steps: toks.map((tk) => tk !== '~'), hadComment: comment !== undefined,
+        from, to: from + notation.length,
+        content: splitBeatVelocities(notation).notes, word,
+        steps: parsed.map((p) => (p === null ? null : p[2] !== undefined ? Number(p[2]) : 1)),
+        hadComment: comment !== undefined,
       })
     }
     if (rows.length > 0) out.push({ rows })
@@ -809,9 +814,26 @@ class PianoRollWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
+/** Tap-cycle on an active step: full → accent-soft → ghost → off. Any
+ *  text-authored velocity joins at the nearest lower tier. */
+export function nextVelocity(v: number): number | null {
+  if (v > 0.75) return 0.6
+  if (v > 0.45) return 0.3
+  return null
+}
+
+/** A velocity's cell intensity (0..1 opacity share for the ON look). */
+const velOpacity = (v: number): string => String(Math.min(1, 0.3 + 0.7 * v))
+
+/** Serialize one row's steps back to tokens (`kick`, `kick:0.6`, `~`). */
+export function beatTokens(steps: (number | null)[], word: string): string {
+  return steps.map((v) => (v === null ? '~' : v === 1 ? word : `${word}:${Number(v)}`)).join(' ')
+}
+
 /** ONE step sequencer per beat block: a labeled row per simple line, columns
  *  aligned in musical time (every row spans the same width, so a 4-step row's
- *  cells are twice as wide as an 8-step row's). Tap toggles, drag paints —
+ *  cells are twice as wide as an 8-step row's). Tap places a hit; tapping an
+ *  active step cycles its velocity (full → soft → ghost → off); drag paints —
  *  across rows too — the playhead lights the sweeping cells, and a placed
  *  step previews its drum. */
 class BeatBlockWidget extends WidgetType {
@@ -859,7 +881,9 @@ class BeatBlockWidget extends WidgetType {
       const beatEvery = row.steps.length % 4 === 0 ? row.steps.length / 4 : 4
       for (let c = 0; c < row.steps.length; c++) {
         const cell = document.createElement('span')
-        cell.className = 'rc' + (steps[r]![c] === true ? ' on' : '') + (c % beatEvery === 0 ? ' beat' : '')
+        const v = steps[r]![c]
+        cell.className = 'rc' + (v !== null ? ' on' : '') + (c % beatEvery === 0 ? ' beat' : '')
+        if (v !== null) cell.style.opacity = velOpacity(v!)
         cell.dataset.r = String(r)
         cell.dataset.c = String(c)
         cells.push(cell)
@@ -899,18 +923,27 @@ class BeatBlockWidget extends WidgetType {
     let painting = false
     const dirty = new Set<number>()
     let mode: 'draw' | 'erase' = 'draw'
-    const set = (r: number, c: number): void => {
+    // a down on an ACTIVE cell is ambiguous: released in place it's a
+    // velocity-cycle TAP; moved off the cell it starts an erase PAINT — so
+    // its action is deferred until the gesture disambiguates
+    let pendingTap: { r: number; c: number } | null = null
+    const paint = (cell: HTMLElement | null, v: number | null): void => {
+      if (cell === null) return
+      cell.classList.toggle('on', v !== null)
+      cell.style.opacity = v !== null ? velOpacity(v) : ''
+    }
+    const set = (r: number, c: number, vel?: number | null): void => {
       const row = this.rows[r]
       if (row === undefined || c < 0 || c >= row.steps.length) return
-      const next = mode === 'draw'
+      const next = vel !== undefined ? vel : mode === 'draw' ? 1 : null
       if (steps[r]![c] === next) return
       steps[r]![c] = next
       dirty.add(r)
-      cellEls[r]?.[c]?.classList.toggle('on', next)
+      paint(cellEls[r]?.[c] ?? null, next)
       buzz()
       // preview the placed hit while the transport is stopped — beat events
       // carry the sound() default note (60); drums ignore the pitch anyway
-      if (next && this.hooks.previewNote !== undefined && !(this.hooks.isPlaying?.() ?? false)) {
+      if (next !== null && this.hooks.previewNote !== undefined && !(this.hooks.isPlaying?.() ?? false)) {
         this.hooks.previewNote(row.word, 60)
       }
     }
@@ -921,27 +954,46 @@ class BeatBlockWidget extends WidgetType {
       wrap.setPointerCapture(e.pointerId)
       this.drag.active = true; painting = true
       const r = Number(el.dataset.r), c = Number(el.dataset.c)
-      mode = steps[r]?.[c] === true ? 'erase' : 'draw' // tap an active step to clear it
-      set(r, c)
+      if (steps[r]?.[c] != null) {
+        mode = 'erase' // moving off this cell paints an erase
+        pendingTap = { r, c } // …releasing in place cycles its velocity
+      } else {
+        mode = 'draw'
+        pendingTap = null
+        set(r, c)
+      }
     })
     wrap.addEventListener('pointermove', (e) => {
       if (!painting) return
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
       const cell = el?.closest?.('.rc') as HTMLElement | null
-      if (cell && wrap.contains(cell)) set(Number(cell.dataset.r), Number(cell.dataset.c))
+      if (!cell || !wrap.contains(cell)) return
+      const r = Number(cell.dataset.r), c = Number(cell.dataset.c)
+      if (pendingTap !== null) {
+        if (pendingTap.r === r && pendingTap.c === c) return // still on the down cell
+        set(pendingTap.r, pendingTap.c) // the gesture is an erase drag after all
+        pendingTap = null
+      }
+      set(r, c)
     })
     const end = (): void => {
       if (!painting) return
       painting = false
       this.drag.active = false
+      if (pendingTap !== null) {
+        // released on the down cell: cycle its velocity (full → soft → ghost → off)
+        const { r, c } = pendingTap
+        pendingTap = null
+        set(r, c, nextVelocity(steps[r]![c] ?? 0))
+      }
       if (dirty.size === 0) return // nothing changed — ranges are still valid
       this.drag.ended = true // the write's own transaction triggers ONE rebuild
       const changes = [...dirty].map((r) => {
         const row = this.rows[r]!
-        let insert = steps[r]!.map((v) => (v ? row.word : '~')).join(' ')
+        let insert = beatTokens(steps[r]!, row.word)
         // an erased row keeps its instrument as a `# word` comment — that's
         // what lets the scanner (and the next session) rebuild this row
-        if (!steps[r]!.some(Boolean) && !row.hadComment) insert += `  # ${row.word}`
+        if (!steps[r]!.some((v) => v !== null) && !row.hadComment) insert += `  # ${row.word}`
         return { from: row.from, to: row.to, insert }
       })
       dirty.clear()

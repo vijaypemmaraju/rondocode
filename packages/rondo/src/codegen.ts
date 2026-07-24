@@ -333,12 +333,30 @@ function entryFor(notation: string): 'chord' | 'note' | 'n' {
   return 'n'
 }
 
+/** Split per-step velocities out of a beat line: `kick ~ kick:.6 ~` →
+ *  notes `kick ~ kick ~` + gains `1 ~ 0.6 ~`. STRUCTURE-PRESERVING (only the
+ *  word tokens are rewritten), so it works inside any mini nesting — the
+ *  gain pattern always lines up with the note pattern's events. Exported for
+ *  the editor's step sequencer (its playhead matches the STRIPPED text). */
+export function splitBeatVelocities(notation: string): { notes: string; gains: string; has: boolean } {
+  let has = false
+  const notes = notation.replace(/([a-zA-Z_]\w*):(\d*\.?\d+)/g, (_, w: string) => { has = true; return w })
+  const gains = notation.replace(/([a-zA-Z_]\w*)(?::(\d*\.?\d+))?/g, (_, __, v: string | undefined) =>
+    // normalize spellings (`.6` → `0.6`) so decompile → recompile is stable
+    v !== undefined ? String(Number(v)) : '1')
+  return { notes, gains, has }
+}
+
 /** The pattern EXPRESSION for a play block (no p() wrapper) — sections stack
  *  these; a top-level play wraps it in p(). */
 function cgPlayPat(block: PlayBlock): string {
   const lineExpr = (notation: string): string => {
-    // `beat` blocks: words are synth names → s('kick hat kick hat')
-    if (block.entry === 'sound') return `s(${q(notation)})`
+    // `beat` blocks: words are synth names → s('kick hat kick hat');
+    // `word:v` velocity suffixes become an aligned per-voice gain pattern
+    if (block.entry === 'sound') {
+      const { notes, gains, has } = splitBeatVelocities(notation)
+      return has ? `s(${q(notes)}).gain(${q(gains)})` : `s(${q(notation)})`
+    }
     // `irand N [seg:M]`: N random degrees, M steps per cycle (default 8)
     const ir = /^irand[ \t]+(\d+)(?:[ \t]+seg:(\d+))?$/.exec(notation)
     if (ir) return `n(irand(${ir[1]}).segment(${ir[2] ?? '8'}))`

@@ -48,4 +48,37 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     expect(result.ok).toBe(true)
     expect(result.synths.get('pad')?.post).toBeDefined()
   })
+
+  it('parity via escape hatch: a js{ … } sidechain evals clean through the real engine', () => {
+    // sidechain has no rondo sugar yet — reach it through js{ … }. This proves
+    // the escape hatch gives total parity today: anything the JS DSL can do,
+    // rondo can express now, then gets sugared later.
+    const src = [
+      'synth kick',
+      '  sine 60',
+      '  * env',
+      '  env = adsr .001 .2 0 .05',
+      '',
+      'play kick', // note names → numeric notes reach the engine (drum convention)
+      '  c2 ~ c2 ~',
+      '',
+      'js',
+      "  sidechain('kick', { depth: 0.6, release: 0.12 })",
+      '',
+      'cps .5',
+      '',
+    ].join('\n')
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.sidechain?.source).toBe('kick') // the js{ … } sidechain staged
+    const sounding = result.patterns.get('kick')!
+      .query(new TimeSpan(F(0), F(2)))
+      .filter(hasOnset)
+      .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
+    expect(sounding.length).toBeGreaterThan(0)
+  })
 })

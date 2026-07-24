@@ -16,6 +16,17 @@ const SCALE_MODE: Record<string, string> = {
 
 const num = (v: number): string => String(v)
 
+/** Synth/post ctx members — when a `js{ … }` escape hatch inside a synth body
+ *  references one, we must destructure it so the raw JS can see it. */
+const KNOWN_CTX = [
+  'note', 'gate', 'velocity', 'param', 'input',
+  'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr',
+  'sample', 'granular', 'pluck', 'modal',
+  'svf', 'ladder', 'onepole', 'adsr', 'env', 'lfo',
+  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
+  'eq', 'exciter', 'ott', 'bitcrush', 'mix',
+]
+
 /** Expand a short scale name (`a-min`) to what .scale() expects (`a minor`). */
 function expandScale(short: string): string {
   const dash = short.indexOf('-')
@@ -49,6 +60,11 @@ class SynthGen {
         return `${this.expr(e.x)}.range(${this.expr(e.lo)}, ${this.expr(e.hi)})`
       case 'call':
         return this.call(e)
+      case 'js':
+        // escape hatch: raw JS, verbatim. Destructure any ctx members it names
+        // so the raw code can see them inside the synth fn.
+        for (const name of KNOWN_CTX) if (new RegExp(`\\b${name}\\b`).test(e.code)) this.uses.add(name)
+        return e.code
       case 'knob':
         this.errors.push({ message: 'knob can only appear on a binding (`cutoff = knob …`)', line: e.pos.line, col: e.pos.col })
         return '0'
@@ -130,6 +146,7 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
       case 'map': return [...refs(e.x), ...refs(e.lo), ...refs(e.hi)]
       case 'call': return [...e.args.flatMap(refs), ...Object.values(e.named).flatMap(refs)]
       case 'knob': return [...refs(e.def), ...refs(e.lo), ...refs(e.hi)]
+      case 'js': return []
       default: return []
     }
   }
@@ -212,7 +229,8 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const parts = program.items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
-    return `setCps(${num(item.value)})`
+    if (item.t === 'raw') return item.code // escape hatch, verbatim
+    return `setCps(${num(item.value)})` // cps
   })
   return parts.join('\n\n') + '\n'
 }

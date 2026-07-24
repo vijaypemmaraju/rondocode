@@ -19,6 +19,7 @@ export type Tok =
   | { k: 'arrow'; pos: Pos; sp: boolean } // ->
   | { k: 'colon'; pos: Pos; sp: boolean } // :
   | { k: 'eq'; pos: Pos; sp: boolean } // =
+  | { k: 'jsexpr'; v: string; pos: Pos; sp: boolean } // js{ … } escape hatch (inner)
 
 export interface Line {
   indent: number
@@ -41,6 +42,24 @@ const stripComment = (s: string): string => {
 
 const OPS = new Set(['+', '-', '*', '/', '^'])
 
+/** Index of the `}` that closes the `{` at `open`, string/escape-aware, or -1. */
+function scanBalanced(text: string, open: number): number {
+  let depth = 0
+  let str = '' // active string delimiter (' " `) or ''
+  for (let k = open; k < text.length; k++) {
+    const c = text[k]!
+    if (str) {
+      if (c === '\\') { k++; continue }
+      if (c === str) str = ''
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') { str = c; continue }
+    if (c === '{') depth++
+    else if (c === '}') { depth--; if (depth === 0) return k }
+  }
+  return -1
+}
+
 /** Tokenize one line's text into inline tokens. `base` is the 1-based column of
  *  the first character, so token positions map back to the source. */
 function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoError[]): Tok[] {
@@ -53,6 +72,18 @@ function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoE
     const pos: Pos = { line: lineNo, col: base + i }
     const sp = sawSpace
     sawSpace = false
+    // escape hatch: js{ … } — capture the raw JS inside (balanced, single line)
+    if (ch === 'j' && /^js\s*\{/.test(text.slice(i))) {
+      const open = text.indexOf('{', i)
+      const close = scanBalanced(text, open)
+      if (close < 0) {
+        errors.push({ message: 'unterminated js{ … } block', line: lineNo, col: base + i })
+        break
+      }
+      toks.push({ k: 'jsexpr', v: text.slice(open + 1, close).trim(), pos, sp })
+      i = close + 1
+      continue
+    }
     // two-char tokens
     if (ch === '.' && text[i + 1] === '.') { toks.push({ k: 'range', pos, sp }); i += 2; continue }
     if (ch === '-' && text[i + 1] === '>') { toks.push({ k: 'arrow', pos, sp }); i += 2; continue }

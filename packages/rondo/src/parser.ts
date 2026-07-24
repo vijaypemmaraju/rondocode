@@ -91,6 +91,7 @@ function parseNamed(c: Cursor): Record<string, Expr> {
 function parseApp(c: Cursor): Expr {
   const t = c.peek()
   if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: { line: 0, col: 0 } } }
+  if (t.k === 'jsexpr') { c.next(); return { t: 'js', code: t.v, pos: t.pos } }
   if (t.k === 'num') { c.next(); return { t: 'num', v: t.v, pos: t.pos } }
   if (t.k === 'ident') {
     const name = t.v
@@ -316,11 +317,19 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
     const ln = lines[i]!
     if (ln.indent !== 0) { errors.push({ message: 'unexpected indentation', line: ln.line, col: 1 }); i++; continue }
     const head = ln.toks[0]
-    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, or `cps`', line: ln.line, col: ln.rawCol }); i++; continue }
+    // escape hatch, one-liner: `js{ … }` alone on a top-level line → raw statement
+    if (head && head.k === 'jsexpr') { items.push({ t: 'raw', code: head.v, pos: head.pos }); i++; continue }
+    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, `cps`, or `js`', line: ln.line, col: ln.rawCol }); i++; continue }
     if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps)`, line: ln.line, col: ln.rawCol }); i++ }
+    // escape hatch, block: a lone `js` header + indented body → raw verbatim JS
+    else if (head.v === 'js' && ln.toks.length === 1) {
+      const { body, next } = bodyLines(lines, i + 1)
+      items.push({ t: 'raw', code: body.map((b) => b.raw).join('\n'), pos: head.pos })
+      i = next
+    }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / cps / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors }
 }

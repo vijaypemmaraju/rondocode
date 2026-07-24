@@ -436,6 +436,10 @@ class KnobWidget extends WidgetType {
     }
 
     wrap.addEventListener('pointerdown', (e) => {
+      // ONE gesture at a time: a second touch (another finger on this or any
+      // other widget) would capture ranges the first gesture is about to
+      // shift, and the interleaved rewrites corrupt the source
+      if (this.drag.active) return
       e.preventDefault()
       e.stopPropagation()
       wrap.setPointerCapture(e.pointerId)
@@ -448,23 +452,34 @@ class KnobWidget extends WidgetType {
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
       const from = this.defFrom
       let toPos = this.defTo // current DEF end in the SOURCE (only DEF changes)
+      // WRITE-VERIFY: if the text under the gesture is ever not what we last
+      // wrote (any concurrent edit — scrub, live typing, another pointer),
+      // stop writing instead of splicing garbage into the source
+      let expected = view.state.doc.sliceString(from, toPos)
+      let aborted = false
       // TOUCH-TO-OVERRIDE: while held, the exact hand value plays NOW (engine
       // param, no eval round-trip) and the pattern drive is suppressed; the
       // text rewrite below still records the value (text stays the truth).
       const canHold = this.hooks.holdParam !== undefined &&
         this.name !== undefined && this.synth !== undefined
+      const pid = e.pointerId
       const move = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pid) return // window handlers see EVERY pointer
+        if (aborted) return
+        if (view.state.doc.sliceString(from, toPos) !== expected) { aborted = true; return }
         const t = clamp(t0 + (startY - ev.clientY) / 170, 0, 1)
         const v = fromNorm(t, this.lo, this.hi, this.log)
         if (canHold) { this.holding = true; this.hooks.holdParam!(this.synth!, this.name!, v) }
         const text = formatNumber(v, { step, min: Math.min(this.lo, this.hi) })
         view.dispatch({ changes: { from, to: toPos, insert: text } })
         toPos = from + text.length
+        expected = text
         setDial(t)
         kv.textContent = text
         this.hooks.requestEval(false)
       }
-      const end = (): void => {
+      const end = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pid) return
         this.drag.active = false
         this.drag.ended = true
         wrap.classList.remove('active')
@@ -626,6 +641,9 @@ class EnvWidget extends WidgetType {
 
     const svg = wrap.querySelector('svg') as SVGSVGElement
     wrap.addEventListener('pointerdown', (e) => {
+      // ONE gesture at a time — a second touch would capture ranges the
+      // first gesture is about to shift (see KnobWidget)
+      if (this.drag.active) return
       e.preventDefault(); e.stopPropagation()
       wrap.setPointerCapture(e.pointerId)
       buzz()
@@ -653,6 +671,9 @@ class EnvWidget extends WidgetType {
       const region = view.state.doc.sliceString(from, toPos)
       const parts = region.split(/([ \t]+)/)
       const canSplice = parts.length === 7
+      // WRITE-VERIFY: any concurrent edit under the gesture aborts the writes
+      let expected = region
+      let aborted = false
       const fmt = (): string => {
         if (!canSplice) {
           return [
@@ -666,7 +687,11 @@ class EnvWidget extends WidgetType {
         else p[6] = formatNumber(r, { step: tStep })
         return p.join('')
       }
+      const pid = e.pointerId
       const move = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pid) return // window handlers see EVERY pointer
+        if (aborted) return
+        if (view.state.doc.sliceString(from, toPos) !== expected) { aborted = true; return }
         const mx = (ev.clientX - rect.left) * (W / rect.width)
         const my = (ev.clientY - rect.top) * (H / rect.height)
         if (which === 'a') a = xt(mx - pad, AMAX)
@@ -681,10 +706,12 @@ class EnvWidget extends WidgetType {
         const text = fmt()
         view.dispatch({ changes: { from, to: toPos, insert: text } })
         toPos = from + text.length
+        expected = text
         render(a, d, s, r, holdFrozen)
         this.hooks.requestEval(false)
       }
-      const end = (): void => {
+      const end = (ev: PointerEvent): void => {
+        if (ev.pointerId !== pid) return
         this.drag.active = false; this.drag.ended = true
         wrap.classList.remove('active')
         window.removeEventListener('pointermove', move)
@@ -788,10 +815,16 @@ class PianoRollWidget extends WidgetType {
     }
     const from = this.from
     let toPos = this.to
+    // WRITE-VERIFY: any concurrent edit under the gesture aborts the writes
+    let expected = this.content
+    let aborted = false
     const write = (): void => {
+      if (aborted) return
+      if (view.state.doc.sliceString(from, toPos) !== expected) { aborted = true; return }
       const s = steps.map((v) => (v === null ? '~' : String(v))).join(' ')
       view.dispatch({ changes: { from, to: toPos, insert: s } })
       toPos = from + s.length
+      expected = s
       this.hooks.requestEval(false)
     }
     let painting = false
@@ -812,6 +845,9 @@ class PianoRollWidget extends WidgetType {
       }
     }
     grid.addEventListener('pointerdown', (e) => {
+      // ONE gesture at a time — a second touch would capture ranges the
+      // first gesture is about to shift (see KnobWidget)
+      if (this.drag.active) return
       const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
       if (!el) return
       e.preventDefault(); e.stopPropagation()
@@ -980,7 +1016,14 @@ class BeatBlockWidget extends WidgetType {
         this.hooks.previewNote(row.word, 60)
       }
     }
+    // WRITE-VERIFY: the original text of every row, captured at build — if a
+    // row's slice differs at commit time (any concurrent edit), the whole
+    // write is dropped and a rebuild resyncs the cells from the text
+    const raw0 = this.rows.map((row) => view.state.doc.sliceString(row.from, row.to))
     wrap.addEventListener('pointerdown', (e) => {
+      // ONE gesture at a time — a second touch would capture ranges the
+      // first gesture is about to shift (see KnobWidget)
+      if (this.drag.active) return
       const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
       if (!el) return
       e.preventDefault(); e.stopPropagation()
@@ -1021,6 +1064,16 @@ class BeatBlockWidget extends WidgetType {
       }
       if (dirty.size === 0) return // nothing changed — ranges are still valid
       this.drag.ended = true // the write's own transaction triggers ONE rebuild
+      const stale = [...dirty].some((r) => {
+        const row = this.rows[r]!
+        return view.state.doc.sliceString(row.from, row.to) !== raw0[r]
+      })
+      if (stale) {
+        // someone edited under the gesture — drop the write, rebuild from text
+        dirty.clear()
+        view.dispatch({})
+        return
+      }
       const changes = [...dirty].map((r) => {
         const row = this.rows[r]!
         let insert = beatTokens(steps[r]!, row.word)

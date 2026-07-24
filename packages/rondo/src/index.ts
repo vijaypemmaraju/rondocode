@@ -7,5 +7,5 @@
  */
 
 export { compile } from './compile'
-export type { CompileResult } from './compile'
+export type { CompileResult, NoteSpan } from './compile'
 export type { Program, TopItem, SynthBlock, PlayBlock, Expr, RondoError } from './ast'

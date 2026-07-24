@@ -6,6 +6,7 @@ import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { autocompletion } from '@codemirror/autocomplete'
 import { javascript } from '@codemirror/lang-javascript'
 import { compile } from '@rondocode/rondo'
+import type { NoteSpan } from '@rondocode/rondo'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
@@ -17,7 +18,7 @@ import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
-import { EventFlasher, FLASH_MS } from './flash'
+import { EventFlasher, FLASH_MS, rondoNoteLiterals } from './flash'
 import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
@@ -359,6 +360,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // shows the rondo diagnostics (their line/col already point at THIS buffer)
     // and skips the eval entirely.
     let evalSource = source
+    let rondoNotes: NoteSpan[] = []
     if (lang === 'rondo') {
       const compiled = compile(source)
       if (!compiled.ok) {
@@ -371,6 +373,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         return true
       }
       evalSource = compiled.code
+      rondoNotes = compiled.notes
     }
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
@@ -378,10 +381,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     const result = session.evalCode(evalSource, { live: !autoplay }) // diagnostics arrive via callback
     if (result.ok) {
       lastGood = source
-      // flash decorations map onset events back to source char-ranges; those
-      // ranges are transpiled positions in rondo mode, so skip until rondo-
-      // source flash mapping lands.
-      if (lang !== 'rondo') flasher.onGoodEval(source)
+      // Note-play flash: rondocode maps onset events by scanning the source's
+      // string literals; rondo can't (the eval'd source is transpiled JS), so
+      // the compiler hands us each notation string + its buffer offset and we
+      // build the flash literals from that — same highlighting, either language.
+      if (lang === 'rondo') flasher.onGoodEvalLiterals(rondoNoteLiterals(rondoNotes))
+      else flasher.onGoodEval(source)
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.
       singSoundNames = new Set(result.sings.map((s) => s.synthName))

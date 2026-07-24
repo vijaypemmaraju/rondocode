@@ -63,6 +63,20 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.every(4, x => x.rev())')
   })
 
+  it('reports notation spans whose offset exactly matches the source substring', () => {
+    // this invariant is what lets note-play flash light the rondo buffer: a
+    // mini-notation Loc is an offset into `content`, and content sits at
+    // [from, from+len) in the source, so from+loc.start is the buffer position.
+    const src = `synth s\n  saw\n\nplay s\n  0 3 5 7  scale:c-maj\n`
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes).toHaveLength(1)
+    const { content, from } = r.notes[0]!
+    expect(content).toBe('0 3 5 7')
+    expect(src.slice(from, from + content.length)).toBe(content)
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")

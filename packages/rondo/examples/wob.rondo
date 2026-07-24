@@ -1,0 +1,21 @@
+# wobble bass — the new surface in one patch: supersaw + sub, an LFO-swept
+# ladder, tube drive, a touch of delay, saturation, and a mono glide bass.
+
+synth wob mono glide:.05
+  supersaw detune:.5 mix:.85
+  + square note/2
+  ladder cut res:.8
+  shape 2.2 type:tube
+  delay .375 .25
+  * env
+  tanh
+  cut = lfo rate tri -> 150..3200
+  rate = knob 4 .5..16
+  env = adsr .005 .1 .9 .06
+
+play wob
+  0 0 ~ 0 0 ~ 3 2  scale:e-min
+  gain: .8
+  dur: .9
+
+cps .55

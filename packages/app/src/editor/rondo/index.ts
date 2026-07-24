@@ -17,11 +17,16 @@ export type { Hooks as RondoWidgetHooks } from './widgets'
 
 /** Block keywords + `post`. */
 const KEYWORDS = new Set(['synth', 'play', 'cps', 'post'])
-/** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources). */
+/** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
+ *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([
-  'saw', 'square', 'sine', 'tri', 'note', 'gate', 'input',
-  'adsr', 'knob', 'ladder', 'svf', 'onepole',
-  'reverb', 'chorus', 'exciter', 'ott', 'mini',
+  'note', 'gate', 'velocity', 'input', 'adsr', 'knob', 'mini',
+  'saw', 'square', 'sine', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable',
+  'supersaw', 'noise', 'lfsr', 'lfo',
+  'sample', 'granular', 'pluck', 'modal',
+  'ladder', 'svf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
+  'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'exciter', 'ott',
+  'tanh', 'clip', 'fold', 'mix',
 ])
 /** Pattern modifiers / combinators on play lines. */
 const MODIFIERS = new Set([
@@ -103,6 +108,26 @@ const OPTIONS: Completion[] = [
   c('ladder', 'function', 'ladder cutoff res:…', 'Moog-style resonant low-pass filter on the running signal.'),
   c('svf', 'function', 'svf cutoff res:… mode:…', 'State-variable filter (lp/hp/bp/notch/peak).'),
   c('onepole', 'function', 'onepole cutoff', 'Gentle one-pole low-pass.'),
+  c('supersaw', 'function', 'supersaw detune:… mix:…', 'Seven detuned saws — the wide trance/EDM lead.'),
+  c('fm', 'function', 'fm [freq] [mod] feedback:…', 'FM operator: a sine whose pitch the mod signal wobbles at audio rate.'),
+  c('pulse', 'function', 'pulse [freq] [width]', 'Pulse oscillator with a settable duty width.'),
+  c('noise', 'function', 'noise [white|pink|brown]', 'Noise source — pink/brown are warmer.'),
+  c('lfo', 'function', 'lfo rate [sine|tri|square|saw|rand]', 'Low-frequency modulator (wobble: `lfo 4 tri -> 200..3000`).'),
+  c('sample', 'function', 'sample name root:… loop:1', 'Play a loaded sample, pitched from its root note.'),
+  c('granular', 'function', 'granular name pos:… size:…', 'Grain cloud over a loaded sample.'),
+  c('pluck', 'function', 'pluck [freq] decay:…', 'Karplus–Strong plucked string.'),
+  c('modal', 'function', 'modal [freq] model:bell', 'Modal resonator: bell/bar/drum/glass.'),
+  c('delay', 'function', 'delay time [feedback]', 'Echo on the running signal.'),
+  c('shape', 'function', 'shape drive type:tube', 'Waveshaper drive: soft/hard/sine/tube.'),
+  c('bitcrush', 'function', 'bitcrush bits:8', 'Bit/rate crusher — lo-fi grit.'),
+  c('compress', 'function', 'compress threshold:… ratio:…', 'Compressor on the running signal.'),
+  c('phaser', 'function', 'phaser rate:… depth:…', 'Swept-notch phaser motion.'),
+  c('comb', 'function', 'comb freq [feedback]', 'Comb filter — metallic resonance.'),
+  c('formant', 'function', 'formant morph', 'Vowel filter: morph 0..1 scans a→e→i→o→u.'),
+  c('pan', 'function', 'pan pos', 'Stereo position −1..1 on the running signal.'),
+  c('tanh', 'function', 'tanh', 'Saturate the running signal (harmonic bass).'),
+  c('clip', 'function', 'clip [lo hi]', 'Hard-clip the running signal.'),
+  c('mix', 'function', 'mix other t', 'Crossfade the running signal with another.'),
   c('reverb', 'function', 'reverb room:… mix:…', 'Algorithmic reverb (post). `mix:` blends wet over dry.'),
   c('chorus', 'function', 'chorus rate:… depth:… mix:…', 'Stereo chorus (post).'),
   c('exciter', 'function', 'exciter freq:… amount:…', 'Harmonic exciter — adds air/sheen (post).'),

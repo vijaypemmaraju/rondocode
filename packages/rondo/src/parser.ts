@@ -14,16 +14,16 @@
 
 import type { Binding, Comb, CpsItem, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
 import { lex, type Line, type Tok } from './lexer'
+import { BUILTINS, isTransform } from './builtins'
+import type { BuiltinSpec } from './builtins'
 
 const SIGNALS = new Set(['sine', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'sine2', 'rand', 'perlin'])
 const CTRL_METHODS = new Set(['gain', 'dur', 'pan'])
 const NUM_RE = /^-?\d*\.?\d+$/
 
-const OSC = new Set(['saw', 'square', 'sine', 'tri'])
-const FILTER = new Set(['ladder', 'svf', 'onepole'])
-/** processor-led effects that take only the running signal + named args. */
-const EFFECT = new Set(['reverb', 'chorus', 'exciter', 'ott'])
-const PROC = new Set([...FILTER, ...EFFECT])
+/** synth-header voice options: `synth acid mono glide:.08 unison:5 …`. */
+const VOICE_FLAGS = new Set(['mono'])
+const VOICE_OPTS = new Set(['glide', 'unison', 'detune', 'spread', 'voices'])
 
 const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
 
@@ -78,17 +78,44 @@ function parseExpr(c: Cursor, minPrec: number): Expr {
 /** True if the next token can begin a space-separated argument. */
 function canStartArg(c: Cursor): boolean {
   const t = c.peek()
-  return !!t && t.sp && (t.k === 'num' || (t.k === 'ident' && !c.atNamedArg()))
+  return !!t && t.sp && (t.k === 'num' || t.k === 'jsexpr' || (t.k === 'ident' && !c.atNamedArg()))
 }
 
-function parseNamed(c: Cursor): Record<string, Expr> {
+/** Parse named args (`res:.85 mode:hp`). Enum-kind named values (per the
+ *  builtin's spec) take a bare word as a quoted enum, not a binding ref. */
+function parseNamed(c: Cursor, spec?: BuiltinSpec): Record<string, Expr> {
   const named: Record<string, Expr> = {}
   while (c.atNamedArg()) {
-    const name = (c.next() as Tok & { v: string }).v
+    const nameTok = c.next() as Tok & { v: string }
     c.next() // colon
-    named[name] = parseExpr(c, 2)
+    const vt = c.peek()
+    if (spec?.named?.[nameTok.v] === 'enum' && vt && vt.k === 'ident') {
+      c.next()
+      named[nameTok.v] = { t: 'enum', name: vt.v, pos: vt.pos }
+    } else {
+      named[nameTok.v] = parseExpr(c, 2)
+    }
   }
   return named
+}
+
+/** Parse a builtin's declared positionals (space-separated). Enum positionals
+ *  take a bare word; sig positionals a tight expression. Stops early when the
+ *  next token can't start an argument (optional trailing positionals). */
+function parsePositionals(c: Cursor, spec: BuiltinSpec): Expr[] {
+  const args: Expr[] = []
+  for (const kind of spec.pos) {
+    if (!canStartArg(c)) break
+    const t = c.peek()!
+    if (kind === 'enum') {
+      if (t.k !== 'ident') break // a number here belongs to something else
+      c.next()
+      args.push({ t: 'enum', name: (t as Tok & { v: string }).v, pos: t.pos })
+    } else {
+      args.push(parseExpr(c, 2))
+    }
+  }
+  return args
 }
 
 function parseApp(c: Cursor): Expr {
@@ -98,25 +125,28 @@ function parseApp(c: Cursor): Expr {
   if (t.k === 'num') { c.next(); return { t: 'num', v: t.v, pos: t.pos } }
   if (t.k === 'ident') {
     const name = t.v
-    if (OSC.has(name)) {
-      c.next()
-      const args: Expr[] = []
-      if (canStartArg(c)) args.push(parseExpr(c, 2))
-      return { t: 'call', name, args, named: {}, pos: t.pos }
-    }
     if (name === 'adsr') {
       c.next()
       const args = [parseExpr(c, 5), parseExpr(c, 5), parseExpr(c, 5), parseExpr(c, 5)]
       return { t: 'call', name, args, named: {}, pos: t.pos }
     }
-    if (FILTER.has(name)) {
+    if (name === 'knob') return parseKnob(c)
+    const spec = BUILTINS[name]
+    if (spec !== undefined) {
       c.next()
-      const args = [parseExpr(c, 2)]
-      const named = parseNamed(c)
+      const args: Expr[] = []
+      // a proc/sigop in EXPRESSION position names its input explicitly
+      // (`wet = reverb osc room:.9`); in a spine line the pipe is the input
+      // (handled by foldSpine, which passes it as args[0]).
+      if (spec.kind === 'proc' || spec.kind === 'sigop') {
+        if (canStartArg(c)) args.push(parseExpr(c, 2))
+        else c.err(`\`${name}\` needs an input here (or use it as a pipeline line)`)
+      }
+      args.push(...parsePositionals(c, spec))
+      const named = parseNamed(c, spec)
       return { t: 'call', name, args, named, pos: t.pos }
     }
-    if (name === 'knob') return parseKnob(c)
-    // a plain reference: a binding name, or note / gate
+    // a plain reference: a binding name, or note / gate / velocity / input
     c.next()
     return { t: 'ident', name, pos: t.pos }
   }
@@ -179,14 +209,15 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
     } else if (t0 && t0.k === 'op') {
       const op = t0.v; c.next()
       spine = { t: 'bin', op, l: spine, r: parseExpr(c, 0), pos: t0.pos }
-    } else if (t0 && t0.k === 'ident' && PROC.has(t0.v)) {
+    } else if (t0 && t0.k === 'ident' && isTransform(t0.v)) {
+      // a processor/sig-op line: the running signal is the implicit input
       const name = t0.v; c.next()
-      const args: Expr[] = [spine]
-      if (FILTER.has(name)) args.push(parseExpr(c, 2)) // filters take a cutoff
-      const named = parseNamed(c)
+      const spec = BUILTINS[name]!
+      const args: Expr[] = [spine, ...parsePositionals(c, spec)]
+      const named = parseNamed(c, spec)
       spine = { t: 'call', name, args, named, pos: t0.pos }
     } else {
-      c.err('expected a transform — an operator (`* env`), a filter (`ladder …`), or an effect (`reverb …`).')
+      c.err('expected a transform — an operator (`* env`), a filter/effect (`ladder …`, `delay …`), or a sig op (`tanh`).')
       continue
     }
     if (!c.eof()) c.err('unexpected tokens at end of line')
@@ -199,6 +230,22 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
   const nameTok = header.toks[1]
   const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
   if (!name) errors.push({ message: 'synth needs a name (`synth lead`)', line: header.line, col: header.rawCol })
+  // header voice options: `synth acid mono glide:.08 unison:5 detune:12 …`
+  let voiceOpts: Record<string, number | boolean> | undefined
+  for (let k = 2; k < header.toks.length; k++) {
+    const t = header.toks[k]!
+    if (t.k === 'ident' && VOICE_FLAGS.has(t.v)) {
+      ;(voiceOpts ??= {})[t.v] = true
+      continue
+    }
+    if (t.k === 'ident' && VOICE_OPTS.has(t.v) && header.toks[k + 1]?.k === 'colon' && header.toks[k + 2]?.k === 'num') {
+      ;(voiceOpts ??= {})[t.v] = (header.toks[k + 2] as Tok & { v: number }).v
+      k += 2
+      continue
+    }
+    errors.push({ message: `unknown synth option \`${t.k === 'ident' ? t.v : t.k}\` (mono, glide:, unison:, detune:, spread:, voices:)`, line: t.pos.line, col: t.pos.col })
+    break
+  }
   const { body, next } = bodyLines(lines, i + 1)
 
   // split off a trailing `post` sub-block (a lone `post` line + deeper-indented body)
@@ -221,6 +268,7 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
   }
 
   const block: SynthBlock = { t: 'synth', name, bindings: voice.bindings, spine, pos: header.toks[0]!.pos }
+  if (voiceOpts !== undefined) block.voiceOpts = voiceOpts
   if (postBody && postBody.length > 0) {
     const input: Expr = { t: 'ident', name: 'input', pos: header.toks[0]!.pos }
     const post = foldSpine(postBody, input, errors)

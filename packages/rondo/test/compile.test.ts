@@ -141,6 +141,54 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain("sound('bd # sn')")
   })
 
+  it('registry oscillators: supersaw/pulse/noise/fm/lfo with enums + named args', () => {
+    const out = ok(
+      `synth s\n  supersaw detune:.4 mix:.8\n  * env\n  env = adsr .01 .1 .8 .1\n  wob = lfo 4 tri -> 200..3000\n\n` +
+      `synth t\n  pulse note .25\n  + noise pink\n  * env\n  env = adsr .01 .1 .8 .1\n\n` +
+      `synth u\n  fm note mod feedback:.2\n  * env\n  mod = fm note*2\n  env = adsr .01 .1 .8 .1\n`,
+    )
+    expect(out).toContain('supersaw(note.freq, { detune: 0.4, mix: 0.8 })')
+    expect(out).toContain("lfo(4, 'tri').range(200, 3000)")
+    expect(out).toContain('pulse(note.freq, 0.25)')
+    expect(out).toContain("noise('pink')")
+    expect(out).toContain('fm(note.freq, mod, { feedback: 0.2 })')
+  })
+
+  it('registry processors + sig ops as pipeline lines', () => {
+    const out = ok(
+      `synth s\n  saw\n  shape 2.2 type:tube\n  delay .375 .3\n  bitcrush bits:8\n  pan -0.4\n  tanh\n  clip -1 1\n`,
+    )
+    expect(out).toContain("shape(saw(note.freq), 2.2, { type: 'tube' })")
+    expect(out).toContain(', 0.375, 0.3)') // delay(…, time, feedback)
+    expect(out).toContain('bits: 8')
+    expect(out).toContain(', -0.4)') // pan position
+    expect(out).toContain('.tanh()')
+    expect(out).toContain('.clip(-1, 1)')
+  })
+
+  it('gated sources inject the gate; names + bools emit correctly', () => {
+    const out = ok(`synth v\n  sample vox root:57 loop:1\n  * env\n  env = adsr .01 .3 .7 .3\n`)
+    expect(out).toContain("sample(gate, 'vox', { root: 57, loop: true })")
+    const out2 = ok(`synth p\n  pluck note decay:.4\n`)
+    expect(out2).toContain('pluck(gate, note.freq, { decay: 0.4 })')
+  })
+
+  it('rejects a named arg the builtin does not declare', () => {
+    expect(compile(`synth s\n  supersaw wobble:3\n`).ok).toBe(false)
+  })
+
+  it('synth header voice options → the synth() opts arg', () => {
+    const out = ok(`synth bass mono glide:.08\n  saw\n  * env\n  env = adsr .005 .1 .9 .05\n`)
+    expect(out).toContain('}, { mono: true, glide: 0.08 })')
+    const out2 = ok(`synth wide unison:5 detune:14 spread:.9\n  saw\n  post\n    reverb mix:.3\n`)
+    expect(out2).toContain(', { unison: 5, detune: 14, spread: 0.9 })')
+  })
+
+  it('quotes word arguments in bare combinators (arp updown)', () => {
+    const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  arp updown\n`)
+    expect(out).toContain(".arp('updown')")
+  })
+
   it('routes bare combinators and a mini-string ctrl value', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")

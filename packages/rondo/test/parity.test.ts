@@ -16,13 +16,21 @@ import { docsOfKind } from '../../app/src/docs/dsl-docs'
 
 const ctxNames = new Set(docsOfKind('synth-ctx').map((e) => e.name))
 
-/** Synth/post ctx members rondo sugars natively (oscillators, filters, env,
- *  effects, param via `knob`, note/gate/input). Everything else → js{ … }. */
+/** Synth/post ctx members rondo sugars natively — the builtin registry
+ *  (src/builtins.ts) plus the special forms (adsr, knob→param, note/gate/
+ *  velocity/input refs). Everything else → js{ … }. */
 const FIRST_CLASS_CTX = [
-  'note', 'gate', 'input', 'param',
-  'saw', 'square', 'sine', 'tri',
-  'adsr', 'ladder', 'svf', 'onepole',
-  'reverb', 'chorus', 'exciter', 'ott',
+  'note', 'gate', 'velocity', 'input', 'param', 'adsr',
+  // oscillators / sources
+  'saw', 'square', 'sine', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable',
+  'supersaw', 'noise', 'lfsr', 'lfo',
+  // gated sources
+  'sample', 'granular', 'pluck', 'modal',
+  // processors
+  'ladder', 'svf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
+  'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'exciter', 'ott',
+  // sig ops on the running signal
+  'mix',
 ]
 
 describe('rondo ⇄ JS DSL parity scoreboard', () => {
@@ -40,7 +48,7 @@ describe('rondo ⇄ JS DSL parity scoreboard', () => {
       `escape-hatch-only (${escapeOnly.length}): ${escapeOnly.join(', ')}`,
     )
     // a regression that drops sugar would lower this — keep it a floor
-    expect(first.size).toBeGreaterThanOrEqual(16)
+    expect(first.size).toBeGreaterThanOrEqual(38)
     // and total parity holds: every remaining name is still reachable via js{ … }
     expect(first.size + escapeOnly.length).toBe(ctxNames.size)
   })

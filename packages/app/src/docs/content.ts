@@ -587,6 +587,7 @@ cps .6`,
     blocks: [
       p('Inside a `synth` block, the FIRST expression line is the source. After that, a line starting with an OPERATOR transforms the running signal (`* env` is the VCA). A line starting with a PROCESSOR takes the running signal as its input (`ladder`, `delay`, `shape`, `reverb`…). Bare sig-ops transform in place: `tanh` saturates, `clip -1 1` hard-clips, `mix other .3` crossfades.'),
       p('Sources: `saw square sine tri pulse supersaw fm noise lfsr wavetable syncsaw` — an oscillator with no argument plays the note. Enum words go bare: `noise pink`, `shape 2 type:tube`, `svf 900 mode:hp`.'),
+      p('Three with special shapes: `eq hp 170 peak 300 -3 2 highshelf 7000 4` — each band is a type word then freq [gain] [q]; `vocoder mod bands:20` — the pipe is the carrier, `mod` supplies the voice; and in bindings, `e = env .005 1 .15 .4 release:.3` is the breakpoint cousin of `adsr` (flat time/level pairs).'),
       rondo(
         'Source → filter → drive → delay → VCA → saturation.',
         `synth growl

@@ -39,6 +39,29 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     for (const h of sounding) expect(result.synths.has(h.value.sound as string)).toBe(true)
   })
 
+  it('env/eq/vocoder sugar evals clean against the real scope (last three ctx names)', () => {
+    const src = [
+      'synth talk',
+      '  supersaw detune:.4',
+      '  vocoder m bands:20',
+      '  eq hp 170 highshelf 7000 4',
+      '  * e',
+      '  m = noise',
+      '  e = env .005 1 .15 .4 .5 .6 release:.3 curve:3',
+      '',
+      'play talk',
+      '  0 3 5  scale:a-min',
+      '',
+    ].join('\n')
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.synths.has('talk')).toBe(true)
+  })
+
   it('the pad example (post chain + drivable post param) evals clean', () => {
     const c = compile(pad)
     expect(c.ok, JSON.stringify(c.errors)).toBe(true)

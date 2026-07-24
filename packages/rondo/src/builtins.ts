@@ -58,6 +58,9 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   },
   pluck: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { decay: 'num', damp: 'num', seed: 'num' } },
   modal: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { model: 'enum', decay: 'num', damp: 'num' } },
+  // breakpoint envelope — flat time/level pairs, special-parsed (variadic):
+  // `e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1`
+  env: { kind: 'gated', pos: [], named: { release: 'num', curve: 'num', loop: 'bool' } },
 
   // ---- processors (running signal first) ----
   ladder: { kind: 'proc', pos: ['sig'], named: { res: 'sig' }, defaults: { res: '0.5' } },
@@ -78,6 +81,11 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   chorus: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', mix: 'num' } },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },
   ott: { kind: 'proc', pos: [], named: { depth: 'num', low: 'num', high: 'num', makeup: 'num' } },
+  // parametric EQ — bands are special-parsed word-then-numbers groups:
+  // `eq hp 170 highshelf 7000 4` / `eq peak 300 -3 2` (freq gain q)
+  eq: { kind: 'proc', pos: [] },
+  // pipe = carrier, positional = modulator: `vocoder vox bands:20`
+  vocoder: { kind: 'proc', pos: ['sig'], named: { bands: 'num', low: 'num', high: 'num', q: 'num', response: 'num' } },
 
   // ---- Sig methods on the running signal ----
   tanh: { kind: 'sigop', pos: [] },

@@ -20,6 +20,27 @@ const EXAMPLES = ['acid', 'pad', 'wob', 'club'].map((name) => ({
 }))
 
 describe('decompile round-trips', () => {
+  it('env/eq/vocoder sugar survives the round trip', () => {
+    const src = [
+      'synth talk',
+      '  supersaw detune:.4',
+      '  vocoder m bands:20 response:0.02',
+      '  eq hp 170 peak 300 -3 2 highshelf 7000 4',
+      '  * e',
+      '  m = noise',
+      '  e = env 0.005 1 0.15 0.4 0.5 0.6 release:0.3 curve:3 loop:1',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   for (const { name, src } of EXAMPLES) {
     it(`${name}.rondo: compile → decompile → compile is a fixed point`, () => {
       const first = compile(src)

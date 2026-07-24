@@ -142,15 +142,20 @@ export function n(
  * mini-parsed as a word pattern with locs (`sound('bd sn:2')`); numeric
  * atoms are stringified (a sound name is always a string). A
  * Pattern<string> passes through per event.
+ *
+ * Events carry a DEFAULT note (60): the scheduler drops note-less events,
+ * so without it `sound('kick hat')` — the documented "synth names alone"
+ * usage — would be silent. Pitch-sensitive lines use n(…).sound(…) instead.
  */
 export function sound(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
     return miniParse(x).pattern.withValue((v) => ({
       sound: String(v.value),
+      note: 60,
       loc: v.loc,
     }))
   }
-  return x.withValue((v): ControlMap => ({ sound: v }))
+  return x.withValue((v): ControlMap => ({ sound: v, note: 60 }))
 }
 
 /** Short alias for {@link sound}. */

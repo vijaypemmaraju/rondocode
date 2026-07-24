@@ -174,6 +174,29 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('vocoder(supersaw(note.freq), m, { bands: 20 })')
   })
 
+  it('beat block: notation words are synth names → s(…); modifiers apply', () => {
+    expect(ok(`beat\n  kick hat kick hat\n  every 4: rev\n`))
+      .toContain(`p('beat', s('kick hat kick hat').every(4, x => x.rev()))`)
+    // a named beat keeps its channel name; scale is rejected (words aren't notes)
+    expect(ok(`beat fills\n  kick [hat hat]\n`)).toContain(`p('fills', s('kick [hat hat]'))`)
+    expect(compile(`beat\n  kick hat\n  scale: a-min\n`).ok).toBe(false)
+  })
+
+  it('irand notation line: `irand N [seg:M]` → n(irand(N).segment(M))', () => {
+    expect(ok(`synth s1\n  saw\n\nplay s1\n  irand 8 seg:16\n  scale: e-min\n`))
+      .toContain(`n(irand(8).segment(16)).scale('e minor').sound('s1')`)
+    // seg defaults to 8; malformed forms are errors, not notation strings
+    expect(ok(`synth s1\n  saw\n\nplay s1\n  irand 4\n`)).toContain('n(irand(4).segment(8))')
+    expect(compile(`synth s1\n  saw\n\nplay s1\n  irand eight\n`).ok).toBe(false)
+  })
+
+  it('a fn-comb modifier directly after the notation is a modifier, not a voice', () => {
+    // REGRESSION: `every 4: rev` with no name:value modifier before it was
+    // classified as a stacked notation voice → note('every 4: rev') garbage
+    expect(ok(`synth s1\n  saw\n\nplay s1\n  0 3 5\n  every 4: rev\n`))
+      .toContain(`n('0 3 5').sound('s1').every(4, x => x.rev())`)
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

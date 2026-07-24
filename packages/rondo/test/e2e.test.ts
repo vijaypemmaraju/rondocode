@@ -62,6 +62,45 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     expect(result.synths.has('talk')).toBe(true)
   })
 
+  it('beat + irand eval clean and produce sounding events routed by word', () => {
+    const src = [
+      'synth kick',
+      '  sine 55',
+      '  * env',
+      '  env = adsr .001 .12 0 .05',
+      '',
+      'synth hat',
+      '  noise white',
+      '  * env',
+      '  env = adsr .001 .03 0 .01',
+      '',
+      'beat',
+      '  kick hat kick hat',
+      '',
+      'play kick',
+      '  irand 4 seg:8',
+      '  scale: e-min',
+      '',
+    ].join('\n')
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    // the beat pattern's events route to the named synths AND carry a note —
+    // the scheduler drops note-less events, so without one they'd be silent
+    const beat = result.patterns.get('beat')!
+    const beatEvs = beat.query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(new Set(beatEvs.map((h) => h.value.sound))).toEqual(new Set(['kick', 'hat']))
+    for (const h of beatEvs) expect(typeof h.value.note).toBe('number')
+    // irand yields numeric notes through the scale
+    const kick = result.patterns.get('kick')!
+    const notes = kick.query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(notes.length).toBe(8)
+    for (const h of notes) expect(typeof h.value.note).toBe('number')
+  })
+
   it('the pad example (post chain + drivable post param) evals clean', () => {
     const c = compile(pad)
     expect(c.ok, JSON.stringify(c.errors)).toBe(true)

@@ -416,7 +416,11 @@ const COMB_WORDS = new Set([
 function isModifierLine(ln: Line): boolean {
   if (/^[a-zA-Z_]\w*[ \t]*:/.test(ln.raw)) return true
   const first = /^([a-zA-Z_]\w*)/.exec(ln.raw)?.[1]
-  return first !== undefined && COMB_WORDS.has(first)
+  if (first === undefined) return false
+  // fn-combinators (`every 4: rev`, `off .25: gain .3`) — the colon comes
+  // after the pre-args, so the name:value regex above misses them
+  if (FN_COMBS[first.toLowerCase()] !== undefined && ln.raw.includes(':')) return true
+  return COMB_WORDS.has(first)
 }
 
 /** Extract notation text (before an inline `scale:`) from a body line. */
@@ -432,10 +436,14 @@ function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: n
   return { notation, from: ln.offset, scale: m?.[1] }
 }
 
-function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: PlayBlock; next: number } {
+/** `irand N [seg:M]` as a notation line — random scale degrees. */
+const IRAND_RE = /^irand[ \t]+(\d+)(?:[ \t]+seg:(\d+))?$/
+
+function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' | 'beat' = 'play'): { block: PlayBlock; next: number } {
   const header = lines[i]!
   const nameTok = header.toks[1]
-  const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+  // a beat block's name is optional (it's a channel name, not a synth route)
+  const name = nameTok && nameTok.k === 'ident' ? nameTok.v : kind === 'beat' ? 'beat' : ''
   if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
   // body = lines deeper than the header, so a play nests inside a section too
   const { body, next } = bodyLines(lines, i + 1, header.indent)
@@ -473,7 +481,17 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[]): { block: Pla
     const mod = parseMod(ln, errors)
     if (mod) mods.push(mod)
   }
+  // validate `irand …` notation lines here so errors carry positions
+  for (const nl of [notation, ...(voices ?? []).map((v) => v.notation)]) {
+    if (!/^irand\b/.test(nl)) continue
+    if (kind === 'beat') errors.push({ message: 'irand makes scale degrees — it belongs in a `play` block, not `beat`', line: header.line, col: header.rawCol })
+    else if (!IRAND_RE.test(nl)) errors.push({ message: 'irand notation is `irand N [seg:M]` (N random degrees, M steps per cycle)', line: header.line, col: header.rawCol })
+  }
+  if (kind === 'beat' && scale !== undefined) {
+    errors.push({ message: "a beat block's words are synth names — `scale:` doesn't apply", line: header.line, col: header.rawCol })
+  }
   const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
+  if (kind === 'beat') block.entry = 'sound'
   if (voices !== undefined) block.voices = voices
   return { block, next }
 }
@@ -498,6 +516,8 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
     if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, `cps`, or `js`', line: ln.line, col: ln.rawCol }); i++; continue }
     if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
+    // `beat [NAME]` — notation words are SYNTH NAMES (the JS s('kick hat'))
+    else if (head.v === 'beat') { const r = parsePlay(lines, i, errors, 'beat'); items.push(r.block); i = r.next }
     else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
     // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
     // per-channel duck amounts
@@ -569,14 +589,14 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
       while (j < body.length) {
         const bl = body[j]!
         const bh = bl.toks[0]
-        if (bh && bh.k === 'ident' && bh.v === 'play') {
+        if (bh && bh.k === 'ident' && (bh.v === 'play' || bh.v === 'beat')) {
           // sub-parse against the ABSOLUTE line array so offsets stay global
           const abs = lines.indexOf(bl)
-          const r = parsePlay(lines, abs, errors)
+          const r = parsePlay(lines, abs, errors, bh.v)
           plays.push(r.block)
           j += r.next - abs
         } else {
-          errors.push({ message: 'a section holds `play` blocks', line: bl.line, col: bl.rawCol })
+          errors.push({ message: 'a section holds `play` and `beat` blocks', line: bl.line, col: bl.rawCol })
           j++
         }
       }

@@ -71,7 +71,7 @@ const GLOBALS: DocEntry[] = [
   g(
     'sound',
     'sound(name: string | Pattern<string>)',
-    'Start a pattern from synth names alone, each word is an event routed to that synth.',
+    'Start a pattern from synth names alone, each word is an event routed to that synth (with a default note of 60 — pitch with n(…).sound(…) instead when it matters).',
     "sound('kick hat kick hat')",
   ),
   g('s', 's(name: string | Pattern<string>)', 'Short alias for sound().', "s('kick hat')"),

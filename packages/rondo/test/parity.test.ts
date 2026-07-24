@@ -38,14 +38,33 @@ const FIRST_CLASS_CTX = [
 
 const globalNames = new Set(docsOfKind('global').map((e) => e.name))
 
-/** Scope globals rondo expresses natively: blocks (synth/play/bus/…), staging
- *  lines (cps/sidechain/master), entry points picked by notation (n/note/
- *  chord/stack/mini), and the continuous signals as ctrl values. */
+/** Scope globals rondo expresses natively: blocks (synth/play/beat/bus/…),
+ *  staging lines (cps/sidechain/master), entry points picked by notation
+ *  (n/note/chord/stack/mini, `beat` → s/sound, `irand N seg:M`), and the
+ *  continuous signals + rise/fall as ctrl values. */
 const FIRST_CLASS_GLOBALS = [
   'synth', 'defineSynth', 'p', 'setCps', 'sidechain', 'masterCompress', 'bus',
   'n', 'note', 'chord', 'stack', 'mini', 'arrange',
+  'sound', 's', 'irand',
   'sine', 'sine2', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'rand', 'perlin',
+  'rise', 'fall',
 ]
+
+/** Globals whose MEANING rondo already carries another way — no dedicated
+ *  keyword needed because the equivalent is right there in the language.
+ *  Each entry names its rondo spelling; this is coverage, not omission. */
+const COVERED_GLOBALS: Record<string, string> = {
+  m: 'notation IS mini everywhere (play/beat lines, struct, signal values)',
+  cat: '`<a b>` alternation in notation',
+  fastcat: '`[a b]` subdivision in notation',
+  timecat: '`a@3 b@1` weights in notation',
+  silence: '`~` rests / an empty `<…>` branch',
+  reify: 'notation lines already lift values into patterns',
+  slider: 'every number is scrub-draggable; `knob` is the dialed form',
+  toggle: 'scrub a 0/1 (or pattern it: `<1 0>`)',
+  xy: 'two knobs / two scrubbed numbers',
+  pick: '`<…>` alternation, or edit-in-place with autocomplete',
+}
 
 describe('rondo ⇄ JS DSL parity scoreboard', () => {
   it('every first-class global really exists (no phantom sugar)', () => {
@@ -53,15 +72,24 @@ describe('rondo ⇄ JS DSL parity scoreboard', () => {
     expect(phantom, `first-class rondo globals not in dsl-docs: ${phantom.join(', ')}`).toEqual([])
   })
 
-  it('globals sugar coverage only grows (floor); logs what still needs sugar', () => {
+  it('every covered global really exists, and none is double-listed', () => {
+    const covered = Object.keys(COVERED_GLOBALS)
+    const phantom = covered.filter((n) => !globalNames.has(n))
+    expect(phantom, `covered rondo globals not in dsl-docs: ${phantom.join(', ')}`).toEqual([])
+    const both = covered.filter((n) => FIRST_CLASS_GLOBALS.includes(n))
+    expect(both, `listed as both first-class and covered: ${both.join(', ')}`).toEqual([])
+  })
+
+  it('globals coverage is COMPLETE: every global is first-class or covered (escape-only = 0)', () => {
     const first = new Set(FIRST_CLASS_GLOBALS.filter((n) => globalNames.has(n)))
-    const escapeOnly = [...globalNames].filter((n) => !first.has(n)).sort()
+    const covered = new Set(Object.keys(COVERED_GLOBALS))
+    const escapeOnly = [...globalNames].filter((n) => !first.has(n) && !covered.has(n)).sort()
     console.log(
       `[parity] globals: ${first.size}/${globalNames.size} first-class · ` +
-      `escape-hatch-only (${escapeOnly.length}): ${escapeOnly.join(', ')}`,
+      `${covered.size} covered by notation/widgets · escape-hatch-only (${escapeOnly.length}): ${escapeOnly.join(', ') || '—'}`,
     )
-    expect(first.size).toBeGreaterThanOrEqual(25)
-    expect(first.size + escapeOnly.length).toBe(globalNames.size)
+    expect(first.size).toBeGreaterThanOrEqual(30)
+    expect(escapeOnly).toEqual([])
   })
 
   it('every first-class ctx name really exists in the DSL surface (no phantom sugar)', () => {

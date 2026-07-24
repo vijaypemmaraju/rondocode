@@ -75,16 +75,18 @@ describe('n() dual export', () => {
 })
 
 describe('sound() / s()', () => {
-  it('parses a mini word pattern into {sound} with locs', () => {
+  it('parses a mini word pattern into {sound} with locs and a default note', () => {
+    // REGRESSION: the scheduler drops note-less events, so sound() without a
+    // default note made the documented `sound('kick hat')` usage silent
     expect(q(sound('acid sn:2'), 0, 1)).toEqual([
-      [0, 0.5, { sound: 'acid', loc: { start: 0, end: 4 } }],
-      [0.5, 1, { sound: 'sn:2', loc: { start: 5, end: 9 } }],
+      [0, 0.5, { sound: 'acid', note: 60, loc: { start: 0, end: 4 } }],
+      [0.5, 1, { sound: 'sn:2', note: 60, loc: { start: 5, end: 9 } }],
     ])
   })
 
   it('stringifies numeric atoms (a sound name is always a string)', () => {
     expect(q(sound('808'), 0, 1)).toEqual([
-      [0, 1, { sound: '808', loc: { start: 0, end: 3 } }],
+      [0, 1, { sound: '808', note: 60, loc: { start: 0, end: 3 } }],
     ])
   })
 
@@ -187,7 +189,9 @@ describe('.scale()', () => {
 
   it('leaves events without n untouched', () => {
     const p = sound('bd').scale('c major')
-    expect((q(p, 0, 1)[0]![2] as ControlMap).note).toBeUndefined()
+    const v = q(p, 0, 1)[0]![2] as ControlMap
+    expect(v.n).toBeUndefined() // no degree — nothing for the scale to map
+    expect(v.note).toBe(60) // sound()'s default note passes through unmapped
   })
 
   it('throws on an unknown scale name', () => {

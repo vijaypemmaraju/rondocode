@@ -579,7 +579,7 @@ const FN_COMB_INV: Record<string, { rname: string; pre: number }> = {
 
 /** A pattern chain expression → { sound, body lines } (voices, scale,
  *  modifiers), or null. Shared by p('name', CHAIN) and section stacks. */
-function chainToPlay(chainNode: Node): { sound: string; body: string[] } | null {
+function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound'; body: string[] } | null {
   // walk the method chain from the OUTSIDE in
   const mods: string[] = []
   let scale: string | undefined
@@ -641,12 +641,28 @@ function chainToPlay(chainNode: Node): { sound: string; body: string[] } | null 
     }
     cur = m.obj
   }
-  // the entry: n/note/chord('…') or stack(entries…)
+  // the entry: n/note/chord('…'), s/sound('…') (a beat block), or stack(entries…)
+  let entry: 'notes' | 'sound' | undefined
   const entryNotation = (e: Node): string | null => {
     if (!isCall(e)) return null
     const en = calleeName(e)
-    if (en !== 'n' && en !== 'note' && en !== 'chord') return null
+    const kind = en === 'n' || en === 'note' || en === 'chord' ? 'notes'
+      : en === 's' || en === 'sound' ? 'sound' : undefined
+    if (kind === undefined) return null
+    if (entry !== undefined && entry !== kind) return null // mixed stack — not expressible
+    entry = kind
     const a = e['arguments'] as Node[]
+    // n(irand(N).segment(M)) → an `irand N seg:M` notation line
+    if (en === 'n' && a[0] !== undefined && strValue(a[0]) === undefined) {
+      const mm = methodCall(a[0]!)
+      if (mm !== undefined && mm.method === 'segment' && mm.args.length === 1 &&
+          isCall(mm.obj) && calleeName(mm.obj) === 'irand' && (mm.obj['arguments'] as Node[]).length === 1) {
+        const nN = numValue((mm.obj['arguments'] as Node[])[0]!)
+        const nM = numValue(mm.args[0]!)
+        if (nN !== undefined && nM !== undefined) return `irand ${num(nN)} seg:${num(nM)}`
+      }
+      return null
+    }
     const sv = a[0] !== undefined ? strValue(a[0]) : undefined
     return sv !== undefined && !sv.includes('\n') ? sv : null
   }
@@ -662,9 +678,14 @@ function chainToPlay(chainNode: Node): { sound: string; body: string[] } | null 
     if (nv === null) return null
     voices.push(nv)
   }
+  if (entry === 'sound') {
+    // a beat pattern carries no .sound()/.scale() of its own
+    if (sound !== undefined || scale !== undefined) return null
+    return { entry, body: [...voices, ...mods] }
+  }
   if (sound === undefined) return null
   const body = [...voices, ...(scale !== undefined ? [`scale: ${scale}`] : []), ...mods]
-  return { sound, body }
+  return { sound, entry: 'notes', body }
 }
 
 /** p('name', CHAIN) → a play block, or null. */
@@ -677,7 +698,12 @@ function decompilePlay(stmt: Node): string | null {
   const pname = strValue(args[0]!)
   if (pname === undefined) return null
   const play = chainToPlay(args[1]!)
-  if (play === null || play.sound !== pname) return null // play NAME routes to itself
+  if (play === null) return null
+  if (play.entry === 'sound') {
+    // p('beat', s('…')) → a bare `beat`; any other name is kept on the header
+    return [`beat${pname === 'beat' ? '' : ` ${pname}`}`, ...play.body.map((l) => `  ${l}`)].join('\n')
+  }
+  if (play.sound !== pname) return null // play NAME routes to itself
   return [`play ${pname}`, ...play.body.map((l) => `  ${l}`)].join('\n')
 }
 
@@ -685,8 +711,9 @@ function decompilePlay(stmt: Node): string | null {
 function sectionPlays(chainNode: Node): string[] | null {
   const members = isCall(chainNode) && calleeName(chainNode) === 'stack' &&
       !((chainNode['arguments'] as Node[]).some((a) => {
-        const nv = isCall(a) && (calleeName(a) === 'n' || calleeName(a) === 'note' || calleeName(a) === 'chord')
-        return nv // a stack of ENTRIES is stacked voices, not section plays
+        const en = isCall(a) ? calleeName(a) : undefined
+        // a stack of ENTRIES is stacked voices, not section plays
+        return en === 'n' || en === 'note' || en === 'chord' || en === 's' || en === 'sound'
       }))
     ? (chainNode['arguments'] as Node[])
     : [chainNode]
@@ -694,7 +721,8 @@ function sectionPlays(chainNode: Node): string[] | null {
   for (const m of members) {
     const play = chainToPlay(m)
     if (play === null) return null
-    out.push([`  play ${play.sound}`, ...play.body.map((l) => `    ${l}`)].join('\n'))
+    const header = play.entry === 'sound' ? '  beat' : `  play ${play.sound}`
+    out.push([header, ...play.body.map((l) => `    ${l}`)].join('\n'))
   }
   return out
 }

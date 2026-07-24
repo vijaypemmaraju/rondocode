@@ -336,13 +336,20 @@ function entryFor(notation: string): 'chord' | 'note' | 'n' {
 /** The pattern EXPRESSION for a play block (no p() wrapper) — sections stack
  *  these; a top-level play wraps it in p(). */
 function cgPlayPat(block: PlayBlock): string {
-  const lineExpr = (notation: string): string => `${entryFor(notation)}(${q(notation)})`
+  const lineExpr = (notation: string): string => {
+    // `beat` blocks: words are synth names → s('kick hat kick hat')
+    if (block.entry === 'sound') return `s(${q(notation)})`
+    // `irand N [seg:M]`: N random degrees, M steps per cycle (default 8)
+    const ir = /^irand[ \t]+(\d+)(?:[ \t]+seg:(\d+))?$/.exec(notation)
+    if (ir) return `n(irand(${ir[1]}).segment(${ir[2] ?? '8'}))`
+    return `${entryFor(notation)}(${q(notation)})`
+  }
   // multiple notation lines stack into voices, like the JS stack(n(…), n(…))
   let pat = block.voices !== undefined && block.voices.length > 0
     ? `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
     : lineExpr(block.notation)
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
-  pat += `.sound('${block.name}')`
+  if (block.entry !== 'sound') pat += `.sound('${block.name}')`
   for (const m of block.mods) pat += cgMod(m)
   return pat
 }

@@ -77,6 +77,8 @@ export type Mod =
 export interface PlayBlock {
   t: 'play'
   name: string
+  /** 'sound' = a `beat` block: notation words are synth names → s('…'). */
+  entry?: 'sound'
   /** raw notation text, handed verbatim to n()/note(). */
   notation: string
   /** absolute char offset of `notation` in the source (for note-play flash). */

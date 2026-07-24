@@ -41,6 +41,38 @@ describe('decompile round-trips', () => {
     expect(second.code).toBe(first.code)
   })
 
+  it('beat blocks and irand notation survive the round trip', () => {
+    const src = [
+      'synth kick',
+      '  sine 55',
+      '  * env',
+      '  env = adsr 0.001 0.12 0 0.05',
+      '',
+      'beat',
+      '  kick ~ kick ~',
+      '  every 4: rev',
+      '',
+      'beat fills',
+      '  ~ kick ~ kick',
+      '',
+      'play kick',
+      '  irand 4 seg:8',
+      '  scale: e-min',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('beat\n')
+    expect(rondo2).toContain('beat fills')
+    expect(rondo2).toContain('irand 4 seg:8')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   for (const { name, src } of EXAMPLES) {
     it(`${name}.rondo: compile → decompile → compile is a fixed point`, () => {
       const first = compile(src)

@@ -90,6 +90,16 @@ interface R {
   s: string
   /** loosest operator present at the top level of `s`. */
   prec: number
+  /** set when `s` ENDS inside a call's argument list: an infix operator of
+   *  prec >= openPrec appended after it would be absorbed into that call's
+   *  last argument by greedy space-application. Positional AND named tails
+   *  both parse their values at prec >= 2 (parseExpr(c, 2)), so any
+   *  argument tail absorbs every operator. Unset = closed. */
+  openPrec?: 2 | 3
+  /** true when `s` ends in a call that would still accept another
+   *  POSITIONAL: a bare juxtaposed token after it (`mix saw .5`) would be
+   *  swallowed as that call's argument instead of the enclosing one's. */
+  arityOpen: boolean
 }
 
 const OP_INFO: Record<string, { op: string; prec: number }> = {
@@ -120,17 +130,25 @@ function namedArgs(spec: (typeof BUILTINS)[string], opts: Node | undefined): str
       parts.push(`${rname}:${val['value'] === true ? '1' : '0'}`)
     } else {
       const r = rExpr(val)
-      if (r === null || r.prec < 3) return null // named values parse tight
+      if (r === null || r.prec < 3) return null // emit tight values only
+      // the value must be fully CLOSED: an open tail could absorb the next
+      // pair (an inner call declaring the same named key), and an arity-open
+      // call would swallow juxtaposed tokens
+      if (r.openPrec !== undefined || r.arityOpen) return null
       parts.push(`${rname}:${r.s}`)
     }
   }
   return parts.length > 0 ? ' ' + parts.join(' ') : ''
 }
 
-/** A positional argument in a builtin application parses at prec ≥ 2. */
-function posArg(n: Node): string | null {
+/** A positional argument in a builtin application parses at prec ≥ 2.
+ *  A NON-last positional must also be fully closed: an arity-open rendering
+ *  (`saw` bare, `fm 100`) would swallow the next positional as its own. */
+function posArg(n: Node, last = true): string | null {
   const r = rExpr(n)
-  return r !== null && r.prec >= 2 ? r.s : null
+  if (r === null || r.prec < 2) return null
+  if (!last && (r.arityOpen || r.openPrec !== undefined)) return null
+  return r.s
 }
 
 /** eq band objects → rondo's word-then-numbers groups (`hp 170 peak 300 -3 2`),
@@ -171,14 +189,14 @@ function eqBands(n: Node): string | null {
 function rExpr(n: Node): R | null {
   // identifiers + the special refs
   if (n.type === 'Identifier') {
-    return { s: n['name'] as string, prec: 5 }
+    return { s: n['name'] as string, prec: 5, arityOpen: false }
   }
   const v = numValue(n)
-  if (v !== undefined) return { s: num(v), prec: 5 }
+  if (v !== undefined) return { s: num(v), prec: 5, arityOpen: false }
   if (n.type === 'MemberExpression') {
     const obj = n['object'] as Node
     const prop = n['property'] as Node
-    if (isIdent(obj, 'note') && isIdent(prop, 'freq')) return { s: 'note', prec: 5 }
+    if (isIdent(obj, 'note') && isIdent(prop, 'freq')) return { s: 'note', prec: 5, arityOpen: false }
     return null
   }
   const m = methodCall(n)
@@ -190,7 +208,9 @@ function rExpr(n: Node): R | null {
       const r = rExpr(m.args[0]!)
       if (l === null || r === null) return null
       if (l.prec < info.prec || r.prec <= info.prec) return null // would mis-associate
-      return { s: `${l.s} ${info.op} ${r.s}`, prec: info.prec }
+      // `saw 2 + x` re-parses as saw(2 + x); `f k:v * x` extends the named value
+      if (l.openPrec !== undefined && info.prec >= l.openPrec) return null
+      return { s: `${l.s} ${info.op} ${r.s}`, prec: info.prec, openPrec: r.openPrec, arityOpen: r.arityOpen }
     }
     // .range(lo, hi) → `x -> lo..hi`
     if (m.method === 'range' && m.args.length === 2) {
@@ -198,7 +218,7 @@ function rExpr(n: Node): R | null {
       const lo = numValue(m.args[0]!)
       const hi = numValue(m.args[1]!)
       if (x === null || x.prec < 2 || lo === undefined || hi === undefined) return null
-      return { s: `${x.s} -> ${num(lo)}..${num(hi)}`, prec: 1 }
+      return { s: `${x.s} -> ${num(lo)}..${num(hi)}`, prec: 1, arityOpen: false }
     }
     return null
   }
@@ -212,7 +232,7 @@ function rExpr(n: Node): R | null {
         if (o !== undefined) {
           const vals = ['a', 'd', 's', 'r'].map((k) => (o[k] !== undefined ? numValue(o[k]!) : 0))
           if (vals.every((x) => x !== undefined)) {
-            return { s: `adsr ${vals.map((x) => num(x!)).join(' ')}`, prec: 5 }
+            return { s: `adsr ${vals.map((x) => num(x!)).join(' ')}`, prec: 5, openPrec: 2, arityOpen: false }
           }
         }
       }
@@ -237,7 +257,7 @@ function rExpr(n: Node): R | null {
         if (flat.length === 0) return null
         const named = namedArgs(BUILTINS['env']!, args[2])
         if (named === null) return null
-        return { s: `env ${flat.join(' ')}${named}`, prec: 5 }
+        return { s: `env ${flat.join(' ')}${named}`, prec: 5, openPrec: 2, arityOpen: true }
       }
       return null
     }
@@ -246,7 +266,7 @@ function rExpr(n: Node): R | null {
       const input = posArg(args[0]!)
       const bands = eqBands(args[1]!)
       if (input === null || bands === null) return null
-      return { s: `eq ${input} ${bands}`, prec: 5 }
+      return { s: `eq ${input} ${bands}`, prec: 5, openPrec: 2, arityOpen: true }
     }
     const spec = name !== undefined ? BUILTINS[name] : undefined
     if (spec === undefined) return null
@@ -258,8 +278,9 @@ function rExpr(n: Node): R | null {
       rest = args.slice(1)
     }
     if (spec.kind === 'proc') {
-      // proc-in-expression: input is the first positional
-      const input = rest[0] !== undefined ? posArg(rest[0]) : null
+      // proc-in-expression: input is the first positional (never last — the
+      // proc's own args follow it, so it must be closed)
+      const input = rest[0] !== undefined ? posArg(rest[0], rest.length === 1) : null
       if (input === null) return null
       prefix = ` ${input}`
       rest = rest.slice(1)
@@ -288,7 +309,7 @@ function rExpr(n: Node): R | null {
             isIdent(rest[i]!['object'] as Node, 'note') && isIdent(rest[i]!['property'] as Node, 'freq')) {
           continue
         }
-        const p = posArg(rest[i]!)
+        const p = posArg(rest[i]!, i === rest.length - 1)
         if (p === null) return null
         pos.push(p)
       }
@@ -296,7 +317,13 @@ function rExpr(n: Node): R | null {
     const named = namedArgs(spec, opts)
     if (named === null) return null
     const posStr = pos.length > 0 ? ' ' + pos.join(' ') : ''
-    return { s: `${name}${prefix}${posStr}${named}`, prec: 5 }
+    // tail decides operator absorption; arity room decides token absorption
+    // (named args seal the positional list: after `k:v`, a bare token errors
+    // instead of becoming a positional)
+    const lastPos = rest.length > 0 && rest[rest.length - 1] !== undefined ? rExpr(rest[rest.length - 1]!) : null
+    const arityOpen = named === '' && (pos.length < spec.pos.length || (lastPos !== null && lastPos.arityOpen))
+    const openPrec = named !== '' || posStr !== '' || prefix !== '' ? (2 as const) : undefined
+    return { s: `${name}${prefix}${posStr}${named}`, prec: 5, openPrec, arityOpen }
   }
   return null
 }
@@ -344,7 +371,8 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
     if (m.method === 'mix' && m.args.length === 2) {
       const other = rExpr(m.args[0]!)
       const t = rExpr(m.args[1]!)
-      if (other === null || other.prec < 2 || t === null || t.prec < 2) return false
+      // an open/arity-open first arg would swallow t into its own argument list
+      if (other === null || other.prec < 2 || other.openPrec !== undefined || other.arityOpen || t === null || t.prec < 2) return false
       if (!unfoldPipeline(m.obj, lines)) return false
       lines.push(`mix ${other.s} ${t.s}`)
       return true
@@ -970,8 +998,12 @@ export function decompile(js: string): string {
   const parts: string[] = []
   let jsRun: string[] = [] // consecutive unrecognized statements → ONE js block
   const flushJs = (): void => {
-    if (jsRun.length === 0) return
-    parts.push(['js', ...jsRun.flatMap((stmt) => stmt.split('\n').map((l) => (l.length > 0 ? `  ${l}` : '')))].join('\n'))
+    // one js block PER statement — merging them would need a blank line
+    // between statements to round-trip (the compiler spaces top-level
+    // statements with one), and a blank line inside a block would END it
+    for (const stmt of jsRun) {
+      parts.push(['js', ...stmt.split('\n').map((l) => (l.length > 0 ? `  ${l}` : ''))].join('\n'))
+    }
     jsRun = []
   }
   // sections: `const __sec_X = <stack of plays>` held aside; the matching
@@ -988,6 +1020,10 @@ export function decompile(js: string): string {
     if (init === null) return null
     const plays = sectionPlays(init)
     if (plays === null) return null
+    // flush any pending js run BEFORE claiming the placeholder slot — the
+    // placeholder index must come after it, or a bailed statement written
+    // just above this section would be emitted below it (order inversion)
+    flushJs()
     pendingSecs.set(name.slice('__sec_'.length), { plays, raw: slice(stmt), placeholder: parts.length })
     parts.push('') // placeholder — filled by the song matcher (or restored raw)
     return ''

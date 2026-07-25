@@ -59,11 +59,9 @@
 /* pattern-driven: the dial is following a .ctrl sweep — read as "live" */
 .rondo-knob.live { opacity: 1; color: var(--c-accent-alt, #6ea8fe); }
 .rondo-knob svg { display: block; }
-/* the pointer GLIDES between pattern-driven values (each note is a discrete
- * sample of the sweep — a short linear tween strings them into motion);
- * dragging stays instant under the finger */
-.rondo-knob .ptr { transition: transform 0.12s linear; }
-.rondo-knob.active .ptr { transition: none; }
+/* the pointer is FRAME-DRIVEN while pattern-driven (a rAF loop interpolates
+ * between note samples on the audio clock) — no CSS transition, it would lag
+ * every frame's update */
 /* always-on readout: DEF at rest, driven value while a .ctrl sweeps (live),
  * hand value while dragging. Always rendered + tabular digits with a reserved
  * minimum width, so value changes never shift the surrounding text. */

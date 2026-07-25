@@ -80,4 +80,15 @@ describe('examplesMarkdown', () => {
     // (the marker survives only inside the fenced code itself).
     expect(md).toContain('## ambient bells\n\nambient bells, long tails, lots of space.')
   })
+
+  it('grows the fence past backtick runs in the code so the block cannot terminate early', () => {
+    // A program whose source contains a ``` run (say, inside a comment) must
+    // be fenced with MORE backticks than the run, or the markdown block ends
+    // mid-code. m`...` (one-backtick runs) keeps the standard ``` fence.
+    const evil = "// fenced ``` inside a comment\np('a', m`bd ~ sn ~`)"
+    const out = examplesMarkdown([{ name: 'evil', code: evil }])
+    expect(out).toContain(`\n\`\`\`\`js\n${evil}\n\`\`\`\`\n`)
+    // The code body survives verbatim, with the whole block intact.
+    expect(out).toContain(evil)
+  })
 })

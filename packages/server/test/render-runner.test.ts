@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { GATE_GAP_SEC, renderMix, runPatterns, stageCode } from '../src/render-runner'
-import { duckReleaseCoeff } from '../../engine/src/index'
 import { SECTIONS } from '../../app/src/docs/content'
 import { compile as compileRondo } from '../../rondo/src/index'
 
@@ -337,10 +336,28 @@ setCps(1)
       expect(dfltAfter).toBeCloseTo(fullAfter, 6)
     })
 
-    it('uses the engine duck coefficient (live==offline by construction)', () => {
-      const sr = 48000
-      const expected = 1 - Math.exp(-1 / ((180 / 1000) * sr))
-      expect(duckReleaseCoeff(180, sr)).toBeCloseTo(expected, 12)
+    it('releaseMs shapes the measured recovery: a short release recovers sooner than a long one', () => {
+      // Exercises the REAL duck path end to end (buildDuckEnvelope +
+      // duckReleaseCoeff via renderMix), not a reimplementation of the
+      // formula: same program, same depth, only releaseMs differs. Sampled
+      // shortly after a kick, the short-release pad has already recovered
+      // while the long-release pad is still ducked.
+      const staged = stageCode(SC_SOURCE)
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+      const short = renderMix(staged.synths, events, 1.5, { sidechain: { source: 'kick', depth: 0.8, releaseMs: 40 } })
+      const long = renderMix(staged.synths, events, 1.5, { sidechain: { source: 'kick', depth: 0.8, releaseMs: 400 } })
+      // 50-90ms after the 0.25s kick: the 40ms release has mostly recovered,
+      // the 400ms release has not.
+      const shortLater = winRms(short.left, short.right, 0.30, 0.34)
+      const longLater = winRms(long.left, long.right, 0.30, 0.34)
+      expect(shortLater).toBeGreaterThan(longLater * 1.3)
+      // Calibrate against the unducked render: short is back near flat, long
+      // is still visibly ducked.
+      const flat = renderMix(staged.synths, events, 1.5)
+      const flatLater = winRms(flat.left, flat.right, 0.30, 0.34)
+      expect(shortLater).toBeGreaterThan(flatLater * 0.8)
+      expect(longLater).toBeLessThan(flatLater * 0.75)
     })
 
     it('surfaces the staged sidechain config from source', () => {
@@ -349,6 +366,48 @@ setCps(1)
       if (!staged.ok) return
       expect(staged.sidechain).toEqual({ source: 'kick', depth: 0.7, releaseMs: 180 })
     })
+  })
+
+  it('pattern .gain() flows to velocity: .gain(0.5) renders at half the amplitude of .gain(1)', () => {
+    // Pins the gain→velocity contract (runPatterns velocity = controls.gain;
+    // the engine Voice auto-scales output by velocity): measured RMS, not
+    // event plumbing.
+    const src = (g: number) => `
+const tone = synth(({ note, gate, adsr, sine }) => sine(note.freq).mul(adsr(gate, { a: 0.001, d: 0.1, s: 0.5, r: 0.05 })))
+p('a', note('c4').gain(${g}).sound('tone'))
+`
+    const render = (g: number): number => {
+      const staged = stageCode(src(g))
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+      return renderMix(staged.synths, events, 1.2).perSynth['tone']!.rms
+    }
+    const full = render(1)
+    const half = render(0.5)
+    expect(full).toBeGreaterThan(0.01)
+    // Velocity scales amplitude linearly, so the RMS ratio is ~0.5.
+    expect(half / full).toBeGreaterThan(0.45)
+    expect(half / full).toBeLessThan(0.55)
+  })
+
+  it('threads the samples option into stems: sample() sounds with it, is silent without', () => {
+    // A one-shot sample player: without opts.samples the name resolves to
+    // nothing (documented: unknown name → silence); with it, the stem is the
+    // sample audio — pinning offline sample playback through renderMix.
+    const staged = stageCode(`
+const hit = synth(({ gate, sample, adsr }) => sample(gate, 'clik').mul(adsr(gate, { a: 0.001, d: 0.2, s: 1, r: 0.05 })))
+p('a', note('c4').sound('hit'))
+`)
+    if (!staged.ok) throw new Error('stage failed')
+    const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+    // 100ms of a 220 Hz sine at 44.1k — a different rate than the render's
+    // 48k, so the kernel's resampling path is exercised too.
+    const data = new Float32Array(4410)
+    for (let i = 0; i < data.length; i++) data[i] = 0.8 * Math.sin((2 * Math.PI * 220 * i) / 44100)
+    const withSamples = renderMix(staged.synths, events, 1.2, { samples: { clik: { data, sampleRate: 44100 } } })
+    const without = renderMix(staged.synths, events, 1.2)
+    expect(withSamples.perSynth['hit']!.rms).toBeGreaterThan(0.001)
+    expect(without.perSynth['hit']!.rms).toBeLessThan(1e-6)
   })
 
   it('is deterministic: identical inputs produce identical samples', () => {

@@ -8,7 +8,7 @@ import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
  *  (rebuilding its voice pool) — during a drag that would stutter, so live
  *  rebuilds are debounced to fire once movement settles. Constant-only changes
  *  bypass this entirely (patchConstants, applied immediately/continuously). */
-const REBUILD_DEBOUNCE_MS = 120
+export const REBUILD_DEBOUNCE_MS = 120
 import { clampCps, evalCode } from './evalCode'
 import type { Diagnostic, EvalResult } from './evalCode'
 import { baseScope } from './scope'

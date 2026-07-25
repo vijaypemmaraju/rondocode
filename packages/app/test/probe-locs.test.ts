@@ -47,12 +47,23 @@ describe('value-probe: node source-loc capture', () => {
   })
 
   it('does not tag synths with no modulation (plain carrier)', () => {
+    // fixed-frequency carrier: no signal-valued call argument or const init
+    // anywhere (440 is a literal, gate is a bare identifier), so there is
+    // NOTHING to probe — nodeLocs must be empty, not merely "valid".
+    const src = 'const syn = synth(({ sine, gate }) => sine(440).mul(gate))'
+    const r = run(src)
+    expect(r.ok).toBe(true)
+    const def = r.synths.get('syn')!
+    expect(Object.keys(def.nodeLocs ?? {})).toHaveLength(0)
+  })
+
+  it('still bounds-checks spans when a member arg IS a modulation source', () => {
     const src = 'const syn = synth(({ sine, note, gate }) => sine(note.freq).mul(gate))'
     const r = run(src)
     expect(r.ok).toBe(true)
     const def = r.synths.get('syn')!
-    // note.freq is a member arg → tagged; the point is nodeLocs stays small and
-    // valid, never throwing.
+    const got = spans(src, def)
+    expect(got).toContain('note.freq') // the one probe-able signal
     for (const [from, to] of Object.values(def.nodeLocs ?? {})) {
       expect(from).toBeGreaterThanOrEqual(0)
       expect(to).toBeGreaterThan(from)

@@ -65,9 +65,14 @@ describe('detectBuses', () => {
   })
 
   it('survives a mid-edit unparseable doc (Lezer is error-tolerant)', () => {
-    // an unterminated call above should not throw or lose the intact bus below
+    // an unterminated call above must not throw AND must not lose the intact
+    // bus below — the mixer keeps its fader while the user is mid-edit
     const src = `foo( \nbus('space', ${REVERB}, { pad: 0.4 })`
-    expect(() => detectBuses(src)).not.toThrow()
+    const buses = detectBuses(src)
+    expect(buses.map((b) => b.name)).toContain('space')
+    const b = buses.find((x) => x.name === 'space')!
+    expect(b.sends.map((s) => s.synth)).toEqual(['pad'])
+    expect(src.slice(b.sends[0]!.from, b.sends[0]!.to)).toBe('0.4')
   })
 
   it('drag round-trip: rewriting one send keeps every range valid', () => {

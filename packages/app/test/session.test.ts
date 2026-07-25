@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
-import { Session } from '../src/session/Session'
+import { REBUILD_DEBOUNCE_MS, Session } from '../src/session/Session'
 import type { SessionState } from '../src/session/Session'
 import type { Diagnostic } from '../src/session/evalCode'
 
@@ -589,12 +589,40 @@ describe('Session.evalCode: live constant patch vs rebuild', () => {
   })
 
   it('debounces a live rebuild (config change) instead of glitch-spamming', () => {
-    const { session, ofKind } = rig()
-    session.evalCode(CFG(0.2)) // Run: initial defineSynth
-    expect(ofKind('defineSynth')).toHaveLength(1)
-    session.evalCode(CFG(0.5), { live: true }) // scrub: kernel config (adsr d) changed
-    expect(ofKind('defineSynth')).toHaveLength(1) // deferred (debounced), not immediate
-    expect(ofKind('patchConstants')).toHaveLength(0) // config isn't patchable
+    vi.useFakeTimers()
+    try {
+      const { session, ofKind } = rig()
+      session.evalCode(CFG(0.2)) // Run: initial defineSynth
+      expect(ofKind('defineSynth')).toHaveLength(1)
+      session.evalCode(CFG(0.5), { live: true }) // scrub: kernel config (adsr d) changed
+      expect(ofKind('defineSynth')).toHaveLength(1) // deferred (debounced), not immediate
+      expect(ofKind('patchConstants')).toHaveLength(0) // config isn't patchable
+      // still deferred right up to the debounce window's edge...
+      vi.advanceTimersByTime(REBUILD_DEBOUNCE_MS - 1)
+      expect(ofKind('defineSynth')).toHaveLength(1)
+      // ...and the deferred rebuild ACTUALLY fires once movement settles
+      vi.advanceTimersByTime(2)
+      expect(ofKind('defineSynth')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('coalesces rapid live config changes into ONE rebuild (the last one)', () => {
+    vi.useFakeTimers()
+    try {
+      const { session, ofKind } = rig()
+      session.evalCode(CFG(0.2))
+      for (const d of [0.3, 0.4, 0.5]) {
+        session.evalCode(CFG(d), { live: true })
+        vi.advanceTimersByTime(REBUILD_DEBOUNCE_MS - 1) // each edit re-arms the timer
+      }
+      expect(ofKind('defineSynth')).toHaveLength(1) // nothing fired during the drag
+      vi.advanceTimersByTime(REBUILD_DEBOUNCE_MS + 1)
+      expect(ofKind('defineSynth')).toHaveLength(2) // one coalesced rebuild
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rebuilds immediately on a non-live (Run) config change', () => {

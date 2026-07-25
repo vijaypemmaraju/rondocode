@@ -32,8 +32,10 @@ function download(bytes: Uint8Array, name: string): void {
 /** Render `cycles` of `code` offline to WAV bytes, or an error message.
  *  `samples` is the live engine's loaded sample bank (built-ins + baked sing()
  *  vocals) so the offline sample('name') nodes play the same audio — without it
- *  a program using samples (or sing()) bounces silent for those voices. */
-function bounceLoop(
+ *  a program using samples (or sing()) bounces silent for those voices.
+ *  Exported for tests: the staged→renderMix option mapping is where a staged
+ *  feature (sidechain/buses/masterComp/samples) could silently drop. */
+export function bounceLoop(
   code: string,
   cycles: number,
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,

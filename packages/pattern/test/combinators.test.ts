@@ -265,6 +265,25 @@ describe('struct / euclid', () => {
     )
   })
 
+  it('degenerate pulse counts: 0 or negative is silence, pulses > steps saturates', () => {
+    expect(q(pure('x').euclid(0, 8), 0, 1)).toEqual([])
+    expect(q(pure('x').euclid(-3, 8), 0, 1)).toEqual([])
+    expect(onsets(pure('x').euclid(9, 8), 0, 1)).toEqual(
+      [0, 1, 2, 3, 4, 5, 6, 7].map((i) => i / 8),
+    )
+  })
+
+  it('rotation normalizes mod steps: full-turn and negative rotations', () => {
+    expect(onsets(pure('x').euclid(3, 8, 8), 0, 1)).toEqual(onsets(pure('x').euclid(3, 8), 0, 1))
+    expect(onsets(pure('x').euclid(3, 8, -1), 0, 1)).toEqual(
+      onsets(pure('x').euclid(3, 8, 7), 0, 1),
+    )
+    expect(onsets(pure('x').euclid(3, 8, -1), 0, 1)).toEqual([1 / 8, 4 / 8, 7 / 8])
+    expect(onsets(pure('x').euclid(3, 8, 19), 0, 1)).toEqual(
+      onsets(pure('x').euclid(3, 8, 3), 0, 1),
+    )
+  })
+
   it('euclid events carry step-sized wholes', () => {
     expect(qw(pure('x').euclid(3, 8), 0, F(1, 4))).toEqual([
       { whole: [0, 1 / 8], part: [0, 1 / 8], value: 'x' },
@@ -294,10 +313,26 @@ describe('degradeBy / undegradeBy', () => {
     expect(p400.undegradeBy(0).query(span(0, 100)).length).toBe(0)
   })
 
-  it('degradeBy(0.5) drops roughly half (40-60% over 400 events)', () => {
-    const kept = p400.degradeBy(0.5).query(span(0, 100)).length
-    expect(kept).toBeGreaterThanOrEqual(160) // actual: 195
-    expect(kept).toBeLessThanOrEqual(240)
+  it('degradeBy(0.5) keeps exactly 195 of 400 events (deterministic stream)', () => {
+    // the timeHash stream is pure and pinned — the count is exact, not a band
+    expect(p400.degradeBy(0.5).query(span(0, 100)).length).toBe(195)
+  })
+
+  it('is deterministic and exact on pre-zero cycles (negative-time hash branch)', () => {
+    // .late(3) makes the scheduler-visible window [0,1) read source cycle -3,
+    // exercising timeHash's negative-numerator branch. Pinned, not banded.
+    const neg = p400.degradeBy(0.5).late(3)
+    const evs = qw(neg, 0, 1)
+    expect(evs).toEqual([
+      { whole: [0.25, 0.5], part: [0.25, 0.5], value: 'x' },
+      { whole: [0.5, 0.75], part: [0.5, 0.75], value: 'x' },
+    ])
+    expect(qw(neg, 0, 1)).toEqual(evs) // re-query: identical
+    // and the direct negative-span query agrees (same underlying draws)
+    expect(qw(p400.degradeBy(0.5), -3, -2)).toEqual([
+      { whole: [-2.75, -2.5], part: [-2.75, -2.5], value: 'x' },
+      { whole: [-2.5, -2.25], part: [-2.5, -2.25], value: 'x' },
+    ])
   })
 
   it('degradeBy and undegradeBy partition exactly (same seed)', () => {
@@ -467,6 +502,26 @@ describe('linger', () => {
     expect(qw(abcd.linger(1), 0, 2)).toEqual(qw(abcd, 0, 2))
     expect(q(abcd.linger(0), 0, 2)).toEqual([])
   })
+
+  it('linger(1/3): a non-tiling t clips the last window at the cycle end', () => {
+    // windows [0,1/3) [1/3,2/3) [2/3,1): each replays the first 1/3 of abcd
+    // (a whole + b's head); the b-head in the last window is clipped at 1
+    expect(qw(abcd.linger(F(1, 3)), 0, 1)).toEqual([
+      { whole: [0, 0.25], part: [0, 0.25], value: 'a' },
+      { whole: [0.25, 0.5], part: [0.25, 1 / 3], value: 'b' },
+      { whole: [1 / 3, 7 / 12], part: [1 / 3, 7 / 12], value: 'a' },
+      { whole: [7 / 12, 5 / 6], part: [7 / 12, 2 / 3], value: 'b' },
+      { whole: [2 / 3, 11 / 12], part: [2 / 3, 11 / 12], value: 'a' },
+      { whole: [11 / 12, 7 / 6], part: [11 / 12, 1], value: 'b' },
+    ])
+  })
+
+  it('a zero-width query admits the window beginning at its point', () => {
+    // point query exactly at a window start sees that window's onset hap
+    expect(qw(abcd.linger(F(1, 4)), 0.5, 0.5)).toEqual([
+      { whole: [0.5, 0.75], part: [0.5, 0.5], value: 'a' },
+    ])
+  })
 })
 
 describe('swingBy / swing', () => {
@@ -508,6 +563,13 @@ describe('swingBy / swing', () => {
 
   it('swingBy(0, n) is identity on the grid', () => {
     expect(qw(grid8.swingBy(0, 4), 0, 1)).toEqual(qw(grid8, 0, 1))
+  })
+
+  it('rejects a non-positive-integer n', () => {
+    expect(() => grid8.swingBy(F(1, 3), 0)).toThrow(RangeError)
+    expect(() => grid8.swingBy(F(1, 3), -2)).toThrow(RangeError)
+    expect(() => grid8.swingBy(F(1, 3), 1.5)).toThrow(RangeError)
+    expect(() => grid8.swing(0)).toThrow(RangeError)
   })
 })
 

@@ -190,6 +190,13 @@
   overflow: hidden;
   pointer-events: none;
 }
+/* a single-euclid roll is a CONTROL SURFACE: drag vertically for pulses,
+ * sideways for rotation */
+.rondo-qroll.editable {
+  touch-action: none;
+  cursor: ns-resize;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent, #6ea8fe) 25%, transparent);
+}
 .rondo-qroll .qr-cell {
   position: absolute;
   border-radius: 2px;

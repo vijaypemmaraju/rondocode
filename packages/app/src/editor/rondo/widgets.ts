@@ -425,7 +425,8 @@ export function richRollCells(notation: string): { cells: RichCell[]; rows: numb
 export interface RichPlay {
   /** the notation text — a play event's `loc.src` equals this. */
   content: string
-  /** end of the notation in the source (the widget anchors after it). */
+  /** char range of the notation in the source (euclid drags rewrite into it). */
+  from: number
   to: number
   synth?: string
 }
@@ -457,9 +458,26 @@ export function scanRichPlays(text: string): RichPlay[] {
     if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
     if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
     const from = offs[i + 1]! + indent
-    out.push({ content: notation, to: from + notation.length, synth: ph[2]! })
+    out.push({ content: notation, from, to: from + notation.length, synth: ph[2]! })
   }
   return out
+}
+
+/** The SINGLE euclid group in a notation, or null (none, or 2+ — ambiguous).
+ *  This is what makes a query roll DRAGGABLE: vertical adjusts pulses,
+ *  horizontal adjusts rotation. */
+export function euclidGroup(notation: string): { p: number; s: number; r: number; from: number; to: number } | null {
+  const ms = [...notation.matchAll(/\((\d+),(\d+)(?:,(-?\d+))?\)/g)]
+  if (ms.length !== 1) return null
+  const m = ms[0]!
+  const p = Number(m[1]), st = Number(m[2])
+  if (!(p >= 1) || !(st >= 1)) return null
+  return { p, s: st, r: m[3] !== undefined ? Number(m[3]) : 0, from: m.index!, to: m.index! + m[0].length }
+}
+
+/** Serialize a euclid group (omit a zero rotation). */
+export function euclidText(p: number, s: number, r: number): string {
+  return r !== 0 ? `(${p},${s},${r})` : `(${p},${s})`
 }
 
 /** READ-ONLY roll for rich notation: cycle 0's events on a time-proportional
@@ -472,15 +490,18 @@ class QueryRollWidget extends WidgetType {
 
   constructor(
     readonly content: string,
+    /** notation start in the source (euclid drags rewrite into it). */
+    readonly srcFrom: number,
     readonly cellData: { cells: RichCell[]; rows: number },
     readonly hooks: Hooks,
+    readonly drag: Drag,
   ) { super() }
 
   eq(o: QueryRollWidget): boolean {
-    return o.content === this.content
+    return o.content === this.content && o.srcFrom === this.srcFrom
   }
 
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const { cells, rows } = this.cellData
     const wrap = document.createElement('span')
     wrap.className = 'rondo-qroll'
@@ -488,17 +509,22 @@ class QueryRollWidget extends WidgetType {
     wrap.setAttribute('aria-label', 'pattern preview (cycle 1)')
     const rowH = rows > 4 ? 8 : 12
     wrap.style.height = `${Math.max(rows * rowH + 6, 22)}px`
-    const cellEls: { el: HTMLElement; c: RichCell }[] = []
-    for (const c of cells) {
-      const el = document.createElement('span')
-      el.className = 'qr-cell'
-      el.style.left = `${(c.x0 * 100).toFixed(2)}%`
-      el.style.width = `calc(${((c.x1 - c.x0) * 100).toFixed(2)}% - 1px)`
-      el.style.bottom = `${3 + c.row * rowH}px`
-      el.style.height = `${rowH - 2}px`
-      cellEls.push({ el, c })
-      wrap.appendChild(el)
+    let cellEls: { el: HTMLElement; c: RichCell }[] = []
+    const renderCells = (cs: RichCell[]): void => {
+      for (const { el } of cellEls) el.remove()
+      cellEls = []
+      for (const c of cs) {
+        const el = document.createElement('span')
+        el.className = 'qr-cell'
+        el.style.left = `${(c.x0 * 100).toFixed(2)}%`
+        el.style.width = `calc(${((c.x1 - c.x0) * 100).toFixed(2)}% - 1px)`
+        el.style.bottom = `${3 + c.row * rowH}px`
+        el.style.height = `${rowH - 2}px`
+        cellEls.push({ el, c })
+        wrap.appendChild(el)
+      }
     }
+    renderCells(cells)
     const head = document.createElement('span')
     head.className = 'qr-head'
     wrap.appendChild(head)
@@ -538,6 +564,65 @@ class QueryRollWidget extends WidgetType {
             if (this.raf === 0) this.raf = requestAnimationFrame(frame)
           })
         }
+      })
+    }
+
+    // EUCLID DRAG: with exactly one (pulses,steps[,rot]) group in the line,
+    // the roll is a control surface — drag UP/DOWN for pulses, SIDEWAYS for
+    // rotation (hits follow the finger: +rotation shifts hits left, so a
+    // rightward drag DECREMENTS it). Cells preview live from a re-query; the
+    // doc write is deferred to gesture end (the group's text length changes).
+    const g0 = euclidGroup(this.content)
+    if (g0 !== null) {
+      wrap.classList.add('editable')
+      wrap.title = 'drag: up/down = pulses · sideways = rotate'
+      wrap.style.pointerEvents = 'auto'
+      let cur = { p: g0.p, r: g0.r }
+      const preview = (p: number, r: number): void => {
+        const notation = this.content.slice(0, g0.from) + euclidText(p, s0(r), r) + this.content.slice(g0.to)
+        const data = richRollCells(notation)
+        if (data !== null) renderCells(data.cells)
+      }
+      const s0 = (_: number): number => g0.s // steps never change by drag
+      wrap.addEventListener('pointerdown', (e) => {
+        if (this.drag.active) return // one widget gesture at a time
+        e.preventDefault(); e.stopPropagation()
+        wrap.setPointerCapture(e.pointerId)
+        this.drag.active = true
+        buzz()
+        const x0 = e.clientX, y0 = e.clientY
+        const cellW = Math.max(wrap.getBoundingClientRect().width / g0.s, 8)
+        const move = (ev: PointerEvent): void => {
+          if (ev.pointerId !== e.pointerId) return
+          const p = clamp(g0.p + Math.round((y0 - ev.clientY) / 16), 1, g0.s)
+          const rRaw = g0.r - Math.round((ev.clientX - x0) / cellW)
+          const r = ((rRaw % g0.s) + g0.s) % g0.s
+          if (p === cur.p && r === cur.r) return
+          cur = { p, r }
+          buzz()
+          preview(p, r)
+        }
+        const end = (ev: PointerEvent): void => {
+          if (ev.pointerId !== e.pointerId) return
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', end)
+          window.removeEventListener('pointercancel', end)
+          this.drag.active = false
+          if (cur.p === g0.p && cur.r === g0.r) return // unchanged — no write
+          this.drag.ended = true
+          const from = this.srcFrom + g0.from
+          const to = this.srcFrom + g0.to
+          // WRITE-VERIFY: only splice if the group text is still what we read
+          if (view.state.doc.sliceString(from, to) !== this.content.slice(g0.from, g0.to)) {
+            view.dispatch({}) // resync from text instead
+            return
+          }
+          view.dispatch({ changes: { from, to, insert: euclidText(cur.p, g0.s, cur.r) } })
+          this.hooks.requestEval(false)
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', end)
+        window.addEventListener('pointercancel', end)
       })
     }
     return wrap
@@ -1401,7 +1486,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   for (const rp of scanRichPlays(text)) {
     const data = richRollCells(rp.content)
     if (data !== null) {
-      items.push({ pos: rp.to, deco: Decoration.widget({ widget: new QueryRollWidget(rp.content, data, hooks), side: 1 }) })
+      items.push({ pos: rp.to, deco: Decoration.widget({ widget: new QueryRollWidget(rp.content, rp.from, data, hooks, drag), side: 1 }) })
     }
   }
   for (const b of scanBeats(text)) {

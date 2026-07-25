@@ -180,6 +180,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   gate: [],
   velocity: [],
   businput: [],
+  mic: [],
   out: [{ name: 'in' }],
 }
 
@@ -460,6 +461,10 @@ function assemble(spec: GraphSpec, ctx: DspContext): CompiledCore {
         break
       case 'businput':
         nodeOut.set(n.id, input)
+        break
+      case 'mic':
+        // live input: alias the host's shared block, or silence offline
+        nodeOut.set(n.id, ctx.mic ?? new Float32Array(BLOCK))
         break
       default:
         nodeOut.set(n.id, new Float32Array(BLOCK))

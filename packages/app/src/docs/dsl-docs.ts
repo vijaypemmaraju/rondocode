@@ -510,6 +510,12 @@ const SYNTH_CTX: DocEntry[] = [
     'lfo(0.5).range(400, 2000)',
   ),
   sc(
+    'mic',
+    'mic()',
+    'The device microphone as a LIVE signal: run your voice through the synth graph in real time. Feed it to vocoder() as the modulator (a talkbox), filter it, granular-freeze it. It reads silence until the code using it runs (the mic connects lazily, with a permission prompt) and in offline renders/exports. Use headphones: a speaker feeding the mic loops into howling feedback.',
+    "vocoder(supersaw(note.freq), mic(), { bands: 24 })",
+  ),
+  sc(
     'delay',
     'delay(input, time, feedback?, opts?: { maxTime })',
     'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off.',

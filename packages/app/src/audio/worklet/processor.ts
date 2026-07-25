@@ -27,11 +27,14 @@ class RondocodeProcessor extends AudioWorkletProcessor {
     this.engine.onEvent = (ev) => this.port.postMessage(ev)
   }
 
-  process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const out = outputs[0]
     const l = out?.[0]
     if (!l) return true // no output wired yet: keep the processor alive
     const r = out[1] ?? this.scratch // mono fallback: play the L leg only
+    // live mic: the node's input 0 (silent/absent unless the host connected
+    // a MediaStreamAudioSource — see AudioSession.setMicEnabled)
+    this.engine.writeMic(inputs[0]?.[0] ?? null)
     this.engine.process(l, r, currentFrame)
     if (++this.blocks % METER_EVERY === 0) {
       this.port.postMessage(this.engine.collectMeters())

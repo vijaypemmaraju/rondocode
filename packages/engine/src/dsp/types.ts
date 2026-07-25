@@ -14,6 +14,11 @@ export interface SampleBankRO {
 
 export interface DspContext {
   sampleRate: number
+  /** LIVE MIC block: when present, every compiled graph's `mic` node ALIASES
+   *  this buffer, so the host writes one block per quantum and all graphs see
+   *  it with zero copying. Absent (offline render, tests) a mic node reads a
+   *  private zeroed buffer — silence. */
+  mic?: Float32Array
   /** Freeverb stereo-spread offset in REFERENCE samples (at 44100 Hz), added to
    *  every comb/allpass length. 0/undefined = the standard tuning. The per-synth
    *  post-chain compiles its RIGHT mono instance with a nonzero spread so the two

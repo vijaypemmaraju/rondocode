@@ -934,6 +934,15 @@ export function beatTokens(steps: (number | null)[], word: string): string {
   return steps.map((v) => (v === null ? '~' : v === 1 ? word : `${word}:${Number(v)}`)).join(' ')
 }
 
+/** Vertical velocity scrub: dy pixels up from the gesture start maps onto the
+ *  starting velocity, full range over ~80px, snapped to 2 decimals (keeps the
+ *  written `word:v` suffixes tidy). Floor .05 — a scrub thins a hit, it never
+ *  silently deletes it (drop a step by tapping through to off instead). */
+export function scrubVelocity(v0: number, dyUp: number): number {
+  const v = clamp(v0 + dyUp / 80, 0.05, 1)
+  return Math.round(v * 100) / 100
+}
+
 /** ONE step sequencer per beat block: a labeled row per simple line, columns
  *  aligned in musical time (every row spans the same width, so a 4-step row's
  *  cells are twice as wide as an 8-step row's). Tap places a hit; tapping an
@@ -1028,9 +1037,12 @@ class BeatBlockWidget extends WidgetType {
     const dirty = new Set<number>()
     let mode: 'draw' | 'erase' = 'draw'
     // a down on an ACTIVE cell is ambiguous: released in place it's a
-    // velocity-cycle TAP; moved off the cell it starts an erase PAINT — so
-    // its action is deferred until the gesture disambiguates
-    let pendingTap: { r: number; c: number } | null = null
+    // velocity-cycle TAP; dragged VERTICALLY it scrubs that step's velocity;
+    // dragged HORIZONTALLY it starts an erase PAINT — the action is deferred
+    // until the first move past the slop picks a direction
+    let pendingTap: { r: number; c: number; x0: number; y0: number } | null = null
+    // an active velocity scrub: the down cell + its starting velocity
+    let scrub: { r: number; c: number; v0: number; y0: number } | null = null
     const paint = (cell: HTMLElement | null, v: number | null): void => {
       if (cell === null) return
       cell.classList.toggle('on', v !== null)
@@ -1066,31 +1078,57 @@ class BeatBlockWidget extends WidgetType {
       this.drag.active = true; painting = true
       const r = Number(el.dataset.r), c = Number(el.dataset.c)
       if (steps[r]?.[c] != null) {
-        mode = 'erase' // moving off this cell paints an erase
-        pendingTap = { r, c } // …releasing in place cycles its velocity
+        mode = 'erase' // moving off this cell (horizontally) paints an erase
+        pendingTap = { r, c, x0: e.clientX, y0: e.clientY }
+        scrub = null
       } else {
         mode = 'draw'
         pendingTap = null
+        scrub = null
         set(r, c)
       }
     })
     wrap.addEventListener('pointermove', (e) => {
       if (!painting) return
+      const applyScrub = (y: number): void => {
+        // per-pixel updates: no buzz/preview spam, just the value + the cell
+        const { r, c } = scrub!
+        const v = scrubVelocity(scrub!.v0, scrub!.y0 - y)
+        if (steps[r]![c] === v) return
+        steps[r]![c] = v
+        dirty.add(r)
+        paint(cellEls[r]?.[c] ?? null, v)
+      }
+      if (scrub !== null) {
+        // VELOCITY SCRUB: vertical drag on an active step — up is louder
+        applyScrub(e.clientY)
+        return
+      }
+      if (pendingTap !== null) {
+        const dx = e.clientX - pendingTap.x0
+        const dy = e.clientY - pendingTap.y0
+        if (dx * dx + dy * dy < 36) return // inside the slop: still a tap
+        if (Math.abs(dy) > Math.abs(dx)) {
+          // vertical wins: scrub this step's velocity for the rest of the drag
+          scrub = { r: pendingTap.r, c: pendingTap.c, v0: steps[pendingTap.r]![pendingTap.c] ?? 1, y0: pendingTap.y0 }
+          pendingTap = null
+          buzz()
+          applyScrub(e.clientY)
+          return
+        }
+        set(pendingTap.r, pendingTap.c) // horizontal: an erase drag after all
+        pendingTap = null
+      }
       const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
       const cell = el?.closest?.('.rc') as HTMLElement | null
       if (!cell || !wrap.contains(cell)) return
-      const r = Number(cell.dataset.r), c = Number(cell.dataset.c)
-      if (pendingTap !== null) {
-        if (pendingTap.r === r && pendingTap.c === c) return // still on the down cell
-        set(pendingTap.r, pendingTap.c) // the gesture is an erase drag after all
-        pendingTap = null
-      }
-      set(r, c)
+      set(Number(cell.dataset.r), Number(cell.dataset.c))
     })
     const end = (): void => {
       if (!painting) return
       painting = false
       this.drag.active = false
+      scrub = null
       if (pendingTap !== null) {
         // released on the down cell: cycle its velocity (full → soft → ghost → off)
         const { r, c } = pendingTap

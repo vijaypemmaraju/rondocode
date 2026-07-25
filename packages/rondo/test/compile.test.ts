@@ -267,6 +267,35 @@ describe('rondo → rondocode codegen', () => {
     expect(r.jsRegions).toHaveLength(3)
   })
 
+  it('sing block: lyric/melody pairs join; voice, name, mods, post all map', () => {
+    const out = ok([
+      'sing vox voice:barbara',
+      '  twin-kle twin-kle lit-tle star',
+      '  c4 c4 g4 g4 a4 a4 g4@2',
+      '  how I won-der what you are',
+      '  f4 f4 e4 e4 d4 d4 c4@2',
+      '  gain: .95',
+      '  post',
+      '    reverb room:.8 mix:.25',
+      '',
+    ].join('\n'))
+    expect(out).toContain("sing('barbara', 'twin-kle twin-kle lit-tle star how I won-der what you are', 'c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2', { name: 'vox', post: ({ input, reverb }) =>")
+    expect(out).toContain('.gain(0.95)')
+    expect(out).toContain("p('vox', sing(")
+    // no voice → the 2-string default-voice form
+    expect(ok('sing v\n  la la\n  c4 e4\n')).toContain("sing('la la', 'c4 e4', { name: 'v' })")
+  })
+
+  it('sing block: positioned errors for unpaired lines, missing name, scale', () => {
+    const odd = compile('sing v\n  la la la\n')
+    expect(odd.ok).toBe(false)
+    if (!odd.ok) expect(odd.errors[0]!.message).toContain('pairs')
+    expect(compile('sing\n  la\n  c4\n').ok).toBe(false)
+    const sc = compile('sing v\n  la la\n  c4 e4\n  scale: a-min\n')
+    expect(sc.ok).toBe(false)
+    if (!sc.ok) expect(sc.errors[0]!.message).toContain("doesn't apply")
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

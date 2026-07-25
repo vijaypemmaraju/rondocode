@@ -489,6 +489,33 @@ p('vox', sing('barbara',
 
 setCps(0.34)`,
       ),
+      p('In rondo it\'s a `sing` block, written like sheet music: each LYRIC line sits above its MELODY line (pairs join up), `voice:` goes on the header, modifiers and a `post` FX chain work like everywhere else.'),
+      rondo(
+        'The same vocal as a rondo sing block.',
+        `synth pad
+  saw
+  mix wide .5
+  svf cut res:.2
+  * env
+  * .2
+  wide = saw note*1.004
+  cut = env -> 660..2200
+  env = adsr .4 .6 .85 .9
+
+play pad
+  <Cmaj7 Am7 Fmaj7 G7>
+  voiceLead
+  dur: .98
+
+sing vox voice:barbara
+  lo-ver come and sing with me
+  e4 e4 g4 g4 a4 g4 e4
+  gain: .95
+  post
+    reverb mix:.22
+
+cps .34`,
+      ),
     ],
   },
   {
@@ -799,7 +826,7 @@ js
 
 cps .5`,
       ),
-      p('Cheat sheet — the shapes at a glance: `synth NAME [mono glide:… unison:…]` · pipeline lines (source / `* env` / processor / sig-op) · `name = expr` · `knob DEF lo..hi [log]` · `post` · `play NAME` (notation, voices, `scale:`, modifiers) · `section NAME LEN` + `song …` · `bus NAME` + `send SYNTH AMT` · `sidechain SRC depth:… name:duck` · `master name:value` · `visual` · `js{ … }` / `js` · `cps N`. Comments start with `#`.'),
+      p('Cheat sheet — the shapes at a glance: `synth NAME [mono glide:… unison:…]` · pipeline lines (source / `* env` / processor / sig-op) · `name = expr` · `knob DEF lo..hi [log]` · `post` · `play NAME` (notation, voices, `scale:`, modifiers) · `section NAME LEN` + `song …` · `beat [NAME]` (words are synth names) · `sing NAME voice:…` (lyric/melody pairs + `post`) · `bus NAME` + `send SYNTH AMT` · `sidechain SRC depth:… name:duck` · `master name:value` · `visual` · `js{ … }` / `js` · `cps N`. Comments start with `#`.'),
     ],
   },
 ]

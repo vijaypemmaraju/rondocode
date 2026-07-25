@@ -376,6 +376,22 @@ function cgPlay(block: PlayBlock): string {
   return `p('${block.name}', ${cgPlayPat(block)})`
 }
 
+/** `sing NAME [voice:V]` → p(NAME, sing([voice,] lyrics, notes, { name, post? })<mods>).
+ *  Lyric/melody line pairs join with single spaces — mini treats the joined
+ *  strings exactly like the multi-line template literals the JS API uses. */
+function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[]): string {
+  const lyrics = block.lyrics.map((l) => l.text).join(' ')
+  const notes = block.notes.map((l) => l.text).join(' ')
+  const voiceArg = block.voice !== undefined ? `${q(block.voice)}, ` : ''
+  const opts: string[] = [`name: ${q(block.name)}`]
+  if (block.post) {
+    opts.push(`post: ${cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)}`)
+  }
+  let pat = `sing(${voiceArg}${q(lyrics)}, ${q(notes)}, { ${opts.join(', ')} })`
+  for (const m of block.mods) pat += cgMod(m)
+  return `p(${q(block.name)}, ${pat})`
+}
+
 function cgSection(item: Extract<TopItem, { t: 'section' }>): string {
   const pats = item.plays.map(cgPlayPat)
   const body = pats.length === 1 ? pats[0]! : `stack(${pats.join(', ')})`
@@ -415,6 +431,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const parts = program.items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
+    if (item.t === 'sing') return cgSing(item, errors)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item)
     if (item.t === 'master') return cgMaster(item)

@@ -101,6 +101,28 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     for (const h of notes) expect(typeof h.value.note).toBe('number')
   })
 
+  it('sing block stages the vocal: SingRequest + sampler synth + trigger pattern', () => {
+    const src = 'sing vox voice:barbara\n  twin-kle twin-kle lit-tle star\n  c4 c4 g4 g4 a4 a4 g4@2\n  gain: .95\n  post\n    reverb mix:.25\n'
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.sings).toHaveLength(1)
+    expect(result.sings[0]).toMatchObject({
+      voice: 'barbara',
+      synthName: 'vox',
+      lyrics: 'twin-kle twin-kle lit-tle star',
+      notes: 'c4 c4 g4 g4 a4 a4 g4@2',
+    })
+    expect(result.synths.has('vox')).toBe(true) // the sampler (with the post chain)
+    const trig = result.patterns.get('vox')!
+    const evs = trig.query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(evs).toHaveLength(1) // one clip trigger per cycle
+    expect(evs[0]!.value.sound).toBe('vox')
+  })
+
   it('the pad example (post chain + drivable post param) evals clean', () => {
     const c = compile(pad)
     expect(c.ok, JSON.stringify(c.errors)).toBe(true)

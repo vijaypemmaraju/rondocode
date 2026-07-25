@@ -1286,6 +1286,93 @@ master threshold:-7 ratio:2 makeup:1
 cps .58
 `
 
+/** The singing example's rondo twin: a `sing` block reads like sheet music —
+ *  each LYRIC line above its MELODY line, pairs joined at compile time. */
+const singingRondo = `# SINGING — a neural voice sings your
+# lyrics over a full band. lyric line
+# above its melody line; hyphens split
+# a word into syllables. first Run
+# downloads the voice once (cached).
+
+# the whole verse is ONE long cycle
+cps .0417
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp = adsr .001 .22 0 .08
+
+synth snare
+  noise
+  svf 1800 res:.5 mode:bp
+  * env
+  * .6
+  env = adsr .002 .12 0 .08
+
+synth hat
+  noise
+  svf 9000 mode:hp
+  * env
+  * .4
+  env = adsr .001 .04 0 .03
+
+synth bass
+  saw
+  ladder 420 res:.3
+  * env
+  * .22
+  env = adsr .005 .35 .4 .2
+
+synth piano
+  tri
+  * .5
+  + shim * .15
+  * env
+  * .22
+  shim = sine note*2
+  env = adsr .004 .5 .25 .5
+
+# fast 12 repeats a 1-bar groove
+# across the 12-bar cycle
+play kick
+  c2*4
+  fast 12
+
+play snare
+  ~ c2 ~ c2
+  fast 12
+
+play hat
+  c5*8
+  fast 12
+  gain: .7
+
+play bass
+  c2 a1 f1 g1 e2 d2 g1 g1 c2 f1 g1 c2
+
+play piano
+  [c3,e3,g3,b3,d4] [a2,e3,g3,c4] [f2,a2,c3,e3] [g2,b2,d3,f3] [e2,g3,b3,d4] [d3,f3,a3,c4] [g2,c3,e3,b3] [g2,b2,f3,a3] [c3,e3,g3,b3,d4] [f2,a2,c3,e3] [g2,c3,d3,f3] [c3,e3,g3,b3]
+
+sing vox voice:barbara
+  twin-kle twin-kle lit-tle star
+  c4 c4 g4 g4 a4 a4 g4@2
+  how I won-der what you are
+  f4 f4 e4 e4 d4 d4 c4@2
+  up a-bove the world so high
+  g4 g4 f4 f4 e4 e4 d4@2
+  like a dia-mond in the sky
+  g4 g4 f4 f4 e4 e4 d4@2
+  twin-kle twin-kle lit-tle star
+  c4 c4 g4 g4 a4 a4 g4@2
+  how I won-der what you are
+  f4 f4 e4 e4 d4 d4 c4@2
+  gain: .95
+  post
+    reverb mix:.25
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -1315,7 +1402,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'arrangement', code: arrangement },
   { name: 'sampler', code: sampler },
   { name: 'granular', code: granular },
-  { name: 'singing', code: singing },
+  { name: 'singing', code: singing, rondo: singingRondo },
   // rondo-first examples: the JS twin is TRANSPILED from the rondo source at
   // load, so the two can never drift
   { name: 'wobble', code: fromRondo(wobbleRondo), rondo: wobbleRondo },

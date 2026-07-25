@@ -27,15 +27,36 @@ const VOICE_OPTS = new Set(['glide', 'unison', 'detune', 'spread', 'voices'])
 
 const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
 
+/** Rendered width of a token in source columns (approximate for js{ … }). */
+function tokWidth(t: Tok): number {
+  switch (t.k) {
+    case 'num': return t.text.length
+    case 'ident': return t.v.length
+    case 'range': case 'arrow': return 2
+    case 'jsexpr': return t.to - t.from + 4 // `js{` + inner + `}`
+    default: return 1
+  }
+}
+
 class Cursor {
   i = 0
-  constructor(readonly toks: Tok[], readonly errors: RondoError[]) {}
+  constructor(readonly toks: Tok[], readonly errors: RondoError[], readonly fallback?: Pos) {}
   peek(): Tok | undefined { return this.toks[this.i] }
   peek2(): Tok | undefined { return this.toks[this.i + 1] }
   next(): Tok | undefined { return this.toks[this.i++] }
   eof(): boolean { return this.i >= this.toks.length }
+  /** Best position for "here": the next token, or just PAST the last token
+   *  (where the missing thing was expected), or the line's start — never a
+   *  phantom 0:0 that puts squiggles on the wrong line. */
+  pos(): Pos {
+    const t = this.peek()
+    if (t !== undefined) return t.pos
+    const last = this.toks[this.toks.length - 1]
+    if (last !== undefined) return { line: last.pos.line, col: last.pos.col + tokWidth(last) }
+    return this.fallback ?? { line: 0, col: 0 }
+  }
   err(message: string, pos?: Pos): void {
-    const p = pos ?? this.peek()?.pos ?? { line: 0, col: 0 }
+    const p = pos ?? this.pos()
     this.errors.push({ message, line: p.line, col: p.col })
   }
   /** a `name:` named-argument boundary — stops expression parsing. */
@@ -140,7 +161,7 @@ function parseEqBands(c: Cursor): Expr[] {
 
 function parseApp(c: Cursor): Expr {
   const t = c.peek()
-  if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: { line: 0, col: 0 } } }
+  if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: c.pos() } }
   if (t.k === 'jsexpr') { c.next(); return { t: 'js', code: t.v, pos: t.pos } }
   if (t.k === 'num') { c.next(); return { t: 'num', v: t.v, pos: t.pos } }
   if (t.k === 'ident') {
@@ -226,7 +247,7 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
   const bindings: Binding[] = []
   let spine = initial
   for (const ln of body) {
-    const c = new Cursor(ln.toks, errors)
+    const c = new Cursor(ln.toks, errors, { line: ln.line, col: ln.rawCol })
     const t0 = ln.toks[0]
     // binding: NAME = …
     if (ln.toks.length >= 2 && t0 && t0.k === 'ident' && ln.toks[1]!.k === 'eq') {
@@ -297,7 +318,7 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
     const postIndent = body[pIdx]!.indent
     const rest = body.slice(pIdx + 1)
     postBody = rest.filter((ln) => ln.indent > postIndent)
-    if (rest.length !== postBody.length) errors.push({ message: 'post must be the last section of a synth', line: body[pIdx]!.line, col: 1 })
+    if (rest.length !== postBody.length) errors.push({ message: 'post must be the last section of a synth', line: body[pIdx]!.line, col: body[pIdx]!.rawCol })
     voiceBody = body.slice(0, pIdx)
   }
 
@@ -492,10 +513,14 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   let notation = ''
   let notationFrom = body[0]?.offset ?? 0
   let scale: string | undefined
+  let scalePos: Pos | undefined
   let voices: { notation: string; notationFrom: number }[] | undefined
+  const noteInfos: { text: string; pos: Pos }[] = []
   for (let v = 0; v < noteLines.length; v++) {
-    const parsed = notationOf(noteLines[v]!, errors)
-    if (parsed.scale !== undefined) scale = parsed.scale
+    const ln = noteLines[v]!
+    const parsed = notationOf(ln, errors)
+    if (parsed.scale !== undefined) { scale = parsed.scale; scalePos = { line: ln.line, col: ln.rawCol } }
+    noteInfos.push({ text: parsed.notation, pos: { line: ln.line, col: ln.rawCol } })
     if (v === 0) {
       notation = parsed.notation
       notationFrom = parsed.from
@@ -508,18 +533,19 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
     // `scale: a-min` as a modifier line (the stacked-voices form needs it
     // somewhere other than inline)
     const sm = /^scale[ \t]*:[ \t]*([a-gA-G][a-z0-9#-]*)[ \t]*$/.exec(ln.raw)
-    if (sm) { scale = sm[1]; continue }
+    if (sm) { scale = sm[1]; scalePos = { line: ln.line, col: ln.rawCol }; continue }
     const mod = parseMod(ln, errors)
     if (mod) mods.push(mod)
   }
   // validate `irand …` notation lines here so errors carry positions
-  for (const nl of [notation, ...(voices ?? []).map((v) => v.notation)]) {
-    if (!/^irand\b/.test(nl)) continue
-    if (kind === 'beat') errors.push({ message: 'irand makes scale degrees — it belongs in a `play` block, not `beat`', line: header.line, col: header.rawCol })
-    else if (!IRAND_RE.test(nl)) errors.push({ message: 'irand notation is `irand N [seg:M]` (N random degrees, M steps per cycle)', line: header.line, col: header.rawCol })
+  for (const nl of noteInfos) {
+    if (!/^irand\b/.test(nl.text)) continue
+    if (kind === 'beat') errors.push({ message: 'irand makes scale degrees — it belongs in a `play` block, not `beat`', line: nl.pos.line, col: nl.pos.col })
+    else if (!IRAND_RE.test(nl.text)) errors.push({ message: 'irand notation is `irand N [seg:M]` (N random degrees, M steps per cycle)', line: nl.pos.line, col: nl.pos.col })
   }
   if (kind === 'beat' && scale !== undefined) {
-    errors.push({ message: "a beat block's words are synth names — `scale:` doesn't apply", line: header.line, col: header.rawCol })
+    const p = scalePos ?? { line: header.line, col: header.rawCol }
+    errors.push({ message: "a beat block's words are synth names — `scale:` doesn't apply", line: p.line, col: p.col })
   }
   const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
   if (kind === 'beat') block.entry = 'sound'
@@ -556,7 +582,7 @@ function parseSing(lines: Line[], i: number, errors: RondoError[]): { block: Sin
     const postIndent = fullBody[pIdx]!.indent
     const rest = fullBody.slice(pIdx + 1)
     postBody = rest.filter((ln) => ln.indent > postIndent)
-    if (rest.length !== postBody.length) errors.push({ message: 'post must be the last section of a sing block', line: fullBody[pIdx]!.line, col: 1 })
+    if (rest.length !== postBody.length) errors.push({ message: 'post must be the last section of a sing block', line: fullBody[pIdx]!.line, col: fullBody[pIdx]!.rawCol })
     body = fullBody.slice(0, pIdx)
   }
   // leading non-modifier lines are the lyric/melody pairs; the rest modify
@@ -569,7 +595,7 @@ function parseSing(lines: Line[], i: number, errors: RondoError[]): { block: Sin
   if (pairLines.length === 0) {
     errors.push({ message: 'sing needs lyric/melody line pairs (lyrics above, notes below)', line: header.line, col: header.rawCol })
   } else if (pairLines.length % 2 !== 0) {
-    errors.push({ message: 'sing lines come in pairs — each LYRIC line needs a MELODY line under it', line: pairLines[pairLines.length - 1]!.line, col: 1 })
+    errors.push({ message: 'sing lines come in pairs — each LYRIC line needs a MELODY line under it', line: pairLines[pairLines.length - 1]!.line, col: pairLines[pairLines.length - 1]!.rawCol })
   }
   const lyrics: { text: string; from: number }[] = []
   const notes: { text: string; from: number }[] = []

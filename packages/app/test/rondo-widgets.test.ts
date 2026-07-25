@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, scanBeats, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, scanBeats, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens, scrubVelocity } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -170,6 +170,15 @@ describe('beat velocity helpers', () => {
   it('beatTokens serializes velocities back to `word:v` suffixes', () => {
     expect(beatTokens([1, null, 0.6, 0.3], 'kick')).toBe('kick ~ kick:0.6 kick:0.3')
     expect(beatTokens([null, null], 'hat')).toBe('~ ~')
+  })
+
+  it('scrubVelocity: ~80px spans the range, snapped to 2 decimals, floored at .05', () => {
+    expect(scrubVelocity(0.5, 40)).toBe(1) // 40px up from half = full
+    expect(scrubVelocity(0.5, -20)).toBe(0.25)
+    expect(scrubVelocity(1, 200)).toBe(1) // clamped
+    // a scrub thins a hit but never silently deletes it
+    expect(scrubVelocity(0.3, -200)).toBe(0.05)
+    expect(scrubVelocity(0.5, 13)).toBe(0.66) // snapped, not 0.6625
   })
 })
 

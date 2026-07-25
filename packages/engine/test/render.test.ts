@@ -203,4 +203,20 @@ describe('renderOffline', () => {
       renderOffline(gateNoise(), [{ time: -0.1, type: 'noteOn', note: 60 }], 1),
     ).toThrow(RangeError)
   })
+
+  it('validates options: sampleRate must be finite and > 0', () => {
+    expect(() => renderOffline(gateNoise(), [], 0.1, { sampleRate: 0 })).toThrow(RangeError)
+    expect(() => renderOffline(gateNoise(), [], 0.1, { sampleRate: -48000 })).toThrow(RangeError)
+    expect(() => renderOffline(gateNoise(), [], 0.1, { sampleRate: Number.NaN })).toThrow(RangeError)
+    expect(() => renderOffline(gateNoise(), [], 0.1, { sampleRate: Infinity })).toThrow(RangeError)
+  })
+
+  it('validates options: maxVoices must be an integer >= 1', () => {
+    expect(() => renderOffline(gateNoise(), [], 0.1, { maxVoices: 0 })).toThrow(RangeError)
+    expect(() => renderOffline(gateNoise(), [], 0.1, { maxVoices: -2 })).toThrow(RangeError)
+    expect(() => renderOffline(gateNoise(), [], 0.1, { maxVoices: 2.5 })).toThrow(RangeError)
+    expect(() => renderOffline(gateNoise(), [], 0.1, { maxVoices: Number.NaN })).toThrow(RangeError)
+    // the boundary value is accepted
+    expect(() => renderOffline(gateNoise(), [], 0.1, { maxVoices: 1 })).not.toThrow()
+  })
 })

@@ -19,24 +19,36 @@ const rms = (x: Float32Array): number => {
 }
 
 describe('PhaserKernel', () => {
-  it('alters the signal, stays bounded, and is time-varying (LFO sweep)', () => {
-    const n = 48000
+  it('sweeps MOVING spectral notches across the harmonics (not a static allpass/EQ)', () => {
+    // 2 s of a rich saw through a 1 Hz phaser: two windows half an LFO period
+    // apart sit at opposite sweep positions, so the notch pattern must MOVE.
+    // A static allpass or EQ has one steady-state spectrum — every harmonic
+    // ratio between the windows would be ~1 and both assertions below fail.
+    const n = 2 * sr
     const dry = saw(220, n)
     const out = new Float32Array(n)
-    new PhaserKernel({ rate: 2, depth: 0.8, feedback: 0.5 }).process(n, { in: dry }, out, ctx)
-    let diff = 0
+    new PhaserKernel({ rate: 1, depth: 0.8, feedback: 0.5 }).process(n, { in: dry }, out, ctx)
+    const winA = out.subarray(Math.round(0.5 * sr), Math.round(0.75 * sr))
+    const winB = out.subarray(Math.round(1.0 * sr), Math.round(1.25 * sr))
+    let maxRatio = 0
+    let minRatio = Infinity
+    for (let k = 1; k <= 30; k++) {
+      const f = 220 * k
+      const ratio = goertzel(winA, f, sr) / goertzel(winB, f, sr)
+      maxRatio = Math.max(maxRatio, ratio)
+      minRatio = Math.min(minRatio, ratio)
+    }
+    // measured: max ~11x, min ~0.07x — some harmonic is notched in window B
+    // but open in window A, and vice versa. Pin conservative 2x both ways.
+    expect(maxRatio).toBeGreaterThan(2)
+    expect(minRatio).toBeLessThan(0.5)
+    // and it stays bounded/finite while doing so
     let peak = 0
     for (let i = 0; i < n; i++) {
-      diff += Math.abs(out[i]! - dry[i]!)
       peak = Math.max(peak, Math.abs(out[i]!))
       expect(Number.isNaN(out[i]!)).toBe(false)
     }
-    expect(diff / n).toBeGreaterThan(0.001) // it actually did something
-    expect(peak).toBeLessThan(2) // bounded
-    // time-varying: the first and last quarter-seconds differ in character
-    const early = rms(out.subarray(0, sr / 4))
-    const mid = rms(out.subarray(sr / 2, sr / 2 + sr / 4))
-    expect(Math.abs(early - mid)).toBeGreaterThan(1e-4)
+    expect(peak).toBeLessThan(2)
   })
 })
 

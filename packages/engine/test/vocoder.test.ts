@@ -62,4 +62,22 @@ describe('VocoderKernel', () => {
       expect(peak).toBeLessThan(8) // linear (no internal clip); the master stage limits
     }
   })
+
+  it('bands has a real effect: 32 narrow bands isolate the modulator far more sharply than 4', () => {
+    // A 500 Hz sine modulator opens only the bands containing 500 Hz. With 4
+    // wide bands, plenty of off-target carrier energy (e.g. near 3 kHz) leaks
+    // through the same band; with 32 narrow bands it is squeezed out. If the
+    // `bands` config were ignored, both selectivities would be identical.
+    const n = 24000
+    const sel = (bands: number): number => {
+      const out = voc(saw(100, n), sine(500, n), { bands })
+      const half = out.subarray(n >> 1) // filterbank settled
+      return goertzel(half, 500, sr) / (goertzel(half, 3000, sr) + 1e-30)
+    }
+    const sel4 = sel(4)
+    const sel32 = sel(32)
+    // measured: ~163 vs ~2716 (16.7x). Pin a conservative 3x.
+    expect(sel32).toBeGreaterThan(sel4 * 3)
+    expect(Number.isFinite(sel4)).toBe(true)
+  })
 })

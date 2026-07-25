@@ -4,6 +4,7 @@ import { SampleBank } from '../src/samples'
 import { synth } from '../src/builder'
 import { renderOffline } from '../src/render'
 import type { RenderEvent } from '../src/render'
+import { goertzel } from './util/goertzel'
 
 /** Run a kernel over n samples with a constant-on gate that rises at i=0
  *  (prevGate starts 0), optional constant speed. Returns the output. */
@@ -86,24 +87,32 @@ describe('SampleKernel', () => {
 })
 
 describe('sample() through synth() + renderOffline', () => {
-  it('a sample synth renders audible output; root tracks pitch', () => {
-    // a one-cycle-ish click buffer
-    const buf = Float32Array.from({ length: 200 }, (_, i) => Math.sin((i / 200) * Math.PI * 2) * (1 - i / 200))
-    const def = synth(({ note, gate, adsr, sample }) => {
-      const env = adsr(gate, { a: 0.001, d: 0.2, s: 0.4, r: 0.05 })
-      return sample(gate, 'click', { root: 60 }).mul(env)
-    })
-    const events: RenderEvent[] = [
-      { time: 0, type: 'noteOn', note: 60, velocity: 1 }, // at root -> natural
-      { time: 0.1, type: 'noteOff', note: 60 },
-      { time: 0.2, type: 'noteOn', note: 72, velocity: 1 }, // octave up -> 2x
-      { time: 0.3, type: 'noteOff', note: 72 },
-    ]
-    const r = renderOffline(def, events, 0.5, { sampleRate: 48000, samples: { click: { data: buf, sampleRate: 48000 } } })
+  it('a sample synth renders audible output; root tracks pitch (octave up reads 2x)', () => {
+    // a recognizable source: a 500 Hz sine, so playback speed is measurable
+    // as the output's frequency (Goertzel), not just "some sound came out".
+    const SR = 48000
+    const buf = Float32Array.from({ length: SR / 2 }, (_, i) => Math.sin((2 * Math.PI * 500 * i) / SR))
+    const def = synth(({ gate, sample }) => sample(gate, 'tone', { root: 60 }))
+    const render = (note: number) =>
+      renderOffline(
+        def,
+        [{ time: 0, type: 'noteOn', note, velocity: 1 }, { time: 0.4, type: 'noteOff', note }],
+        0.45,
+        { sampleRate: SR, samples: { tone: { data: buf, sampleRate: SR } } },
+      )
+    const win = (r: { left: Float32Array }) => r.left.subarray(Math.round(0.05 * SR), Math.round(0.2 * SR))
+    const atRoot = win(render(60)) // note == root -> natural speed -> 500 Hz
+    const octUp = win(render(72)) // root + 12 -> 2x speed -> 1000 Hz
+    // natural pitch at the root: 500 Hz dominates, no energy at 1000
+    expect(goertzel(atRoot, 500, SR)).toBeGreaterThan(goertzel(atRoot, 1000, SR) * 100)
+    // an octave above the root reads ~2x: the tone lands at 1000 Hz, not 500
+    expect(goertzel(octUp, 1000, SR)).toBeGreaterThan(goertzel(octUp, 500, SR) * 100)
+    // and both actually made sound
     let peak = 0
-    for (let i = 0; i < r.left.length; i++) peak = Math.max(peak, Math.abs(r.left[i]!))
-    expect(peak).toBeGreaterThan(0.01) // it made sound
-    expect(r.left.every(Number.isFinite)).toBe(true)
+    for (let i = 0; i < atRoot.length; i++) peak = Math.max(peak, Math.abs(atRoot[i]!))
+    expect(peak).toBeGreaterThan(0.05)
+    expect(atRoot.every(Number.isFinite)).toBe(true)
+    expect(octUp.every(Number.isFinite)).toBe(true)
   })
 
   it('an unknown sample name renders silence without throwing', () => {
@@ -125,9 +134,22 @@ describe('SampleKernel: NaN / out-of-bounds hygiene', () => {
 
   it('a one-shot with negative speed stops cleanly (no NaN, no dead voice)', () => {
     const bank = new SampleBank()
-    bank.set('r', ramp(100), 48000)
-    const out = run(new SampleKernel('r', false, bank), 600, 48000, { speed: -1 })
+    // offset ramp (100..199) so "playing the buffer" is distinguishable from 0
+    bank.set('r', Float32Array.from({ length: 100 }, (_, i) => 100 + i), 48000)
+    const k = new SampleKernel('r', false, bank)
+    const out = run(k, 600, 48000, { speed: -1 })
     expect(out.every(Number.isFinite)).toBe(true)
+    // stops CLEANLY: it reads frame 0 once, runs off the front, and the whole
+    // tail is actual silence (zeros), not garbage or a stuck read head
+    expect(out[0]).toBe(100)
+    for (let i = 1; i < out.length; i++) expect(out[i]).toBe(0)
+    // ...and the voice is not dead: a fresh gate edge on the SAME kernel
+    // retriggers from the start and sounds again
+    const gate = new Float32Array(8)
+    gate.fill(1, 4) // low for 4 samples (clears prevGate), then a rising edge
+    const again = run(k, 8, 48000, { gate })
+    expect(again.slice(0, 4)).toEqual([0, 0, 0, 0])
+    expect(again.slice(4)).toEqual([100, 101, 102, 103])
   })
 
   it('a transient NaN speed does not permanently poison the voice', () => {

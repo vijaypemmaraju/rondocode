@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { compile } from '../src/compile'
 import { checkFixedPoint, genProgram, shrink, stillFailing } from './fuzzgen'
 
 /* Decompiler fuzzing: N seeded random programs, each held to the round-trip
@@ -34,21 +35,34 @@ describe('decompile fuzz', () => {
     expect(genProgram(7)).not.toBe(genProgram(8))
   })
 
-  it('the shrinker preserves the failure property it is given', () => {
-    // synthetic "failure": any program mentioning tanh. The shrunk result
-    // must still mention it and still be smaller-or-equal.
-    let victim = ''
-    for (let seed = 1; seed < 200; seed++) {
-      const s = genProgram(seed)
-      if (s.includes('tanh')) {
-        victim = s
-        break
-      }
-    }
-    expect(victim).not.toBe('')
-    const pred = (s: string): boolean => s.includes('tanh')
+  it('the shrinker minimizes a planted failure to a strictly smaller, still-failing repro', () => {
+    // a multi-block program where exactly ONE line carries the planted
+    // "failure" (the tanh transform). The predicate mirrors stillFailing's
+    // shape: the candidate must still COMPILE and still exhibit the failure —
+    // so the shrinker may only cut what is genuinely irrelevant.
+    const victim = [
+      'synth padx',
+      '  saw',
+      '  * en2',
+      '  tanh',
+      '  en2 = adsr .01 .1 .5 .1',
+      '',
+      'play padx',
+      '  0 3 5',
+      '  scale: c-maj',
+      '',
+      'cps .5',
+      '',
+    ].join('\n')
+    const pred = (s: string): boolean => compile(s).ok && s.includes('tanh')
+    expect(pred(victim)).toBe(true)
     const small = shrink(victim, pred)
-    expect(small.includes('tanh')).toBe(true)
-    expect(small.length).toBeLessThanOrEqual(victim.length)
+    // strictly smaller, still failing — and the unrelated blocks are gone
+    expect(pred(small)).toBe(true)
+    expect(small.length).toBeLessThan(victim.length)
+    expect(small).toContain('tanh')
+    expect(small).not.toContain('play')
+    expect(small).not.toContain('cps')
+    expect(small).not.toContain('adsr') // the now-unused binding got cut too
   })
 })

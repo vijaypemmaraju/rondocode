@@ -86,6 +86,7 @@ describe('decompile round-trips', () => {
     if (second.ok) expect(second.code).toBe(first.code)
     // a STRUCTURED gain bails to a js block — totality holds
     const rich = compile('beat\n  [hat:0.9 hat]*2 ~\n')
+    expect(rich.ok, JSON.stringify(rich.ok ? [] : rich.errors)).toBe(true)
     if (!rich.ok) return
     const d2 = decompile(rich.code)
     expect(d2).toContain('js\n')
@@ -151,6 +152,50 @@ describe('decompile round-trips', () => {
       expect(second.code).toBe(first.code)
     })
   }
+})
+
+describe('decompile round-trips (audit additions)', () => {
+  /** compile → decompile → compile must be byte-identical. */
+  function fixedPoint(src: string): { rondo2: string; code: string } {
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) throw new Error('unreachable')
+    const rondo2 = decompile(first.code)
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) throw new Error('unreachable')
+    expect(second.code).toBe(first.code)
+    return { rondo2, code: first.code }
+  }
+
+  it('visual blocks survive the round trip (WGSL verbatim)', () => {
+    const { rondo2 } = fixedPoint(
+      'synth s\n  saw\n\nplay s\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n',
+    )
+    expect(rondo2).toContain('visual\n')
+    expect(rondo2).toContain('  fn render(uv: vec2f) -> vec4f {')
+    expect(rondo2).toContain('    return vec4f(uv, 0.0, 1.0);') // nested indent kept
+  })
+
+  it('fast: ctrl values and pan: method modifiers round-trip', () => {
+    const { rondo2 } = fixedPoint(
+      'synth s\n  saw\n\nplay s\n  0 2\n  cutoff: sine 200..2400 fast:2\n  pan: sine slow:4\n',
+    )
+    expect(rondo2).toContain('cutoff: sine 200..2400 fast:2')
+    expect(rondo2).toContain('pan: sine slow:4')
+  })
+
+  it('sing modifiers beyond gain round-trip: ctrl, dur, fn-comb', () => {
+    const { rondo2 } = fixedPoint('sing v\n  la la\n  c4 e4\n  air: .3\n  dur: .9\n  every 2: rev\n')
+    expect(rondo2).toContain('air: 0.3')
+    expect(rondo2).toContain('dur: 0.9')
+    expect(rondo2).toContain('every 2: rev')
+  })
+
+  it('a bare `master` line round-trips through masterCompress()', () => {
+    const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0\n\nmaster\n')
+    expect(rondo2).toContain('\nmaster\n')
+  })
 })
 
 describe('decompile cosmetics', () => {
@@ -235,6 +280,55 @@ setCps(0.5)
     expect(r).toContain('scale: c-maj')
   })
 
+  it('an orphan __sec_ const (no matching arrange) is restored as a js block', () => {
+    const js = "const __sec_a = n('0 3').scale('c major').sound('s1')\n"
+    const r = decompile(js)
+    expect(r).toContain('js\n')
+    expect(r).toContain("const __sec_a = n('0 3').scale('c major').sound('s1')")
+    expect(r).not.toContain('section') // never a half-formed section block
+    const back = compile(r)
+    expect(back.ok).toBe(true)
+    if (back.ok) expect(back.code).toContain('__sec_a')
+  })
+
+  it('an arrange referencing an unknown section bails BOTH statements to js blocks', () => {
+    const js = "const __sec_a = n('0 3').scale('c major').sound('s1')\n\np('song', arrange([4, __sec_a], [2, __sec_b]))\n"
+    const r = decompile(js)
+    expect(r).not.toContain('section a')
+    expect(r).not.toContain('song ')
+    expect(r).toContain("const __sec_a = n('0 3').scale('c major').sound('s1')")
+    expect(r).toContain("p('song', arrange([4, __sec_a], [2, __sec_b]))")
+    const back = compile(r)
+    expect(back.ok).toBe(true)
+    if (back.ok) {
+      expect(back.code).toContain("p('song', arrange([4, __sec_a], [2, __sec_b]))")
+    }
+  })
+
+  it('an arrange with INCONSISTENT lens for one section bails to js blocks', () => {
+    const js = "const __sec_a = n('0 3').scale('c major').sound('s1')\n\np('song', arrange([4, __sec_a], [8, __sec_a]))\n"
+    const r = decompile(js)
+    expect(r).not.toContain('section a')
+    expect(r).toContain("p('song', arrange([4, __sec_a], [8, __sec_a]))")
+    const back = compile(r)
+    expect(back.ok).toBe(true)
+    if (back.ok) expect(back.code).toContain('arrange([4, __sec_a], [8, __sec_a])')
+  })
+
+  it('an inexpressible binding RHS falls back to an inline js{ … }', () => {
+    const js = 'const x = synth(({ note, saw }) => {\n  const amt = Math.min(0.5, 0.9)\n  return saw(note.freq).mul(amt)\n})\n'
+    const r = decompile(js)
+    expect(r).toContain('amt = js{ Math.min(0.5, 0.9) }')
+    const back = compile(r)
+    expect(back.ok, `--- decompiled ---\n${r}`).toBe(true)
+    if (!back.ok) return
+    expect(back.code).toContain('const amt = Math.min(0.5, 0.9)')
+    // and the recompile is a fixed point from here on
+    const again = compile(decompile(back.code))
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.code).toBe(back.code)
+  })
+
   it('decompiles a play chain with ctrls, fn combinators, and struct', () => {
     const js = `const s = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.5, r: 0.1 })))
 
@@ -245,5 +339,15 @@ p('s', n('0 2 4').scale('a minor').sound('s').ctrl('cutoff', sine.range(200, 240
     expect(r).toContain('gain: 0.8')
     expect(r).toContain('every 4: rev')
     expect(r).toContain('struct ~ t ~ t')
+    // and the decompiled rondo COMPILES, reaching a fixed point: hand-written
+    // JS normalizes on the first recompile, and from there decompile → compile
+    // is byte-identical
+    const back = compile(r)
+    expect(back.ok, `--- decompiled ---\n${r}`).toBe(true)
+    if (!back.ok) return
+    expect(back.code).toContain(".ctrl('cutoff', sine.range(200, 2400).slow(4))")
+    const again = compile(decompile(back.code))
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.code).toBe(back.code)
   })
 })

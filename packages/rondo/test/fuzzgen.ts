@@ -70,7 +70,26 @@ interface ExprCtx {
   post: boolean // post chain: `input` exists, note/gate/gated calls don't
 }
 
-function genCall(r: R, ctx: ExprCtx): string {
+/** A nested call SAFE inside any sig argument slot: these oscillators take
+ *  exactly one positional and declare no named args, so they can't absorb an
+ *  enclosing call's later positionals or `k:v` pairs. */
+function genClosedCall(r: R, depth = 1): string {
+  if (r.chance(0.2)) return `noise ${r.pick(['pink', 'white'])}`
+  // closed calls can nest (`sine saw 2` = sine(saw(2))) and stay closed
+  const arg = depth > 0 && r.chance(0.2) ? genClosedCall(r, depth - 1) : r.pick(['2', '4', '8', '110', '.5'])
+  return `${r.pick(['sine', 'saw', 'tri', 'square'])} ${arg}`
+}
+
+/** a value for a 'sig' argument slot: usually a leaf, sometimes (depth
+ *  permitting) a whole nested CALL — calls-in-argument-position is real
+ *  rondo the decompiler must survive (bailing to js{ } is fine; breaking
+ *  the fixed point isn't). */
+function genSigArg(r: R, ctx: ExprCtx, depth: number): string {
+  if (depth > 0 && r.chance(0.25)) return genClosedCall(r)
+  return genAtom(r, ctx)
+}
+
+function genCall(r: R, ctx: ExprCtx, depth = 1): string {
   const names = Object.keys(BUILTINS).filter((n) => {
     const b = BUILTINS[n]!
     if (b.kind === 'proc' || b.kind === 'sigop') return false // spine-line only
@@ -86,22 +105,24 @@ function genCall(r: R, ctx: ExprCtx): string {
   } else if (spec.freqDefault && r.chance(0.5)) {
     // bare source plays the note
   } else {
-    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genAtom(r, ctx))
+    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, depth))
   }
   for (const [k, kind] of Object.entries(spec.named ?? {})) {
     if (!r.chance(0.3)) continue
-    const v = kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'bool' ? '1' : kind === 'num' ? num(r) : genAtom(r, ctx)
+    const v = kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'bool' ? '1' : kind === 'num' ? num(r) : genSigArg(r, ctx, depth)
     parts.push(`${k}:${v}`)
   }
   return parts.join(' ')
 }
 
-/** a leaf: number, ref, or note-derived. Never an operator expression. */
+/** a leaf: number (sometimes negative), ref, or note-derived. Never an
+ *  operator expression. */
 function genAtom(r: R, ctx: ExprCtx): string {
   const roll = r.int(0, 3)
   if (roll === 0 && ctx.refs.length > 0) return r.pick(ctx.refs)
   if (roll === 1 && !ctx.post) return r.pick(['note', 'note/2', 'note*2'])
   if (roll === 1 && ctx.post) return 'input'
+  if (roll === 2 && r.chance(0.2)) return r.pick(['-6', '-.5', '-2'])
   return num(r)
 }
 
@@ -125,7 +146,7 @@ interface SynthInfo {
 }
 
 function genBinding(r: R, name: string, ctx: ExprCtx): { line: string; isKnob: boolean } {
-  const roll = r.int(0, 4)
+  const roll = r.int(0, 5)
   if (roll === 0) return { line: `${name} = adsr ${r.pick(TIMES)} ${r.pick(TIMES)} ${r.pick(SMALL)} ${r.pick(TIMES)}`, isKnob: false }
   if (roll === 1) {
     const pairs = Array.from({ length: r.int(2, 3) }, () => `${r.pick(TIMES)} ${r.pick(SMALL)}`).join(' ')
@@ -133,6 +154,10 @@ function genBinding(r: R, name: string, ctx: ExprCtx): { line: string; isKnob: b
     return { line: `${name} = env ${pairs}${tail}`, isKnob: false }
   }
   if (roll === 2) {
+    // sometimes a NEGATIVE range (`knob -6 -12..0`) — gain-style knobs
+    if (r.chance(0.3)) {
+      return { line: `${name} = knob ${r.pick(['-6', '-3', '-.5'])} -12..${r.pick(['0', '6'])}`, isKnob: true }
+    }
     const lo = r.pick(['0', '80', '.1'])
     const hi = r.pick(['1', '8000', '2400'])
     const curve = r.chance(0.5) ? ' log' : ''
@@ -141,6 +166,10 @@ function genBinding(r: R, name: string, ctx: ExprCtx): { line: string; isKnob: b
   if (roll === 3) {
     const base = r.chance(0.5) ? genCall(r, ctx) : genExpr(r, ctx, 1)
     return { line: `${name} = ${base} -> ${r.pick(['0', '200'])}..${r.pick(['1', '2000'])}`, isKnob: false }
+  }
+  if (roll === 4) {
+    // inline js{ … } escape hatch as a binding RHS (tiny + deterministic)
+    return { line: `${name} = ${r.pick(['js{ note.freq.mul(3) }', 'js{ velocity.mul(0.5) }'])}`, isKnob: false }
   }
   return { line: `${name} = ${genExpr(r, ctx, 2)}`, isKnob: false }
 }
@@ -163,10 +192,10 @@ function genTransformLine(r: R, ctx: ExprCtx): string {
   const name = r.pick(procs)
   const spec = BUILTINS[name]!
   const parts = [name]
-  for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genAtom(r, ctx))
+  for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, 1))
   for (const [k, kind] of Object.entries(spec.named ?? {})) {
     if (!r.chance(0.35)) continue
-    const v = kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'bool' ? '1' : kind === 'num' ? num(r) : genAtom(r, ctx)
+    const v = kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'bool' ? '1' : kind === 'num' ? num(r) : genSigArg(r, ctx, 1)
     parts.push(`${k}:${v}`)
   }
   return parts.join(' ')
@@ -214,7 +243,7 @@ function genSynth(r: R, name: string): { text: string; info: SynthInfo } {
 
 function genToken(r: R): string {
   const d = (): number => r.int(0, 7)
-  switch (r.int(0, 8)) {
+  switch (r.int(0, 11)) {
     case 0: return '~'
     case 1: return `<${d()} ${d()} ${d()}>`
     case 2: return `[${d()} ${d()}]`
@@ -222,11 +251,19 @@ function genToken(r: R): string {
     case 4: return `{${d()} ${d()} ${d()}}%${r.pick(['4', '8'])}`
     case 5: return `${d()}@${r.int(2, 4)}`
     case 6: return `${d()}*2`
+    // nested mini: a bracket inside a bracket, alternation inside brackets
+    case 7: return `[[${d()} ${d()}] ${d()}]`
+    case 8: return `[<${d()} ${d()}> ${d()}]`
+    case 9: return `<[${d()} ${d()}] ${d()}>`
     default: return String(d())
   }
 }
 
 function genNotationLine(r: R): string {
+  if (r.chance(0.1)) {
+    // chord names (uppercase root picks the chord() entry)
+    return r.pick(['Cmaj7 Fmaj7', '<Am F C G>', 'Dm7 G7 Cmaj7 Am7', '<Em7 A7> <Dm7 G7>'])
+  }
   if (r.chance(0.15)) return r.pick(['c4 e4 g4', 'c2 ~ g2 ~', 'a3 c4 e4 a4'])
   return Array.from({ length: r.int(2, 6) }, () => genToken(r)).join(' ')
 }
@@ -244,6 +281,16 @@ function genPlay(r: R, synths: SynthInfo[], indent: string): string {
   if (r.chance(0.25)) lines.push(`${indent}  every ${r.int(2, 4)}: ${r.pick(['rev', 'palindrome', 'degrade'])}`)
   if (r.chance(0.1)) lines.push(`${indent}  jux: rev`)
   if (r.chance(0.1)) lines.push(`${indent}  off .25: gain .3`)
+  // the rest of the FN_COMBS table
+  if (r.chance(0.15)) {
+    lines.push(`${indent}  ${r.pick([
+      'chunk 2: rev',
+      'sometimesby .3: fast 2',
+      'juxby .5: rev',
+      'superimpose: gain .3',
+      'sometimes: rev',
+    ])}`)
+  }
   if (r.chance(0.1)) lines.push(`${indent}  struct t ~ t t`)
   if (target.knob !== undefined && r.chance(0.5)) {
     const k = target.knob
@@ -312,7 +359,11 @@ export function genProgram(seed: number): string {
     const n = r.int(2, 4)
     const lyr = Array.from({ length: n }, () => r.pick(['la', 'da', 'sing', 'lo-ver'])).join(' ')
     const mel = Array.from({ length: n }, () => r.pick(['c4', 'e4', 'g4', 'a4'])).join(' ')
-    blocks.push([`sing v1`, `  ${lyr}`, `  ${mel}`, `  gain: .9`].join('\n'))
+    const lines = [`sing v1${r.chance(0.4) ? ` voice:${r.pick(['barbara', 'alto'])}` : ''}`, `  ${lyr}`, `  ${mel}`]
+    if (r.chance(0.6)) lines.push(`  gain: .9`)
+    if (r.chance(0.3)) lines.push(`  ${r.pick(['every 2: rev', 'sometimes: rev', 'dur: .9'])}`)
+    if (r.chance(0.3)) lines.push('  post', `    reverb room:${r.pick(SMALL)} mix:${r.pick(SMALL)}`)
+    blocks.push(lines.join('\n'))
   }
   // NOTE: no comments in generated js blocks — a trailing comment on a
   // RECOGNIZED statement (setCps → cps sugar) is dropped by design (the

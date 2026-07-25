@@ -8,6 +8,7 @@ import { mountSynthLib } from './editor/synthlib'
 import { mountShaderViz } from './shaderviz/shaderviz'
 import { mountProbes } from './editor/probes'
 import { mountOptions } from './ui/options'
+import { mountTour } from './ui/tour'
 import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
 import { BridgeClient } from './session/bridge-client'
@@ -90,7 +91,11 @@ AudioSession.start().then(
     mountSynthLib(editor)
     mountShaderViz(app, editor, audio)
     mountProbes(editor) // inline live-value readouts on modulation expressions
-    mountOptions(editor) // user settings popover (gear)
+    // First-run tour: coach bubbles that advance on real actions. Mounted
+    // after docs/synthlib so its anchors (docs button, chip bar) exist;
+    // auto-shows only on a pristine first visit (never over a share link).
+    const tour = mountTour(editor)
+    mountOptions(editor, { showTour: () => tour.start() }) // user settings popover (gear)
     mountMidi(editor, audio)
     mountHeaderOverflow(editor.topbar) // after every module has added its button
     startBridge(editor)

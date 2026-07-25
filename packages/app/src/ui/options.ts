@@ -22,8 +22,14 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 
 const BOOL_KEYS = (Object.keys(SETTING_META) as (keyof Settings)[]).filter((k) => typeof getSetting(k) === 'boolean')
 
+/** Actions other modules surface as panel rows (beyond the boolean toggles). */
+export interface OptionsExtras {
+  /** Clear the first-run flag and replay the intro tour (ui/tour.ts). */
+  showTour?: () => void
+}
+
 /** Mount the Options panel on the editor's header. Returns a disposer. */
-export function mountOptions(editor: EditorHandle): () => void {
+export function mountOptions(editor: EditorHandle, extras?: OptionsExtras): () => void {
   const btn = el('button', 'btn options-btn')
   btn.type = 'button'
   btn.append(iconEl('gear'), el('span', 'btn-label', 'options'))
@@ -55,6 +61,23 @@ export function mountOptions(editor: EditorHandle): () => void {
     reflect()
     row.addEventListener('click', () => setSetting(key, !(getSetting(key) as boolean) as Settings[typeof key]))
     rows.set(key, row)
+    pop.append(row)
+  }
+
+  // Action rows (not settings): same row style, tap runs the action.
+  if (extras?.showTour) {
+    const row = el('button', 'opt-row')
+    row.type = 'button'
+    const text = el('div', 'opt-text')
+    text.append(
+      el('div', 'opt-label', 'Show intro tour'),
+      el('div', 'opt-help', 'Replay the quick walkthrough: run the track, drag a control, write a note.'),
+    )
+    row.append(text)
+    row.addEventListener('click', () => {
+      close()
+      extras.showTour?.()
+    })
     pop.append(row)
   }
 

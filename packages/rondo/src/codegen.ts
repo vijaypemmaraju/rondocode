@@ -380,7 +380,7 @@ function cgPlayPat(block: PlayBlock): string {
     ? `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
     : lineExpr(block.notation)
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
-  if (block.entry !== 'sound') pat += `.sound('${block.name}')`
+  if (block.entry !== 'sound') pat += `.sound('${block.synthName ?? block.name}')`
   for (const m of orderMods(block.mods)) pat += cgMod(m)
   return pat
 }

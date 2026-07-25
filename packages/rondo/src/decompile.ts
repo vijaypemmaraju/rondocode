@@ -749,8 +749,9 @@ function decompilePlay(stmt: Node): string | null {
     // p('beat', s('…')) → a bare `beat`; any other name is kept on the header
     return [`beat${pname === 'beat' ? '' : ` ${pname}`}`, ...play.body.map((l) => `  ${l}`)].join('\n')
   }
-  if (play.sound !== pname) return null // play NAME routes to itself
-  return [`play ${pname}`, ...play.body.map((l) => `  ${l}`)].join('\n')
+  if (play.sound === undefined) return null
+  const header = play.sound === pname ? `play ${pname}` : `play ${pname} synth:${play.sound}`
+  return [header, ...play.body.map((l) => `  ${l}`)].join('\n')
 }
 
 /** A section const: its plays (one per stack member), or null. */

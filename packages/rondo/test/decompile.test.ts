@@ -127,6 +127,18 @@ describe('decompile round-trips', () => {
     if (back.ok) expect(back.code).toContain("sing('barbara', 'la la', 'c4 e4')")
   })
 
+  it('a channel routed to a different synth round-trips via play synth:', () => {
+    const src = 'synth keys\n  saw\n\nplay pad synth:keys\n  <Dm7 G7>\n  dur: 0.95\n'
+    const first = compile(src)
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('play pad synth:keys')
+    const second = compile(rondo2)
+    expect(second.ok).toBe(true)
+    if (second.ok) expect(second.code).toBe(first.code)
+  })
+
   for (const { name, src } of EXAMPLES) {
     it(`${name}.rondo: compile → decompile → compile is a fixed point`, () => {
       const first = compile(src)

@@ -261,7 +261,7 @@ export function scanPlays(text: string): PlayRoll[] {
   let o = 0
   for (const l of lines) { offs.push(o); o += l.length + 1 }
   for (let i = 0; i < lines.length; i++) {
-    const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)/.exec(lines[i]!)
+    const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)(?:\s+synth:([a-zA-Z_]\w*))?/.exec(lines[i]!)
     if (!ph) continue // a play header (top-level OR nested in a section)
     const playIndent = ph[1]!.length
     const nx = lines[i + 1]
@@ -291,7 +291,7 @@ export function scanPlays(text: string): PlayRoll[] {
           srcFull: notation,
           srcOffset: innerStart,
         }
-        roll.synth = ph[2]!
+        roll.synth = ph[3] ?? ph[2]!
         if (scale) roll.scale = scale[0]!.slice('scale:'.length)
         out.push(roll)
         continue
@@ -302,7 +302,7 @@ export function scanPlays(text: string): PlayRoll[] {
     if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
     const from = lineFrom
     const roll: PlayRoll = { from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) }
-    roll.synth = ph[2]!
+    roll.synth = ph[3] ?? ph[2]!
     if (scale) roll.scale = scale[0]!.slice('scale:'.length)
     out.push(roll)
   }
@@ -438,7 +438,7 @@ export function scanRichPlays(text: string): RichPlay[] {
   let o = 0
   for (const l of lines) { offs.push(o); o += l.length + 1 }
   for (let i = 0; i < lines.length; i++) {
-    const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)/.exec(lines[i]!)
+    const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)(?:\s+synth:([a-zA-Z_]\w*))?/.exec(lines[i]!)
     if (!ph) continue
     const nx = lines[i + 1]
     if (nx === undefined) continue
@@ -455,7 +455,7 @@ export function scanRichPlays(text: string): RichPlay[] {
     if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
     if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
     const from = offs[i + 1]! + indent
-    out.push({ content: notation, from, to: from + notation.length, synth: ph[2]! })
+    out.push({ content: notation, from, to: from + notation.length, synth: ph[3] ?? ph[2]! })
   }
   return out
 }

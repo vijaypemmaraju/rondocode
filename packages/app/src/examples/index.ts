@@ -1453,6 +1453,115 @@ master threshold:-7 ratio:2 makeup:1
 cps .5
 `
 
+
+/** Rondo twins for the smaller JS examples (JS stays the teaching text;
+ *  the twin is the same music in rondo, mobile-formatted). */
+const ambientBellsRondo = `# ambient bells. long tails, space.
+# a ghost echo via off (the same
+# notes again, later and quieter).
+
+synth bell
+  tone + del
+  * .6
+  shimf = note * 3.01
+  shimraw = sine shimf
+  body = tri * .6 + shimraw * .25
+  tone = body * env
+  del = delay tone .28 .45
+  env = adsr .01 1.2 0 2.5
+
+play bell
+  <0 4 ~ 2> <7 ~ 9 ~>
+  scale: c-pentatonic
+  gain: .8
+  off .25: gain .3
+
+# very slow: a change every 4 seconds
+cps .25
+`
+
+const granularRondo = `# granular done dreamy: big smooth
+# grains of the pad sample, a drifting
+# read position, chorus + a wash of
+# reverb. a consonant chord = ambient.
+
+synth cloud voices:12
+  granular pad root:57 pos:drift size:.22 density:70 spray:.004
+  * env
+  * .5
+  chorus rate:.3 depth:.005 mix:.4
+  reverb room:.94 damp:.35 mix:.5
+  drift = lfo .03 -> .2..0.6
+  env = adsr 1.2 1 .9 2.2
+
+play cloud
+  <A E F#m D>
+  dur: .98
+  gain: .9
+
+cps .16
+`
+
+const fmKeysRondo = `# fm keys. a sine modulates the
+# carrier's frequency at audio rate;
+# the mod depth has its OWN envelope,
+# so notes start bright and mellow out.
+
+synth keys
+  sine fmod
+  * carEnv
+  * .5
+  ratio = knob 2 .5..8
+  index = knob 1.4 0..6
+  mfreq = note * ratio
+  mraw = sine mfreq
+  depth = note * index
+  mod = mraw * depth * modEnv
+  fmod = note + mod
+  modEnv = adsr .002 .35 .15 .3
+  carEnv = adsr .004 .5 .5 .4
+
+play keys
+  <0 2 -1 4>
+  <2 4 1 6>
+  <4 6 3 8>
+  scale: d-dor
+  dur: .8
+  gain: .8
+  index: <1 2.5>
+
+cps .4
+`
+
+const chordsArpRondo = `# chords & arps. named chords expand
+# to stacks; arp spreads a chord's
+# notes across its step. TWO channels
+# drive ONE synth via synth: .
+
+synth keys
+  saw
+  svf cut res:.3
+  * env
+  * .5
+  cut = lfo .1 -> 900..2600
+  env = adsr .008 .3 .5 .5
+  post
+    reverb room:.7 damp:.4 mix:.25
+
+play pad synth:keys
+  <Dm7 G7 Cmaj7 Am7>
+  dur: .95
+  gain: .4
+
+play arp synth:keys
+  <Dm7 G7 Cmaj7 Am7>
+  arp updown
+  dur: .12
+  gain: .55
+
+cps .42
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -1470,18 +1579,18 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'dubstep', code: dubstep },
   { name: 'trance', code: trance },
   { name: 'future bass', code: futureBass },
-  { name: 'ambient bells', code: ambientBells },
+  { name: 'ambient bells', code: ambientBells, rondo: ambientBellsRondo },
   { name: 'drum groove', code: drumGroove },
-  { name: 'fm keys', code: fmKeys },
+  { name: 'fm keys', code: fmKeys, rondo: fmKeysRondo },
   { name: 'fm presets', code: fmPresets },
   { name: 'chiptune', code: chiptune },
-  { name: 'chords & arps', code: chordsArp },
+  { name: 'chords & arps', code: chordsArp, rondo: chordsArpRondo },
   { name: 'generative', code: generative },
   { name: 'edm', code: edm },
   { name: 'synthscape', code: synthscape },
   { name: 'arrangement', code: arrangement },
   { name: 'sampler', code: sampler },
-  { name: 'granular', code: granular },
+  { name: 'granular', code: granular, rondo: granularRondo },
   { name: 'singing', code: singing, rondo: singingRondo },
   // rondo-first examples: the JS twin is TRANSPILED from the rondo source at
   // load, so the two can never drift

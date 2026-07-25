@@ -445,6 +445,19 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   // a beat block's name is optional (it's a channel name, not a synth route)
   const name = nameTok && nameTok.k === 'ident' ? nameTok.v : kind === 'beat' ? 'beat' : ''
   if (!name) errors.push({ message: 'play needs a synth name (`play lead`)', line: header.line, col: header.rawCol })
+  // `play pad synth:keys` — the channel is `pad`, the notes route to `keys`
+  // (two patterns can drive one synth on separate channels)
+  let synthName: string | undefined
+  for (let k = 2; k < header.toks.length; k++) {
+    const t = header.toks[k]!
+    if (kind === 'play' && t.k === 'ident' && t.v === 'synth' && header.toks[k + 1]?.k === 'colon' && header.toks[k + 2]?.k === 'ident') {
+      synthName = (header.toks[k + 2] as Tok & { v: string }).v
+      k += 2
+      continue
+    }
+    errors.push({ message: kind === 'play' ? 'unknown play option (only `synth:NAME`)' : 'unknown beat option', line: t.pos.line, col: t.pos.col })
+    break
+  }
   // body = lines deeper than the header, so a play nests inside a section too
   const { body, next } = bodyLines(lines, i + 1, header.indent)
   if (body.length === 0) errors.push({ message: `play '${name}' has no notation`, line: header.line, col: header.rawCol })
@@ -492,6 +505,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   }
   const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
   if (kind === 'beat') block.entry = 'sound'
+  if (synthName !== undefined) block.synthName = synthName
   if (voices !== undefined) block.voices = voices
   return { block, next }
 }

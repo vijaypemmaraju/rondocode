@@ -311,6 +311,13 @@ describe('rondo → rondocode codegen', () => {
     if (!sc.ok) expect(sc.errors[0]!.message).toContain("doesn't apply")
   })
 
+  it('play synth: routes a channel to a different synth (two patterns, one synth)', () => {
+    const out = ok('synth keys\n  saw\n\nplay pad synth:keys\n  <Dm7 G7>\n\nplay arp synth:keys\n  <Dm7 G7>\n  arp updown\n')
+    expect(out).toContain("p('pad', chord('<Dm7 G7>').sound('keys'))")
+    expect(out).toContain("p('arp', chord('<Dm7 G7>').sound('keys').arp('updown'))")
+    expect(compile('synth s1\n  saw\n\nplay x nonsense\n  0 3\n').ok).toBe(false)
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

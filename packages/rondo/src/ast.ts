@@ -79,6 +79,9 @@ export interface PlayBlock {
   name: string
   /** 'sound' = a `beat` block: notation words are synth names → s('…'). */
   entry?: 'sound'
+  /** `play NAME synth:OTHER` routes to a DIFFERENT synth than the channel
+   *  name — two patterns can drive one synth on separate channels. */
+  synthName?: string
   /** raw notation text, handed verbatim to n()/note(). */
   notation: string
   /** absolute char offset of `notation` in the source (for note-play flash). */

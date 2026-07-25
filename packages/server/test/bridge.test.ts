@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import { Bridge, SUPERSEDED } from '../src/bridge'
+import { CompletionService, makeCompleteHandler } from '../src/complete'
 
 /* Bridge tests run fully in-process: a real Bridge on an ephemeral port
  * (port 0) with `ws` clients playing the browser. Nothing here touches 6070
@@ -175,6 +176,41 @@ describe('Bridge', () => {
       ['state', { playing: false }],
       ['diagnostics', []],
     ])
+  })
+
+  it('gives httpHandler first look at plain HTTP requests and 404s the rest', async () => {
+    // End to end over a REAL http request: the same wiring main.ts uses — a
+    // Bridge whose httpHandler is makeCompleteHandler — serves /complete
+    // routes, while unhandled paths fall through to the bridge's default 404.
+    const service = new CompletionService({
+      apiKey: 'sk-test',
+      createClient: () => ({
+        messages: {
+          create: () => Promise.resolve({ content: [{ type: 'text', text: '.rev()' }] }),
+        },
+      }),
+    })
+    const bridge = new Bridge({ port: 0, httpHandler: makeCompleteHandler(service) })
+    bridges.push(bridge)
+    await bridge.listen()
+    const base = `http://127.0.0.1:${bridge.port}`
+
+    const status = await fetch(`${base}/complete/status`)
+    expect(status.status).toBe(200)
+    expect(await status.json()).toEqual({ available: true })
+
+    const completion = await fetch(`${base}/complete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prefix: 'p(', suffix: '' }),
+    })
+    expect(completion.status).toBe(200)
+    expect(await completion.json()).toEqual({ completion: '.rev()' })
+
+    // Anything the handler declines falls through to the bridge's 404.
+    const miss = await fetch(`${base}/nope`)
+    expect(miss.status).toBe(404)
+    expect(await miss.text()).toContain('WebSocket endpoint at /session')
   })
 
   it('close() rejects pending calls and stops accepting connections', async () => {

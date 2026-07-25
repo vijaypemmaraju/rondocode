@@ -133,13 +133,18 @@ describe('mcp server tools', () => {
 
   it('answers every LIVE tool with an actionable error when no browser is connected', async () => {
     const { client } = await rig()
-    for (const name of ['get_state', 'eval_code'] as const) {
-      const r = (await client.callTool({
-        name,
-        arguments: name === 'eval_code' ? { code: 'setCps(1)' } : {},
-      })) as CallToolResult
+    const calls: [string, Record<string, unknown>][] = [
+      ['get_code', {}],
+      ['eval_code', { code: 'setCps(1)' }],
+      ['set_param', { synth: 'acid', name: 'cutoff', value: 1200 }],
+      ['set_channel', { synth: 'acid', gain: 0.8 }],
+      ['transport', { action: 'play' }],
+      ['get_state', {}],
+    ]
+    for (const [name, args] of calls) {
+      const r = (await client.callTool({ name, arguments: args })) as CallToolResult
       expect(r.isError, `${name} should be isError`).toBe(true)
-      expect(asText(r)).toContain(NO_SESSION)
+      expect(asText(r), name).toContain(NO_SESSION)
     }
   })
 
@@ -227,6 +232,29 @@ describe('mcp server tools', () => {
     expect(got.diagnostics!.ageMs).toBeGreaterThanOrEqual(0)
     expect(got.state!.payload).toEqual(FAKE_STATE)
     expect(got.state!.ageMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it("a 'hello' notification leaves the get_diagnostics cache untouched", async () => {
+    const { bridge, client } = await rig()
+    const { ws } = await attachBrowser(bridge)
+
+    // hello first, then state: ws frames are delivered in order, so once the
+    // state notification has landed in the cache, hello has already been
+    // processed — and must have populated NEITHER slot.
+    ws.send(JSON.stringify({ notify: 'hello', payload: { url: 'http://localhost:6060' } }))
+    ws.send(JSON.stringify({ notify: 'state', payload: FAKE_STATE }))
+
+    type Cached = { payload: unknown; ageMs: number } | null
+    let got: { diagnostics: Cached; state: Cached } = { diagnostics: null, state: null }
+    const t0 = Date.now()
+    while (got.state === null) {
+      if (Date.now() - t0 > 2000) throw new Error('state notification never cached')
+      const r = (await client.callTool({ name: 'get_diagnostics', arguments: {} })) as CallToolResult
+      got = asJson(r) as typeof got
+      await new Promise((r2) => setTimeout(r2, 5))
+    }
+    expect(got.state.payload).toEqual(FAKE_STATE) // not the hello payload
+    expect(got.diagnostics).toBeNull() // hello landed nowhere
   })
 })
 

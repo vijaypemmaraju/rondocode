@@ -1,7 +1,7 @@
-import { mkdtempSync, existsSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
@@ -98,10 +98,18 @@ describe('render_code', () => {
     // dry — if masterCompress were dropped (the bug), rms would be ~unchanged.
     const comp = rms(await call('render_code', { code: `${voice}\nmasterCompress({ threshold: -50, ratio: 2, makeup: 12 })`, cycles: 2 }))
     expect(comp).toBeLessThan(base * 0.7)
-    // a reverb bus changes the render; if the send were dropped (the bug) the
-    // render would be byte-identical to dry, so any material rms delta proves it.
-    const withBus = rms(await call('render_code', { code: `${voice}\nbus('rev', ({ input, reverb }) => reverb(input, { roomSize: 0.95 }), { a: 1 })`, cycles: 2 }))
-    expect(Math.abs(withBus - base)).toBeGreaterThan(1e-3)
+    // Bus send: a QUIET voice (mul 0.25) keeps the mix under the 0.89
+    // normalizer, so added reverb energy shows up as added rms — direction
+    // and magnitude, not just "something changed". A 0.35 send into a big
+    // reverb adds a few percent of diffuse energy (deterministic render, so
+    // the band is tight but safe); if the send were dropped (the bug) the
+    // render would be byte-identical to dry and the ratio exactly 1.
+    const quiet =
+      "const a = synth(({ sine, note, gate, adsr }) => sine(note.freq).mul(adsr(gate, { a: 0.01, d: 0.2, s: 0.4, r: 0.1 })).mul(0.25))\np('x', note('c3 e3 g3 c4').sound('a'))"
+    const quietBase = rms(await call('render_code', { code: quiet, cycles: 2 }))
+    const withBus = rms(await call('render_code', { code: `${quiet}\nbus('rev', ({ input, reverb }) => reverb(input, { roomSize: 0.95 }), { a: 0.35 })`, cycles: 2 }))
+    expect(withBus).toBeGreaterThan(quietBase * 1.02)
+    expect(withBus).toBeLessThan(quietBase * 1.25)
   }, 60_000)
 
   it('skips the wav when includeWav is false', async () => {
@@ -156,6 +164,21 @@ describe('render_code', () => {
     expect(r.isError).toBe(true)
     expect(asText(r)).toContain('100 KB')
   })
+
+  it('clamps an out-of-range cps to 0.05..4 instead of erroring', async () => {
+    // High side: 999 → 4, and the render succeeds at the clamped tempo.
+    const fast = await call('render_code', { code: ACID, cycles: 1, cps: 999, includeWav: false })
+    expect(fast.isError, asText(fast)).not.toBe(true)
+    const j = asJson(fast)
+    expect(j['cps']).toBe(4)
+    expect(j['durationSec']).toBeCloseTo(1 / 4 + 2, 3)
+    // Low side: 0.001 → 0.05. At 64 cycles the CLAMPED tempo trips the length
+    // ceiling, and the message quotes 0.05 — proving the clamp ran (0.001
+    // unclamped would read "at 0.001 cps").
+    const slow = await call('render_code', { code: ACID, cycles: 64, cps: 0.001, includeWav: false })
+    expect(slow.isError).toBe(true)
+    expect(asText(slow)).toContain('at 0.05 cps')
+  }, 60_000)
 })
 
 describe('render_synth', () => {
@@ -186,6 +209,83 @@ describe('render_synth', () => {
     expect(asText(r)).toContain("unknown synth 'wobble'")
     expect(asText(r)).toContain('acid')
   })
+
+  it('clamps durationSec to 0.2..30 instead of erroring', async () => {
+    // A cheap synth keeps the high-clamp render (30s + 1s tail) quick.
+    const cheap = "const t = synth(({ note, gate, adsr, sine }) => sine(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.3, r: 0.1 })))"
+    const low = await call('render_synth', { code: cheap, durationSec: 0.01 })
+    expect(low.isError, asText(low)).not.toBe(true)
+    expect(asJson(low)['durationSec']).toBe(1.2) // 0.2 clamped + 1s tail
+    const high = await call('render_synth', { code: cheap, durationSec: 9999 })
+    expect(high.isError, asText(high)).not.toBe(true)
+    expect(asJson(high)['durationSec']).toBe(31) // 30 clamped + 1s tail
+  }, 60_000)
+})
+
+describe('mirror fail-open', () => {
+  /** A rig with custom render dirs (the shared beforeEach uses two good temp
+   *  dirs; these cases need a broken or absent mirror). */
+  const rigWithDirs = async (dirs: { rendersDir: string; mirrorDir: string | null }) => {
+    const b = new Bridge({ port: 0 })
+    await b.listen()
+    const server = createMcpServer(b, { renderDirs: dirs })
+    const c = new Client({ name: 'test-client-2', version: '0.0.0' })
+    const [ct, st] = InMemoryTransport.createLinkedPair()
+    await Promise.all([c.connect(ct), server.connect(st)])
+    return {
+      c,
+      close: async () => {
+        await c.close()
+        await b.close()
+      },
+    }
+  }
+
+  it('an unwritable mirrorDir does not fail the render (wav still lands in rendersDir)', async () => {
+    const renders = mkdtempSync(join(tmpdir(), 'rondocode-renders-'))
+    // A regular FILE where the mirror dir should be: mkdirSync/writeFileSync
+    // inside writeWav throw, and the catch must swallow it.
+    const blocker = join(mkdtempSync(join(tmpdir(), 'rondocode-mirror-blocked-')), 'not-a-dir')
+    writeFileSync(blocker, 'in the way')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { c, close } = await rigWithDirs({ rendersDir: renders, mirrorDir: blocker })
+    try {
+      const r = (await c.callTool({
+        name: 'render_synth',
+        arguments: { code: ACID, durationSec: 0.5 },
+      })) as CallToolResult
+      expect(r.isError, asText(r)).not.toBe(true)
+      const wavPath = asJson(r)['wavPath'] as string
+      expect(existsSync(wavPath)).toBe(true)
+      expect(wavPath.startsWith(renders)).toBe(true)
+      // The skip is reported on stderr, mentioning the mirror path.
+      expect(warn.mock.calls.some((args) => String(args[0]).includes('mirror copy'))).toBe(true)
+    } finally {
+      warn.mockRestore()
+      await close()
+      rmSync(renders, { recursive: true, force: true })
+      rmSync(join(blocker, '..'), { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  it('mirrorDir: null disables mirroring entirely', async () => {
+    const renders = mkdtempSync(join(tmpdir(), 'rondocode-renders-'))
+    const { c, close } = await rigWithDirs({ rendersDir: renders, mirrorDir: null })
+    try {
+      const r = (await c.callTool({
+        name: 'render_synth',
+        arguments: { code: ACID, durationSec: 0.5 },
+      })) as CallToolResult
+      expect(r.isError, asText(r)).not.toBe(true)
+      const wavPath = asJson(r)['wavPath'] as string
+      expect(existsSync(wavPath)).toBe(true)
+      // Only the renders copy exists — nothing else was written anywhere.
+      expect(readdirSync(renders)).toHaveLength(1)
+    } finally {
+      await close()
+      rmSync(renders, { recursive: true, force: true })
+    }
+  }, 60_000)
 })
 
 describe('compare_renders', () => {

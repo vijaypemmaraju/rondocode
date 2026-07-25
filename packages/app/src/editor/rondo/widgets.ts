@@ -357,6 +357,7 @@ export function scanBeats(text: string): BeatBlock[] {
 class KnobWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
+  private raf = 0
   /** true while a drag holds the param (touch-to-override) — released in
    *  end(), and defensively in destroy() so a mid-drag teardown (dispose,
    *  language switch) can never leave the pattern drive suppressed forever. */
@@ -414,16 +415,44 @@ class KnobWidget extends WidgetType {
     if (this.hooks.onNoteEvents && this.hooks.now && this.name !== undefined) {
       const name = this.name
       const now = this.hooks.now
-      // generation counter: each event's settle-back only applies if it is
-      // still the LATEST — with back-to-back notes, a stale settle timer used
-      // to fire BETWEEN events and jerk the dial to the DEF for a frame
-      let gen = 0
-      // GLIDE QUEUE: a .ctrl sweep is a continuous signal sampled once per
-      // note. Events arrive ahead of the clock, so when a note fires the NEXT
-      // sample is usually already known — ride the pointer toward it over
-      // exactly the gap between them, drawing the sweep as continuous motion
-      // instead of per-note steps.
+      // FRAME-DRIVEN GLIDE: the drive is a continuous signal sampled once
+      // per note, and events arrive AHEAD of the audio clock — so a rAF loop
+      // can interpolate between the bracketing samples every frame, moving
+      // the dial (and the readout) exactly on the clock. Runs only while
+      // samples are pending; a gap after the last sample settles back to DEF.
       const queue: { t: number; v: number }[] = []
+      let prev: { t: number; v: number } | null = null
+      const HOLD_SEC = 0.35 // hold the last value this long before settling
+      const frame = (): void => {
+        const tNow = now()
+        while (queue.length > 0 && queue[0]!.t <= tNow) prev = queue.shift()!
+        const nxt = queue[0]
+        if (this.drag.active) {
+          // the finger owns the dial; keep ticking so the drive resumes
+          this.raf = requestAnimationFrame(frame)
+          return
+        }
+        if (prev !== null && nxt !== undefined && nxt.t - prev.t < 4) {
+          // between two known samples: linear in VALUE (what the signal does)
+          const u = (tNow - prev.t) / (nxt.t - prev.t || 1e-6)
+          const v = prev.v + (nxt.v - prev.v) * Math.min(Math.max(u, 0), 1)
+          wrap.classList.add('live')
+          setDial(toNorm(v, this.lo, this.hi, this.log))
+          showValue(v)
+        } else if (prev !== null && tNow - prev.t <= HOLD_SEC) {
+          wrap.classList.add('live')
+          setDial(toNorm(prev.v, this.lo, this.hi, this.log))
+          showValue(prev.v)
+        } else if (prev !== null) {
+          // drive went quiet: settle to the DEF and stop the loop
+          prev = null
+          wrap.classList.remove('live')
+          setDial(baseT)
+          showValue(this.value)
+        }
+        if (prev !== null || queue.length > 0) this.raf = requestAnimationFrame(frame)
+        else this.raf = 0
+      }
       this.unsub = this.hooks.onNoteEvents((evs) => {
         let queued = false
         for (const ev of evs) {
@@ -432,38 +461,11 @@ class KnobWidget extends WidgetType {
           if (typeof v !== 'number' || !Number.isFinite(v)) continue
           queue.push({ t: ev.timeSec, v })
           queued = true
-          const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
-          this.timers.at((ev.timeSec - now()) * 1000, () => {
-            if (this.drag.active) return // a hand on the knob outranks the drive
-            const g = ++gen
-            wrap.classList.add('live')
-            // consume up to this point; peek the next sample
-            while (queue.length > 0 && queue[0]!.t <= ev.timeSec + 1e-6) queue.shift()
-            const nxt = queue[0]
-            if (nxt !== undefined && nxt.t - ev.timeSec < 4) {
-              // land on THIS note's value instantly, then glide to the next
-              ptr.style.transitionDuration = '0s'
-              setDial(toNorm(v, this.lo, this.hi, this.log))
-              void ptr.getBoundingClientRect() // commit the start angle
-              ptr.style.transitionDuration = `${(nxt.t - ev.timeSec).toFixed(3)}s`
-              setDial(toNorm(nxt.v, this.lo, this.hi, this.log))
-            } else {
-              ptr.style.transitionDuration = '' // default short tween
-              setDial(toNorm(v, this.lo, this.hi, this.log))
-            }
-            showValue(v)
-            this.timers.at(litMs, () => {
-              if (this.drag.active || g !== gen) return // a newer note owns the dial
-              wrap.classList.remove('live')
-              ptr.style.transitionDuration = ''
-              setDial(baseT)
-              showValue(this.value)
-            })
-          })
         }
         if (queued) {
           queue.sort((a, b) => a.t - b.t)
           if (queue.length > 64) queue.splice(0, queue.length - 64)
+          if (this.raf === 0) this.raf = requestAnimationFrame(frame)
         }
       })
     }
@@ -480,7 +482,6 @@ class KnobWidget extends WidgetType {
       wrap.classList.add('active')
       buzz()
       wrap.classList.remove('live') // grabbing overrides the pattern drive
-      ptr.style.transitionDuration = '0s' // the dial answers the finger, not a glide
       const startY = e.clientY
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
@@ -517,7 +518,6 @@ class KnobWidget extends WidgetType {
         this.drag.active = false
         this.drag.ended = true
         wrap.classList.remove('active')
-        ptr.style.transitionDuration = ''
         // hand off the knob: the pattern drive resumes on its next event
         if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
         window.removeEventListener('pointermove', move)
@@ -536,6 +536,7 @@ class KnobWidget extends WidgetType {
   destroy(): void {
     this.unsub?.()
     this.timers.clear()
+    cancelAnimationFrame(this.raf)
     if (this.holding && this.synth !== undefined && this.name !== undefined) {
       this.holding = false
       this.hooks.releaseParam?.(this.synth, this.name)

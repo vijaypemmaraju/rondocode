@@ -2347,6 +2347,561 @@ visual
 cps .577
 `
 
+
+const futureBassRondo = `# future bass. supersaw chords with
+# an LFO filter, OTT + exciter post,
+# a drivable wet reverb, half-time
+# drums, and a hard pump.
+
+synth kick
+  body + click
+  * 1.45
+  tanh
+  drop = adsr .001 .08 0 .05 ^ 2 -> 44..195
+  bs = sine drop
+  body = bs * amp
+  amp = adsr .001 .22 0 .06
+  cn = noise
+  cf = svf cn 4000 mode:hp
+  click = cf * cenv * .55
+  cenv = adsr .0004 .02 0 .01
+
+synth snare
+  bodyt + crack + snap
+  * 1.25
+  tanh
+  bsin = sine 190
+  bodyt = bsin * benv
+  benv = adsr .001 .11 0 .05
+  n1 = noise
+  c1 = svf n1 3000 mode:hp
+  crack = c1 * cenv
+  cenv = adsr .001 .2 0 .1
+  n2 = noise
+  s2 = svf n2 6000 res:.4 mode:bp
+  snap = s2 * senv * .6
+  senv = adsr .0005 .05 0 .03
+
+synth hat
+  noise
+  svf 11000 mode:hp
+  * env
+  * .28
+  env = adsr .001 .025 0 .02
+
+synth sub
+  sine
+  * env
+  * 1.15
+  tanh
+  env = adsr .01 .1 .9 .1
+
+synth chords
+  s1 + s2 + s3 + s4 + s5
+  * .22
+  ladder cut res:.3
+  svf 170 mode:hp
+  * env
+  wob = knob 1.5 .25..8
+  s1 = saw
+  f2 = note * 1.007
+  s2 = saw f2
+  f3 = note * .993
+  s3 = saw f3
+  f4 = note * 1.014
+  s4 = saw f4
+  f5 = note * .986
+  s5 = saw f5
+  cut = lfo wob sine -> 700..5400
+  env = adsr .05 .3 .8 .25
+  post
+    chorus rate:.5 depth:.007 mix:.8
+    reverb room:.85 damp:.4 mix:wet
+    exciter freq:5000 amount:.3
+    ott depth:.3
+    wet = knob .35 0..0.7
+
+section intro 4
+  play chords
+    <Amaj9 E A6 F#m>
+    wob: <1 2 4 2>
+    wet: .35
+    gain: .5
+    dur: .95
+  play sub
+    <a1 e1 a1 f#1>
+    gain: .5
+    dur: .9
+
+section full 8
+  play kick
+    c1 ~ ~ ~ c1 ~ c1 ~
+    gain: 1
+  play snare
+    ~ ~ c3 ~ ~ ~ c3 ~
+    gain: .9
+  play hat
+    c5*8
+    gain: rand .35..0.6
+  play sub
+    <a1 e1 a1 f#1>
+    gain: .5
+    dur: .9
+  play chords
+    <Amaj9 E A6 F#m>
+    wob: <1 2 4 2>
+    wet: .35
+    gain: .5
+    dur: .95
+
+song full intro full intro
+
+sidechain kick depth:.92 release:.24 chords:1 sub:1
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+visual
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    var acc = 0.0;
+    for (var i = 0; i < 3; i = i + 1) {
+      let fi = f32(i);
+      let c = vec2f(sin(time * 0.3 + fi * 2.1), cos(time * 0.24 + fi * 1.7)) * 0.5;
+      acc = acc + (0.14 + hit_chords * 0.06) / (length(p - c) + 0.12);
+    }
+    let s = spectrum(uv.x);
+    let col = vec3f(0.9, 0.4, 0.8) * acc * (0.5 + hit_chords * 0.3)
+            + vec3f(0.3, 0.7, 1.0) * s * 0.6
+            + vec3f(1.0, 0.9, 0.7) * hit_kick * exp(-length(p) * 3.0) * 0.5;
+    return vec4f(min(col * (0.75 + level * 0.35), vec3f(1.0)), 1.0);
+  }
+
+cps .625
+`
+
+const edmRondo = `# edm, progressive house. i-VI-III-VII
+# in c minor on a lush sidechained
+# pad, an offbeat pluck stab, a
+# rolling offbeat bass, four on the
+# floor. the pump is a REAL sidechain.
+
+synth kick
+  body + click
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  bs = sine drop
+  body = bs * amp
+  amp = adsr .001 .16 0 .06
+  cn = noise
+  cf = svf cn 4000 mode:hp
+  click = cf * cenv * .45
+  cenv = adsr .0004 .012 0 .004
+
+synth clap
+  noise
+  svf 1800 res:.5 mode:bp
+  * env
+  * 1.3
+  tanh
+  env = adsr .003 .15 0 .09
+
+synth hat
+  noise
+  svf 9000 mode:hp
+  * env
+  * .5
+  env = adsr .001 .035 0 .02
+
+synth openhat
+  noise
+  svf 8000 mode:hp
+  * env
+  * .4
+  env = adsr .001 .18 .1 .12
+
+synth bass
+  sine
+  mix sedge .22
+  onepole 440
+  * env
+  * .95
+  tanh
+  * .78
+  sedge = saw
+  env = adsr .004 .14 .4 .08
+
+synth pad
+  saw
+  mix w2 .5
+  mix w3 .4
+  mix w4 .34
+  mix w5 .34
+  mix w6 .28
+  mix w7 .28
+  svf cut res:.16
+  * env
+  * .62
+  f2 = note * 1.004
+  w2 = saw f2
+  f3 = note * .996
+  w3 = saw f3
+  f4 = note * 1.009
+  w4 = saw f4
+  f5 = note * .991
+  w5 = saw f5
+  f6 = note * 1.016
+  w6 = saw f6
+  f7 = note * .984
+  w7 = saw f7
+  cut = lfo .07 -> 1200..2800
+  env = adsr .18 .5 .9 1.2
+  post
+    eq hp 180
+    reverb room:.85 damp:.4 mix:.35
+
+synth pluck
+  saw
+  mix o2 .45
+  svf cut res:.45
+  * env
+  * .62
+  bright = knob 4000 500..9000 log
+  o2f = note * 1.006
+  o2 = saw o2f
+  cutv = env -> .45..1
+  cut = bright * cutv
+  env = adsr .002 .12 0 .08
+  post
+    exciter freq:4000 amount:.25
+    reverb room:.6 damp:.3 mix:wet
+    wet = knob .35 0..0.7
+
+play kick
+  c2*4
+  gain: .78
+
+play clap
+  ~ c2 ~ c2
+
+play hats synth:hat
+  c5*8
+  euclid 5 8
+  swing 4
+  gain: rand .5..1
+  degradeby .08 3
+
+play open synth:openhat
+  ~ c5 ~ c5
+  gain: .5
+
+# the rolling offbeat: kick on the
+# beat, bass on the and
+play bass
+  <c2 ab1 eb2 bb1>
+  struct ~ t ~ t ~ t ~ t
+  dur: .16
+
+play pad
+  <0 5 2 6>
+  <2 7 4 8>
+  <4 9 6 10>
+  scale: c-min
+  dur: .98
+
+play stab synth:pluck
+  <0 5 2 6>
+  <2 7 4 8>
+  <4 9 6 10>
+  scale: c-min
+  struct ~ t ~ t ~ t ~ t
+  bright: 4000
+  wet: .35
+  gain: .85
+  dur: .16
+
+sidechain kick depth:.7 release:.18
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+cps .52
+`
+
+const synthscapeRondo = `# lush synthscape. Am(add9) Cmaj7 Dm7
+# E7: the E7's g# leans hard back to
+# A. every number scrubs, drag to mix
+# live. the kick pumps everything.
+
+synth pad
+  saw
+  mix w2 .5
+  mix w3 .4
+  mix w4 .34
+  mix w5 .34
+  mix w6 .28
+  mix w7 .28
+  svf cut res:.15
+  * env
+  * .5
+  f2 = note * 1.004
+  w2 = saw f2
+  f3 = note * .996
+  w3 = saw f3
+  f4 = note * 1.009
+  w4 = saw f4
+  f5 = note * .991
+  w5 = saw f5
+  f6 = note * 1.015
+  w6 = saw f6
+  f7 = note * .985
+  w7 = saw f7
+  cut = lfo .05 -> 900..2400
+  env = adsr .35 .6 .9 1.6
+  post
+    chorus rate:.5 depth:.004 mix:.55
+    exciter freq:6000 amount:.2
+    reverb room:.9 damp:.35 mix:.4
+
+synth arp
+  saw
+  mix o2 .4
+  svf cut res:.4
+  * env
+  * .52
+  bright = knob 4200 600..9000 log
+  o2f = note * 1.005
+  o2 = saw o2f
+  cutv = env -> .4..1
+  cut = cutv * bright
+  env = adsr .002 .13 .05 .14
+  post
+    reverb room:.7 damp:.3 mix:.4
+
+synth bass
+  sine
+  mix sedge .12
+  onepole 320
+  * env
+  * .85
+  tanh
+  * .42
+  sedge = saw
+  env = adsr .02 .3 .8 .2
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  * .42
+  drop = adsr .001 .1 0 .06 ^ 3 -> 45..150
+  amp = adsr .001 .2 0 .08
+
+# four exact voices so the E7's g#
+# rings true in pad AND arp
+play pad
+  <a2 c3 d3 e3>
+  <c3 e3 f3 g#3>
+  <e3 g3 a3 b3>
+  <b3 b3 c4 d4>
+  gain: .85
+  dur: .98
+
+play arp
+  <[a3 c4 e4 a4 b4 a4 e4 c4] [c4 e4 g4 c5 b4 c5 g4 e4] [d4 f4 a4 d5 c5 d5 a4 f4] [e4 g#4 b4 e5 d5 e5 b4 g#4]>
+  bright: 4200
+  gain: .9
+  dur: .22
+
+play bass
+  <a1 c2 d2 e2>
+  gain: .85
+  dur: .9
+
+play kick
+  c1*4
+  gain: .75
+
+sidechain kick depth:.85 release:.22 arp:1 pad:.4 bass:.7
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+cps .5
+`
+
+const arrangementRondo = `# arrangement: a full track, not a
+# loop. intro -> build -> drop; the
+# build carries a 4-cycle riser and a
+# snare roll that crescendos into the
+# drop on a rising saw gain.
+
+synth kick
+  body + click
+  tanh
+  * .9
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  bs = sine drop
+  body = bs * amp
+  amp = adsr .001 .16 0 .06
+  cn = noise
+  cf = svf cn 4000 mode:hp
+  click = cf * cenv * .4
+  cenv = adsr .0004 .012 0 .004
+
+synth hat
+  noise
+  svf 9000 mode:hp
+  * env
+  * .4
+  env = adsr .001 .04 0 .02
+
+synth clap
+  noise
+  svf 1800 res:.5 mode:bp
+  * env
+  * 1.2
+  tanh
+  env = adsr .003 .15 0 .09
+
+synth bass
+  sine
+  mix sedge .2
+  onepole 420
+  * env
+  * .9
+  tanh
+  * .6
+  sedge = saw
+  env = adsr .004 .14 .5 .08
+
+synth pad
+  saw
+  mix w2 .5
+  mix w3 .4
+  mix w4 .3
+  mix w5 .3
+  svf cut res:.16
+  * env
+  * .5
+  f2 = note * 1.005
+  w2 = saw f2
+  f3 = note * .995
+  w3 = saw f3
+  f4 = note * 1.011
+  w4 = saw f4
+  f5 = note * .989
+  w5 = saw f5
+  cut = lfo .06 -> 1100..2600
+  env = adsr .12 .5 .9 1
+  post
+    eq hp 180
+    reverb room:.85 damp:.4 mix:.35
+
+synth pluck
+  saw
+  mix o2 .4
+  svf cut res:.4
+  * env
+  * .5
+  bright = knob 3800 500..9000 log
+  o2f = note * 1.005
+  o2 = saw o2f
+  cutv = env -> .5..1
+  cut = bright * cutv
+  env = adsr .002 .13 0 .1
+  post
+    reverb room:.6 damp:.3 mix:.3
+
+# the riser's long attack IS the
+# sweep: highpass + level swell
+synth riser
+  noise
+  svf cut res:.4 mode:hp
+  * shaped
+  * .3
+  env = adsr 3.4 0 1 .2
+  cut = env -> 400..7000
+  shaped = env ^ 2
+
+synth snare
+  noise
+  svf 2500 res:.4 mode:bp
+  * env
+  * .8
+  tanh
+  env = adsr .001 .09 0 .04
+
+section intro 4
+  play pad
+    <0 5 2 6>
+    <2 7 4 8>
+    <4 9 6 10>
+    scale: c-min
+    dur: .98
+  play kick
+    c1*4
+    gain: .55
+
+section build 4
+  play pad
+    <0 5 2 6>
+    <2 7 4 8>
+    <4 9 6 10>
+    scale: c-min
+    dur: .98
+  play kick
+    c1*4
+    gain: .8
+  play hat
+    c5*8
+    euclid 5 8
+    gain: rand .4..0.9
+  play riser
+    c4
+    slow 4
+  play snare
+    <~ ~ ~ c4>
+    roll 16 3
+    gain: saw .25..1
+
+section drop 8
+  play pad
+    <0 5 2 6>
+    <2 7 4 8>
+    <4 9 6 10>
+    scale: c-min
+    dur: .98
+  play kick
+    c1*4
+    gain: .9
+  play clap
+    ~ c2 ~ c2
+  play hat
+    c5*8
+    euclid 5 8
+    swing 4
+    gain: rand .5..1
+    degradeby .08 3
+  play bass
+    <c2 ab1 eb2 bb1>
+    struct ~ t ~ t ~ t ~ t
+    dur: .16
+  play pluck
+    <0 5 2 6>
+    <2 7 4 8>
+    <4 9 6 10>
+    scale: c-min
+    struct ~ t ~ t ~ t ~ t
+    bright: 3800
+    dur: .16
+
+song intro build drop
+
+sidechain kick depth:.6 release:.18
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+cps .52
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -2363,7 +2918,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'techno', code: techno, rondo: technoRondo },
   { name: 'dubstep', code: dubstep, rondo: dubstepRondo },
   { name: 'trance', code: trance, rondo: tranceRondo },
-  { name: 'future bass', code: futureBass },
+  { name: 'future bass', code: futureBass, rondo: futureBassRondo },
   { name: 'ambient bells', code: ambientBells, rondo: ambientBellsRondo },
   { name: 'drum groove', code: drumGroove, rondo: drumGrooveRondo },
   { name: 'fm keys', code: fmKeys, rondo: fmKeysRondo },
@@ -2371,9 +2926,9 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'chiptune', code: chiptune, rondo: chiptuneRondo },
   { name: 'chords & arps', code: chordsArp, rondo: chordsArpRondo },
   { name: 'generative', code: generative, rondo: generativeRondo },
-  { name: 'edm', code: edm },
-  { name: 'synthscape', code: synthscape },
-  { name: 'arrangement', code: arrangement },
+  { name: 'edm', code: edm, rondo: edmRondo },
+  { name: 'synthscape', code: synthscape, rondo: synthscapeRondo },
+  { name: 'arrangement', code: arrangement, rondo: arrangementRondo },
   { name: 'sampler', code: sampler, rondo: samplerRondo },
   { name: 'granular', code: granular, rondo: granularRondo },
   { name: 'singing', code: singing, rondo: singingRondo },

@@ -614,7 +614,11 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // the tap palette: grammar-legal chips above the keyboard (rondo mode).
   // Mounted BEFORE the language wiring: the mount-time Compartment reconfigure
   // fires the view's update listener, which refreshes the palette.
-  const palette = mountRondoPalette(paletteBar, view)
+  const palette = mountRondoPalette(paletteBar, view, {
+    // play-to-write: degree chips preview through the engine while stopped
+    previewNote: (synth, midi) => rondoWidgetHooks.previewNote?.(synth, midi),
+    isPlaying: () => session.getState().playing,
+  })
   const reflectLang = (): void => {
     langLabel.textContent = lang === 'rondo' ? 'rondo' : 'js'
     langBtn.classList.toggle('lang-rondo', lang === 'rondo')

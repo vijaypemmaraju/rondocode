@@ -397,14 +397,15 @@ class KnobWidget extends WidgetType {
       '</svg><span class="kv"></span>'
     const ptr = wrap.querySelector('.ptr') as SVGLineElement
     const kv = wrap.querySelector('.kv') as HTMLElement
-    // the readout shows the CURRENT value while it differs from the source
-    // text: the driven value during a .ctrl sweep, the hand value during a
-    // drag. Idle it's empty — the DEF literal is right there in the code.
+    // the readout ALWAYS shows the current value: the DEF at rest, the driven
+    // value during a .ctrl sweep (live), the hand value during a drag —
+    // always-on so appearing/disappearing never shifts the layout
     const kvStep = niceStep(Math.abs(this.hi - this.lo) / 200)
     const showValue = (v: number): void => { kv.textContent = formatNumber(v, { step: kvStep, min: Math.min(this.lo, this.hi) }) }
     const setDial = (t: number): void => { ptr.setAttribute('transform', `rotate(${-135 + 270 * t} 12 12)`) }
     const baseT = toNorm(this.value, this.lo, this.hi, this.log)
     setDial(baseT)
+    showValue(this.value)
 
     // LIVE DRIVE: when a pattern's `.ctrl` sweeps this param, each note event
     // carries the driven value — the dial follows it (amber "live" state) and
@@ -413,6 +414,10 @@ class KnobWidget extends WidgetType {
     if (this.hooks.onNoteEvents && this.hooks.now && this.name !== undefined) {
       const name = this.name
       const now = this.hooks.now
+      // generation counter: each event's settle-back only applies if it is
+      // still the LATEST — with back-to-back notes, a stale settle timer used
+      // to fire BETWEEN events and jerk the dial to the DEF for a frame
+      let gen = 0
       this.unsub = this.hooks.onNoteEvents((evs) => {
         for (const ev of evs) {
           if (this.synth !== undefined && ev.sound !== this.synth) continue
@@ -421,14 +426,15 @@ class KnobWidget extends WidgetType {
           const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
           this.timers.at((ev.timeSec - now()) * 1000, () => {
             if (this.drag.active) return // a hand on the knob outranks the drive
+            const g = ++gen
             wrap.classList.add('live')
             setDial(toNorm(v, this.lo, this.hi, this.log))
             showValue(v)
             this.timers.at(litMs, () => {
-              if (this.drag.active) return
+              if (this.drag.active || g !== gen) return // a newer note owns the dial
               wrap.classList.remove('live')
               setDial(baseT)
-              kv.textContent = ''
+              showValue(this.value)
             })
           })
         }
@@ -483,7 +489,6 @@ class KnobWidget extends WidgetType {
         this.drag.active = false
         this.drag.ended = true
         wrap.classList.remove('active')
-        kv.textContent = ''
         // hand off the knob: the pattern drive resumes on its next event
         if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
         window.removeEventListener('pointermove', move)

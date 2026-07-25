@@ -123,14 +123,14 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
 
   // rondo snippets transpile before the player sees them; a compile failure
   // surfaces in the block's error line with its rondo position.
-  const toEval = (source: string): { code: string; notes?: import('@rondocode/rondo').NoteSpan[]; jsRegions?: import('@rondocode/rondo').JsRegion[] } | { error: string } => {
+  const toEval = (source: string): { code: string; notes?: import('@rondocode/rondo').NoteSpan[]; jsRegions?: import('@rondocode/rondo').JsRegion[]; pulses?: import('@rondocode/rondo').PulseSpan[] } | { error: string } => {
     if (lang !== 'rondo') return { code: source }
     const r = compileRondo(source)
     if (!r.ok) {
       const e = r.errors[0]
       return { error: e !== undefined ? `line ${e.line}: ${e.message}` : 'rondo compile failed' }
     }
-    return { code: r.code, notes: r.notes, jsRegions: r.jsRegions }
+    return { code: r.code, notes: r.notes, jsRegions: r.jsRegions, pulses: r.pulses }
   }
 
   const docEd = createDocEditor(
@@ -187,7 +187,7 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
       }
       const res = await player.play(evalSrc.code)
       if (res.ok) {
-        docEd.markPlaying(source, evalSrc.notes, evalSrc.jsRegions)
+        docEd.markPlaying(source, evalSrc.notes, evalSrc.jsRegions, evalSrc.pulses)
         play.classList.add('playing')
         play.textContent = '⏹ stop'
         showViz(card) // no-op unless the snippet registered a visual()

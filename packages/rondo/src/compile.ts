@@ -51,17 +51,26 @@ export interface JsRegion {
   to: number
 }
 
+/** A notation line whose pattern has NO mini locs (`irand N seg:M` builds
+ *  from a signal) — the editor PULSES the whole line on each of the
+ *  channel's notes instead of flashing per atom. */
+export interface PulseSpan {
+  from: number
+  to: number
+  sound: string
+}
+
 export type CompileResult =
-  | { ok: true; code: string; notes: NoteSpan[]; jsRegions: JsRegion[]; errors: [] }
-  | { ok: false; code: null; notes: []; jsRegions: []; errors: RondoError[] }
+  | { ok: true; code: string; notes: NoteSpan[]; jsRegions: JsRegion[]; pulses: PulseSpan[]; errors: [] }
+  | { ok: false; code: null; notes: []; jsRegions: []; pulses: []; errors: RondoError[] }
 
 /** Compile rondo source into a rondocode DSL source string. On any lex/parse/
  *  codegen error, returns `{ ok: false }` with positioned diagnostics. */
 export function compile(src: string): CompileResult {
   const { program, errors, jsRegions } = parse(src)
-  if (errors.length > 0) return { ok: false, code: null, notes: [], jsRegions: [], errors }
+  if (errors.length > 0) return { ok: false, code: null, notes: [], jsRegions: [], pulses: [], errors }
   const code = codegen(program, errors)
-  if (errors.length > 0) return { ok: false, code: null, notes: [], jsRegions: [], errors }
+  if (errors.length > 0) return { ok: false, code: null, notes: [], jsRegions: [], pulses: [], errors }
   const notes: NoteSpan[] = program.items
     .flatMap((it) => (it.t === 'play' ? [it] : it.t === 'section' ? it.plays : []))
     .flatMap((p) => {
@@ -73,5 +82,14 @@ export function compile(src: string): CompileResult {
       ]
     })
     .filter((s) => s.content.length > 0)
-  return { ok: true, code, notes, jsRegions, errors: [] }
+  // irand notation lines produce loc-less events — pulse the whole line
+  const pulses: PulseSpan[] = program.items
+    .flatMap((it) => (it.t === 'play' ? [it] : it.t === 'section' ? it.plays : []))
+    .flatMap((p) => [
+      { notation: p.notation, from: p.notationFrom, sound: p.name },
+      ...(p.voices ?? []).map((v) => ({ notation: v.notation, from: v.notationFrom, sound: p.name })),
+    ])
+    .filter((l) => /^irand\b/.test(l.notation))
+    .map((l) => ({ from: l.from, to: l.from + l.notation.length, sound: l.sound }))
+  return { ok: true, code, notes, jsRegions, pulses, errors: [] }
 }

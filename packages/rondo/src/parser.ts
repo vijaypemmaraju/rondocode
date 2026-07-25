@@ -416,8 +416,23 @@ const COMB_WORDS = new Set([
 
 /** Is this play-body line a modifier (`name: value`, `every 4: rev`, bare
  *  combinator) as opposed to another stacked notation voice? */
-function isModifierLine(ln: Line): boolean {
-  if (/^[a-zA-Z_]\w*[ \t]*:/.test(ln.raw)) return true
+function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolean {
+  const nv = /^([a-zA-Z_]\w*)[ \t]*:/.exec(ln.raw)
+  if (nv !== null) {
+    // BEAT ambiguity: `kick:.6 ~ kick ~` is a velocity ROW whose first step
+    // carries an accent, not a `kick:` modifier. An IMMEDIATE `:digit` on a
+    // word that isn't a known modifier head reads as velocity — modifiers
+    // are written with a space (`gain: .8`), velocity suffixes never are.
+    if (
+      kind === 'beat' &&
+      /^[a-zA-Z_]\w*:[.\d]/.test(ln.raw) &&
+      !COMB_WORDS.has(nv[1]!) &&
+      nv[1] !== 'gain' && nv[1] !== 'dur' && nv[1] !== 'scale'
+    ) {
+      return false
+    }
+    return true
+  }
   const first = /^([a-zA-Z_]\w*)/.exec(ln.raw)?.[1]
   if (first === undefined) return false
   // fn-combinators (`every 4: rev`, `off .25: gain .3`) — the colon comes
@@ -471,7 +486,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   const noteLines: Line[] = []
   const modLines: Line[] = []
   for (const ln of body) {
-    if (modLines.length === 0 && !isModifierLine(ln)) noteLines.push(ln)
+    if (modLines.length === 0 && !isModifierLine(ln, kind)) noteLines.push(ln)
     else modLines.push(ln)
   }
   let notation = ''

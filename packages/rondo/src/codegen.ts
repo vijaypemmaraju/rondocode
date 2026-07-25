@@ -28,6 +28,58 @@ const KNOWN_CTX = [
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
 ]
 
+/** Blank out string/template literal TEXT and comments so a ctx-name scan
+ *  never matches quoted data (`'saw'` the string is not `saw` the ctx fn —
+ *  a phantom destructure breaks the decompile fixed point). `${…}`
+ *  interpolations inside templates are CODE and stay visible: masking those
+ *  would UNDER-destructure and break the user's escape hatch at eval. */
+export function maskJsLiterals(src: string): string {
+  const out: string[] = []
+  type Ctx = { k: 'code'; depth: number } | { k: 'tpl' }
+  const stack: Ctx[] = [{ k: 'code', depth: 0 }]
+  let i = 0
+  while (i < src.length) {
+    const top = stack[stack.length - 1]!
+    const c = src[i]!
+    const two = src.slice(i, i + 2)
+    if (top.k === 'code') {
+      if (two === '//') {
+        while (i < src.length && src[i] !== '\n') { out.push(' '); i++ }
+        continue
+      }
+      if (two === '/*') {
+        out.push('  '); i += 2
+        while (i < src.length && src.slice(i, i + 2) !== '*/') { out.push(src[i] === '\n' ? '\n' : ' '); i++ }
+        if (i < src.length) { out.push('  '); i += 2 }
+        continue
+      }
+      if (c === "'" || c === '"') {
+        out.push(c); i++
+        while (i < src.length && src[i] !== c && src[i] !== '\n') {
+          if (src[i] === '\\') { out.push('  '); i += 2; continue }
+          out.push(' '); i++
+        }
+        if (i < src.length && src[i] === c) { out.push(c); i++ }
+        continue
+      }
+      if (c === '`') { out.push(c); i++; stack.push({ k: 'tpl' }); continue }
+      if (c === '{') top.depth++
+      if (c === '}') {
+        if (top.depth === 0 && stack.length > 1) { stack.pop(); out.push(c); i++; continue } // closes a ${ }
+        top.depth = Math.max(0, top.depth - 1)
+      }
+      out.push(c); i++
+      continue
+    }
+    // template literal text
+    if (c === '\\') { out.push('  '); i += 2; continue }
+    if (c === '`') { out.push(c); i++; stack.pop(); continue }
+    if (two === '${') { out.push('${'); i += 2; stack.push({ k: 'code', depth: 0 }); continue }
+    out.push(c === '\n' ? '\n' : ' '); i++
+  }
+  return out.join('')
+}
+
 /** Expand a short scale name (`a-min`) to what .scale() expects (`a minor`). */
 export function expandScale(short: string): string {
   const dash = short.indexOf('-')
@@ -99,9 +151,15 @@ class SynthGen {
         // escape hatch: raw JS, verbatim. Destructure any ctx members it names
         // so the raw code can see them — EXCEPT names shadowed by this chain's
         // own bindings (destructuring those too would double-declare: a
-        // param `env` + `const env` is a SyntaxError, not a shadow).
-        for (const name of KNOWN_CTX) {
-          if (!this.bound.has(name) && new RegExp(`\\b${name}\\b`).test(e.code)) this.uses.add(name)
+        // param `env` + `const env` is a SyntaxError, not a shadow). The scan
+        // runs over a literal-masked copy (`'saw'` in a string is data) and
+        // skips property/method positions (`x.mix(…)`) and object keys
+        // (`{ mix: 0.8 }`) — those are not references to the ctx member.
+        {
+          const masked = maskJsLiterals(e.code)
+          for (const name of KNOWN_CTX) {
+            if (!this.bound.has(name) && new RegExp(`(?<![.\\w$])${name}\\b(?!:)`).test(masked)) this.uses.add(name)
+          }
         }
         return e.code
       case 'knob':
@@ -176,6 +234,15 @@ class SynthGen {
     if (spec.kind === 'sigop') {
       // a Sig method on the input: input.tanh() / input.clip(-1, 1) / input.mix(other, t)
       const [input, ...rest] = a
+      // a fully-constant pipe has no Sig methods — `220.fold()` is not even
+      // valid JS. Same rule as constant folding: error, never emit broken code.
+      if (input !== undefined && /^-?(\d+\.?\d*|\.\d+)$/.test(input)) {
+        this.errors.push({
+          message: `the signal before \`${name}\` is a plain number (${input}) — ${name} needs a signal`,
+          line: e.pos.line, col: e.pos.col,
+        })
+        return '0'
+      }
       return `${input}.${name}(${rest.join(', ')})`
     }
     if (spec.kind === 'gated') {

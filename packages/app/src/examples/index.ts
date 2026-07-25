@@ -1562,6 +1562,187 @@ play arp synth:keys
 cps .42
 `
 
+
+const drumGrooveRondo = `# drum groove. three tiny percussion
+# synths; euclid + swing + a few
+# deterministically dropped hits.
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp = adsr .001 .22 0 .08
+
+synth hat
+  noise
+  svf 8000 mode:hp
+  * env
+  * .5
+  env = adsr .001 .04 0 .03
+
+synth clap
+  noise
+  svf 1500 res:.6 mode:bp
+  * env
+  * .8
+  env = adsr .002 .12 0 .08
+
+play kick
+  c2*4
+
+play hat
+  c5*8
+  euclid 5 8
+  swing 4
+  degradeby .1 7
+  gain: .7
+
+play clap
+  ~ c4 ~ c4
+
+cps .5
+`
+
+const chiptuneRondo = `# chiptune. two pulse voices, a
+# 4-bit triangle bass, LFSR noise
+# drums, and the fake-chord arp trick.
+
+synth lead
+  pulse note .25
+  * env
+  * .35
+  env = adsr .001 .05 .6 .04
+
+synth harm
+  pulse note duty
+  * env
+  * .28
+  duty = lfo 4 -> .15..0.5
+  env = adsr .001 .08 .4 .04
+
+synth bass
+  tri
+  bitcrush bits:4
+  * env
+  * .6
+  env = adsr .001 .06 .7 .05
+
+synth hat
+  lfsr 11000
+  * env
+  * .25
+  env = adsr .001 .025 0 .02
+
+synth snare
+  lfsr 2400 mode:periodic
+  * env
+  * .4
+  env = adsr .001 .12 0 .05
+
+play lead
+  <C Am F G>
+  arp up
+  fast 2
+
+play harm
+  <g4 e4 c4 d4>
+  gain: .8
+
+play bass
+  <c2 a1 f1 g1>
+
+play hat
+  c5*8
+
+play snare
+  ~ c4 ~ c4
+
+cps .5
+`
+
+const samplerRondo = `# sampler. play loaded audio, not just
+# oscillators. vox + riser ship built
+# in; load your own with + sample, or
+# RECORD one on the mic.
+
+synth vox
+  sample vox root:57
+  svf 4200
+  * env
+  * .9
+  reverb room:.88 damp:.4 mix:.32
+  env = adsr .01 .3 .7 .35
+
+synth riser
+  sample riser
+  * env
+  * .7
+  env = adsr .005 2.2 0 .3
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  amp = adsr .001 .16 0 .06
+
+# a vocal-chop melody in a minor
+play vox
+  <[a3 c4 e4 a4] [g3 b3 d4 g4] [f3 a3 c4 f4] [e3 g3 b3 e4]>
+  dur: .22
+  gain: .9
+
+play kick
+  c1*4
+  gain: .9
+
+# a riser every 8 bars
+play riser
+  c4
+  slow 8
+  gain: .7
+
+cps .5
+`
+
+const generativeRondo = `# generative, deterministically: the
+# random streams hash the event time,
+# so every loop plays the same way.
+
+synth pluck
+  saw
+  svf cutoff res:.4
+  * env
+  * .7
+  cutoff = knob 1800 150..6000 log
+  env = adsr .002 .16 0 .2
+
+synth bass
+  square
+  onepole 900
+  * env
+  * .6
+  env = adsr .004 .3 .4 .15
+
+# 8 random degrees, thinned, some
+# played as quiet ghost notes; perlin
+# wanders the filter smoothly
+play pluck
+  irand 8 seg:8
+  scale: e-min
+  degradeby .3 1
+  sometimesby .25: gain .3
+  cutoff: perlin 400..4000 slow:2
+
+play bassline synth:bass
+  <e2 e2 d2 g2>
+  euclid 3 8
+  dur: .6
+
+cps .5
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -1580,16 +1761,16 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'trance', code: trance },
   { name: 'future bass', code: futureBass },
   { name: 'ambient bells', code: ambientBells, rondo: ambientBellsRondo },
-  { name: 'drum groove', code: drumGroove },
+  { name: 'drum groove', code: drumGroove, rondo: drumGrooveRondo },
   { name: 'fm keys', code: fmKeys, rondo: fmKeysRondo },
   { name: 'fm presets', code: fmPresets },
-  { name: 'chiptune', code: chiptune },
+  { name: 'chiptune', code: chiptune, rondo: chiptuneRondo },
   { name: 'chords & arps', code: chordsArp, rondo: chordsArpRondo },
-  { name: 'generative', code: generative },
+  { name: 'generative', code: generative, rondo: generativeRondo },
   { name: 'edm', code: edm },
   { name: 'synthscape', code: synthscape },
   { name: 'arrangement', code: arrangement },
-  { name: 'sampler', code: sampler },
+  { name: 'sampler', code: sampler, rondo: samplerRondo },
   { name: 'granular', code: granular, rondo: granularRondo },
   { name: 'singing', code: singing, rondo: singingRondo },
   // rondo-first examples: the JS twin is TRANSPILED from the rondo source at

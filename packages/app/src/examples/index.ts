@@ -2005,6 +2005,348 @@ visual
 cps .552
 `
 
+
+const dubstepRondo = `# dubstep. punchy kick, cracking
+# snare, clean sub, dark pad, and a
+# FILTHY wobble: detuned saws through
+# a resonant ladder, clipped, crushed,
+# rate patterned per step.
+
+synth kick
+  body + click
+  * 1.5
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 42..200
+  bs = sine drop
+  body = bs * amp
+  amp = adsr .001 .24 0 .07
+  cn = noise
+  cf = svf cn 4200 mode:hp
+  click = cf * cenv * .6
+  cenv = adsr .0004 .02 0 .01
+
+synth snare
+  bodyt + crack + snap
+  * 1.3
+  tanh
+  bsin = sine 180
+  bodyt = bsin * benv
+  benv = adsr .001 .13 0 .06
+  n1 = noise
+  c1 = svf n1 2600 mode:hp
+  crack = c1 * cenv
+  cenv = adsr .001 .22 0 .12
+  n2 = noise
+  s2 = svf n2 6500 res:.4 mode:bp
+  snap = s2 * senv * .7
+  senv = adsr .0005 .05 0 .03
+
+synth hat
+  noise
+  svf 10500 mode:hp
+  * env
+  * .2
+  env = adsr .001 .03 0 .02
+
+synth sub
+  sine
+  * env
+  * 1.2
+  tanh
+  env = adsr .01 .1 .95 .08
+
+synth pad
+  s1 + s2 + s3
+  * .4
+  ladder 620 res:.2
+  svf 150 mode:hp
+  * env
+  s1 = saw
+  f2 = note * 1.006
+  s2 = saw f2
+  f3 = note * .994
+  s3 = saw f3
+  env = adsr .6 .4 .6 .9
+  post
+    chorus rate:.3 depth:.006 mix:.8
+    reverb room:.92 damp:.5 mix:.5
+
+synth wob
+  s1 + s2 + s3 + sq * 1.2
+  * .4
+  ladder cut res:.88
+  * env
+  wob = knob 4 .5..16
+  s1 = saw
+  f2 = note * 1.007
+  s2 = saw f2
+  f3 = note * .993
+  s3 = saw f3
+  f4 = note * .5
+  sq = square f4
+  cut = lfo wob tri -> 160..4400
+  env = adsr .004 .1 .95 .06
+  post
+    shape 2.6 type:hard
+    bitcrush bits:10 downsample:1
+    mix dirty .5
+    eq peak 450 -4 1.2
+    ott depth:.6
+    dirty = shape input 2.6 type:hard
+
+section intro 4
+  play pad
+    <Em Em Cmaj7 G>
+    gain: .25
+    dur: .98
+  play sub
+    <e1 e1 c1 g1>
+    gain: .95
+    dur: .9
+
+section full 8
+  play kick
+    c1 ~ ~ ~ ~ ~ c1 ~
+    gain: 1
+  play snare
+    ~ ~ ~ ~ c2 ~ ~ ~
+    gain: .95
+  play hat
+    ~ c5 ~ c5 ~ c5 ~ c5
+    gain: .4
+  play pad
+    <Em Em Cmaj7 G>
+    gain: .25
+    dur: .98
+  play sub
+    <e1 e1 c1 g1>
+    gain: .95
+    dur: .9
+  play wob
+    <e2 e2 c2 g1>
+    struct t t t t
+    wob: <2 4 8 4>
+    gain: .85
+
+section half 4
+  play kick
+    c1 ~ ~ ~ ~ ~ c1 ~
+    gain: 1
+  play snare
+    ~ ~ ~ ~ c2 ~ ~ ~
+    gain: .95
+  play pad
+    <Em Em Cmaj7 G>
+    gain: .25
+    dur: .98
+  play sub
+    <e1 e1 c1 g1>
+    gain: .95
+    dur: .9
+
+song full half full intro
+
+sidechain kick depth:.75 release:.16 sub:1 wob:.55 pad:.8
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+visual
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let r = length(p);
+    let warp = hit_wob * 0.35 * sin(r * 14.0 - time * 6.0);
+    let rr = r + warp;
+    let s = spectrum(fract(rr * 1.5));
+    let ring = smoothstep(0.08, 0.0, abs(rr - (0.35 + s * 0.5)));
+    let slam = hit_kick * exp(-r * 3.0) * 0.6;
+    let sn = hit_snare * 0.5 * smoothstep(0.4, 0.0, abs(r - 0.85));
+    let col = vec3f(0.6, 0.2, 0.95) * ring * (0.6 + hit_wob * 0.3)
+            + vec3f(0.9, 0.7, 0.5) * slam
+            + vec3f(0.1, 0.9, 0.7) * sn
+            + vec3f(0.05, 0.02, 0.1);
+    return vec4f(min(col, vec3f(1.0)), 1.0);
+  }
+
+cps .582
+`
+
+const tranceRondo = `# trance, uplifting ~132. the classic
+# i-VI-III-VII on a 5-saw supersaw,
+# offbeat plucky bass, deep sub, and
+# everything pumps under the kick.
+
+synth kick
+  body + click
+  * 1.4
+  tanh
+  drop = adsr .001 .07 0 .04 ^ 2 -> 44..190
+  bs = sine drop
+  body = bs * amp
+  amp = adsr .001 .22 0 .06
+  cn = noise
+  cf = svf cn 3800 mode:hp
+  click = cf * cenv * .5
+  cenv = adsr .0004 .018 0 .01
+
+synth clap
+  crack + air
+  * 1.2
+  tanh
+  n1 = noise
+  c1 = svf n1 2000 res:.5 mode:bp
+  crack = c1 * cenv
+  cenv = adsr .002 .12 0 .09
+  n2 = noise
+  a1 = svf n2 7000 mode:hp
+  air = a1 * aenv * .6
+  aenv = adsr .001 .06 0 .05
+
+synth hat
+  noise
+  svf 9500 mode:hp
+  * env
+  * .28
+  env = adsr .001 .03 0 .02
+
+synth sub
+  sine
+  * env
+  * 1.15
+  tanh
+  env = adsr .01 .2 .9 .12
+
+synth bass
+  s1 + s2
+  * .55
+  ladder 900 res:.4
+  * env
+  s1 = saw
+  f2 = note * 1.006
+  s2 = saw f2
+  env = adsr .002 .08 .1 .04
+
+synth pad
+  s1 + s2 + s3 + s4 + s5
+  * .24
+  svf 170 mode:hp
+  * env
+  s1 = saw
+  f2 = note * 1.006
+  s2 = saw f2
+  f3 = note * .994
+  s3 = saw f3
+  f4 = note * 1.013
+  s4 = saw f4
+  f5 = note * .987
+  s5 = saw f5
+  env = adsr .08 .4 .7 .5
+  post
+    chorus rate:.4 depth:.005 mix:.9
+    reverb room:.9 damp:.35 mix:.45
+
+synth lead
+  s1 + s2 + s3 + s4 + s5
+  * .24
+  * env
+  s1 = saw
+  f2 = note * 1.007
+  s2 = saw f2
+  f3 = note * .993
+  s3 = saw f3
+  f4 = note * 1.014
+  s4 = saw f4
+  f5 = note * .986
+  s5 = saw f5
+  env = adsr .02 .3 .6 .3
+  post
+    eq hp 220 highshelf 6500 3
+    + echo
+    reverb room:.85 damp:.4 mix:wet
+    shaped = eq input hp 220 highshelf 6500 3
+    echo = delay shaped .214 .35
+    wet = knob .4 0..0.75
+
+section intro 4
+  play pad
+    <G#m E B F#>
+    gain: .32
+    dur: .98
+  play sub
+    <g#1 e1 b1 f#1>
+    gain: .55
+    dur: .98
+
+section build 8
+  play kick
+    c1*4
+    gain: 1
+  play hat
+    ~ c5 ~ c5 ~ c5 ~ c5
+    gain: .4
+  play sub
+    <g#1 e1 b1 f#1>
+    gain: .55
+    dur: .98
+  play bass
+    <g#2 e2 b2 f#2>
+    struct ~ t ~ t ~ t ~ t
+    gain: .6
+  play pad
+    <G#m E B F#>
+    gain: .32
+    dur: .98
+
+section full 8
+  play kick
+    c1*4
+    gain: 1
+  play clap
+    ~ c3 ~ c3
+    gain: .65
+  play hat
+    ~ c5 ~ c5 ~ c5 ~ c5
+    gain: .4
+  play sub
+    <g#1 e1 b1 f#1>
+    gain: .55
+    dur: .98
+  play bass
+    <g#2 e2 b2 f#2>
+    struct ~ t ~ t ~ t ~ t
+    gain: .6
+  play pad
+    <G#m E B F#>
+    gain: .32
+    dur: .98
+  play lead
+    <7 ~ 11 ~ 14 12 11 9>
+    scale: g#-min
+    wet: .4
+    gain: .42
+    dur: .85
+
+song full build full intro
+
+sidechain kick depth:.9 release:.16 sub:.95 pad:1 bass:.55 lead:.45
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+visual
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let r = length(p);
+    let a = atan2(p.y, p.x);
+    let rays = pow(0.5 + 0.5 * sin(a * 8.0 + phase * 6.2831853), 3.0);
+    let s = spectrum(fract(r));
+    let col = vec3f(0.3, 0.6, 1.0) * rays * (0.35 + hit_lead * 0.4)
+            + vec3f(0.2, 0.9, 0.9) * smoothstep(0.05, 0.0, abs(r - 0.5 - s * 0.3)) * (0.5 + level * 0.4)
+            + vec3f(0.5, 0.7, 1.0) * hit_kick * exp(-r * 3.5) * 0.5;
+    return vec4f(min(col, vec3f(1.0)), 1.0);
+  }
+
+cps .577
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -2019,8 +2361,8 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
   { name: 'visuals', code: visuals, rondo: visualsRondo },
   { name: 'techno', code: techno, rondo: technoRondo },
-  { name: 'dubstep', code: dubstep },
-  { name: 'trance', code: trance },
+  { name: 'dubstep', code: dubstep, rondo: dubstepRondo },
+  { name: 'trance', code: trance, rondo: tranceRondo },
   { name: 'future bass', code: futureBass },
   { name: 'ambient bells', code: ambientBells, rondo: ambientBellsRondo },
   { name: 'drum groove', code: drumGroove, rondo: drumGrooveRondo },

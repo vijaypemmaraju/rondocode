@@ -1636,3 +1636,77 @@ body.shaderviz-on .cm-content {
 .perf-locked .cm-content {
   cursor: default;
 }
+
+/* ---- first-run tour (ui/tour.ts) --------------------------------------- */
+/* One small coach bubble at a time, anchored near its target. No overlay:
+ * every step asks for a real action, so the app stays fully touchable. The
+ * ring is a soft accent glow on the anchor itself. */
+.tour-bubble {
+  position: fixed;
+  z-index: 44; /* under the header popovers (45): they must stay usable */
+  max-width: min(300px, 86vw);
+  padding: var(--sp-3);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-accent);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.tour-bubble.hidden {
+  display: none;
+}
+.tour-bubble.tour-floating {
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  right: var(--sp-3);
+}
+.tour-copy {
+  font-size: var(--fs-ctrl);
+  line-height: 1.45;
+  color: var(--c-text);
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.tour-progress {
+  flex: 1;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.tour-btn {
+  min-height: 44px; /* thumb-sized even though the bubble is small */
+  padding: 0 var(--sp-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--r);
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+  cursor: pointer;
+}
+.tour-btn:hover {
+  color: var(--c-text);
+}
+.tour-btn.tour-done {
+  color: var(--c-accent);
+  font-weight: 600;
+}
+.tour-btn.hidden {
+  display: none;
+}
+/* the anchor highlight: a soft accent ring that never blocks a tap */
+.tour-ring {
+  box-shadow:
+    0 0 0 2px var(--c-accent),
+    0 0 14px var(--c-accent);
+  border-radius: var(--r);
+  animation: tour-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  50% {
+    box-shadow:
+      0 0 0 2px var(--c-accent),
+      0 0 4px var(--c-accent);
+  }
+}

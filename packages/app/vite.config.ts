@@ -23,12 +23,14 @@ export default defineConfig({
   // DNS-rebinding host check rejects unknown hostnames otherwise).
   server: { allowedHosts: ['.ts.net'] },
   build: {
-    // Two HTML entries: the editor (index) and the standalone docs page.
-    // Cloudflare Pages serves docs.html at /docs (clean URLs).
+    // Three HTML entries: the editor (index), the standalone docs page, and
+    // the iOS/Safari diagnostics page. Cloudflare Pages serves docs.html at
+    // /docs and diag.html at /diag (clean URLs).
     rollupOptions: {
       input: {
         index: entry('index.html'),
         docs: entry('docs.html'),
+        diag: entry('diag.html'),
       },
     },
   },

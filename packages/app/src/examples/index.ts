@@ -1743,6 +1743,268 @@ play bassline synth:bass
 cps .5
 `
 
+
+const fmPresetsRondo = `# fm presets. carrier + modulator:
+# RATIO sets character (whole =
+# musical, non-whole = metallic),
+# INDEX sets brightness, an envelope
+# on the index makes the tone move.
+
+synth bell
+  fm note mod
+  * env
+  * .5
+  mf = note * 1.4
+  mraw = fm mf
+  mod = mraw * menv * 6
+  menv = adsr .001 1.6 0 .6
+  env = adsr .001 2 0 .8
+
+synth ep
+  fm note tine feedback:.1
+  * env
+  * .5
+  tf = note * 3
+  traw = fm tf
+  tine = traw * tenv * 3
+  tenv = adsr .001 .4 0 .2
+  env = adsr .002 1.4 .15 .4
+
+synth bass
+  fm note mod feedback:.2
+  * env
+  mraw = fm note
+  mod = mraw * menv * 2
+  menv = adsr .001 .18 .1 .1
+  env = adsr .001 .3 .5 .1
+
+synth brass
+  fm note mod
+  * env
+  * .4
+  mraw = fm note
+  mod = mraw * menv * 2.2
+  menv = adsr .25 .2 .8 .3
+  env = adsr .12 .2 .85 .35
+
+play bass
+  <c2 a1 f2 g2>
+
+play keys synth:ep
+  <Cmaj7 Am7 Fmaj7 G7>
+  dur: .9
+  gain: .9
+
+play brass
+  <Cmaj7 Am7 Fmaj7 G7>
+  dur: .9
+  gain: .5
+
+play bells synth:bell
+  <c6 e6 g6 b6>
+  gain: .4
+
+cps .44
+`
+
+const visualsRondo = `# visuals. a WGSL shader renders live
+# behind the code, driven by the
+# audio: level, bass, spectrum(x),
+# waveform(x), and hit_<synth> onsets.
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp = adsr .001 .22 0 .08
+
+synth bass
+  saw
+  ladder 900 res:.5
+  * env
+  env = adsr .005 .2 .5 .2
+
+synth lead
+  tri
+  * env
+  env = adsr .01 .25 .3 .2
+
+play drums synth:kick
+  c1*4
+
+play bass
+  c2 [eb2 g2] c2 g1
+
+play lead
+  0 3 5 7 <10 12> 7 5 3
+  scale: c-min
+
+visual
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let r = length(p);
+    let a = atan2(p.y, p.x) / 6.2831853 + 0.5;
+    let s = spectrum(fract(a * 2.0));
+    let ring = smoothstep(0.05, 0.0, abs(r - (0.42 + s * 0.4 + hit_kick * 0.1)));
+    let core = (0.12 + hit_kick * 0.18) / (r * r * 6.0 + 0.3);
+    let spark = hit_lead * 0.5 * pow(max(0.0, 1.0 - abs(r - 0.72) * 5.0), 2.0);
+    let ribbon = smoothstep(0.02, 0.0, abs(p.y - waveform(uv.x) * 0.35));
+    let col = vec3f(0.95, 0.35, 0.6) * ring
+            + vec3f(0.25 + treble * 0.4, 0.7, 0.6) * core
+            + vec3f(0.35, 0.9, 1.0) * spark
+            + vec3f(0.3, 0.85, 0.7) * ribbon * (0.5 + level * 0.5)
+            + vec3f(0.12, 0.05, 0.18) * (0.4 + hit_bass * 0.3);
+    return vec4f(min(col, vec3f(1.0)), 1.0);
+  }
+
+cps .5
+`
+
+const technoRondo = `# techno. dark and driving: saturated
+# kick, deep sub, backbeat clap,
+# offbeat open hat, a resonant stab.
+# sub + stab duck hard under the kick.
+
+synth kick
+  body + click
+  * 1.4
+  tanh
+  drop = adsr .001 .07 0 .04 ^ 2 -> 42..200
+  bsin = sine drop
+  body = bsin * amp
+  amp = adsr .001 .26 0 .07
+  cn = noise
+  cf = svf cn 3500 mode:hp
+  click = cf * cenv * .6
+  cenv = adsr .0004 .02 0 .01
+
+synth clap
+  crack + air
+  * 1.3
+  tanh
+  n1 = noise
+  c1 = svf n1 1800 res:.5 mode:bp
+  crack = c1 * cenv
+  cenv = adsr .002 .12 0 .08
+  n2 = noise
+  a1 = svf n2 6000 mode:hp
+  air = a1 * aenv * .5
+  aenv = adsr .001 .05 0 .04
+
+synth hat
+  noise
+  svf 9500 mode:hp
+  * env
+  * .22
+  env = adsr .001 .028 0 .02
+
+synth ohat
+  noise
+  svf 8500 mode:hp
+  * env
+  * .2
+  env = adsr .001 .14 .1 .1
+
+synth sub
+  sine
+  + trir * .12
+  * env
+  tanh
+  trir = tri
+  env = adsr .01 .2 .9 .15
+
+synth stab
+  s1 + s2 + s3 + sq
+  * .3
+  ladder cut res:.62
+  * env
+  s1 = saw
+  f2 = note * 1.006
+  s2 = saw f2
+  f3 = note * .994
+  s3 = saw f3
+  f4 = note * .5
+  sq = square f4
+  cut = env ^ 2 -> 320..3600
+  env = adsr .002 .16 0 .09
+  post
+    eq hp 260 peak 3000 -3 1
+    + echo
+    reverb room:.7 damp:.4 mix:.3
+    shaped = eq input hp 260 peak 3000 -3 1
+    echo = delay shaped .28 .35
+
+section intro 4
+  play kick
+    c1*4
+    gain: 1
+  play hat
+    c5*8
+    gain: rand .5..0.9
+  play sub
+    <a1 f1 c2 g1>
+    gain: .5
+    dur: .98
+
+section full 8
+  play kick
+    c1*4
+    gain: 1
+  play clap
+    ~ c3 ~ c3
+    gain: .7
+  play hat
+    c5*8
+    gain: rand .5..0.9
+  play ohat
+    ~ c5 ~ c5 ~ c5 ~ c5
+    gain: .6
+  play sub
+    <a1 f1 c2 g1>
+    gain: .5
+    dur: .98
+  play stab
+    <Am F C G>
+    struct ~ t ~ t t ~ ~ t
+    gain: .5
+    dur: .2
+
+section brk 4
+  play hat
+    c5*8
+    gain: rand .5..0.9
+  play sub
+    <a1 f1 c2 g1>
+    gain: .5
+    dur: .98
+  play stab
+    <Am F C G>
+    struct ~ t ~ t t ~ ~ t
+    gain: .5
+    dur: .2
+
+song full brk full intro
+
+sidechain kick depth:.9 release:.2 sub:.95 stab:.6
+
+master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+
+visual
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let scan = smoothstep(0.5, 0.92, fract(uv.y * 22.0 + time * 0.35)) * (0.3 + hit_kick * 0.2);
+    let sp = spectrum(abs(p.x) * 0.8);
+    let cols = smoothstep(0.03, 0.0, abs(fract(uv.x * 18.0) - 0.5) - sp * 0.45);
+    let col = vec3f(0.95, 0.2, 0.35) * scan
+            + vec3f(0.1, 0.85, 0.95) * cols * (0.4 + hit_stab * 0.4)
+            + vec3f(0.08, 0.1, 0.12) * (0.3 + level * 0.5);
+    return vec4f(min(col, vec3f(1.0)), 1.0);
+  }
+
+cps .552
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -1755,15 +2017,15 @@ const fromRondo = (src: string): string => {
 
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
-  { name: 'visuals', code: visuals },
-  { name: 'techno', code: techno },
+  { name: 'visuals', code: visuals, rondo: visualsRondo },
+  { name: 'techno', code: techno, rondo: technoRondo },
   { name: 'dubstep', code: dubstep },
   { name: 'trance', code: trance },
   { name: 'future bass', code: futureBass },
   { name: 'ambient bells', code: ambientBells, rondo: ambientBellsRondo },
   { name: 'drum groove', code: drumGroove, rondo: drumGrooveRondo },
   { name: 'fm keys', code: fmKeys, rondo: fmKeysRondo },
-  { name: 'fm presets', code: fmPresets },
+  { name: 'fm presets', code: fmPresets, rondo: fmPresetsRondo },
   { name: 'chiptune', code: chiptune, rondo: chiptuneRondo },
   { name: 'chords & arps', code: chordsArp, rondo: chordsArpRondo },
   { name: 'generative', code: generative, rondo: generativeRondo },

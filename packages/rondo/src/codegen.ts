@@ -347,6 +347,18 @@ export function splitBeatVelocities(notation: string): { notes: string; gains: s
   return { notes, gains, has }
 }
 
+/** Order a play/sing block's modifiers for emission: SIGNAL-driven lines
+ *  (`cutoff: sine 200..2400 slow:4`, `wet: rise 8`) move AFTER everything
+ *  else. A signal is modulation in ABSOLUTE time — `every 4: rev` should
+ *  remix the notes, never run the sweep backwards (a combinator applied
+ *  outside a .ctrl reverses the signal's query time on affected cycles).
+ *  Number/mini values keep source order: step-tied accents like `gain: 1 .5`
+ *  legitimately travel with the notes they decorate. */
+function orderMods(mods: Mod[]): Mod[] {
+  const isSignal = (m: Mod): boolean => (m.kind === 'ctrl' || m.kind === 'method') && m.value.kind === 'sig'
+  return [...mods.filter((m) => !isSignal(m)), ...mods.filter(isSignal)]
+}
+
 /** The pattern EXPRESSION for a play block (no p() wrapper) — sections stack
  *  these; a top-level play wraps it in p(). */
 function cgPlayPat(block: PlayBlock): string {
@@ -368,7 +380,7 @@ function cgPlayPat(block: PlayBlock): string {
     : lineExpr(block.notation)
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
   if (block.entry !== 'sound') pat += `.sound('${block.name}')`
-  for (const m of block.mods) pat += cgMod(m)
+  for (const m of orderMods(block.mods)) pat += cgMod(m)
   return pat
 }
 
@@ -388,7 +400,7 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[]): s
     opts.push(`post: ${cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)}`)
   }
   let pat = `sing(${voiceArg}${q(lyrics)}, ${q(notes)}, { ${opts.join(', ')} })`
-  for (const m of block.mods) pat += cgMod(m)
+  for (const m of orderMods(block.mods)) pat += cgMod(m)
   return `p(${q(block.name)}, ${pat})`
 }
 

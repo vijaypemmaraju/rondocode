@@ -63,6 +63,21 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.every(4, x => x.rev())')
   })
 
+  it('signal-driven modifiers apply AFTER combinators (rev remixes notes, never the sweep)', () => {
+    // REGRESSION (user report, acid example): .ctrl('cutoff', sine…) BEFORE
+    // .every(4, rev) meant reversed cycles ran the filter sweep backwards —
+    // a combinator outside a ctrl reverses the signal's query time.
+    const out = ok(
+      `synth s1\n  saw\n  cutoff = knob 800 80..8000\n\n` +
+      `play s1\n  0 3 5\n  cutoff: sine 200..2400 slow:4\n  every 4: rev\n`,
+    )
+    expect(out.indexOf('.every(4,')).toBeLessThan(out.indexOf(".ctrl('cutoff'"))
+    // step-tied values (num/mini) keep their source order — accents travel
+    // with the notes they decorate
+    const out2 = ok(`synth s1\n  saw\n\nplay s1\n  0 3 5\n  gain: 1 .5 1\n  every 4: rev\n`)
+    expect(out2.indexOf('.gain(')).toBeLessThan(out2.indexOf('.every(4,'))
+  })
+
   it('reports notation spans whose offset exactly matches the source substring', () => {
     // this invariant is what lets note-play flash light the rondo buffer: a
     // mini-notation Loc is an offset into `content`, and content sits at

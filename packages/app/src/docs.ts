@@ -412,8 +412,12 @@ async function build(): Promise<void> {
     navLinks.push({ id, a })
     return row
   }
-  nav.append(el('div', 'nav-group', 'guide'))
+  let lastGroup = ''
   for (const s of SECTIONS) {
+    if (s.group !== lastGroup) {
+      nav.append(el('div', 'nav-group', s.group))
+      lastGroup = s.group
+    }
     const r = await renderSection(s)
     main.append(r.el)
     const row = addNav(s.id, s.title, r.firstCode)

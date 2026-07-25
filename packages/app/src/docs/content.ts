@@ -954,6 +954,7 @@ cps .55`,
       p('Rondo code grows CONTROL SURFACES inline. The inventory: `knob` bindings render dials (drag to set; pattern-driven dials glide with the sweep and show a live readout; grabbing one overrides the drive until release). `adsr` renders a full-width draggable envelope. Simple degree lines and polymeter figures render tappable piano-roll grids. `beat` rows render a step sequencer (paint, velocity tap-cycle, vertical velocity scrub). Single-euclid preview rolls take drags for pulses and rotation. Every plain number scrubs sideways.'),
       p('The text is always the source of truth: every gesture rewrites the code (watch it change as you drag), so anything you can touch you can also type, undo, and share. Undo and redo live as chips at the left of the bottom bar, in both languages, so history is one thumb-tap away on a phone.'),
       p('While the transport runs, everything lights: notation characters flash as their notes sound (including inside `js` escapes), grids sweep a playhead, envelopes fire a marker per note, and lines built from signals (like `irand`) pulse whole.'),
+      p('For playing live, the PERFORMANCE LOCK (the padlock in the header) freezes the text while every widget stays live: a stray tap cannot place a caret, open the keyboard, or convert the buffer, but knobs, grids, scrubs, undo and redo all keep working. Tap it again to edit.'),
     ],
   },
   {

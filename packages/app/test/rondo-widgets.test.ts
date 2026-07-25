@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, scanBeats, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens, scrubVelocity } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, scanBeats, scanRichPlays, richRollCells, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens, scrubVelocity } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -155,6 +155,49 @@ describe('scanBeats (whole-block step sequencer)', () => {
     const blocks = scanBeats(src)
     expect(blocks).toHaveLength(1)
     expect(blocks[0]!.rows).toHaveLength(1)
+  })
+})
+
+describe('polymeter figures get the EDITABLE grid (scoped to the braces)', () => {
+  it('scanPlays extracts the inner figure with the rewrite range inside {…}%n', () => {
+    const src = 'play arp\n  {0 3 5}%8  scale:d-min\n'
+    const [p] = scanPlays(src)
+    expect(p).toBeDefined()
+    expect(src.slice(p!.from, p!.to)).toBe('0 3 5') // a tap rewrites ONLY the figure
+    expect(p).toMatchObject({ steps: [0, 3, 5], srcFull: '{0 3 5}%8', srcOffset: 1, scale: 'd-min', synth: 'arp' })
+  })
+  it('non-flat braces content stays text (no grid)', () => {
+    expect(scanPlays('play a\n  {0 [3 5]}%4\n')).toHaveLength(0)
+  })
+})
+
+describe('scanRichPlays + richRollCells (read-only query roll)', () => {
+  it('finds euclid / nested lines; skips flat, lettered, and pure-polymeter ones', () => {
+    expect(scanRichPlays('play a\n  0(3,8)\n')[0]).toMatchObject({ content: '0(3,8)', synth: 'a' })
+    expect(scanRichPlays('play a\n  <0 5> [3 7]\n')).toHaveLength(1)
+    expect(scanRichPlays('play a\n  0 3 5 7\n')).toHaveLength(0) // flat → editable grid
+    expect(scanRichPlays('play a\n  {0 3 5}%8\n')).toHaveLength(0) // polymeter → editable grid
+    expect(scanRichPlays('play a\n  c4 e4(3,8)\n')).toHaveLength(0) // note names stay text
+    expect(scanRichPlays('play a\n  irand 5 seg:8\n')).toHaveLength(0)
+  })
+
+  it('richRollCells lays out a euclid cycle proportionally', () => {
+    const { cells, rows } = richRollCells('0(3,8)')!
+    expect(rows).toBe(1)
+    expect(cells.map((c) => c.x0)).toEqual([0, 3 / 8, 6 / 8])
+    expect(cells.every((c) => Math.abs(c.x1 - c.x0 - 1 / 8) < 1e-9)).toBe(true)
+  })
+
+  it('richRollCells rows are distinct degrees; polymeter cycle 0 fills n steps', () => {
+    const { cells, rows } = richRollCells('{0 3 5}%4')!
+    expect(rows).toBe(3)
+    expect(cells.map((c) => c.deg)).toEqual([0, 3, 5, 0]) // the figure wraps
+    expect(cells.map((c) => c.row)).toEqual([0, 1, 2, 0])
+  })
+
+  it('unparseable notation → null (never throws)', () => {
+    expect(richRollCells('0(3,')).toBeNull()
+    expect(richRollCells('~ ~')).toBeNull() // no notes
   })
 })
 

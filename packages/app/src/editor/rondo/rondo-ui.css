@@ -175,3 +175,36 @@
   line-height: 1;
 }
 .rp-chip.rp-hist:disabled { opacity: 0.35; pointer-events: none; }
+
+/* read-only query roll: cycle 1 of a rich pattern (euclid / polymeter / …)
+ * on a time-proportional lane. No pointer affordance — the text (and the
+ * number scrub on its integers) is the write surface. */
+.rondo-qroll {
+  position: relative;
+  display: inline-block;
+  vertical-align: text-bottom;
+  width: min(46vw, 220px);
+  margin: 0 0 0 8px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 28%, transparent);
+  overflow: hidden;
+  pointer-events: none;
+}
+.rondo-qroll .qr-cell {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 55%, transparent);
+}
+.rondo-qroll .qr-cell.on {
+  background: var(--c-accent-alt, #6ea8fe);
+  box-shadow: 0 0 8px -2px var(--c-accent-alt, #6ea8fe);
+}
+.rondo-qroll .qr-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 70%, transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}

@@ -18,7 +18,7 @@ import type { Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
-import { parseScaleName, scaleDegree } from '@rondocode/pattern'
+import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
@@ -56,6 +56,9 @@ export interface Hooks {
    *  transport is stopped previews what you just placed). */
   previewNote?: (synth: string, midi: number) => void
   isPlaying?: () => boolean
+  /** current tempo (cycles/sec) — lets the read-only query roll map an
+   *  event's absolute time to its phase within the cycle. */
+  cps?: () => number
 }
 
 /** A tiny haptic tick on widget interactions (Android; a silent no-op where
@@ -235,6 +238,10 @@ export interface PlayRoll {
   content: string
   /** one entry per step: a scale degree, or null for a rest (`~`). */
   steps: (number | null)[]
+  /** POLYMETER figure: the grid edits only the inside of `{…}%n`, so events
+   *  match the FULL notation and locs shift by the figure's offset in it. */
+  srcFull?: string
+  srcOffset?: number
 }
 
 /** Char offset of each step token within a notation string — a note event's
@@ -269,10 +276,34 @@ export function scanPlays(text: string): PlayRoll[] {
     const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
     const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
     const notation = noComment.slice(indent, scale ? scale.index : noComment.length).replace(/\s+$/, '')
+    const lineFrom = offs[i + 1]! + indent
+    // a PURE POLYMETER figure `{0 3 5}%8` is a flat sequence inside braces —
+    // it gets the full editable grid, scoped to the braces' interior (the
+    // stepping %n stays a scrubbable number in the text)
+    const pm = /^\{([0-9~ \t]+)\}%\d+$/.exec(notation)
+    if (pm) {
+      const inner = pm[1]!.replace(/\s+$/, '')
+      const innerStart = notation.indexOf(inner)
+      const ptoks = inner.trim().split(/\s+/).filter(Boolean)
+      if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || /^\d+$/.test(tk))) {
+        const roll: PlayRoll = {
+          from: lineFrom + innerStart,
+          to: lineFrom + innerStart + inner.length,
+          content: inner,
+          steps: ptoks.map((tk) => (tk === '~' ? null : Number(tk))),
+          srcFull: notation,
+          srcOffset: innerStart,
+        }
+        roll.synth = ph[2]!
+        if (scale) roll.scale = scale[0]!.slice('scale:'.length)
+        out.push(roll)
+        continue
+      }
+    }
     const toks = notation.trim().split(/\s+/).filter(Boolean)
     if (toks.length === 0) continue
     if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
-    const from = offs[i + 1]! + indent
+    const from = lineFrom
     const roll: PlayRoll = { from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) }
     roll.synth = ph[2]!
     if (scale) roll.scale = scale[0]!.slice('scale:'.length)
@@ -352,6 +383,173 @@ export function scanBeats(text: string): BeatBlock[] {
     if (rows.length > 0) out.push({ rows })
   }
   return out
+}
+
+export interface RichCell {
+  /** cycle-fraction span of the note (0..1). */
+  x0: number
+  x1: number
+  /** row index from the bottom (rows = distinct degrees, ascending). */
+  row: number
+  deg: number
+}
+
+/** Query cycle 0 of a rich degree-mini notation (euclid, polymeter,
+ *  subdivision, alternation…) into time-proportional roll cells, or null when
+ *  it doesn't parse / has no numeric notes. Pure. */
+export function richRollCells(notation: string): { cells: RichCell[]; rows: number } | null {
+  try {
+    const haps = miniParse(notation).pattern.query(new TimeSpan(F(0), F(1)))
+    const raw: { x0: number; x1: number; deg: number }[] = []
+    for (const h of haps) {
+      const whole = (h as { whole?: { begin: { n: number; d: number }; end: { n: number; d: number } } }).whole
+      if (whole === undefined) continue
+      const v = (h.value as { value?: unknown })?.value ?? h.value
+      const deg = typeof v === 'number' ? v : Number(v)
+      if (!Number.isFinite(deg)) continue
+      const x0 = whole.begin.n / whole.begin.d
+      const x1 = whole.end.n / whole.end.d
+      if (!(x1 > x0) || x0 < 0 || x0 >= 1) continue
+      raw.push({ x0, x1: Math.min(x1, 1), deg })
+    }
+    if (raw.length === 0) return null
+    raw.sort((a, b) => a.x0 - b.x0 || a.deg - b.deg) // time order (queries aren't)
+    const degs = [...new Set(raw.map((c) => c.deg))].sort((a, b) => a - b)
+    const rowOf = new Map(degs.map((d, i) => [d, i]))
+    return { cells: raw.map((c) => ({ ...c, row: rowOf.get(c.deg)! })), rows: degs.length }
+  } catch {
+    return null
+  }
+}
+
+export interface RichPlay {
+  /** the notation text — a play event's `loc.src` equals this. */
+  content: string
+  /** end of the notation in the source (the widget anchors after it). */
+  to: number
+  synth?: string
+}
+
+/** Find play-block notation lines TOO RICH for the editable grid (euclid,
+ *  polymeter, brackets, alternation…) but still pure degree-mini — they get a
+ *  READ-ONLY query roll. Letters (note names, chords, irand) stay text. Pure. */
+export function scanRichPlays(text: string): RichPlay[] {
+  const out: RichPlay[] = []
+  const lines = text.split('\n')
+  const offs: number[] = []
+  let o = 0
+  for (const l of lines) { offs.push(o); o += l.length + 1 }
+  for (let i = 0; i < lines.length; i++) {
+    const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)/.exec(lines[i]!)
+    if (!ph) continue
+    const nx = lines[i + 1]
+    if (nx === undefined) continue
+    const indent = /^[ \t]*/.exec(nx)![0].length
+    if (indent <= ph[1]!.length) continue
+    const cm = /(^|\s)#/.exec(nx)
+    const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
+    const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
+    const notation = noComment.slice(indent, scale ? scale.index : noComment.length).replace(/\s+$/, '')
+    if (notation.length === 0) continue
+    // pure degree-mini with structure: digits + mini punctuation, at least one
+    // structural char (otherwise the editable flat grid already handles it)
+    if (!/^[0-9~\s<>[\]{}%*/!@?,.()-]+$/.test(notation)) continue
+    if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
+    if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
+    const from = offs[i + 1]! + indent
+    out.push({ content: notation, to: from + notation.length, synth: ph[2]! })
+  }
+  return out
+}
+
+/** READ-ONLY roll for rich notation: cycle 0's events on a time-proportional
+ *  lane (row = degree), a sweeping playhead line, and cells that bloom as
+ *  their notes sound. No editing — the text stays the only write surface. */
+class QueryRollWidget extends WidgetType {
+  private unsub?: () => void
+  private raf = 0
+  private readonly timers = new Timers()
+
+  constructor(
+    readonly content: string,
+    readonly cellData: { cells: RichCell[]; rows: number },
+    readonly hooks: Hooks,
+  ) { super() }
+
+  eq(o: QueryRollWidget): boolean {
+    return o.content === this.content
+  }
+
+  toDOM(): HTMLElement {
+    const { cells, rows } = this.cellData
+    const wrap = document.createElement('span')
+    wrap.className = 'rondo-qroll'
+    wrap.setAttribute('role', 'img')
+    wrap.setAttribute('aria-label', 'pattern preview (cycle 1)')
+    const rowH = rows > 4 ? 8 : 12
+    wrap.style.height = `${Math.max(rows * rowH + 6, 22)}px`
+    const cellEls: { el: HTMLElement; c: RichCell }[] = []
+    for (const c of cells) {
+      const el = document.createElement('span')
+      el.className = 'qr-cell'
+      el.style.left = `${(c.x0 * 100).toFixed(2)}%`
+      el.style.width = `calc(${((c.x1 - c.x0) * 100).toFixed(2)}% - 1px)`
+      el.style.bottom = `${3 + c.row * rowH}px`
+      el.style.height = `${rowH - 2}px`
+      cellEls.push({ el, c })
+      wrap.appendChild(el)
+    }
+    const head = document.createElement('span')
+    head.className = 'qr-head'
+    wrap.appendChild(head)
+
+    // playhead: an event on THIS notation reveals the current cycle phase
+    // (phase = timeSec·cps mod 1); a rAF sweep rides from there until the
+    // feed goes quiet, blooming each cell as the line crosses its onset
+    if (this.hooks.onNoteEvents && this.hooks.now && this.hooks.cps) {
+      const now = this.hooks.now
+      const cps = this.hooks.cps
+      let anchor: { t: number; phase: number } | null = null
+      let lastEv = 0
+      const frame = (): void => {
+        if (anchor === null) { this.raf = 0; return }
+        const tNow = now()
+        if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) {
+          // feed quiet for ~2 cycles: hide the head, stop sweeping
+          head.style.opacity = '0'
+          anchor = null
+          this.raf = 0
+          return
+        }
+        const phase = (anchor.phase + (tNow - anchor.t) * cps()) % 1
+        head.style.opacity = '1'
+        head.style.left = `${(phase * 100).toFixed(2)}%`
+        for (const { el, c } of cellEls) {
+          el.classList.toggle('on', phase >= c.x0 && phase < c.x1)
+        }
+        this.raf = requestAnimationFrame(frame)
+      }
+      this.unsub = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (ev.src !== this.content) continue
+          this.timers.at((ev.timeSec - now()) * 1000, () => {
+            anchor = { t: ev.timeSec, phase: (ev.timeSec * cps()) % 1 }
+            lastEv = now()
+            if (this.raf === 0) this.raf = requestAnimationFrame(frame)
+          })
+        }
+      })
+    }
+    return wrap
+  }
+
+  destroy(): void {
+    this.unsub?.()
+    this.timers.clear()
+    cancelAnimationFrame(this.raf)
+  }
+
+  ignoreEvent(): boolean { return true }
 }
 
 class KnobWidget extends WidgetType {
@@ -784,12 +982,17 @@ class PianoRollWidget extends WidgetType {
     readonly scale: string | undefined,
     readonly hooks: Hooks,
     readonly drag: Drag,
+    /** polymeter figure: events carry the FULL notation as loc.src, and the
+     *  figure's atoms sit srcOffset chars into it. */
+    readonly srcFull?: string,
+    readonly srcOffset?: number,
   ) { super() }
 
   eq(o: PianoRollWidget): boolean {
     // `to`/`content` matter: respacing `0 3 5` → `0  3  5` keeps the same
     // STEPS but shifts offsets; a reused DOM would rewrite a too-short range
     return o.from === this.from && o.to === this.to && o.content === this.content &&
+      o.srcFull === this.srcFull && o.srcOffset === this.srcOffset &&
       o.steps.length === this.steps.length && o.steps.every((v, i) => v === this.steps[i])
   }
 
@@ -824,6 +1027,8 @@ class PianoRollWidget extends WidgetType {
     if (this.hooks.onNoteEvents && this.hooks.now) {
       const now = this.hooks.now
       const starts = stepStarts(this.content)
+      const matchSrc = this.srcFull ?? this.content
+      const locOff = this.srcOffset ?? 0
       const lightCol = (c: number, litMs: number): void => {
         for (let r = 0; r < rows; r++) {
           const cell = cellEls[r]?.[c]
@@ -837,8 +1042,8 @@ class PianoRollWidget extends WidgetType {
       }
       this.unsub = this.hooks.onNoteEvents((evs) => {
         for (const ev of evs) {
-          if (ev.src !== this.content) continue
-          const col = starts.indexOf(ev.start)
+          if (ev.src !== matchSrc) continue
+          const col = starts.indexOf(ev.start - locOff)
           if (col < 0) continue
           const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
           this.timers.at((ev.timeSec - now()) * 1000, () => lightCol(col, litMs))
@@ -1191,7 +1396,13 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag), side: 1 }) })
   }
   for (const p of scanPlays(text)) {
-    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag), side: 1 }) })
+    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }) })
+  }
+  for (const rp of scanRichPlays(text)) {
+    const data = richRollCells(rp.content)
+    if (data !== null) {
+      items.push({ pos: rp.to, deco: Decoration.widget({ widget: new QueryRollWidget(rp.content, data, hooks), side: 1 }) })
+    }
   }
   for (const b of scanBeats(text)) {
     // one sequencer per block, hanging off the LAST qualifying row's line

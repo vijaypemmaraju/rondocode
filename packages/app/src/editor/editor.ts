@@ -1,4 +1,5 @@
 import { Compartment, EditorState, Prec } from '@codemirror/state'
+import { isLocked, lockExtension } from './perflock'
 import type { Text } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
@@ -258,7 +259,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const exportBtn = el('button', 'btn export-btn')
   exportBtn.type = 'button'
   exportBtn.replaceChildren(iconEl('download'), el('span', 'btn-label', 'export'))
-  controls.append(langBtn, sampleBtn, exportBtn, stopBtn, runBtn)
+  // Performance lock: freeze the text, keep the widgets live (wired below,
+  // once the view + palette exist). aria-pressed carries the state.
+  const lockBtn = el('button', 'btn lock-btn')
+  lockBtn.type = 'button'
+  lockBtn.replaceChildren(iconEl('lock'))
+  lockBtn.setAttribute('aria-pressed', 'false')
+  tooltip(lockBtn, 'performance lock: text frozen, widgets live')
+  controls.append(langBtn, sampleBtn, exportBtn, lockBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
 
@@ -354,6 +362,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
   const langCompartment = new Compartment()
   const completionCompartment = new Compartment()
+  const lockCompartment = new Compartment()
   let liveTypeTimer: ReturnType<typeof setTimeout> | undefined
   const initialDoc = loadDoc(lang)
   /** Source of the last eval attempt / last GOOD eval (dirty tracking). */
@@ -531,6 +540,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // to continue the code; Tab accepts, Esc dismisses. `[]` in production
         // builds means the extension is simply never installed.
         import.meta.env.DEV ? ghostCompletion() : [],
+        lockCompartment.of(lockExtension(false)), // performance lock (toggled by the header button)
         meters.extension, // per-synth meter gutter (audio-driven)
         karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
@@ -624,7 +634,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     try { localStorage.setItem(LANG_KEY, lang) } catch { /* ignore storage failures */ }
     reflectLang()
     reconfigureLang()
-    palette.setVisible(lang === 'rondo')
+    refreshPaletteMode()
     applyDoc(false) // re-lint the buffer under the new language
     for (const fn of langListeners) fn(lang)
   }
@@ -656,7 +666,26 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     setLang(next) // re-lints (and re-evals live) the converted buffer
   })
 
-  palette.setVisible(lang === 'rondo')
+  /** Grammar chips show only in rondo mode AND while unlocked: inserting
+   *  text is editing, which is exactly what the lock is protecting against.
+   *  The bar itself always shows (undo/redo chips stay usable while locked). */
+  const refreshPaletteMode = (): void => {
+    palette.setVisible(lang === 'rondo' && !isLocked(view.state))
+  }
+  refreshPaletteMode()
+
+  // Performance-lock wiring: reconfigure the compartment, reflect the state
+  // on the button + a root class (CSS), and freeze the language toggle - a
+  // stray tap on it mid-performance would CONVERT the whole buffer.
+  lockBtn.addEventListener('click', () => {
+    const locked = !isLocked(view.state)
+    view.dispatch({ effects: lockCompartment.reconfigure(lockExtension(locked)) })
+    lockBtn.classList.toggle('active', locked)
+    lockBtn.setAttribute('aria-pressed', String(locked))
+    host.classList.toggle('perf-locked', locked)
+    langBtn.disabled = locked
+    refreshPaletteMode()
+  })
 
   const flasher = new EventFlasher(
     view,

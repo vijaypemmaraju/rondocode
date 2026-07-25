@@ -1624,3 +1624,15 @@ body.shaderviz-on .cm-content {
   font-size: 12px;
   opacity: 0.75;
 }
+
+/* ---- performance lock ------------------------------------------------- */
+/* Text frozen, widgets live: the button glows, the buffer stops looking
+ * tappable. Widgets keep their own cursors (grab/ns-resize). */
+.lock-btn.active {
+  background: var(--c-accent);
+  color: var(--c-bg);
+  border-color: var(--c-accent);
+}
+.perf-locked .cm-content {
+  cursor: default;
+}

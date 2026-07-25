@@ -94,6 +94,39 @@ describe('decompile round-trips', () => {
     if (back.ok) expect(back.code).toBe(rich.code)
   })
 
+  it('sing blocks survive the round trip (pairs come back as one joined pair)', () => {
+    const src = [
+      'sing vox voice:barbara',
+      '  twin-kle twin-kle lit-tle star',
+      '  c4 c4 g4 g4 a4 a4 g4@2',
+      '  how I won-der what you are',
+      '  f4 f4 e4 e4 d4 d4 c4@2',
+      '  gain: .95',
+      '  post',
+      '    reverb room:.8 mix:.25',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('sing vox voice:barbara')
+    expect(rondo2).toContain('twin-kle twin-kle lit-tle star how I won-der what you are')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
+  it('a sing() without opts.name bails to a js block (hash-named vocal — totality holds)', () => {
+    const js = "p('vox', sing('barbara', 'la la', 'c4 e4'))\n"
+    const r = decompile(js)
+    expect(r).toContain('js\n')
+    const back = compile(r)
+    expect(back.ok).toBe(true)
+    if (back.ok) expect(back.code).toContain("sing('barbara', 'la la', 'c4 e4')")
+  })
+
   for (const { name, src } of EXAMPLES) {
     it(`${name}.rondo: compile → decompile → compile is a fixed point`, () => {
       const first = compile(src)

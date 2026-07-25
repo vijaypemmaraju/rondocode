@@ -19,7 +19,7 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
 /** Block keywords. */
-const KEYWORDS = new Set(['synth', 'play', 'beat', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'visual', 'js', 'section', 'song'])
+const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'visual', 'js', 'section', 'song'])
 /** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
  *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([
@@ -101,6 +101,7 @@ const OPTIONS: Completion[] = [
   c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings.'),
   c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
   c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.'),
+  c('sing', 'keyword', 'sing NAME voice:barbara', 'A neural vocal: LYRIC lines above MELODY lines (pairs), one syllable per note.'),
   c('irand', 'keyword', 'irand N seg:M', 'Random scale degrees 0..N−1, M steps per cycle — a deterministic improviser.'),
   c('post', 'keyword', 'post', 'A post FX chain over the summed voices (reverb/eq/…), folded from `input`.'),
   c('cps', 'keyword', 'cps N', 'Set tempo in cycles per second.'),

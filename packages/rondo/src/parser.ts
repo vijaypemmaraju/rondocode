@@ -12,7 +12,7 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
+import type { Binding, Comb, CpsItem, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
 import type { BuiltinSpec } from './builtins'
@@ -496,6 +496,75 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   return { block, next }
 }
 
+/** `sing NAME [voice:WORD]` — body: alternating LYRIC / MELODY line pairs
+ *  (lyric above its notes, sheet-music style), then modifier lines, then an
+ *  optional trailing `post` FX sub-block (same shape as a synth's). */
+function parseSing(lines: Line[], i: number, errors: RondoError[]): { block: SingBlock; next: number } {
+  const header = lines[i]!
+  const nameTok = header.toks[1]
+  const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+  if (!name) errors.push({ message: 'sing needs a channel name (`sing vox`)', line: header.line, col: header.rawCol })
+  let voice: string | undefined
+  for (let k = 2; k < header.toks.length; k++) {
+    const t = header.toks[k]!
+    if (t.k === 'ident' && t.v === 'voice' && header.toks[k + 1]?.k === 'colon' && header.toks[k + 2]?.k === 'ident') {
+      voice = (header.toks[k + 2] as Tok & { v: string }).v
+      k += 2
+      continue
+    }
+    errors.push({ message: 'unknown sing option (only `voice:NAME`)', line: t.pos.line, col: t.pos.col })
+    break
+  }
+  const { body: fullBody, next } = bodyLines(lines, i + 1, header.indent)
+  // split off a trailing `post` sub-block, exactly like a synth's
+  let body = fullBody
+  let postBody: Line[] | null = null
+  const pIdx = fullBody.findIndex((ln) => ln.toks.length === 1 && ln.toks[0]!.k === 'ident' && ln.toks[0]!.v === 'post')
+  if (pIdx >= 0) {
+    const postIndent = fullBody[pIdx]!.indent
+    const rest = fullBody.slice(pIdx + 1)
+    postBody = rest.filter((ln) => ln.indent > postIndent)
+    if (rest.length !== postBody.length) errors.push({ message: 'post must be the last section of a sing block', line: fullBody[pIdx]!.line, col: 1 })
+    body = fullBody.slice(0, pIdx)
+  }
+  // leading non-modifier lines are the lyric/melody pairs; the rest modify
+  const pairLines: Line[] = []
+  const modLines: Line[] = []
+  for (const ln of body) {
+    if (modLines.length === 0 && !isModifierLine(ln)) pairLines.push(ln)
+    else modLines.push(ln)
+  }
+  if (pairLines.length === 0) {
+    errors.push({ message: 'sing needs lyric/melody line pairs (lyrics above, notes below)', line: header.line, col: header.rawCol })
+  } else if (pairLines.length % 2 !== 0) {
+    errors.push({ message: 'sing lines come in pairs — each LYRIC line needs a MELODY line under it', line: pairLines[pairLines.length - 1]!.line, col: 1 })
+  }
+  const lyrics: { text: string; from: number }[] = []
+  const notes: { text: string; from: number }[] = []
+  for (let k = 0; k < pairLines.length; k++) {
+    const ln = pairLines[k]!
+    ;(k % 2 === 0 ? lyrics : notes).push({ text: ln.raw, from: ln.offset })
+  }
+  const mods: Mod[] = []
+  for (const ln of modLines) {
+    if (/^scale[ \t]*:/.test(ln.raw)) {
+      errors.push({ message: "sing melodies use absolute note names — `scale:` doesn't apply", line: ln.line, col: ln.rawCol })
+      continue
+    }
+    const mod = parseMod(ln, errors)
+    if (mod) mods.push(mod)
+  }
+  const block: SingBlock = { t: 'sing', name, lyrics, notes, mods, pos: header.toks[0]!.pos }
+  if (voice !== undefined) block.voice = voice
+  if (postBody && postBody.length > 0) {
+    const input: Expr = { t: 'ident', name: 'input', pos: header.toks[0]!.pos }
+    const post = foldSpine(postBody, input, errors)
+    block.post = post.spine ?? input
+    block.postBindings = post.bindings
+  }
+  return { block, next }
+}
+
 function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsItem; next: number } {
   const header = lines[i]!
   const v = header.toks[1]
@@ -519,6 +588,8 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     // `beat [NAME]` — notation words are SYNTH NAMES (the JS s('kick hat'))
     else if (head.v === 'beat') { const r = parsePlay(lines, i, errors, 'beat'); items.push(r.block); i = r.next }
     else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
+    // `sing NAME [voice:WORD]` — a neural vocal block
+    else if (head.v === 'sing') { const r = parseSing(lines, i, errors); items.push(r.block); i = r.next }
     // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
     // per-channel duck amounts
     else if (head.v === 'sidechain') {
@@ -636,7 +707,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / section / song / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

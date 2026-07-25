@@ -160,10 +160,26 @@ export interface SongItem {
   pos: Pos
 }
 
+/** `sing NAME [voice:WORD]` — a neural vocal. Body: alternating LYRIC and
+ *  MELODY lines (sheet-music style, lyric above its notes), then modifier
+ *  lines, then an optional `post` FX sub-block (same shape as a synth's). */
+export interface SingBlock {
+  t: 'sing'
+  name: string
+  voice?: string
+  /** paired, in order: lyrics[i] sings notes[i]. */
+  lyrics: { text: string; from: number }[]
+  notes: { text: string; from: number }[]
+  mods: Mod[]
+  post?: Expr
+  postBindings?: Binding[]
+  pos: Pos
+}
+
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
-  | SectionBlock | SongItem
+  | SectionBlock | SongItem | SingBlock
 
 export interface Program {
   items: TopItem[]

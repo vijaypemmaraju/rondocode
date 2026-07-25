@@ -452,7 +452,23 @@ function decompileSynth(stmt: Node): string | null {
       }
     }
   }
-  const chain = (fn: Node, indent: string, fromInput = false): string[] | null => {
+  const chain = (fn: Node, indent: string, fromInput = false): string[] | null =>
+    decompileChainFn(fn, indent, fromInput)
+  const voiceLines = chain(voice, '  ')
+  if (voiceLines === null) return null
+  const out = [header, ...voiceLines]
+  if (post !== undefined) {
+    const postLines = chain(post, '    ', true)
+    if (postLines === null) return null
+    out.push('  post', ...postLines)
+  }
+  return out.join('\n')
+}
+
+/** Decompile a synth/post/sing-post BUILDER ARROW into rondo chain lines
+ *  (spine + bindings), or null when inexpressible. `fromInput = true` drops
+ *  the implicit leading `input` line of a post chain. */
+function decompileChainFn(fn: Node, indent: string, fromInput = false): string[] | null {
     const body = fn['body'] as Node
     const lines: string[] = []
     let ret: Node | undefined
@@ -503,16 +519,6 @@ function decompileSynth(stmt: Node): string | null {
     }
     return [...spine, ...bindings].map((l) => indent + l)
   }
-  const voiceLines = chain(voice, '  ')
-  if (voiceLines === null) return null
-  const out = [header, ...voiceLines]
-  if (post !== undefined) {
-    const postLines = chain(post, '    ', true)
-    if (postLines === null) return null
-    out.push('  post', ...postLines)
-  }
-  return out.join('\n')
-}
 
 // Invert keeping the FIRST spelling per long name: SCALE_MODE lists the terse
 // forms first and the identity entries (minor→minor) last — a plain map-from-
@@ -767,6 +773,99 @@ function sectionPlays(chainNode: Node): string[] | null {
   return out
 }
 
+/** p('name', sing([voice,] lyrics, notes, { name, post? })<mods>) → a sing
+ *  block, or null. The joined lyric/melody strings come back as ONE pair of
+ *  lines (line structure isn't recoverable from the joined form). */
+function decompileSing(stmt: Node): string | null {
+  if (stmt.type !== 'ExpressionStatement') return null
+  const call = stmt['expression'] as Node
+  if (!isCall(call) || calleeName(call) !== 'p') return null
+  const pargs = call['arguments'] as Node[]
+  if (pargs.length !== 2) return null
+  const pname = strValue(pargs[0]!)
+  if (pname === undefined) return null
+  // walk pattern modifiers from the outside in (gain/dur/pan, ctrls,
+  // fn-combinators, bare combinators — anything else bails)
+  const mods: string[] = []
+  let cur: Node = pargs[1]!
+  for (;;) {
+    const m = methodCall(cur)
+    if (m === undefined) break
+    if (m.method === 'ctrl' && m.args.length === 2) {
+      const cname = strValue(m.args[0]!)
+      const cval = ctrlValue(m.args[1]!)
+      if (cname === undefined || cval === null) return null
+      mods.unshift(`${cname}: ${cval}`)
+    } else if ((m.method === 'gain' || m.method === 'dur' || m.method === 'pan') && m.args.length === 1) {
+      const cval = ctrlValue(m.args[0]!)
+      if (cval === null) return null
+      mods.unshift(`${m.method}: ${cval}`)
+    } else if (FN_COMB_INV[m.method] !== undefined) {
+      const inv = FN_COMB_INV[m.method]!
+      const pre = m.args.slice(0, inv.pre).map(numValue)
+      const fn = m.args[inv.pre]
+      if (pre.some((x) => x === undefined) || fn === undefined || fn.type !== 'ArrowFunctionExpression') return null
+      const body = fn['body'] as Node
+      const bm = methodCall(body)
+      if (bm === undefined || !isIdent(bm.obj)) return null
+      const combArgs = bm.args.map((a) => {
+        const nv = numValue(a)
+        if (nv !== undefined) return num(nv)
+        return strValue(a) ?? null
+      })
+      if (combArgs.some((x) => x === null)) return null
+      const comb = `${bm.method}${combArgs.length > 0 ? ' ' + combArgs.join(' ') : ''}`
+      mods.unshift(`${inv.rname}${pre.length > 0 ? ' ' + pre.map((x) => num(x!)).join(' ') : ''}: ${comb}`)
+    } else {
+      const combArgs = m.args.map((a) => {
+        const nv = numValue(a)
+        if (nv !== undefined) return num(nv)
+        const sv = strValue(a)
+        return sv !== undefined && /^[\w~ .!@*<>[\]-]+$/.test(sv) ? sv : null
+      })
+      if (combArgs.some((x) => x === null)) return null
+      mods.unshift(`${m.method === 'degradeBy' ? 'degradeby' : m.method}${combArgs.length > 0 ? ' ' + combArgs.join(' ') : ''}`)
+    }
+    cur = m.obj
+  }
+  if (!isCall(cur) || calleeName(cur) !== 'sing') return null
+  const args = cur['arguments'] as Node[]
+  // sing(voice, lyrics, notes, opts?) | sing(lyrics, notes, opts?)
+  const s0 = args[0] !== undefined ? strValue(args[0]) : undefined
+  const s1 = args[1] !== undefined ? strValue(args[1]) : undefined
+  const s2 = args[2] !== undefined ? strValue(args[2]) : undefined
+  let voice: string | undefined, lyrics: string | undefined, notes: string | undefined, optsNode: Node | undefined
+  if (s2 !== undefined) {
+    voice = s0; lyrics = s1; notes = s2; optsNode = args[3]
+    if (voice === undefined) return null
+  } else {
+    lyrics = s0; notes = s1; optsNode = args[2]
+  }
+  if (lyrics === undefined || notes === undefined) return null
+  if (lyrics.includes('\n') || notes.includes('\n')) return null
+  // opts must name the channel after the p() (that's what cgSing emits);
+  // anything else (hash-named vocals, unknown keys) stays a js block
+  if (optsNode === undefined) return null
+  const o = objEntries(optsNode)
+  if (o === undefined) return null
+  let postLines: string[] | null = null
+  for (const [k, vNode] of Object.entries(o)) {
+    if (k === 'name') {
+      if (strValue(vNode) !== pname) return null
+    } else if (k === 'post') {
+      if (vNode.type !== 'ArrowFunctionExpression') return null
+      postLines = decompileChainFn(vNode, '    ', true)
+      if (postLines === null) return null
+    } else return null
+  }
+  if (o['name'] === undefined) return null
+  const header = `sing ${pname}${voice !== undefined && /^[a-zA-Z_]\w*$/.test(voice) ? ` voice:${voice}` : ''}`
+  if (voice !== undefined && !/^[a-zA-Z_]\w*$/.test(voice)) return null
+  const out = [header, `  ${lyrics}`, `  ${notes}`, ...mods.map((l) => `  ${l}`)]
+  if (postLines !== null) out.push('  post', ...postLines)
+  return out.join('\n')
+}
+
 /** Simple staging statements → their rondo lines, or null. */
 function decompileStaging(stmt: Node): string | null {
   if (stmt.type !== 'ExpressionStatement') return null
@@ -927,7 +1026,7 @@ export function decompile(js: string): string {
     return `song ${order.join(' ')}`
   }
   for (const stmt of program['body'] as Node[]) {
-    const r = secConst(stmt) ?? songArrange(stmt) ?? decompileSynth(stmt) ?? decompilePlay(stmt) ?? decompileStaging(stmt)
+    const r = secConst(stmt) ?? songArrange(stmt) ?? decompileSynth(stmt) ?? decompileSing(stmt) ?? decompilePlay(stmt) ?? decompileStaging(stmt)
     if (r !== null) {
       flushJs()
       if (r !== '') parts.push(r)

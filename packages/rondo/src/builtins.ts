@@ -49,6 +49,8 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   noise: { kind: 'osc', pos: ['enum'] },
   lfsr: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { mode: 'enum' } },
   lfo: { kind: 'osc', pos: ['sig', 'enum'] },
+  // the LIVE microphone as a source (silence offline / when unconnected)
+  mic: { kind: 'osc', pos: [] },
 
   // ---- gated sources (samplers, physical models) ----
   sample: { kind: 'gated', pos: ['enum'], named: { root: 'num', speed: 'sig', loop: 'bool' } },

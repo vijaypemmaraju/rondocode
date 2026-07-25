@@ -177,7 +177,10 @@ function parseApp(c: Cursor): Expr {
         args.push(parseExpr(c, 2))
       }
       args.push(...(name === 'eq' ? parseEqBands(c) : parsePositionals(c, spec)))
-      const named = parseNamed(c, spec)
+      // a builtin that declares NO named args consumes none — trailing
+      // `key:value` pairs belong to an ENCLOSING call (`vocoder mic bands:24`
+      // must give bands: to the vocoder, not the nested mic)
+      const named = spec.named !== undefined && Object.keys(spec.named).length > 0 ? parseNamed(c, spec) : {}
       return { t: 'call', name, args, named, pos: t.pos }
     }
     // a plain reference: a binding name, or note / gate / velocity / input

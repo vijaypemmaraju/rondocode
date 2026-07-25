@@ -965,3 +965,31 @@ describe('RealtimeEngine: shared send buses', () => {
     expect(errors(events)).toEqual([])
   })
 })
+
+describe('live mic input', () => {
+  it('a mic() synth plays the block fed via writeMic, and silence without one', () => {
+    const { eng, events } = makeEngine()
+    const micGraph = synth((c) => c.mic().mul(c.gate)).graph
+    define(eng, 'thru', micGraph)
+    send(eng, { kind: 'noteOn', synth: 'thru', note: 60 })
+    const l = new Float32Array(BLOCK)
+    const r = new Float32Array(BLOCK)
+    // no mic fed: silence
+    eng.process(l, r, 0)
+    expect(Math.max(...l.map(Math.abs))).toBe(0)
+    // feed a DC block: the output follows it, proportionally
+    const block = new Float32Array(BLOCK).fill(0.25)
+    eng.writeMic(block)
+    eng.process(l, r, BLOCK)
+    const atQuarter = Math.max(...l.map(Math.abs))
+    expect(atQuarter).toBeGreaterThan(0.05)
+    eng.writeMic(new Float32Array(BLOCK).fill(0.5))
+    eng.process(l, r, BLOCK * 2)
+    expect(Math.max(...l.map(Math.abs))).toBeCloseTo(atQuarter * 2, 1)
+    // stop feeding: back to silence (the shared block zeroes once)
+    eng.writeMic(null)
+    eng.process(l, r, BLOCK * 3)
+    expect(Math.max(...l.map(Math.abs))).toBe(0)
+    expect(errors(events)).toEqual([])
+  })
+})

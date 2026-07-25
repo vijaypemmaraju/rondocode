@@ -63,7 +63,7 @@ export class AudioSession {
     try {
       await context.audioWorklet.addModule(workletUrl)
       const node = new AudioWorkletNode(context, 'rondocode-engine', {
-        numberOfInputs: 0,
+        numberOfInputs: 1, // input 0 = the LIVE MIC (connected lazily by setMicEnabled)
         numberOfOutputs: 1,
         outputChannelCount: [2], // ask for stereo; processor tolerates mono
       })
@@ -106,6 +106,53 @@ export class AudioSession {
    *  load it into the engine under `name`, downmixed to mono. The PCM buffer is
    *  TRANSFERRED to the worklet (zero-copy). Returns the frame count loaded.
    *  Throws if decoding fails (unsupported/corrupt file). */
+  // ---- live mic ------------------------------------------------------------
+  private micStream: MediaStream | null = null
+  private micSource: MediaStreamAudioSourceNode | null = null
+  private micWanted = false
+
+  /** Connect (or disconnect) the device microphone into the engine's input.
+   *  LAZY + idempotent: called after every eval with "does the staged code
+   *  use mic()?" — the permission prompt only ever appears for code that
+   *  actually listens. Failures (denied, no device) leave the engine reading
+   *  silence; the synth still runs. */
+  async setMicEnabled(on: boolean): Promise<void> {
+    this.micWanted = on
+    if (!on) {
+      if (this.micSource !== null) {
+        try { this.micSource.disconnect() } catch { /* already gone */ }
+        this.micSource = null
+      }
+      if (this.micStream !== null) {
+        for (const t of this.micStream.getTracks()) t.stop()
+        this.micStream = null
+      }
+      return
+    }
+    if (this.micStream !== null) return // already live
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          // capture the true signal: phone voice-call DSP smears transients
+          // and would color a vocoder badly
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      })
+      // an eval may have turned mic OFF while the permission prompt was open
+      if (!this.micWanted) {
+        for (const t of stream.getTracks()) t.stop()
+        return
+      }
+      this.micStream = stream
+      this.micSource = this.context.createMediaStreamSource(stream)
+      this.micSource.connect(this.node, 0, 0)
+    } catch (e) {
+      console.warn('[mic] unavailable (permission denied?)', e)
+    }
+  }
+
   /** Decode audio bytes at the engine's sample rate (mic recordings use this
    *  so their PCM lands exactly like file loads do). */
   decodeAudio(bytes: ArrayBuffer): Promise<AudioBuffer> {

@@ -241,12 +241,21 @@ export class RealtimeEngine {
   /** Shared sample store; also exposed on ctx.samples so compiled
    *  SampleKernels resolve names against it (and see later loads). */
   private readonly samples: SampleBank
+  /** the shared live-mic block (see ctx.mic aliasing in the constructor). */
+  private readonly micBlock: Float32Array
+  private micQuiet = true
 
   constructor(ctx: DspContext, opts?: { maxSynths?: number }) {
     // Adopt any bank the host supplied on the ctx, else create one and publish
     // it back onto the ctx so voice graphs compiled with this ctx can read it.
     this.samples = (ctx.samples as SampleBank | undefined) ?? new SampleBank()
     ctx.samples = this.samples
+    // LIVE MIC: adopt any block the host already put on the ctx, else create
+    // one and publish it back (same pattern as the sample bank) — every graph
+    // compiled with this ctx aliases ONE buffer, so writeMic() is one copy
+    // per quantum and zero per-graph work. Stays zeroed until fed.
+    this.micBlock = ctx.mic ?? new Float32Array(BLOCK)
+    ctx.mic = this.micBlock
     this.ctx = ctx
     this.maxSynths = Math.floor(clamp(opts?.maxSynths ?? DEFAULT_MAX_SYNTHS, 1, MAX_SYNTHS_LIMIT))
     this.scReleaseCoeff = duckReleaseCoeff(DEFAULT_DUCK_RELEASE_MS, ctx.sampleRate)
@@ -344,6 +353,21 @@ export class RealtimeEngine {
    *  stopping audio for. The whole body is wrapped in one try/catch (never
    *  per-sample): a crash zeroes the block and emits a rate-limited error
    *  event. */
+  /** Feed one live-mic block (the worklet's input) before process(). Pass
+   *  null/short blocks to go silent — zeroing is skipped once already quiet,
+   *  so an unconnected input costs nothing per quantum. */
+  writeMic(block: Float32Array | null): void {
+    if (block === null || block.length < BLOCK) {
+      if (!this.micQuiet) {
+        this.micBlock.fill(0)
+        this.micQuiet = true
+      }
+      return
+    }
+    this.micBlock.set(block.subarray(0, BLOCK))
+    this.micQuiet = false
+  }
+
   process(outL: Float32Array, outR: Float32Array, startFrame: number): void {
     if (!this.originAdopted && Number.isFinite(startFrame)) {
       this.originAdopted = true

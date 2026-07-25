@@ -318,6 +318,12 @@ describe('rondo → rondocode codegen', () => {
     expect(compile('synth s1\n  saw\n\nplay x nonsense\n  0 3\n').ok).toBe(false)
   })
 
+  it('mic: the live microphone as a source (bare, and as a vocoder modulator)', () => {
+    expect(ok('synth thru\n  mic\n  * .5\n')).toContain('return mic().mul(0.5)')
+    expect(ok('synth talkbox\n  supersaw\n  vocoder mic bands:24\n'))
+      .toContain('vocoder(supersaw(note.freq), mic(), { bands: 24 })')
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

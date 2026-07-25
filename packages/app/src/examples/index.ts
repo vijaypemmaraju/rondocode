@@ -2902,6 +2902,44 @@ master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 cps .52
 `
 
+
+/** LIVE MIC: your voice through the synth graph in real time. */
+const liveMicRondo = `# LIVE MIC. run this and TALK or SING:
+# your voice plays the chord through a
+# vocoder (a talkbox). the mic asks
+# for permission on first run and
+# renders silent in offline exports.
+# USE HEADPHONES: a speaker feeding
+# the mic howls.
+
+synth talkbox
+  supersaw detune:.5
+  vocoder mic bands:24
+  * env
+  * .9
+  env = adsr .02 .1 .9 .2
+
+# a breathy whisper of the raw mic
+# riding on top for intelligibility
+synth breath
+  mic
+  svf 5200 mode:hp
+  * env
+  * .25
+  env = adsr .05 .1 .9 .3
+
+play talkbox
+  <0 3 5 3>
+  scale: a-min
+  dur: .98
+
+play breath
+  c4
+  dur: 1
+
+cps .45
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -2938,6 +2976,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'club', code: fromRondo(clubRondo), rondo: clubRondo },
   { name: 'drum machine', code: fromRondo(drumMachineRondo), rondo: drumMachineRondo },
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
+  { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

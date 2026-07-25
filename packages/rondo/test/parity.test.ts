@@ -23,7 +23,7 @@ const FIRST_CLASS_CTX = [
   'note', 'gate', 'velocity', 'input', 'param', 'adsr',
   // oscillators / sources
   'saw', 'square', 'sine', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable',
-  'supersaw', 'noise', 'lfsr', 'lfo',
+  'supersaw', 'noise', 'lfsr', 'lfo', 'mic',
   // gated sources
   'sample', 'granular', 'pluck', 'modal',
   // gated envelopes

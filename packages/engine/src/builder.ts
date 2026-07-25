@@ -192,6 +192,9 @@ export interface SynthCtx {
    *  (def 240 / 2500), `makeup` dB. */
   ott(inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
+  /** The device microphone as a LIVE signal (see the mic docs). Silence when
+   *  no mic is connected and in offline renders. Headphones advised. */
+  mic(): Sig
 }
 
 /** The post graph's build context: a SEPARATE build (its own node-id space)
@@ -245,6 +248,9 @@ export interface PostCtx {
    *  (def 240 / 2500), `makeup` dB. */
   ott(inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
+  /** The device microphone as a LIVE signal (see the mic docs). Silence when
+   *  no mic is connected and in offline renders. Headphones advised. */
+  mic(): Sig
 }
 
 /** User-facing voice options passed to synth() — every field optional. See
@@ -586,6 +592,9 @@ const makeShared = (b: Builder) => {
       ),
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
+    // LIVE MIC: the device microphone as a signal (silence offline / when no
+    // mic is connected). Use headphones — a speaker feeding the mic howls.
+    mic: (): Sig => b.node('mic', {}),
   }
 }
 
@@ -622,6 +631,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     exciter: shared.exciter,
     ott: shared.ott,
     mix: shared.mix,
+    mic: shared.mic,
 
     sine: (freq) => b.node('sine', { freq: src(freq, 'sine freq') }),
     saw: (freq) => b.node('saw', { freq: src(freq, 'saw freq') }),

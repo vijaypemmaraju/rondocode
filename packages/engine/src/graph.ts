@@ -7,7 +7,7 @@ export type NodeType =
   | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'phaser' | 'formant' | 'vocoder'
   | 'eq' | 'exciter' | 'ott'
   | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'
-  | 'businput' | 'mix' | 'out'
+  | 'businput' | 'mic' | 'mix' | 'out'
 
 /** number = constant, {node} = another node's output */
 export type InputSource = number | { node: number }

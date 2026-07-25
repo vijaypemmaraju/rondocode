@@ -411,6 +411,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // build the flash literals from that — same highlighting, either language.
       if (lang === 'rondo') flasher.onGoodEvalLiterals([...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)], rondoPulses)
       else flasher.onGoodEval(source)
+      // LIVE MIC: connect the microphone iff the staged code uses mic()
+      // (lazy permission prompt; disconnect + release when it stops)
+      const usesMic = [...result.synths.values()].some(
+        (d) => d.graph.nodes.some((n) => n.type === 'mic') || (d.post?.nodes.some((n) => n.type === 'mic') ?? false),
+      )
+      void audio.setMicEnabled(usesMic)
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.
       singSoundNames = new Set(result.sings.map((s) => s.synthName))

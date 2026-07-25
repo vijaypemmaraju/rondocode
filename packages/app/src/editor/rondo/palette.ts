@@ -13,7 +13,7 @@ import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
  * editor never loses focus and the phone keyboard stays up. */
 
 import type { EditorView } from '@codemirror/view'
-import { buzz } from './widgets'
+import { buzz, rollPreviewMidi } from './widgets'
 
 export interface Chip {
   /** what the bar shows. */
@@ -24,6 +24,11 @@ export interface Chip {
   cursor?: number
   /** styling group. */
   kind?: 'kw' | 'note' | 'op'
+  /** a degree chip previews this scale degree through the enclosing play's
+   *  synth + scale when the transport is stopped (play-to-write). */
+  previewDegree?: number
+  /** non-insert chips: 'del-token' erases the token before the caret. */
+  action?: 'del-token'
 }
 
 const chip = (label: string, insert: string, kind?: Chip['kind'], cursor?: number): Chip => {
@@ -91,12 +96,13 @@ const SOURCE_CHIPS: Chip[] = [
 ]
 
 const NOTE_CHIPS: Chip[] = [
-  ...['0', '1', '2', '3', '4', '5', '6', '7'].map((d) => chip(d, `${d} `, 'note')),
+  ...['0', '1', '2', '3', '4', '5', '6', '7'].map((d) => ({ ...chip(d, `${d} `, 'note'), previewDegree: Number(d) })),
   chip('~', '~ ', 'note'),
   chip('<', '<', 'op'),
   chip('>', '> ', 'op'),
   chip('[', '[', 'op'),
   chip(']', '] ', 'op'),
+  { ...chip('⌫', '', 'op'), action: 'del-token' },
   chip('scale', ' scale:a-min', 'kw'),
 ]
 
@@ -195,6 +201,48 @@ export function paletteChips(doc: string, pos: number): Chip[] {
   }
 }
 
+/** The enclosing play block's preview context at `pos`: which synth a tapped
+ *  degree should sound through, and the block's scale (inline `scale:a-min`
+ *  or a `scale: a-min` modifier line). Pure. */
+export function notationCtxAt(doc: string, pos: number): { synth?: string; scale?: string } {
+  const lines = doc.split('\n')
+  const lineIdx = doc.slice(0, pos).split('\n').length - 1
+  const ctx = enclosing(lines, lineIdx)
+  if (ctx.block !== 'play' || ctx.header === undefined) return {}
+  // `play NAME` routes to NAME; `play chan synth:NAME` routes to NAME
+  const named = /\bsynth:([a-zA-Z_]\w*)/.exec(ctx.header)
+  const bare = /^play[ \t]+([a-zA-Z_]\w*)/.exec(ctx.header.trim())
+  const synth = named?.[1] ?? bare?.[1]
+  const out: { synth?: string; scale?: string } = {}
+  if (synth !== undefined) out.synth = synth
+  const headerIndent = /^[ \t]*/.exec(lines[ctx.headerIdx] ?? '')![0].length
+  for (let i = ctx.headerIdx + 1; i < lines.length; i++) {
+    const ln = lines[i]!
+    if (ln.trim() === '') continue
+    const indent = /^[ \t]*/.exec(ln)![0].length
+    if (indent <= headerIndent) break // left the block
+    const m = /\bscale:[ \t]*([a-gA-G][a-z0-9#-]*)/.exec(ln)
+    if (m !== null) {
+      out.scale = m[1]!
+      break
+    }
+  }
+  return out
+}
+
+/** The range of the token immediately before `pos` on its own line
+ *  (including the spaces that separate it), or null when the caret sits at
+ *  the start of the line's content. Pure - the ⌫ chip's brain. */
+export function deleteTokenRange(doc: string, pos: number): { from: number; to: number } | null {
+  const lineStart = doc.lastIndexOf('\n', pos - 1) + 1
+  let i = pos
+  while (i > lineStart && (doc[i - 1] === ' ' || doc[i - 1] === '\t')) i--
+  const tokenEnd = i
+  while (i > lineStart && doc[i - 1] !== ' ' && doc[i - 1] !== '\t') i--
+  if (i === tokenEnd) return null // only whitespace (or nothing) before the caret
+  return { from: i, to: pos }
+}
+
 /* ---- the DOM bar ----------------------------------------------------------- */
 
 export interface PaletteHandle {
@@ -205,7 +253,13 @@ export interface PaletteHandle {
   dispose(): void
 }
 
-export function mountRondoPalette(bar: HTMLElement, view: EditorView): PaletteHandle {
+export interface PaletteHooks {
+  /** sound one note now (the play-to-write preview; the tap is the unlock gesture). */
+  previewNote?: (synth: string, midi: number) => void
+  isPlaying?: () => boolean
+}
+
+export function mountRondoPalette(bar: HTMLElement, view: EditorView, hooks: PaletteHooks = {}): PaletteHandle {
   bar.classList.add('rondo-palette')
   let visible = true
   let full = false
@@ -274,7 +328,19 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView): PaletteHa
         b.addEventListener('pointerdown', (e) => {
           e.preventDefault()
           buzz()
+          if (c.action === 'del-token') {
+            const range = deleteTokenRange(view.state.doc.toString(), view.state.selection.main.head)
+            if (range !== null) view.dispatch({ changes: range, selection: { anchor: range.from }, scrollIntoView: true })
+            return
+          }
           insert(c)
+          // play-to-write: a degree chip SOUNDS while stopped, through the
+          // enclosing play's synth + scale (same rules as the grid preview)
+          if (c.previewDegree !== undefined && hooks.previewNote !== undefined && hooks.isPlaying?.() !== true) {
+            const ctx = notationCtxAt(view.state.doc.toString(), view.state.selection.main.head)
+            const midi = rollPreviewMidi(ctx.scale, c.previewDegree)
+            if (ctx.synth !== undefined && midi !== undefined) hooks.previewNote(ctx.synth, midi)
+          }
         })
         return b
       }),

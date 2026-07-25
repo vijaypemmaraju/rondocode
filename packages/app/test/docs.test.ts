@@ -128,3 +128,25 @@ describe('docs data shape', () => {
     expect(total).toBe(DSL_DOCS.length)
   })
 })
+
+describe('docs style rules', () => {
+  it('no em dashes anywhere in the docs (house rule)', async () => {
+    const { SECTIONS, HERO } = await import('../src/docs/content')
+    expect(HERO.blurb.includes('—')).toBe(false)
+    expect(HERO.tagline.includes('—')).toBe(false)
+    for (const s of SECTIONS) {
+      for (const b of s.blocks) {
+        const text = b.kind === 'p' ? b.text : `${b.caption}\n${b.text}`
+        expect(text.includes('—'), `em dash in section '${s.id}'`).toBe(false)
+      }
+    }
+    for (const e of DSL_DOCS) {
+      expect(`${e.summary} ${e.signature}`.includes('—'), `em dash in dsl-docs '${e.name}'`).toBe(false)
+    }
+  })
+
+  it('every section carries a nav group', async () => {
+    const { SECTIONS } = await import('../src/docs/content')
+    for (const s of SECTIONS) expect(s.group.length, `section '${s.id}' has no group`).toBeGreaterThan(0)
+  })
+})

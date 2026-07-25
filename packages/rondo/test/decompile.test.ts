@@ -14,7 +14,7 @@ import { decompile } from '../src/decompile'
 const read = (rel: string): string =>
   readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
-const EXAMPLES = ['acid', 'pad', 'wob', 'club', 'drums'].map((name) => ({
+const EXAMPLES = ['acid', 'pad', 'wob', 'club', 'drums', 'poly'].map((name) => ({
   name,
   src: read(`../examples/${name}.rondo`),
 }))

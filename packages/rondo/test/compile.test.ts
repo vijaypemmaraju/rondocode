@@ -353,6 +353,16 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.clip(-1, 1)')
   })
 
+  it('gated sources with a freq default read the note when no freq is given', () => {
+    // REGRESSION: bare `modal model:bell` emitted modal(gate, { model }) with
+    // NO freq — the opts object landed in the freq slot and eval failed
+    expect(ok(`synth b\n  modal model:bell decay:.4\n`))
+      .toContain("modal(gate, note.freq, { model: 'bell', decay: 0.4 })")
+    expect(ok(`synth p\n  pluck\n`)).toContain('pluck(gate, note.freq)')
+    // an explicit freq still wins
+    expect(ok(`synth b\n  modal 1400 model:bar\n`)).toContain("modal(gate, 1400, { model: 'bar' })")
+  })
+
   it('gated sources inject the gate; names + bools emit correctly', () => {
     const out = ok(`synth v\n  sample vox root:57 loop:1\n  * env\n  env = adsr .01 .3 .7 .3\n`)
     expect(out).toContain("sample(gate, 'vox', { root: 57, loop: true })")

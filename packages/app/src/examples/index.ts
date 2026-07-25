@@ -1373,6 +1373,86 @@ sing vox voice:barbara
     reverb mix:.25
 `
 
+/** Polyrhythm showcase: euclidean rhythms + polymeter, pure rondo. */
+const polyrhythmRondo = `# polyrhythm. (pulses,steps) spreads
+# hits evenly — (3,8) is the tresillo.
+# {…}%n is polymeter: a figure stepped
+# at n per bar drifts and comes back
+# around. euclid also works as a
+# modifier line on any pattern.
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp  = adsr .001 .2 0 .07
+
+synth hat
+  noise
+  svf 8000 mode:hp
+  * env
+  * .6
+  env = adsr .001 .03 0 .01
+
+synth bell
+  modal model:bell decay:.4
+  * env
+  * .5
+  env = adsr .001 .12 0 .1
+
+synth bass mono glide:.05
+  saw
+  onepole 650
+  * env
+  tanh
+  env = adsr .005 .1 .6 .08
+
+synth arp
+  pulse
+  ladder cut res:.6
+  * env
+  * .5
+  cut = env ^ 2 -> 400..3800
+  env = adsr .002 .1 0 .06
+
+play kick
+  c2*4
+
+# 7 hats over 16 steps — the offbeats
+# land somewhere new every bar
+play hat
+  c6(7,16)
+  gain: .6
+
+# the tresillo, rotated on odd bars
+play bell
+  <0(3,8) 0(3,8,2)>
+  scale: d-min
+  dur: .4
+
+# euclid as a MODIFIER on a melody
+play bass
+  <0 5 3 7>
+  scale: d-min
+  add -7
+  euclid 5 8
+
+# a 6-note figure at 8 steps per bar:
+# it rotates for 3 bars, then repeats
+play arp
+  {0 3 5 7 9 12}%8
+  scale: d-min
+  dur: .5
+  gain: .7
+
+sidechain kick depth:.5 release:.12 bass:.9 arp:.7
+
+master threshold:-7 ratio:2 makeup:1
+
+cps .5
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -1408,6 +1488,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'wobble', code: fromRondo(wobbleRondo), rondo: wobbleRondo },
   { name: 'club', code: fromRondo(clubRondo), rondo: clubRondo },
   { name: 'drum machine', code: fromRondo(drumMachineRondo), rondo: drumMachineRondo },
+  { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

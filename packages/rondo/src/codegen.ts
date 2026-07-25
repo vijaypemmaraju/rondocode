@@ -144,8 +144,9 @@ class SynthGen {
       for (let i = 0; i + 1 < a.length; i += 2) pairs.push(`[${a[i]}, ${a[i + 1]}]`)
       a = [`[${pairs.join(', ')}]`]
     }
-    // an osc with a freq default and no freq arg reads the note
-    if (spec.kind === 'osc' && spec.freqDefault === true && a.length === 0) {
+    // an osc/gated source with a freq default and no freq arg reads the note
+    // (gated too: bare `pluck` / `modal model:bell` should pitch from the note)
+    if ((spec.kind === 'osc' || spec.kind === 'gated') && spec.freqDefault === true && a.length === 0) {
       this.uses.add('note')
       a.push('note.freq')
     }

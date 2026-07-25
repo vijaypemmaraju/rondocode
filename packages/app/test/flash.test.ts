@@ -5,6 +5,7 @@ import {
   FLASH_MS,
   MAX_PENDING_FLASHES,
   collectStringLiterals,
+  jsRegionLiterals,
   locToDocRanges,
   rondoNoteLiterals,
 } from '../src/editor/flash'
@@ -70,6 +71,50 @@ describe('rondoNoteLiterals (note-play flash in rondo mode)', () => {
   it('ignores a loc whose src is a different notation (no cross-lighting)', () => {
     const lits = rondoNoteLiterals([{ content: '0 3 5 7', from: 30 }])
     expect(locToDocRanges(lits, { start: 0, end: 2, src: 'c4 e4' }, { note: 60 })).toEqual([])
+  })
+
+  it('a velocity-stripped beat span maps through its pieces (hat:.6 rows flash)', () => {
+    // buffer: `~ hat:.6 ~ hat` at offset 0; emitted mini: `~ hat ~ hat`
+    const lits = rondoNoteLiterals([{
+      content: '~ hat ~ hat',
+      from: 0,
+      pieces: [
+        { assembledStart: 0, sourceStart: 0, length: 5 }, // `~ hat`
+        { assembledStart: 5, sourceStart: 8, length: 6 }, // ` ~ hat` (after `:.6`)
+      ],
+    }])
+    // second hat: loc 8..11 in the stripped string → buffer 11..14
+    expect(locToDocRanges(lits, { start: 8, end: 11, src: '~ hat ~ hat' }, {}))
+      .toEqual([{ from: 11, to: 14 }])
+  })
+})
+
+describe('jsRegionLiterals (note-play flash inside rondo js escapes)', () => {
+  it('scans a region slice and shifts every offset back to the buffer', () => {
+    // a rondo buffer whose js block holds a pattern; the region covers the JS
+    const src = "synth s1\n  saw\n\njs\n  p('x', n('0 3 5').sound('s1'))\n"
+    const from = src.indexOf("  p('x'")
+    const to = src.length - 1
+    const lits = jsRegionLiterals(src, [{ from, to }])
+    const degrees = lits.find((l) => l.content === '0 3 5')!
+    expect(degrees).toBeDefined()
+    expect(src.slice(degrees.contentStart, degrees.contentStart + degrees.content.length)).toBe('0 3 5')
+    // an event on the '3' atom maps to the exact buffer chars
+    const ranges = locToDocRanges(lits, { start: 2, end: 3, src: '0 3 5' }, {})
+    expect(ranges).toHaveLength(1)
+    expect(src.slice(ranges[0]!.from, ranges[0]!.to)).toBe('3')
+  })
+
+  it('handles concatenations inside a region (piece offsets shift too)', () => {
+    const src = "js{ n('0 3' + ' 5 7') }"
+    const lits = jsRegionLiterals(src, [{ from: 3, to: src.length - 1 }])
+    expect(lits.map((l) => l.content)).toEqual(['0 3 5 7'])
+    const ranges = locToDocRanges(lits, { start: 4, end: 5, src: '0 3 5 7' }, {})
+    expect(src.slice(ranges[0]!.from, ranges[0]!.to)).toBe('5')
+  })
+
+  it('an unparseable region contributes nothing (never throws)', () => {
+    expect(jsRegionLiterals('js{ const = ) }', [{ from: 3, to: 13 }])).toEqual([])
   })
 })
 

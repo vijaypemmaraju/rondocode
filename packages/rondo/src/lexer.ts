@@ -19,7 +19,7 @@ export type Tok =
   | { k: 'arrow'; pos: Pos; sp: boolean } // ->
   | { k: 'colon'; pos: Pos; sp: boolean } // :
   | { k: 'eq'; pos: Pos; sp: boolean } // =
-  | { k: 'jsexpr'; v: string; pos: Pos; sp: boolean } // js{ … } escape hatch (inner)
+  | { k: 'jsexpr'; v: string; pos: Pos; sp: boolean; from: number; to: number } // js{ … } escape hatch (inner; from/to = absolute source region)
 
 export interface Line {
   indent: number
@@ -73,8 +73,9 @@ function scanBalanced(text: string, open: number): number {
 }
 
 /** Tokenize one line's text into inline tokens. `base` is the 1-based column of
- *  the first character, so token positions map back to the source. */
-function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoError[]): Tok[] {
+ *  the first character, so token positions map back to the source; `off` is the
+ *  absolute source offset of the first character (for js{ … } regions). */
+function tokenizeLine(text: string, lineNo: number, base: number, off: number, errors: RondoError[]): Tok[] {
   const toks: Tok[] = []
   let i = 0
   let sawSpace = true // leading position counts as space-preceded
@@ -92,7 +93,7 @@ function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoE
         errors.push({ message: 'unterminated js{ … } block', line: lineNo, col: base + i })
         break
       }
-      toks.push({ k: 'jsexpr', v: text.slice(open + 1, close).trim(), pos, sp })
+      toks.push({ k: 'jsexpr', v: text.slice(open + 1, close).trim(), pos, sp, from: off + open + 1, to: off + close })
       i = close + 1
       continue
     }
@@ -141,7 +142,7 @@ function tokenizeLine(text: string, lineNo: number, base: number, errors: RondoE
   return toks
 }
 
-export function lex(src: string): { lines: Line[]; errors: RondoError[] } {
+export function lex(src: string): { lines: Line[]; errors: RondoError[]; jsRegions: { from: number; to: number }[] } {
   const errors: RondoError[] = []
   const lines: Line[] = []
   const rawLines = src.split('\n')
@@ -160,10 +161,14 @@ export function lex(src: string): { lines: Line[]; errors: RondoError[] } {
       const text = noComment.slice(indent).replace(/\s+$/, '')
       lines.push({
         indent, line: lineNo, raw: text, rawCol, offset: lineStart + indent,
-        toks: tokenizeLine(text, lineNo, rawCol, errors),
+        toks: tokenizeLine(text, lineNo, rawCol, lineStart + indent, errors),
       })
     }
     lineStart += rawFull.length + 1 // +1 for the '\n' consumed by split
   }
-  return { lines, errors }
+  // every inline js{ … } region, for note-flash inside escape hatches (the
+  // parser adds js BLOCK body regions — only it knows which lines those are)
+  const jsRegions: { from: number; to: number }[] = []
+  for (const l of lines) for (const t of l.toks) if (t.k === 'jsexpr') jsRegions.push({ from: t.from, to: t.to })
+  return { lines, errors, jsRegions }
 }

@@ -242,12 +242,34 @@ export function locToDocRanges(
  *  the compiler passed to n()/note() (so it equals each event's `loc.src`), and
  *  `from` is that string's char offset in the rondo buffer. One single-piece
  *  literal each — a mini Loc offset indexes straight into it. */
-export function rondoNoteLiterals(notes: { content: string; from: number }[]): StringLit[] {
+export function rondoNoteLiterals(
+  notes: { content: string; from: number; pieces?: LitPiece[] }[],
+): StringLit[] {
   return notes.map((n) => ({
     contentStart: n.from,
     content: n.content,
-    pieces: [{ assembledStart: 0, sourceStart: n.from, length: n.content.length }],
+    // a beat line with velocity suffixes compiles to a STRIPPED mini string —
+    // the compiler supplies pieces mapping it back around each removed `:v`
+    pieces: n.pieces ?? [{ assembledStart: 0, sourceStart: n.from, length: n.content.length }],
   }))
+}
+
+/** Flash literals for rondo's js escape hatches: each region is raw JS that
+ *  sits VERBATIM in the buffer at [from, to), so the normal JS literal scan
+ *  runs on the slice and every offset just shifts by the region start. This
+ *  is what makes note-flash work inside js{ … } / js blocks. */
+export function jsRegionLiterals(source: string, regions: { from: number; to: number }[]): StringLit[] {
+  const out: StringLit[] = []
+  for (const r of regions) {
+    for (const lit of collectStringLiterals(source.slice(r.from, r.to))) {
+      out.push({
+        contentStart: lit.contentStart + r.from,
+        content: lit.content,
+        pieces: lit.pieces.map((p) => ({ ...p, sourceStart: p.sourceStart + r.from })),
+      })
+    }
+  }
+  return out
 }
 
 type SetTimeoutImpl = (fn: () => void, ms: number) => unknown

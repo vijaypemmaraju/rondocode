@@ -503,8 +503,8 @@ function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsI
   return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : 0.5, pos: header.toks[0]!.pos }, next: i + 1 }
 }
 
-export function parse(src: string): { program: Program; errors: RondoError[] } {
-  const { lines, errors } = lex(src)
+export function parse(src: string): { program: Program; errors: RondoError[]; jsRegions: { from: number; to: number }[] } {
+  const { lines, errors, jsRegions } = lex(src)
   const items: TopItem[] = []
   let i = 0
   while (i < lines.length) {
@@ -624,11 +624,21 @@ export function parse(src: string): { program: Program; errors: RondoError[] } {
     else if (head.v === 'js' && ln.toks.length === 1) {
       const { body, next } = bodyLines(lines, i + 1)
       items.push({ t: 'raw', code: verbatimBody(src, body), pos: head.pos })
+      // the whole body is ONE js region (note-flash scans it for mini
+      // strings; one region keeps multi-line statements parseable)
+      if (body.length > 0) {
+        const first = body[0]!
+        const last = body[body.length - 1]!
+        const lastStart = last.offset - last.indent
+        const nl = src.indexOf('\n', lastStart)
+        const full = src.slice(lastStart, nl === -1 ? src.length : nl).replace(/\s+$/, '')
+        jsRegions.push({ from: first.offset - first.indent, to: lastStart + full.length })
+      }
       i = next
     }
     else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / section / song / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
-  return { program: { items }, errors }
+  return { program: { items }, errors, jsRegions }
 }
 
 /** Reconstruct a block body VERBATIM from the original source (Line.raw has

@@ -532,7 +532,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         EditorView.updateListener.of((u) => {
           // the tap palette re-derives its chips from the cursor context
           // (palette is declared below; updates only fire post-mount)
-          if ((u.docChanged || u.selectionSet) && lang === 'rondo') palette.refresh()
+          // always: the undo/redo chips' disabled state tracks the history
+          if (u.docChanged || u.selectionSet) palette.refresh()
           if (!u.docChanged) return
           const doc = u.state.doc.toString()
           updateDirty(doc)

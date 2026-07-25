@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobs, scanEnvs, scanPlays, scanBeats, scanRichPlays, richRollCells, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens, scrubVelocity } from '../src/editor/rondo/widgets'
+import { scanKnobs, scanEnvs, scanPlays, scanBeats, scanRichPlays, richRollCells, euclidGroup, euclidText, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens, scrubVelocity } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
@@ -198,6 +198,29 @@ describe('scanRichPlays + richRollCells (read-only query roll)', () => {
   it('unparseable notation → null (never throws)', () => {
     expect(richRollCells('0(3,')).toBeNull()
     expect(richRollCells('~ ~')).toBeNull() // no notes
+  })
+})
+
+describe('euclid drag (query roll as a control surface)', () => {
+  it('euclidGroup finds the single (p,s[,r]) group with its exact text range', () => {
+    const g = euclidGroup('0(3,8)')!
+    expect(g).toMatchObject({ p: 3, s: 8, r: 0 })
+    expect('0(3,8)'.slice(g.from, g.to)).toBe('(3,8)')
+    expect(euclidGroup('0(3,8,2) ~')).toMatchObject({ p: 3, s: 8, r: 2 })
+  })
+  it('returns null when ambiguous or absent (roll stays read-only)', () => {
+    expect(euclidGroup('<0(3,8) 0(5,8)>')).toBeNull() // two groups
+    expect(euclidGroup('<0 3> [5 7]')).toBeNull() // none
+    expect(euclidGroup('0(0,8)')).toBeNull() // degenerate
+  })
+  it('euclidText omits a zero rotation; a drag-preview recomputes real cells', () => {
+    expect(euclidText(3, 8, 0)).toBe('(3,8)')
+    expect(euclidText(5, 8, 2)).toBe('(5,8,2)')
+    // simulate the drag preview: pulses 3 → 5 on the same notation
+    const g = euclidGroup('0(3,8)')!
+    const next = '0(3,8)'.slice(0, g.from) + euclidText(5, g.s, 0) + '0(3,8)'.slice(g.to)
+    expect(next).toBe('0(5,8)')
+    expect(richRollCells(next)!.cells).toHaveLength(5)
   })
 })
 

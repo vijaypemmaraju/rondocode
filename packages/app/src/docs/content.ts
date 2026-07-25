@@ -465,7 +465,7 @@ setCps(0.5)`,
     group: 'sound design',
     title: 'Samples & granular',
     blocks: [
-      p("`sample(gate, 'name')` plays a loaded audio sample like an oscillator: `root` is the note it plays natural at, and it pitches from there. `vox`, `riser` and `pad` ship built in; load your own with the + button in the editor. `granular` sprays overlapping grains from a scannable position for evolving textures."),
+      p("`sample(gate, 'name')` plays a loaded audio sample like an oscillator: `root` is the note it plays natural at, and it pitches from there. `vox`, `riser` and `pad` ship built in; load your own with the + button in the editor, or RECORD one on the device microphone (the record button in the same popover): the take is trimmed and normalized and lands as `mic1`, ready to play from a `beat` or `play` block, feed to `granular`, or run through the `vocoder`. `granular` sprays overlapping grains from a scannable position for evolving textures."),
       code(
         'A granular cloud over the built-in pad sample, with a vocal on top.',
         `const cloud = synth(

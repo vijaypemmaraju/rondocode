@@ -106,6 +106,12 @@ export class AudioSession {
    *  load it into the engine under `name`, downmixed to mono. The PCM buffer is
    *  TRANSFERRED to the worklet (zero-copy). Returns the frame count loaded.
    *  Throws if decoding fails (unsupported/corrupt file). */
+  /** Decode audio bytes at the engine's sample rate (mic recordings use this
+   *  so their PCM lands exactly like file loads do). */
+  decodeAudio(bytes: ArrayBuffer): Promise<AudioBuffer> {
+    return this.context.decodeAudioData(bytes)
+  }
+
   async loadSample(name: string, bytes: ArrayBuffer): Promise<number> {
     const buf = await this.context.decodeAudioData(bytes)
     const n = buf.length

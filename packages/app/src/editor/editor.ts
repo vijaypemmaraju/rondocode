@@ -819,7 +819,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
 
   // samples popover: lists loaded samples (built-in + user), inserts
   // sample(gate, 'name') at the cursor, and loads audio files.
-  const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput })
+  const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput, getLang: () => lang })
   const disposeExport = mountExport({ view, audio, anchor: exportBtn })
 
   // karaoke: light up the current sing() syllable + note as the vocal plays,

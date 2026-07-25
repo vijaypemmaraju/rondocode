@@ -663,7 +663,7 @@ cps .5`,
     id: 'rondo-play',
     title: 'rondo: playing patterns',
     blocks: [
-      p('A `play NAME` block routes notation to a synth. Bare digits are scale degrees (`0 3 5` + `scale:a-min`), lowercase letters are note names (`c2 e2`), an UPPERCASE root means chord names (`<Em Cmaj7 G>`). All mini-notation works inside: `~` rests, `<>` alternation, `[]` subdivision, `*` repeat, `@` weights, `(pulses,steps)` euclid, `{…}%n` polymeter. A simple degree line renders as a TAPPABLE GRID — draw the melody with a finger.'),
+      p('A `play NAME` block routes notation to a synth. Bare digits are scale degrees (`0 3 5` + `scale:a-min`), lowercase letters are note names (`c2 e2`), an UPPERCASE root means chord names (`<Em Cmaj7 G>`). All mini-notation works inside: `~` rests, `<>` alternation, `[]` subdivision, `*` repeat, `@` weights, `(pulses,steps)` euclid, `{…}%n` polymeter. A simple degree line renders as a TAPPABLE GRID — draw the melody with a finger. A `{…}%n` polymeter figure gets the SAME editable grid (scoped to the braces — scrub the `%n` to re-step it), and other rich lines (euclid, alternation, brackets) render a read-only preview roll with a sweeping playhead.'),
       p('Extra notation lines before the modifiers STACK as voices — a hand-built chord, one line per voice.'),
       p('Rhythm generators, straight from mini-notation: `0(3,8)` is a EUCLIDEAN rhythm — 3 hits spread as evenly as 8 steps allow (the tresillo; add a rotation with `(3,8,2)`) — and `{0 3 5 7 9}%8` is POLYMETER: a 5-note figure stepped at 8 per cycle, so it rotates against the bar and comes back around every 5 cycles. Stacked voices with different step counts polyrhythm for free — each line spans one cycle.'),
       rondo(

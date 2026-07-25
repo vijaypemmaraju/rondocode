@@ -580,6 +580,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // (a one-shot noteOn/noteOff straight to the engine; the tap is the
     // audio-unlock gesture)
     isPlaying: () => session.getState().playing,
+    cps: () => session.getState().cps,
     previewNote: (synth, midi) => {
       try {
         void audio.resume()

@@ -4,8 +4,8 @@ import { HERO, SECTIONS } from './docs/content'
 import type { Block, Section } from './docs/content'
 import { docsOfKind } from './docs/dsl-docs'
 import type { DocEntry } from './docs/dsl-docs'
-import { PreviewPlayer } from './docs/player'
-import { createShaderRenderer } from './shaderviz/renderer'
+import type { PreviewPlayer } from './docs/player'
+import type { createShaderRenderer } from './shaderviz/renderer'
 import { createDocEditor } from './docs/doceditor'
 import { compile as compileRondo } from '@rondocode/rondo'
 import { escapeHtml as esc } from './docs/highlight'
@@ -39,15 +39,36 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return n
 }
 
-const player = new PreviewPlayer()
+/* ---- the heavy half loads on demand: the preview player (audio engine +
+ *  session + sing manager) and the WebGPU renderer are only needed once a
+ *  visitor presses ▶. Reading, live widgets and edit links all work without
+ *  them, so the docs page's eager graph stays light. `player` is null until
+ *  the first play; every pre-play touch point below no-ops through `?.`
+ *  exactly like the player's own pre-boot no-ops. */
+let player: PreviewPlayer | null = null
+let mkShaderRenderer: typeof createShaderRenderer | null = null
+let playerLoading: Promise<PreviewPlayer> | null = null
+const loadPlayer = (): Promise<PreviewPlayer> => {
+  playerLoading ??= Promise.all([import('./docs/player'), import('./shaderviz/renderer')]).then(([pl, sv]) => {
+    mkShaderRenderer = sv.createShaderRenderer
+    const p = new pl.PreviewPlayer()
+    p.onStop = () => {
+      current?.reset()
+      current = null
+      p.onPatternEvents = undefined
+      hideViz()
+    }
+    p.onVisual = (wgsl, synths) => {
+      latestVisual = { wgsl, synths }
+    }
+    player = p
+    return p
+  })
+  return playerLoading
+}
+
 // The single currently-playing block, so a new ▶ resets the previous one.
 let current: { btn: HTMLButtonElement; reset: () => void } | null = null
-player.onStop = () => {
-  current?.reset()
-  current = null
-  player.onPatternEvents = undefined
-  hideViz()
-}
 
 /* ---- inline visuals: one shared WebGPU canvas, moved into the playing block
  *  when its snippet registered a visual() and rendered live from the preview
@@ -55,17 +76,15 @@ player.onStop = () => {
 let vizCanvas: HTMLCanvasElement | null = null
 let vizRenderer: ReturnType<typeof createShaderRenderer> | null = null
 let latestVisual: { wgsl: string | null; synths: string[] } = { wgsl: null, synths: [] }
-player.onVisual = (wgsl, synths) => {
-  latestVisual = { wgsl, synths }
-}
 
 const ensureViz = (): { canvas: HTMLCanvasElement; renderer: ReturnType<typeof createShaderRenderer> } => {
   if (!vizCanvas) {
     vizCanvas = el('canvas', 'doc-viz-canvas hidden')
-    vizRenderer = createShaderRenderer(vizCanvas, {
-      now: () => player.now(),
-      analyser: () => player.analyser,
-      sampleRate: () => player.sampleRate,
+    // only reachable after a successful play, so the lazy module is loaded
+    vizRenderer = mkShaderRenderer!(vizCanvas, {
+      now: () => player?.now() ?? 0,
+      analyser: () => player?.analyser ?? null,
+      sampleRate: () => player?.sampleRate ?? 48000,
       onError: (msg) => {
         if (msg) console.warn('[docs-viz]', msg)
       },
@@ -89,7 +108,7 @@ const showViz = (host: HTMLElement): void => {
   host.append(canvas)
   canvas.classList.remove('hidden')
   renderer.setVisual(latestVisual.wgsl, latestVisual.synths)
-  renderer.setCps(player.cps)
+  renderer.setCps(player?.cps ?? 0.5)
   renderer.setActive(true)
 }
 
@@ -136,7 +155,7 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
   const docEd = createDocEditor(
     body,
     src,
-    () => player.now(),
+    () => player?.now() ?? 0,
     () => {
       void refreshEditLink(docEd.getDoc())
     },
@@ -145,20 +164,20 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
       // the one currently playing (otherwise the edit just updates the text).
       if (current?.btn === play) {
         const r = toEval(docEd.getDoc())
-        if (!('error' in r)) player.update(r.code)
+        if (!('error' in r)) player?.update(r.code)
       }
     },
     // karaoke: the playing snippet's vocals live on player.singSounds, so this
     // resolves correctly for THIS block whenever it's the one sounding.
-    (snd) => player.singSounds.has(snd),
+    (snd) => player?.singSounds.has(snd) ?? false,
     lang,
     // docs knobs are LIVE: hold plays the hand's value immediately through the
     // preview session (a DEF rewrite alone is rebuild-class — audible only
     // after the drag settles, which reads as "updates on release")
     {
-      now: () => player.now(),
-      holdParam: (sy, nm, v) => player.holdParam(sy, nm, v),
-      releaseParam: (sy, nm) => player.releaseParam(sy, nm),
+      now: () => player?.now() ?? 0,
+      holdParam: (sy, nm, v) => player?.holdParam(sy, nm, v),
+      releaseParam: (sy, nm) => player?.releaseParam(sy, nm),
     },
   )
   await refreshEditLink(src)
@@ -166,7 +185,7 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
   play.addEventListener('click', () => {
     void (async () => {
       if (current?.btn === play) {
-        player.stop()
+        player?.stop()
         return
       }
       current?.reset()
@@ -180,12 +199,21 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
         err.textContent = evalSrc.error
         return
       }
+      // first play fetches the on-demand player chunk (instant once cached)
+      let p: PreviewPlayer
+      try {
+        p = await loadPlayer()
+      } catch {
+        setIdle()
+        err.textContent = 'could not load the player. Check your connection and try again.'
+        return
+      }
       // flash THIS editor and (when it has a visual) feed the shared renderer
-      player.onPatternEvents = (evs) => {
+      p.onPatternEvents = (evs) => {
         docEd.flash(evs)
         if (latestVisual.wgsl !== null) vizRenderer?.pushEvents(evs)
       }
-      const res = await player.play(evalSrc.code)
+      const res = await p.play(evalSrc.code)
       if (res.ok) {
         docEd.markPlaying(source, evalSrc.notes, evalSrc.jsRegions, evalSrc.pulses)
         play.classList.add('playing')
@@ -202,7 +230,7 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
       } else {
         setIdle()
         docEd.stopFlashes()
-        player.onPatternEvents = undefined
+        p.onPatternEvents = undefined
         err.textContent = res.error ?? 'failed'
       }
     })()

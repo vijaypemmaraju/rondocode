@@ -20,6 +20,8 @@ import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
 import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
+import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
+import type { Drag } from './gesture'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -120,12 +122,7 @@ class Timers {
     this.pending.clear()
   }
 }
-/** Shared drag state. `active` suppresses decoration rebuilds mid-gesture (so
- *  the dragged DOM + its pointer capture survive); `ended` forces ONE rebuild
- *  on the next update after a gesture — the surviving widget instances hold
- *  stale ranges/values (their doc text changed under them), and a second drag
- *  seeded from those would corrupt the source. */
-interface Drag { active: boolean; ended: boolean }
+// Drag state + the gesture protocol live in ./gesture (shared by all widgets).
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v)
 
@@ -584,45 +581,37 @@ class QueryRollWidget extends WidgetType {
         if (data !== null) renderCells(data.cells)
       }
       const s0 = (_: number): number => g0.s // steps never change by drag
-      wrap.addEventListener('pointerdown', (e) => {
-        if (this.drag.active) return // one widget gesture at a time
-        e.preventDefault(); e.stopPropagation()
-        wrap.setPointerCapture(e.pointerId)
-        this.drag.active = true
+      attachGesture(wrap, this.drag, 'window', (e) => {
         buzz()
         const x0 = e.clientX, y0 = e.clientY
         const cellW = Math.max(wrap.getBoundingClientRect().width / g0.s, 8)
-        const move = (ev: PointerEvent): void => {
-          if (ev.pointerId !== e.pointerId) return
-          const p = clamp(g0.p + Math.round((y0 - ev.clientY) / 16), 1, g0.s)
-          const rRaw = g0.r - Math.round((ev.clientX - x0) / cellW)
-          const r = ((rRaw % g0.s) + g0.s) % g0.s
-          if (p === cur.p && r === cur.r) return
-          cur = { p, r }
-          buzz()
-          preview(p, r)
+        return {
+          onMove: (ev) => {
+            const p = clamp(g0.p + Math.round((y0 - ev.clientY) / 16), 1, g0.s)
+            const rRaw = g0.r - Math.round((ev.clientX - x0) / cellW)
+            const r = ((rRaw % g0.s) + g0.s) % g0.s
+            if (p === cur.p && r === cur.r) return
+            cur = { p, r }
+            buzz()
+            preview(p, r)
+          },
+          onEnd: () => {
+            if (cur.p === g0.p && cur.r === g0.r) return // unchanged — no write
+            this.drag.ended = true
+            const from = this.srcFrom + g0.from
+            const to = this.srcFrom + g0.to
+            const ok = verifiedChanges(view, [{
+              from, to,
+              expected: this.content.slice(g0.from, g0.to),
+              insert: euclidText(cur.p, g0.s, cur.r),
+            }])
+            if (!ok) {
+              view.dispatch({}) // someone edited under the gesture — resync
+              return
+            }
+            this.hooks.requestEval(false)
+          },
         }
-        const end = (ev: PointerEvent): void => {
-          if (ev.pointerId !== e.pointerId) return
-          window.removeEventListener('pointermove', move)
-          window.removeEventListener('pointerup', end)
-          window.removeEventListener('pointercancel', end)
-          this.drag.active = false
-          if (cur.p === g0.p && cur.r === g0.r) return // unchanged — no write
-          this.drag.ended = true
-          const from = this.srcFrom + g0.from
-          const to = this.srcFrom + g0.to
-          // WRITE-VERIFY: only splice if the group text is still what we read
-          if (view.state.doc.sliceString(from, to) !== this.content.slice(g0.from, g0.to)) {
-            view.dispatch({}) // resync from text instead
-            return
-          }
-          view.dispatch({ changes: { from, to, insert: euclidText(cur.p, g0.s, cur.r) } })
-          this.hooks.requestEval(false)
-        }
-        window.addEventListener('pointermove', move)
-        window.addEventListener('pointerup', end)
-        window.addEventListener('pointercancel', end)
       })
     }
     return wrap
@@ -753,65 +742,39 @@ class KnobWidget extends WidgetType {
       })
     }
 
-    wrap.addEventListener('pointerdown', (e) => {
-      // ONE gesture at a time: a second touch (another finger on this or any
-      // other widget) would capture ranges the first gesture is about to
-      // shift, and the interleaved rewrites corrupt the source
-      if (this.drag.active) return
-      e.preventDefault()
-      e.stopPropagation()
-      wrap.setPointerCapture(e.pointerId)
-      this.drag.active = true
+    attachGesture(wrap, this.drag, 'window', (e) => {
       wrap.classList.add('active')
       buzz()
       wrap.classList.remove('live') // grabbing overrides the pattern drive
       const startY = e.clientY
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
-      const from = this.defFrom
-      let toPos = this.defTo // current DEF end in the SOURCE (only DEF changes)
-      // WRITE-VERIFY: if the text under the gesture is ever not what we last
-      // wrote (any concurrent edit — scrub, live typing, another pointer),
-      // stop writing instead of splicing garbage into the source
-      let expected = view.state.doc.sliceString(from, toPos)
-      let aborted = false
+      const writer = new LiveWriter(view, this.defFrom, this.defTo) // DEF only
       // TOUCH-TO-OVERRIDE: while held, the exact hand value plays NOW (engine
       // param, no eval round-trip) and the pattern drive is suppressed; the
       // text rewrite below still records the value (text stays the truth).
       const canHold = this.hooks.holdParam !== undefined &&
         this.name !== undefined && this.synth !== undefined
-      const pid = e.pointerId
-      const move = (ev: PointerEvent): void => {
-        if (ev.pointerId !== pid) return // window handlers see EVERY pointer
-        if (aborted) return
-        if (view.state.doc.sliceString(from, toPos) !== expected) { aborted = true; return }
-        const t = clamp(t0 + (startY - ev.clientY) / 170, 0, 1)
-        const v = fromNorm(t, this.lo, this.hi, this.log)
-        if (canHold) { this.holding = true; this.hooks.holdParam!(this.synth!, this.name!, v) }
-        const text = formatNumber(v, { step, min: Math.min(this.lo, this.hi) })
-        view.dispatch({ changes: { from, to: toPos, insert: text } })
-        toPos = from + text.length
-        expected = text
-        setDial(t)
-        kv.textContent = text
-        this.hooks.requestEval(false)
+      return {
+        onMove: (ev) => {
+          const t = clamp(t0 + (startY - ev.clientY) / 170, 0, 1)
+          const v = fromNorm(t, this.lo, this.hi, this.log)
+          if (canHold) { this.holding = true; this.hooks.holdParam!(this.synth!, this.name!, v) }
+          const text = formatNumber(v, { step, min: Math.min(this.lo, this.hi) })
+          if (!writer.write(text)) return // a concurrent edit aborted the gesture
+          setDial(t)
+          kv.textContent = text
+          this.hooks.requestEval(false)
+        },
+        onEnd: () => {
+          this.drag.ended = true
+          wrap.classList.remove('active')
+          // hand off the knob: the pattern drive resumes on its next event
+          if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
+          view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
+          this.hooks.requestEval(false)
+        },
       }
-      const end = (ev: PointerEvent): void => {
-        if (ev.pointerId !== pid) return
-        this.drag.active = false
-        this.drag.ended = true
-        wrap.classList.remove('active')
-        // hand off the knob: the pattern drive resumes on its next event
-        if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', end)
-        window.removeEventListener('pointercancel', end)
-        view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
-        this.hooks.requestEval(false)
-      }
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', end)
-      window.addEventListener('pointercancel', end)
     })
     return wrap
   }
@@ -958,14 +921,9 @@ class EnvWidget extends WidgetType {
     }
 
     const svg = wrap.querySelector('svg') as SVGSVGElement
-    wrap.addEventListener('pointerdown', (e) => {
-      // ONE gesture at a time — a second touch would capture ranges the
-      // first gesture is about to shift (see KnobWidget)
-      if (this.drag.active) return
-      e.preventDefault(); e.stopPropagation()
-      wrap.setPointerCapture(e.pointerId)
+    attachGesture(wrap, this.drag, 'window', (e) => {
       buzz()
-      this.drag.active = true; wrap.classList.add('active')
+      wrap.classList.add('active')
       const rect = svg.getBoundingClientRect()
       const sx = (e.clientX - rect.left) * (W / rect.width)
       const sy = (e.clientY - rect.top) * (H / rect.height)
@@ -980,18 +938,13 @@ class EnvWidget extends WidgetType {
         ['r', dist(g0.rx, base)] as const,
       ].sort((p, q) => p[1] - q[1])[0]![0]
       const tStep = 0.001, sStep = 0.01
-      const from = this.regionFrom
-      let toPos = this.regionTo
+      const writer = new LiveWriter(view, this.regionFrom, this.regionTo)
       // Preserve the SOURCE spelling of untouched fields: only the dragged
       // handle's value(s) are reformatted — otherwise touching release would
       // silently re-quantize a `.003` attack onto the step grid. parts is
       // [aRaw, ws, dRaw, ws, sRaw, ws, rRaw] (values at even indices).
-      const region = view.state.doc.sliceString(from, toPos)
-      const parts = region.split(/([ \t]+)/)
+      const parts = writer.text.split(/([ \t]+)/)
       const canSplice = parts.length === 7
-      // WRITE-VERIFY: any concurrent edit under the gesture aborts the writes
-      let expected = region
-      let aborted = false
       const fmt = (): string => {
         if (!canSplice) {
           return [
@@ -1005,42 +958,30 @@ class EnvWidget extends WidgetType {
         else p[6] = formatNumber(r, { step: tStep })
         return p.join('')
       }
-      const pid = e.pointerId
-      const move = (ev: PointerEvent): void => {
-        if (ev.pointerId !== pid) return // window handlers see EVERY pointer
-        if (aborted) return
-        if (view.state.doc.sliceString(from, toPos) !== expected) { aborted = true; return }
-        const mx = (ev.clientX - rect.left) * (W / rect.width)
-        const my = (ev.clientY - rect.top) * (H / rect.height)
-        if (which === 'a') a = xt(mx - pad, AMAX)
-        else if (which === 'ds') {
-          const ax = pad + tx(a, AMAX)
-          d = xt(mx - ax, DMAX)
-          s = clamp((base - my) / (base - peak), 0, 1)
-        } else {
-          const hx = pad + tx(a, AMAX) + tx(d, DMAX) + holdFrozen
-          r = xt(mx - hx, RMAX)
-        }
-        const text = fmt()
-        view.dispatch({ changes: { from, to: toPos, insert: text } })
-        toPos = from + text.length
-        expected = text
-        render(a, d, s, r, holdFrozen)
-        this.hooks.requestEval(false)
+      return {
+        onMove: (ev) => {
+          const mx = (ev.clientX - rect.left) * (W / rect.width)
+          const my = (ev.clientY - rect.top) * (H / rect.height)
+          if (which === 'a') a = xt(mx - pad, AMAX)
+          else if (which === 'ds') {
+            const ax = pad + tx(a, AMAX)
+            d = xt(mx - ax, DMAX)
+            s = clamp((base - my) / (base - peak), 0, 1)
+          } else {
+            const hx = pad + tx(a, AMAX) + tx(d, DMAX) + holdFrozen
+            r = xt(mx - hx, RMAX)
+          }
+          if (!writer.write(fmt())) return // a concurrent edit aborted the gesture
+          render(a, d, s, r, holdFrozen)
+          this.hooks.requestEval(false)
+        },
+        onEnd: () => {
+          this.drag.ended = true
+          wrap.classList.remove('active')
+          view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
+          this.hooks.requestEval(false)
+        },
       }
-      const end = (ev: PointerEvent): void => {
-        if (ev.pointerId !== pid) return
-        this.drag.active = false; this.drag.ended = true
-        wrap.classList.remove('active')
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', end)
-        window.removeEventListener('pointercancel', end)
-        view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
-        this.hooks.requestEval(false)
-      }
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', end)
-      window.addEventListener('pointercancel', end)
     })
     return wrap
   }
@@ -1138,65 +1079,44 @@ class PianoRollWidget extends WidgetType {
     const refresh = (c: number): void => {
       for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] === r)
     }
-    const from = this.from
-    let toPos = this.to
-    // WRITE-VERIFY: any concurrent edit under the gesture aborts the writes
-    let expected = this.content
-    let aborted = false
-    const write = (): void => {
-      if (aborted) return
-      if (view.state.doc.sliceString(from, toPos) !== expected) { aborted = true; return }
-      const s = steps.map((v) => (v === null ? '~' : String(v))).join(' ')
-      view.dispatch({ changes: { from, to: toPos, insert: s } })
-      toPos = from + s.length
-      expected = s
-      this.hooks.requestEval(false)
-    }
-    let painting = false
-    let mode: 'draw' | 'erase' = 'draw'
-    const set = (r: number, c: number): void => {
-      const next = mode === 'draw' ? r : null
-      if (steps[c] === next) return // no-op: don't spam identical rewrites/evals mid-drag
-      steps[c] = next
-      refresh(c)
-      write()
-      buzz()
-      // preview the placed note while the transport is stopped — instant
-      // feedback while composing (playing back, the playhead sounds it anyway)
-      if (next !== null && this.synth !== undefined && this.hooks.previewNote !== undefined &&
-          !(this.hooks.isPlaying?.() ?? false)) {
-        const midi = rollPreviewMidi(this.scale, next)
-        if (midi !== undefined) this.hooks.previewNote(this.synth, midi)
+    attachGesture(grid, this.drag, 'element', (e) => {
+      const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
+      if (!el0) return null
+      const writer = new LiveWriter(view, this.from, this.to)
+      let mode: 'draw' | 'erase' = 'draw'
+      const set = (r: number, c: number): void => {
+        const next = mode === 'draw' ? r : null
+        if (steps[c] === next) return // no-op: don't spam identical rewrites/evals mid-drag
+        steps[c] = next
+        refresh(c)
+        if (writer.write(steps.map((v) => (v === null ? '~' : String(v))).join(' '))) {
+          this.hooks.requestEval(false)
+        }
+        buzz()
+        // preview the placed note while the transport is stopped — instant
+        // feedback while composing (playing back, the playhead sounds it anyway)
+        if (next !== null && this.synth !== undefined && this.hooks.previewNote !== undefined &&
+            !(this.hooks.isPlaying?.() ?? false)) {
+          const midi = rollPreviewMidi(this.scale, next)
+          if (midi !== undefined) this.hooks.previewNote(this.synth, midi)
+        }
       }
-    }
-    grid.addEventListener('pointerdown', (e) => {
-      // ONE gesture at a time — a second touch would capture ranges the
-      // first gesture is about to shift (see KnobWidget)
-      if (this.drag.active) return
-      const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
-      if (!el) return
-      e.preventDefault(); e.stopPropagation()
-      grid.setPointerCapture(e.pointerId)
-      this.drag.active = true; painting = true
-      const r = Number(el.dataset.r), c = Number(el.dataset.c)
-      mode = steps[c] === r ? 'erase' : 'draw' // tap an active note to clear it
-      set(r, c)
+      const r0 = Number(el0.dataset.r), c0 = Number(el0.dataset.c)
+      mode = steps[c0] === r0 ? 'erase' : 'draw' // tap an active note to clear it
+      set(r0, c0)
+      return {
+        onMove: (ev) => {
+          const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null
+          const cell = el?.closest?.('.rc') as HTMLElement | null
+          if (cell && grid.contains(cell)) set(Number(cell.dataset.r), Number(cell.dataset.c))
+        },
+        onEnd: () => {
+          this.drag.ended = true
+          view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
+          this.hooks.requestEval(false)
+        },
+      }
     })
-    grid.addEventListener('pointermove', (e) => {
-      if (!painting) return
-      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-      const cell = el?.closest?.('.rc') as HTMLElement | null
-      if (cell && grid.contains(cell)) set(Number(cell.dataset.r), Number(cell.dataset.c))
-    })
-    const end = (): void => {
-      painting = false
-      this.drag.active = false
-      this.drag.ended = true
-      view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
-      this.hooks.requestEval(false)
-    }
-    grid.addEventListener('pointerup', end)
-    grid.addEventListener('pointercancel', end)
     return grid
   }
 
@@ -1323,63 +1243,41 @@ class BeatBlockWidget extends WidgetType {
     // LINE LENGTHS, so a mid-gesture write would shift this widget under the
     // stationary pointer and the next pointermove would paint a neighbor.
     // (The piano-roll writes live safely — its tokens are all one char.)
-    let painting = false
     const dirty = new Set<number>()
-    let mode: 'draw' | 'erase' = 'draw'
-    // a down on an ACTIVE cell is ambiguous: released in place it's a
-    // velocity-cycle TAP; dragged VERTICALLY it scrubs that step's velocity;
-    // dragged HORIZONTALLY it starts an erase PAINT — the action is deferred
-    // until the first move past the slop picks a direction
-    let pendingTap: { r: number; c: number; x0: number; y0: number } | null = null
-    // an active velocity scrub: the down cell + its starting velocity
-    let scrub: { r: number; c: number; v0: number; y0: number } | null = null
     const paint = (cell: HTMLElement | null, v: number | null): void => {
       if (cell === null) return
       cell.classList.toggle('on', v !== null)
       cell.style.opacity = v !== null ? velOpacity(v) : ''
     }
-    const set = (r: number, c: number, vel?: number | null): void => {
-      const row = this.rows[r]
-      if (row === undefined || c < 0 || c >= row.steps.length) return
-      const next = vel !== undefined ? vel : mode === 'draw' ? 1 : null
-      if (steps[r]![c] === next) return
-      steps[r]![c] = next
-      dirty.add(r)
-      paint(cellEls[r]?.[c] ?? null, next)
-      buzz()
-      // preview the placed hit while the transport is stopped — beat events
-      // carry the sound() default note (60); drums ignore the pitch anyway
-      if (next !== null && this.hooks.previewNote !== undefined && !(this.hooks.isPlaying?.() ?? false)) {
-        this.hooks.previewNote(row.word, 60)
-      }
-    }
     // WRITE-VERIFY: the original text of every row, captured at build — if a
     // row's slice differs at commit time (any concurrent edit), the whole
     // write is dropped and a rebuild resyncs the cells from the text
     const raw0 = this.rows.map((row) => view.state.doc.sliceString(row.from, row.to))
-    wrap.addEventListener('pointerdown', (e) => {
-      // ONE gesture at a time — a second touch would capture ranges the
-      // first gesture is about to shift (see KnobWidget)
-      if (this.drag.active) return
-      const el = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
-      if (!el) return
-      e.preventDefault(); e.stopPropagation()
-      wrap.setPointerCapture(e.pointerId)
-      this.drag.active = true; painting = true
-      const r = Number(el.dataset.r), c = Number(el.dataset.c)
-      if (steps[r]?.[c] != null) {
-        mode = 'erase' // moving off this cell (horizontally) paints an erase
-        pendingTap = { r, c, x0: e.clientX, y0: e.clientY }
-        scrub = null
-      } else {
-        mode = 'draw'
-        pendingTap = null
-        scrub = null
-        set(r, c)
+    attachGesture(wrap, this.drag, 'element', (e) => {
+      const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
+      if (!el0) return null
+      let mode: 'draw' | 'erase' = 'draw'
+      // a down on an ACTIVE cell is ambiguous: released in place it's a
+      // velocity-cycle TAP; dragged VERTICALLY it scrubs that step's velocity;
+      // dragged HORIZONTALLY it starts an erase PAINT — the action is deferred
+      // until the first move past the slop picks a direction
+      let pendingTap: { r: number; c: number; x0: number; y0: number } | null = null
+      let scrub: { r: number; c: number; v0: number; y0: number } | null = null
+      const set = (r: number, c: number, vel?: number | null): void => {
+        const row = this.rows[r]
+        if (row === undefined || c < 0 || c >= row.steps.length) return
+        const next = vel !== undefined ? vel : mode === 'draw' ? 1 : null
+        if (steps[r]![c] === next) return
+        steps[r]![c] = next
+        dirty.add(r)
+        paint(cellEls[r]?.[c] ?? null, next)
+        buzz()
+        // preview the placed hit while the transport is stopped — beat events
+        // carry the sound() default note (60); drums ignore the pitch anyway
+        if (next !== null && this.hooks.previewNote !== undefined && !(this.hooks.isPlaying?.() ?? false)) {
+          this.hooks.previewNote(row.word, 60)
+        }
       }
-    })
-    wrap.addEventListener('pointermove', (e) => {
-      if (!painting) return
       const applyScrub = (y: number): void => {
         // per-pixel updates: no buzz/preview spam, just the value + the cell
         const { r, c } = scrub!
@@ -1389,68 +1287,67 @@ class BeatBlockWidget extends WidgetType {
         dirty.add(r)
         paint(cellEls[r]?.[c] ?? null, v)
       }
-      if (scrub !== null) {
-        // VELOCITY SCRUB: vertical drag on an active step — up is louder
-        applyScrub(e.clientY)
-        return
+      const r0 = Number(el0.dataset.r), c0 = Number(el0.dataset.c)
+      if (steps[r0]?.[c0] != null) {
+        mode = 'erase' // moving off this cell (horizontally) paints an erase
+        pendingTap = { r: r0, c: c0, x0: e.clientX, y0: e.clientY }
+      } else {
+        set(r0, c0)
       }
-      if (pendingTap !== null) {
-        const dx = e.clientX - pendingTap.x0
-        const dy = e.clientY - pendingTap.y0
-        if (dx * dx + dy * dy < 36) return // inside the slop: still a tap
-        if (Math.abs(dy) > Math.abs(dx)) {
-          // vertical wins: scrub this step's velocity for the rest of the drag
-          scrub = { r: pendingTap.r, c: pendingTap.c, v0: steps[pendingTap.r]![pendingTap.c] ?? 1, y0: pendingTap.y0 }
-          pendingTap = null
-          buzz()
-          applyScrub(e.clientY)
-          return
-        }
-        set(pendingTap.r, pendingTap.c) // horizontal: an erase drag after all
-        pendingTap = null
+      return {
+        onMove: (ev) => {
+          if (scrub !== null) {
+            // VELOCITY SCRUB: vertical drag on an active step — up is louder
+            applyScrub(ev.clientY)
+            return
+          }
+          if (pendingTap !== null) {
+            const dx = ev.clientX - pendingTap.x0
+            const dy = ev.clientY - pendingTap.y0
+            if (dx * dx + dy * dy < 36) return // inside the slop: still a tap
+            if (Math.abs(dy) > Math.abs(dx)) {
+              // vertical wins: scrub this step's velocity for the rest of the drag
+              scrub = { r: pendingTap.r, c: pendingTap.c, v0: steps[pendingTap.r]![pendingTap.c] ?? 1, y0: pendingTap.y0 }
+              pendingTap = null
+              buzz()
+              applyScrub(ev.clientY)
+              return
+            }
+            set(pendingTap.r, pendingTap.c) // horizontal: an erase drag after all
+            pendingTap = null
+          }
+          const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null
+          const cell = el?.closest?.('.rc') as HTMLElement | null
+          if (!cell || !wrap.contains(cell)) return
+          set(Number(cell.dataset.r), Number(cell.dataset.c))
+        },
+        onEnd: () => {
+          if (pendingTap !== null) {
+            // released on the down cell: cycle its velocity (full → soft → ghost → off)
+            const { r, c } = pendingTap
+            pendingTap = null
+            set(r, c, nextVelocity(steps[r]![c] ?? 0))
+          }
+          if (dirty.size === 0) return // nothing changed — ranges are still valid
+          this.drag.ended = true // the write's own transaction triggers ONE rebuild
+          const changes = [...dirty].map((r) => {
+            const row = this.rows[r]!
+            let insert = beatTokens(steps[r]!, row.word)
+            // an erased row keeps its instrument as a `# word` comment — that's
+            // what lets the scanner (and the next session) rebuild this row
+            if (!steps[r]!.some((v) => v !== null) && !row.hadComment) insert += `  # ${row.word}`
+            return { from: row.from, to: row.to, expected: raw0[r]!, insert }
+          })
+          dirty.clear()
+          if (!verifiedChanges(view, changes)) {
+            // someone edited under the gesture — drop the write, resync
+            view.dispatch({})
+            return
+          }
+          this.hooks.requestEval(false)
+        },
       }
-      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-      const cell = el?.closest?.('.rc') as HTMLElement | null
-      if (!cell || !wrap.contains(cell)) return
-      set(Number(cell.dataset.r), Number(cell.dataset.c))
     })
-    const end = (): void => {
-      if (!painting) return
-      painting = false
-      this.drag.active = false
-      scrub = null
-      if (pendingTap !== null) {
-        // released on the down cell: cycle its velocity (full → soft → ghost → off)
-        const { r, c } = pendingTap
-        pendingTap = null
-        set(r, c, nextVelocity(steps[r]![c] ?? 0))
-      }
-      if (dirty.size === 0) return // nothing changed — ranges are still valid
-      this.drag.ended = true // the write's own transaction triggers ONE rebuild
-      const stale = [...dirty].some((r) => {
-        const row = this.rows[r]!
-        return view.state.doc.sliceString(row.from, row.to) !== raw0[r]
-      })
-      if (stale) {
-        // someone edited under the gesture — drop the write, rebuild from text
-        dirty.clear()
-        view.dispatch({})
-        return
-      }
-      const changes = [...dirty].map((r) => {
-        const row = this.rows[r]!
-        let insert = beatTokens(steps[r]!, row.word)
-        // an erased row keeps its instrument as a `# word` comment — that's
-        // what lets the scanner (and the next session) rebuild this row
-        if (!steps[r]!.some((v) => v !== null) && !row.hadComment) insert += `  # ${row.word}`
-        return { from: row.from, to: row.to, insert }
-      })
-      dirty.clear()
-      view.dispatch({ changes })
-      this.hooks.requestEval(false)
-    }
-    wrap.addEventListener('pointerup', end)
-    wrap.addEventListener('pointercancel', end)
     return wrap
   }
 

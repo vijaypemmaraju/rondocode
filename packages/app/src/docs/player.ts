@@ -1,5 +1,6 @@
 import { AudioSession } from '../audio/AudioSession'
 import { Session } from '../session'
+import { synthsUseMic } from '../session/evalCode'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
@@ -120,9 +121,14 @@ export class PreviewPlayer {
     const result = session.evalCode(code)
     if (!result.ok) {
       const msg = result.diagnostics.find((d) => d.severity === 'error')?.message
+      void audio.setMicEnabled(false) // nothing will sound; don't hold the mic
       return { ok: false, error: msg ?? 'evaluation failed' }
     }
     this._singSounds = new Set(result.sings.map((s) => s.synthName))
+    // LIVE MIC: a snippet that uses mic() gets the microphone for real here
+    // too (lazy permission prompt), so the docs demo actually vocodes your
+    // voice. Released again when the snippet stops.
+    void audio.setMicEnabled(synthsUseMic(result.synths))
     void audio.resume()
     // sing(): if the snippet has a vocal that isn't baked yet, download the
     // models (with first-time consent) and WAIT so it plays in time — the same
@@ -151,13 +157,18 @@ export class PreviewPlayer {
     this.session.evalCode(code, { live: true })
   }
 
-  /** Stop playback (panic all-notes-off) and notify listeners. */
+  /** Stop playback (panic all-notes-off) and notify listeners. Unlike the
+   *  editor (which keeps the mic while the staged doc uses it), a stopped
+   *  docs preview releases the microphone: nothing is sounding, so nothing
+   *  should hold the recording indicator. */
   stop(): void {
     this.session?.transport('stop')
+    void this.audio?.setMicEnabled(false)
     this.onStop?.()
   }
 
   dispose(): void {
+    void this.audio?.setMicEnabled(false)
     this.session?.dispose()
     this.session = null
     this.audio = null

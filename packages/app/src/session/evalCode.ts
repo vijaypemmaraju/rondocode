@@ -91,6 +91,14 @@ function singId(s: string): string {
   return (h >>> 0).toString(36)
 }
 
+/** True when any staged synth's voice or post graph contains a live mic()
+ *  node — the signal a host uses to open/close the device microphone. */
+export function synthsUseMic(synths: ReadonlyMap<string, SynthDef>): boolean {
+  return [...synths.values()].some(
+    (d) => d.graph.nodes.some((n) => n.type === 'mic') || (d.post?.nodes.some((n) => n.type === 'mic') ?? false),
+  )
+}
+
 export interface EvalResult {
   /** True when the source parsed and ran to completion (warnings allowed). */
   ok: boolean

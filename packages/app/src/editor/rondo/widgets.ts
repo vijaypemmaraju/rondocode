@@ -418,25 +418,52 @@ class KnobWidget extends WidgetType {
       // still the LATEST — with back-to-back notes, a stale settle timer used
       // to fire BETWEEN events and jerk the dial to the DEF for a frame
       let gen = 0
+      // GLIDE QUEUE: a .ctrl sweep is a continuous signal sampled once per
+      // note. Events arrive ahead of the clock, so when a note fires the NEXT
+      // sample is usually already known — ride the pointer toward it over
+      // exactly the gap between them, drawing the sweep as continuous motion
+      // instead of per-note steps.
+      const queue: { t: number; v: number }[] = []
       this.unsub = this.hooks.onNoteEvents((evs) => {
+        let queued = false
         for (const ev of evs) {
           if (this.synth !== undefined && ev.sound !== this.synth) continue
           const v = ev.controls?.[name]
           if (typeof v !== 'number' || !Number.isFinite(v)) continue
+          queue.push({ t: ev.timeSec, v })
+          queued = true
           const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
           this.timers.at((ev.timeSec - now()) * 1000, () => {
             if (this.drag.active) return // a hand on the knob outranks the drive
             const g = ++gen
             wrap.classList.add('live')
-            setDial(toNorm(v, this.lo, this.hi, this.log))
+            // consume up to this point; peek the next sample
+            while (queue.length > 0 && queue[0]!.t <= ev.timeSec + 1e-6) queue.shift()
+            const nxt = queue[0]
+            if (nxt !== undefined && nxt.t - ev.timeSec < 4) {
+              // land on THIS note's value instantly, then glide to the next
+              ptr.style.transitionDuration = '0s'
+              setDial(toNorm(v, this.lo, this.hi, this.log))
+              void ptr.getBoundingClientRect() // commit the start angle
+              ptr.style.transitionDuration = `${(nxt.t - ev.timeSec).toFixed(3)}s`
+              setDial(toNorm(nxt.v, this.lo, this.hi, this.log))
+            } else {
+              ptr.style.transitionDuration = '' // default short tween
+              setDial(toNorm(v, this.lo, this.hi, this.log))
+            }
             showValue(v)
             this.timers.at(litMs, () => {
               if (this.drag.active || g !== gen) return // a newer note owns the dial
               wrap.classList.remove('live')
+              ptr.style.transitionDuration = ''
               setDial(baseT)
               showValue(this.value)
             })
           })
+        }
+        if (queued) {
+          queue.sort((a, b) => a.t - b.t)
+          if (queue.length > 64) queue.splice(0, queue.length - 64)
         }
       })
     }
@@ -453,6 +480,7 @@ class KnobWidget extends WidgetType {
       wrap.classList.add('active')
       buzz()
       wrap.classList.remove('live') // grabbing overrides the pattern drive
+      ptr.style.transitionDuration = '0s' // the dial answers the finger, not a glide
       const startY = e.clientY
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
@@ -489,6 +517,7 @@ class KnobWidget extends WidgetType {
         this.drag.active = false
         this.drag.ended = true
         wrap.classList.remove('active')
+        ptr.style.transitionDuration = ''
         // hand off the knob: the pattern drive resumes on its next event
         if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
         window.removeEventListener('pointermove', move)

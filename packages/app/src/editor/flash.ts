@@ -272,6 +272,86 @@ export function jsRegionLiterals(source: string, regions: { from: number; to: nu
   return out
 }
 
+/** A source range to PULSE on loc-less events of a channel. Patterns built
+ *  from continuous signals (`n(irand(8).segment(8))`) have no mini locs, so
+ *  the per-atom flash can't anchor — instead the whole expression (JS) or
+ *  notation line (rondo `irand N seg:M`) lights on each of its notes. */
+export interface PulseSpan {
+  from: number
+  to: number
+  /** the channel whose events pulse this span (event controls.sound). */
+  sound: string
+}
+
+/** Scan JS source for pulse spans: inside each `p('name', CHAIN)`, any
+ *  n()/note() whose first argument is NOT a string literal produces loc-less
+ *  events — pulse that argument's text. The chain's `.sound('x')` names the
+ *  channel (falling back to the p() name). Parse failure → []. */
+export function collectPulseSpans(source: string): PulseSpan[] {
+  const out: PulseSpan[] = []
+  try {
+    const program = parse(source, { ecmaVersion: 2022, sourceType: 'script' })
+    const isCall = (n: unknown): n is { type: string; callee: unknown; arguments: unknown[]; [k: string]: unknown } =>
+      typeof n === 'object' && n !== null && (n as { type?: string }).type === 'CallExpression'
+    const calleeName = (n: { callee: unknown }): string | undefined => {
+      const c = n.callee as { type?: string; name?: string }
+      return c.type === 'Identifier' ? c.name : undefined
+    }
+    const litStr = (n: unknown): string | undefined => {
+      const l = n as { type?: string; value?: unknown }
+      return l?.type === 'Literal' && typeof l.value === 'string' ? l.value : undefined
+    }
+    // find `.sound('x')` in a chain; collect pulse candidates in the same walk
+    const scanChain = (node: unknown, add: (from: number, to: number) => void, sound: { v?: string }): void => {
+      if (node === null || typeof node !== 'object') return
+      const n = node as { type?: string; [k: string]: unknown }
+      if (typeof n.type !== 'string') return
+      if (isCall(n)) {
+        const callee = n.callee as { type?: string; property?: { type?: string; name?: string }; [k: string]: unknown }
+        if (callee.type === 'MemberExpression' && callee.property?.type === 'Identifier' &&
+            callee.property.name === 'sound' && sound.v === undefined) {
+          const sv = litStr(n.arguments[0])
+          if (sv !== undefined) sound.v = sv
+        }
+        const cn = calleeName(n)
+        if ((cn === 'n' || cn === 'note') && n.arguments.length > 0 && litStr(n.arguments[0]) === undefined) {
+          const a = n.arguments[0] as { start?: number; end?: number }
+          if (typeof a.start === 'number' && typeof a.end === 'number') add(a.start, a.end)
+        }
+      }
+      for (const key in n) {
+        const child = n[key]
+        if (Array.isArray(child)) child.forEach((c) => scanChain(c, add, sound))
+        else scanChain(child, add, sound)
+      }
+    }
+    const visit = (node: unknown): void => {
+      if (node === null || typeof node !== 'object') return
+      const n = node as { type?: string; [k: string]: unknown }
+      if (typeof n.type !== 'string') return
+      if (isCall(n) && calleeName(n) === 'p' && n.arguments.length === 2) {
+        const pname = litStr(n.arguments[0])
+        if (pname !== undefined) {
+          const spans: { from: number; to: number }[] = []
+          const sound: { v?: string } = {}
+          scanChain(n.arguments[1], (from, to) => spans.push({ from, to }), sound)
+          for (const sp of spans) out.push({ ...sp, sound: sound.v ?? pname })
+          return
+        }
+      }
+      for (const key in n) {
+        const child = n[key]
+        if (Array.isArray(child)) child.forEach(visit)
+        else visit(child)
+      }
+    }
+    visit(program)
+  } catch {
+    // unparseable source: no pulses
+  }
+  return out
+}
+
 type SetTimeoutImpl = (fn: () => void, ms: number) => unknown
 type ClearTimeoutImpl = (handle: unknown) => void
 
@@ -284,6 +364,7 @@ export interface FlashHost {
 
 export class EventFlasher {
   private literals: StringLit[] = []
+  private pulses: PulseSpan[] = []
   /** Handles of scheduled-but-not-yet-fired flash timers (NOT the removal
    *  timers — those must run so existing marks get cleaned up). */
   private readonly pendingTimers = new Set<unknown>()
@@ -310,13 +391,15 @@ export class EventFlasher {
   /** Call after every successful eval with the eval'd source. */
   onGoodEval(source: string): void {
     this.literals = collectStringLiterals(source)
+    this.pulses = collectPulseSpans(source)
   }
 
   /** rondo mode: set flash literals directly. The eval'd source is transpiled
    *  JS (not the buffer), so we can't scan it here — the rondo compiler supplies
    *  each notation string + its buffer offset (see rondoNoteLiterals). */
-  onGoodEvalLiterals(literals: StringLit[]): void {
+  onGoodEvalLiterals(literals: StringLit[], pulses: PulseSpan[] = []): void {
     this.literals = literals
+    this.pulses = pulses
   }
 
   /** Session.onPatternEvents hook. */
@@ -325,7 +408,10 @@ export class EventFlasher {
       if (this.disposed || this.isDirty()) return
       for (const ev of evs) {
         const loc = ev.loc
-        if (loc === undefined) continue
+        // loc-less events (patterns built from signals, not mini strings)
+        // PULSE their channel's registered span instead of an atom flash
+        const pulseRanges = loc === undefined ? this.pulseRangesFor(ev.controls) : []
+        if (loc === undefined && pulseRanges.length === 0) continue
         if (this.pendingTimers.size >= MAX_PENDING_FLASHES) return
         const delay = Math.max(0, (ev.timeSec - this.now()) * 1000)
         // Stay lit for the event's musical duration (the user reads "this
@@ -336,7 +422,8 @@ export class EventFlasher {
         let handle: unknown
         handle = this.setT(() => {
           this.pendingTimers.delete(handle)
-          this.fire(loc, ev.controls, litMs)
+          if (loc !== undefined) this.fire(loc, ev.controls, litMs)
+          else this.flashRanges(pulseRanges, litMs)
         }, delay)
         this.pendingTimers.add(handle)
       }
@@ -359,13 +446,23 @@ export class EventFlasher {
     this.clearPending()
   }
 
+  private pulseRangesFor(controls: ControlMap): { from: number; to: number }[] {
+    const sound = controls['sound']
+    if (typeof sound !== 'string') return []
+    return this.pulses.filter((sp) => sp.sound === sound).map((sp) => ({ from: sp.from, to: sp.to }))
+  }
+
   private fire(loc: Loc, controls: ControlMap, litMs: number = FLASH_MS): void {
+    this.flashRanges(locToDocRanges(this.literals, loc, controls), litMs)
+  }
+
+  private flashRanges(ranges: { from: number; to: number }[], litMs: number): void {
     try {
       if (this.disposed || this.isDirty()) return
       const docLen = this.view.state.doc.length
       const effects: StateEffect<unknown>[] = []
       const ids: number[] = []
-      for (const r of locToDocRanges(this.literals, loc, controls)) {
+      for (const r of ranges) {
         if (r.to > docLen) continue // defensive: clamp to the current doc
         const id = this.nextId++
         ids.push(id)

@@ -2,7 +2,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { EventFlasher, jsRegionLiterals, rondoNoteLiterals } from '../editor/flash'
-import type { JsRegion, NoteSpan } from '@rondocode/rondo'
+import type { JsRegion, NoteSpan, PulseSpan } from '@rondocode/rondo'
 import { karaokeExtension, mountKaraoke } from '../editor/karaoke'
 import { codeEditingExtensions } from '../editor/setup'
 import { toNoteEvs } from '../editor/rondo/widgets'
@@ -30,7 +30,7 @@ export interface DocEditor {
   /** Register the source that was just evaluated so locs map correctly.
    *  Rondo snippets pass the compiler's notation spans (the eval'd source is
    *  transpiled JS, so the literal scan can't see the buffer). */
-  markPlaying(source: string, notes?: NoteSpan[], jsRegions?: JsRegion[]): void
+  markPlaying(source: string, notes?: NoteSpan[], jsRegions?: JsRegion[], pulses?: PulseSpan[]): void
   /** Cancel pending flashes (on stop / when another block takes over). */
   stopFlashes(): void
   destroy(): void
@@ -142,14 +142,14 @@ export function createDocEditor(
       flasher.onEvents(evs)
       for (const fn of kEvSubs) fn(evs)
     },
-    markPlaying: (source, notes, jsRegions) => {
+    markPlaying: (source, notes, jsRegions, pulses) => {
       lastGood = source
       playing = true
       if (notes !== undefined) {
         flasher.onGoodEvalLiterals([
           ...rondoNoteLiterals(notes),
           ...jsRegionLiterals(source, jsRegions ?? []),
-        ])
+        ], pulses ?? [])
       } else flasher.onGoodEval(source)
     },
     stopFlashes: () => {

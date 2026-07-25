@@ -230,6 +230,19 @@ describe('rondo → rondocode codegen', () => {
     if (plain.ok) expect(plain.notes[0]!.pieces).toBeUndefined()
   })
 
+  it('irand lines get PULSE spans (their events carry no mini locs to flash)', () => {
+    const src = 'synth bass\n  saw\n\nplay bass\n  irand 5 seg:8\n  scale: a-min\n'
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.pulses).toHaveLength(1)
+    expect(src.slice(r.pulses[0]!.from, r.pulses[0]!.to)).toBe('irand 5 seg:8')
+    expect(r.pulses[0]!.sound).toBe('bass')
+    // ordinary notation lines don't pulse — they flash per atom
+    const plain = compile('synth s1\n  saw\n\nplay s1\n  0 3 5\n')
+    if (plain.ok) expect(plain.pulses).toEqual([])
+  })
+
   it('reports js escape regions with exact source offsets (for note-flash)', () => {
     const src = [
       'synth s1',

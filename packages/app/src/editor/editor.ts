@@ -382,6 +382,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     let evalSource = source
     let rondoNotes: NoteSpan[] = []
     let rondoJsRegions: import('@rondocode/rondo').JsRegion[] = []
+    let rondoPulses: import('@rondocode/rondo').PulseSpan[] = []
     if (lang === 'rondo') {
       const compiled = compile(source)
       if (!compiled.ok) {
@@ -396,6 +397,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       evalSource = compiled.code
       rondoNotes = compiled.notes
       rondoJsRegions = compiled.jsRegions
+      rondoPulses = compiled.pulses
     }
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
@@ -407,7 +409,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // string literals; rondo can't (the eval'd source is transpiled JS), so
       // the compiler hands us each notation string + its buffer offset and we
       // build the flash literals from that — same highlighting, either language.
-      if (lang === 'rondo') flasher.onGoodEvalLiterals([...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)])
+      if (lang === 'rondo') flasher.onGoodEvalLiterals([...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)], rondoPulses)
       else flasher.onGoodEval(source)
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.

@@ -4,6 +4,7 @@ import {
   EventFlasher,
   FLASH_MS,
   MAX_PENDING_FLASHES,
+  collectPulseSpans,
   collectStringLiterals,
   jsRegionLiterals,
   locToDocRanges,
@@ -115,6 +116,29 @@ describe('jsRegionLiterals (note-play flash inside rondo js escapes)', () => {
 
   it('an unparseable region contributes nothing (never throws)', () => {
     expect(jsRegionLiterals('js{ const = ) }', [{ from: 3, to: 13 }])).toEqual([])
+  })
+})
+
+describe('collectPulseSpans (loc-less patterns pulse their expression)', () => {
+  it('finds a non-literal n() argument inside p() and names it by .sound()', () => {
+    const src = `p('x', n(irand(8).segment(8)).scale('e minor').sound('s1'))`
+    const spans = collectPulseSpans(src)
+    expect(spans).toHaveLength(1)
+    expect(src.slice(spans[0]!.from, spans[0]!.to)).toBe('irand(8).segment(8)')
+    expect(spans[0]!.sound).toBe('s1')
+  })
+
+  it('falls back to the p() channel name without a .sound()', () => {
+    const spans = collectPulseSpans(`p('bass', n(rand.range(0, 7).segment(4)))`)
+    expect(spans[0]!.sound).toBe('bass')
+  })
+
+  it('string-literal n() args produce NO pulse (they flash per atom)', () => {
+    expect(collectPulseSpans(`p('x', n('0 3 5').sound('s1'))`)).toEqual([])
+  })
+
+  it('unparseable source → [] (never throws)', () => {
+    expect(collectPulseSpans('const = )')).toEqual([])
   })
 })
 

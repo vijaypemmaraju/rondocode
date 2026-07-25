@@ -539,6 +539,31 @@ cps .34`,
     ],
   },
   {
+    id: 'live-mic',
+    group: 'voice & visuals',
+    title: 'Live mic',
+    blocks: [
+      p('`mic` is the device microphone as a LIVE signal: run your voice through the synth graph in real time. Feed it to `vocoder` as the modulator and the synth talks; hi-pass it and it whispers; `granular`-freeze it and it smears. The mic connects only while code that uses it is playing (the browser asks permission the first time) and it reads silence in offline renders and exports. USE HEADPHONES: a speaker feeding the mic loops into howling feedback.'),
+      rondo(
+        'A talkbox. Press play, then talk or sing.',
+        `synth talkbox
+  supersaw detune:.5
+  vocoder mic bands:24
+  * env
+  * .9
+  env = adsr .02 .1 .9 .2
+
+play talkbox
+  <0 3 5 3>
+  scale: a-min
+  dur: .98
+
+cps .45`,
+      ),
+      p("The JS spelling is `mic()`: `vocoder(supersaw(note.freq), mic(), { bands: 24 })`. The shipped 'live mic' example layers this vocoder with a breathy hi-passed copy of the raw mic for intelligibility."),
+    ],
+  },
+  {
     id: 'visuals',
     group: 'voice & visuals',
     title: 'Visuals',

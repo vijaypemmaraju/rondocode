@@ -10,6 +10,7 @@ import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
 import type { SessionState, ProbeTarget } from '../session/Session'
+import { synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
@@ -413,10 +414,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       else flasher.onGoodEval(source)
       // LIVE MIC: connect the microphone iff the staged code uses mic()
       // (lazy permission prompt; disconnect + release when it stops)
-      const usesMic = [...result.synths.values()].some(
-        (d) => d.graph.nodes.some((n) => n.type === 'mic') || (d.post?.nodes.some((n) => n.type === 'mic') ?? false),
-      )
-      void audio.setMicEnabled(usesMic)
+      void audio.setMicEnabled(synthsUseMic(result.synths))
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.
       singSoundNames = new Set(result.sings.map((s) => s.synthName))

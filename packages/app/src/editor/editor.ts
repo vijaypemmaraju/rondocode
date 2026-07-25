@@ -263,7 +263,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // once the view + palette exist). aria-pressed carries the state.
   const lockBtn = el('button', 'btn lock-btn')
   lockBtn.type = 'button'
-  lockBtn.replaceChildren(iconEl('lock'))
+  lockBtn.replaceChildren(iconEl('lock'), el('span', 'btn-label', 'lock'))
   lockBtn.setAttribute('aria-pressed', 'false')
   tooltip(lockBtn, 'performance lock: text frozen, widgets live')
   controls.append(langBtn, sampleBtn, exportBtn, lockBtn, stopBtn, runBtn)

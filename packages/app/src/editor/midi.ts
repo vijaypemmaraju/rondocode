@@ -20,7 +20,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void {
   const anchor = el('button', 'btn midi-btn')
   anchor.type = 'button'
-  anchor.append(iconEl('midi'))
+  anchor.append(iconEl('midi'), el('span', 'btn-label', 'midi'))
   const controls = editor.topbar.querySelector('.hdr-controls') ?? editor.topbar
   controls.insertBefore(anchor, controls.firstChild)
 

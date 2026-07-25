@@ -272,11 +272,23 @@ Pattern.prototype.arp = function <T>(this: Pattern<T>, mode = 'up'): Pattern<T> 
   return new Pattern<T>((span) => {
     const out: Hap<T>[] = []
     for (const cyc of span.cycleSpans()) {
-      // group onset haps by their whole — haps sharing a whole are one chord
+      // Group haps by their WHOLE — haps sharing a whole are one chord. All
+      // whole-carrying haps take part (not just onsets): a partial query
+      // window still sees the chord as clipped fragments whose whole is the
+      // full step, so the subdivision is reconstructed from the WHOLE and
+      // each arp note is clipped back to the window. That keeps scheduler-
+      // shaped partial queries lossless — an arp note's onset appears in
+      // whatever window contains it. Grouping stays per cycle span: a source
+      // that splits queries (cat/alternation) fragments a multi-cycle whole
+      // at cycle lines, and per-cycle grouping keeps those fragments from
+      // piling into one oversized chord group.
       const groups = new Map<string, Hap<T>[]>()
       for (const h of this.query(cyc)) {
-        if (!hasOnset(h)) continue
-        const w = h.whole!
+        if (h.whole === undefined) {
+          out.push(h) // continuous: nothing to arpeggiate
+          continue
+        }
+        const w = h.whole
         const key = `${w.begin.toString()}_${w.end.toString()}`
         let g = groups.get(key)
         if (!g) {

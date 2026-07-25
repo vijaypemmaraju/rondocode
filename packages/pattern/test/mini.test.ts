@@ -112,6 +112,16 @@ describe('mini: alternation <>', () => {
     ])
   })
 
+  it('"<a!2 b>" adds repeat copies to the rotation: a a b', () => {
+    expect(q(mini('<a!2 b>'), 0, 3)).toEqual([
+      [0, 1, 'a'],
+      [1, 2, 'a'],
+      [2, 3, 'b'],
+    ])
+    // and the rotation wraps: cycle 3 restarts at a
+    expect(q(mini('<a!2 b>'), 3, 4)).toEqual([[3, 4, 'a']])
+  })
+
   it('"<a b>*2" squeezes the alternation into half-cycles', () => {
     const p = mini('<a b>*2')
     expect(q(p, 0, 1)).toEqual([
@@ -282,6 +292,26 @@ describe('mini: polymeter {}', () => {
 
   it('single-voice polymeter without % is a plain seq', () => {
     expect(q(mini('{a b c}'), 0, 1)).toEqual(q(mini('a b c'), 0, 1))
+  })
+
+  it('"{a@2 b, c d e}": the step base is the first voice\'s WEIGHT SUM (3), not its entry count', () => {
+    // matches the parsePolymeter doc: "a voice's step count is the plain
+    // weight sum" — a@2 b weighs 2+1=3 steps, so both voices run 3 steps/cycle
+    expect(q(mini('{a@2 b, c d e}'), 0, 1)).toEqual([
+      [0, 1 / 3, 'c'],
+      [0, 2 / 3, 'a'],
+      [1 / 3, 2 / 3, 'd'],
+      [2 / 3, 1, 'b'],
+      [2 / 3, 1, 'e'],
+    ])
+  })
+
+  it('"{a b c}%1": one step per cycle, voice cycling through its own steps', () => {
+    expect(q(mini('{a b c}%1'), 0, 3)).toEqual([
+      [0, 1, 'a'],
+      [1, 2, 'b'],
+      [2, 3, 'c'],
+    ])
   })
 })
 

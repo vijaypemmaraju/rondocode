@@ -166,7 +166,11 @@ export function parseMidi(input: Uint8Array | ArrayBuffer): MidiFile {
         }
         // 0x2f end-of-track and all others: nothing to do (length already consumed)
       } else if (status === 0xf0 || status === 0xf7) {
-        r.pos += r.vlq() // sysex: skip
+        // sysex: length-prefixed, skip the payload. NOTE: must read the vlq
+        // BEFORE adding — `r.pos += r.vlq()` snapshots r.pos before vlq()
+        // advances it past the length byte(s), under-skipping the payload.
+        const slen = r.vlq()
+        r.pos += slen
       } else {
         throw new MidiParseError(`unknown status 0x${status.toString(16)} at track ${t}`)
       }
@@ -198,10 +202,12 @@ export function ticksPerBar(ppq: number, timeSig: { num: number; den: number }):
   return (ppq * 4 * timeSig.num) / timeSig.den
 }
 
-/** cps such that 1 cycle == 1 bar at the file's tempo (den-note = one beat). */
+/** cps such that 1 cycle == 1 bar at the file's tempo. SMF tempo counts
+ *  QUARTER notes (µs per quarter), so a bar is num·(4/den) quarters — the same
+ *  contract as {@link ticksPerBar}: barSeconds = num·(4/den)·(60/bpm). */
 export function midiCps(tempoBpm: number, timeSig: { num: number; den: number }): number {
-  const beatsPerBar = (timeSig.num * 4) / timeSig.den / (4 / timeSig.den) // = timeSig.num
-  return tempoBpm / 60 / beatsPerBar
+  const quartersPerBar = (timeSig.num * 4) / timeSig.den
+  return tempoBpm / 60 / quartersPerBar
 }
 
 // ---- LOSSLESS: notes → runtime Pattern<ControlMap> ----

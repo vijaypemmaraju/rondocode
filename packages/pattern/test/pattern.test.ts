@@ -1,62 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { F, Fraction } from '../src/fraction'
 import { TimeSpan, hap } from '../src/types'
-import type { Hap } from '../src/types'
 import { Pattern, reify } from '../src/pattern'
+import { checkInvariants, q, qw, span } from './helpers'
 
 const { pure, fastcat, cat, stack, timecat, steady } = Pattern
 
-// --------------------------------------------------------------- helpers
-
-const toFr = (x: number | Fraction): Fraction =>
-  x instanceof Fraction ? x : Fraction.fromNumber(x)
-
-const span = (b: number | Fraction, e: number | Fraction) =>
-  new TimeSpan(toFr(b), toFr(e))
-
-/** Every hap must satisfy part ⊆ query span, and part ⊆ whole when whole exists. */
-const checkInvariants = <T>(haps: Hap<T>[], qs: TimeSpan): void => {
-  for (const h of haps) {
-    expect(h.part.begin.gte(qs.begin), `part ${h.part} starts before query ${qs}`).toBe(true)
-    expect(h.part.end.lte(qs.end), `part ${h.part} ends after query ${qs}`).toBe(true)
-    if (h.whole) {
-      expect(h.part.begin.gte(h.whole.begin), `part ${h.part} starts before whole ${h.whole}`).toBe(true)
-      expect(h.part.end.lte(h.whole.end), `part ${h.part} ends after whole ${h.whole}`).toBe(true)
-    }
-  }
-}
-
-/** Deterministic order: (part.begin, part.end, stringified value). Stack order is not semantic. */
-const sortHaps = <T>(haps: Hap<T>[]): Hap<T>[] =>
-  [...haps].sort((a, b) => {
-    const b1 = a.part.begin.valueOf() - b.part.begin.valueOf()
-    if (b1 !== 0) return b1
-    const e1 = a.part.end.valueOf() - b.part.end.valueOf()
-    if (e1 !== 0) return e1
-    const va = JSON.stringify(a.value)
-    const vb = JSON.stringify(b.value)
-    return va < vb ? -1 : va > vb ? 1 : 0
-  })
-
-/** Query [b, e) → sorted [partBegin, partEnd, value] float triples (invariants checked). */
-const q = <T>(p: Pattern<T>, b: number | Fraction, e: number | Fraction): [number, number, T][] => {
-  const s = span(b, e)
-  const haps = p.query(s)
-  checkInvariants(haps, s)
-  return sortHaps(haps).map((h) => [h.part.begin.valueOf(), h.part.end.valueOf(), h.value])
-}
-
-/** Like q but including wholes (null = continuous). */
-const qw = <T>(p: Pattern<T>, b: number | Fraction, e: number | Fraction) => {
-  const s = span(b, e)
-  const haps = p.query(s)
-  checkInvariants(haps, s)
-  return sortHaps(haps).map((h) => ({
-    whole: h.whole ? [h.whole.begin.valueOf(), h.whole.end.valueOf()] : null,
-    part: [h.part.begin.valueOf(), h.part.end.valueOf()],
-    value: h.value,
-  }))
-}
+// helpers (q/qw/span/checkInvariants) are the shared ones in test/helpers.ts —
+// this file used to carry a drifted private copy (its sortHaps lacked the
+// whole-begin tie-break); keep exactly one implementation.
 
 /** A pattern whose value is its own cycle number — pins timeline-shift semantics. */
 const cyclenum = new Pattern<number>((s) =>
@@ -265,6 +217,11 @@ describe('timecat', () => {
 
   it('skips non-positive weights', () => {
     expect(q(timecat([[0, pure('x')], [1, pure('a')]]), 0, 1)).toEqual([[0, 1, 'a']])
+  })
+
+  it('all-nonpositive weights yield silence (no division by a zero total)', () => {
+    expect(q(timecat([[0, pure('a')], [-1, pure('b')]]), 0, 1)).toEqual([])
+    expect(q(timecat([[0, pure('a')]]), 0, 1)).toEqual([])
   })
 })
 

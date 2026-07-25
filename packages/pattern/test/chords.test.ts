@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { chord, parseChord } from '../src/index'
-import type { ControlMap } from '../src/index'
-import { q } from './helpers'
+import type { ControlMap, Pattern } from '../src/index'
+import { q, qw } from './helpers'
 
 const notesOf = (evs: [number, number, unknown][]): number[] =>
   evs.map((e) => (e[2] as ControlMap).note!)
@@ -75,6 +75,49 @@ describe('.arp()', () => {
   it("'updown' bounces without repeating the ends", () => {
     expect(notesOf(q(chord('C').arp('updown'), 0, 1))).toEqual([48, 52, 55, 52])
   })
+
+  // Regression: arp used to reconstruct only from ONSET haps, so any query
+  // window not containing the CHORD's onset produced no arp notes at all —
+  // the live scheduler (which queries small successive windows) lost every
+  // note but the first. Arp must reconstruct from the hap's WHOLE, like the
+  // other structural combinators, so each arp note's onset is discoverable
+  // in whatever window contains it.
+  const onsetsIn = (p: Pattern<ControlMap>, b: number, e: number): [number, number][] =>
+    qw(p, b, e)
+      .filter((h) => h.whole !== null && h.part[0] === h.whole[0])
+      .map((h) => [h.part[0], (h.value as ControlMap).note!])
+
+  it('scheduler-shaped windows yield the same onsets as the aligned query', () => {
+    const p = chord('C').arp('up')
+    const aligned = onsetsIn(p, 0, 1)
+    expect(aligned).toEqual([
+      [0, 48],
+      [1 / 3, 52],
+      [2 / 3, 55],
+    ])
+    const windows: [number, number][] = [[0, 0.1], [0.1, 0.4], [0.4, 0.7], [0.7, 1]]
+    expect(windows.flatMap(([b, e]) => onsetsIn(p, b, e))).toEqual(aligned)
+  })
+
+  it('partial windows over multi-cycle alternated chords keep every onset', () => {
+    const p = chord('<Cmaj7 Am7>').arp('up')
+    const aligned = onsetsIn(p, 0, 2)
+    expect(aligned).toEqual([
+      [0, 48], [0.25, 52], [0.5, 55], [0.75, 59],
+      [1, 57], [1.25, 60], [1.5, 64], [1.75, 67],
+    ])
+    const windows: [number, number][] = [[0, 0.1], [0.1, 0.6], [0.6, 1.1], [1.1, 1.6], [1.6, 2]]
+    expect(windows.flatMap(([b, e]) => onsetsIn(p, b, e))).toEqual(aligned)
+  })
+
+  it('a mid-note window returns the covering arp note as a tail (whole intact)', () => {
+    // [0.4, 0.5) sits inside the 52-note's slot [1/3, 2/3): the fragment must
+    // carry the full slot as its whole (no onset), not vanish.
+    const evs = qw(chord('C').arp('up'), 0.4, 0.5)
+    expect(evs).toEqual([
+      { whole: [1 / 3, 2 / 3], part: [0.4, 0.5], value: expect.objectContaining({ note: 52 }) },
+    ])
+  })
 })
 
 describe('chord voicings', () => {
@@ -107,10 +150,15 @@ describe('chord voicings', () => {
   })
 
   it('voicings compose and still arpeggiate', () => {
+    // Cmaj7 [48,52,55,59] -octave(1)-> [60,64,67,71] -invert(1)-> [64,67,71,72];
+    // Am7 [57,60,64,67] -> [69,72,76,79] -> [72,76,79,81]. Pinned onsets AND
+    // pitches (4 quarter-step notes per cycle, low→high).
     const p = chord('<Cmaj7 Am7>').octave(1).invert(1)
-    // 8 note-events over two cycles once arpeggiated (4 per chord)
     const arped = q(p.arp('up'), 0, 2)
-    expect(arped.length).toBe(8)
+    expect(arped.map((e) => [e[0], e[1], (e[2] as ControlMap).note!])).toEqual([
+      [0, 0.25, 64], [0.25, 0.5, 67], [0.5, 0.75, 71], [0.75, 1, 72],
+      [1, 1.25, 72], [1.25, 1.5, 76], [1.5, 1.75, 79], [1.75, 2, 81],
+    ])
   })
 
   it('an unknown voicing name falls back to close', () => {
@@ -123,15 +171,18 @@ describe('voiceLead', () => {
   const cycleNotes = (p: ReturnType<typeof chord>, c: number): number[] =>
     notesOf(q(p, c, c + 1)).sort((a, b) => a - b)
 
-  it('keeps every chord in a tight register around center (no root-position leaps)', () => {
+  it('voices every chord toward its predecessor (pinned pitches; identity fails)', () => {
+    // Root positions are Cmaj7 [48,52,55,59], Fmaj7 [53,57,60,64],
+    // Bm7b5 [59,62,65,69], E7 [52,56,59,62] — all already inside a wide
+    // register band, so a band check cannot catch a broken voiceLead. Pin the
+    // exact voiced pitches instead (cycle 0 leads from the wrapped E7).
     const led = prog().voiceLead(60)
-    for (let c = 0; c < 4; c++) {
-      const ns = cycleNotes(led, c)
-      for (const n of ns) {
-        expect(n).toBeGreaterThan(60 - 16)
-        expect(n).toBeLessThan(60 + 16)
-      }
-    }
+    expect(cycleNotes(led, 0)).toEqual([52, 55, 59, 60])
+    expect(cycleNotes(led, 1)).toEqual([48, 52, 53, 57])
+    expect(cycleNotes(led, 2)).toEqual([53, 57, 59, 62])
+    expect(cycleNotes(led, 3)).toEqual([59, 62, 64, 68])
+    // and at least one cycle differs from root position (identity fails)
+    expect(cycleNotes(led, 0)).not.toEqual(cycleNotes(prog(), 0))
   })
 
   it('moves less between chords than root position does', () => {
@@ -156,10 +207,14 @@ describe('voiceLead', () => {
   })
 
   it('loops seamlessly: cycle 0 leads from the wrapped-around previous chord', () => {
-    // with a repeating progression, the first chord is voiced relative to the
-    // LAST one (cycle -1), not the center anchor — so the loop point is smooth
+    // With a repeating progression, the first chord is voiced relative to the
+    // LAST one (cycle -1 = E7 [52,56,59,62]), not the center anchor. Leading
+    // Cmaj7 [48,52,55,59] from E7 lifts only the root: [52,55,59,60]. Without
+    // the lookback (ref = [60]) it would come out [55,59,60,64] — pin the
+    // wrap-around result exactly so deleting the lookback fails.
     const led = prog().voiceLead(60)
-    for (const n of cycleNotes(led, 0)) expect(n).toBeLessThan(60 + 16) // not a root-position leap
+    expect(cycleNotes(led, 0)).toEqual([52, 55, 59, 60])
+    expect(cycleNotes(led, 0)).not.toEqual([55, 59, 60, 64]) // the center-anchored voicing
   })
 
   it('anchors to center only when no prior chord is in range (sparse progression)', () => {

@@ -166,3 +166,12 @@
   .rondo-beatgrid { --beat-cell: 22px; }
   .rondo-beatgrid .lane .rc { height: 20px; }
 }
+
+/* undo/redo chips: always present (both languages) at the bar's left edge —
+ * the phone's only history surface. Dim when there's nothing to un/redo. */
+.rp-chip.rp-hist {
+  min-width: 40px;
+  font-size: 15px;
+  line-height: 1;
+}
+.rp-chip.rp-hist:disabled { opacity: 0.35; pointer-events: none; }

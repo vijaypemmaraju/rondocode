@@ -1,3 +1,4 @@
+import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
 /* The rondo TAP PALETTE — the original design thesis, made real: because we
  * own the grammar, we know exactly which tokens are legal at the cursor. So a
  * chip bar (docked above the software keyboard) offers ONLY the valid next
@@ -206,7 +207,8 @@ export interface PaletteHandle {
 
 export function mountRondoPalette(bar: HTMLElement, view: EditorView): PaletteHandle {
   bar.classList.add('rondo-palette')
-  let visible = false
+  let visible = true
+  let full = false
 
   const insert = (c: Chip): void => {
     const isBlock = c.insert.includes('\n')
@@ -235,10 +237,33 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView): PaletteHa
     })
   }
 
+  // UNDO/REDO chips pinned at the front of the bar: on a phone there's no
+  // Cmd+Z, so history needs a thumb-reachable surface. Same pointerdown +
+  // preventDefault trick — using them never dismisses the keyboard. They
+  // render in BOTH languages (the bar shows just these two in JS mode).
+  const histChip = (label: string, title: string, run: () => void, depth: () => number): HTMLButtonElement => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'rp-chip rp-hist'
+    b.textContent = label
+    b.title = title
+    b.setAttribute('aria-label', title)
+    b.disabled = depth() === 0
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      if (depth() === 0) return
+      buzz()
+      run()
+    })
+    return b
+  }
+
   const render = (): void => {
     if (!visible) return
-    const chips = paletteChips(view.state.doc.toString(), view.state.selection.main.head)
+    const chips = full ? paletteChips(view.state.doc.toString(), view.state.selection.main.head) : []
     bar.replaceChildren(
+      histChip('↶', 'undo', () => undo(view), () => undoDepth(view.state)),
+      histChip('↷', 'redo', () => redo(view), () => redoDepth(view.state)),
       ...chips.map((c) => {
         const b = document.createElement('button')
         b.type = 'button'
@@ -259,10 +284,10 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView): PaletteHa
   return {
     refresh: render,
     setVisible: (on: boolean): void => {
-      visible = on
-      bar.classList.toggle('hidden', !on)
-      if (on) render()
-      else bar.replaceChildren()
+      visible = true // the bar itself always shows (undo/redo live here)
+      full = on // rondo mode adds the grammar chips
+      bar.classList.remove('hidden')
+      render()
     },
     dispose: (): void => bar.replaceChildren(),
   }

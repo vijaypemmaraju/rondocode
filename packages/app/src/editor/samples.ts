@@ -3,6 +3,8 @@ import type { AudioSession } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
+import { nextMicName, startMicRecording } from './micrec'
+import type { MicRecording } from './micrec'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
  * "what have I loaded and how do I use it": lists the built-in and user
@@ -38,22 +40,86 @@ export interface SamplesPopoverOpts {
   anchor: HTMLButtonElement
   /** the shared hidden <input type=file> the "load" action triggers */
   fileInput: HTMLInputElement
+  /** current editor language — inserts use rondo or JS syntax accordingly. */
+  getLang?: () => 'rondocode' | 'rondo'
 }
 
 /** Wire up the samples popover. Returns a disposer. */
-export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesPopoverOpts): () => void {
+export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang }: SamplesPopoverOpts): () => void {
   const pop = el('div', 'samples-pop hidden')
   const list = el('div', 'samples-list')
   const loadBtn = el('button', 'samples-load')
   loadBtn.type = 'button'
   loadBtn.append(iconEl('plus'), el('span', undefined, 'load audio file…'))
-  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn)
+  // MIC SAMPLING: record a sound on the device mic → a named, playable sample
+  const recBtn = el('button', 'samples-load samples-rec')
+  recBtn.type = 'button'
+  const recLabel = el('span', undefined, 'record from mic')
+  recBtn.append(el('span', 'samples-recdot', '●'), recLabel)
+  const recMsg = el('div', 'samples-recmsg')
+  recMsg.hidden = true
+  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg)
   document.body.append(pop)
 
   let open = false
+  let rec: MicRecording | null = null
+  let recTimer: ReturnType<typeof setInterval> | undefined
+  let recStarted = 0
+
+  const setRecUi = (on: boolean): void => {
+    recBtn.classList.toggle('recording', on)
+    recLabel.textContent = on ? 'stop recording (0.0s)' : 'record from mic'
+    if (!on) clearInterval(recTimer)
+  }
+
+  const stopRecording = async (): Promise<void> => {
+    const r = rec
+    rec = null
+    setRecUi(false)
+    if (r === null) return
+    try {
+      const { data, sampleRate } = await r.stop()
+      if (data.length < 128) {
+        recMsg.hidden = false
+        recMsg.textContent = 'nothing recorded (all silence?)'
+        return
+      }
+      const name = nextMicName(audio.getSamples().map((x) => x.name))
+      audio.loadSamplePcm(name, data, sampleRate)
+      recMsg.hidden = true
+      render()
+    } catch (e) {
+      recMsg.hidden = false
+      recMsg.textContent = 'recording failed'
+      console.warn('[mic] stop failed', e)
+    }
+  }
+
+  const startRecording = async (): Promise<void> => {
+    recMsg.hidden = true
+    try {
+      rec = await startMicRecording((bytes) => audio.decodeAudio(bytes))
+      recStarted = Date.now()
+      setRecUi(true)
+      recTimer = setInterval(() => {
+        recLabel.textContent = `stop recording (${((Date.now() - recStarted) / 1000).toFixed(1)}s)`
+      }, 100)
+    } catch (e) {
+      recMsg.hidden = false
+      recMsg.textContent = 'microphone unavailable (permission denied?)'
+      console.warn('[mic] start failed', e)
+    }
+  }
+
+  recBtn.addEventListener('click', () => {
+    if (rec !== null) void stopRecording()
+    else void startRecording()
+  })
 
   const insert = (name: string): void => {
-    view.dispatch(view.state.replaceSelection(`sample(gate, '${name}')`))
+    // rondo mode inserts rondo syntax; JS mode the API call
+    const text = getLang?.() === 'rondo' ? `sample ${name}` : `sample(gate, '${name}')`
+    view.dispatch(view.state.replaceSelection(text))
     view.focus()
     close()
   }
@@ -78,7 +144,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
       wrap.append(play)
       const row = el('button', 'samples-row')
       row.type = 'button'
-      tooltip(row, `insert sample(gate, '${s.name}')`)
+      tooltip(row, `insert ${s.name} at the cursor`)
       const name = el('span', 'samples-name', s.name)
       if (s.builtIn) name.append(el('span', 'samples-tag', 'built-in'))
       row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
@@ -109,6 +175,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput }: SamplesP
   }
   const close = (): void => {
     audio.stopPreview()
+    if (rec !== null) { rec.cancel(); rec = null; setRecUi(false) }
     pop.classList.add('hidden')
     open = false
   }

@@ -1613,3 +1613,14 @@ body.shaderviz-on .cm-content {
 /* The sing() bake dialog + consent modal styles now live with their component
  * (src/ui/singDialog.css, imported by singDialog.ts) so the docs page gets
  * them too. */
+
+/* mic sampling: the record action in the samples popover */
+.samples-rec .samples-recdot { color: #e05656; font-size: 10px; }
+.samples-rec.recording { color: #e05656; }
+.samples-rec.recording .samples-recdot { animation: rec-blink 1s steps(2) infinite; }
+@keyframes rec-blink { 50% { opacity: 0.25; } }
+.samples-recmsg {
+  padding: 4px 10px 8px;
+  font-size: 12px;
+  opacity: 0.75;
+}

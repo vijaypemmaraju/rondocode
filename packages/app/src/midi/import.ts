@@ -102,6 +102,13 @@ const SYNTHS: Record<SynthType | 'kick' | 'snare' | 'hat' | 'clap', string> = {
   svf(noise(), 1700, { mode: 'bp', res: 0.5 }).mul(adsr(gate, { a: 0.003, d: 0.16, s: 0, r: 0.09 })).mul(1.1).tanh())`,
 }
 
+/** Kick-sidechain duck amount per melodic synth type; a type not listed here
+ *  (drum roles) is never ducked. Filtered to the synths a given import
+ *  actually emits before the sidechain line is written. */
+const DUCK_AMOUNTS: Record<string, number> = {
+  bass: 0.7, pad: 0.5, keys: 0.4, vox: 0.35, flute: 0.3, gtr: 0.4, lead: 0.4, stab: 0.4,
+}
+
 /** GM percussion note -> a drum synth role. */
 function drumRole(pitch: number): 'kick' | 'snare' | 'hat' | 'clap' {
   if (pitch === 35 || pitch === 36) return 'kick'
@@ -239,8 +246,17 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
   lines.push(blocks.join('\n\n'))
   lines.push('')
   lines.push(`p('${name}', stack(\n${stackParts.map((p) => `  ${p},`).join('\n')}\n))`)
-  if (wantMix && hasDrums) {
-    lines.push(`sidechain('kick', { depth: 0.55, release: 0.16, duck: { bass: 0.7, pad: 0.5, keys: 0.4, vox: 0.35, flute: 0.3, gtr: 0.4, lead: 0.4 } })`)
+  // Sidechain pump: only when a kick synth was actually emitted (a hats-only
+  // drum track defines no 'kick'), and only duck synths that exist — evalCode
+  // rejects a sidechain whose source or duck targets are undefined, which
+  // would fail the WHOLE import. An empty duck map would duck EVERYTHING
+  // (snare/hat included), so with no melodic targets we skip the line.
+  if (wantMix && hasDrums && usedSynths.has('kick')) {
+    const duck = Object.entries(DUCK_AMOUNTS).filter(([s]) => usedSynths.has(s))
+    if (duck.length > 0) {
+      const duckSrc = duck.map(([s, a]) => `${s}: ${a}`).join(', ')
+      lines.push(`sidechain('kick', { depth: 0.55, release: 0.16, duck: { ${duckSrc} } })`)
+    }
   }
   if (wantMix) {
     lines.push(`masterCompress({ threshold: -14, ratio: 2.5, attack: 15, release: 150, makeup: 1.5 })`)

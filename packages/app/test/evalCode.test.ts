@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { F, Pattern, TimeSpan } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { evalCode } from '../src/session/evalCode'
+import { evalCode, synthsUseMic } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
 
 /* evalCode is pure: source in, staged registrations out, zero external
@@ -88,6 +88,17 @@ describe('evalCode: MiniError mapping', () => {
     expect(r.ok).toBe(false)
     expect(r.diagnostics[0]!.line).toBe(1)
     expect(r.diagnostics[0]!.col).toBe(1)
+    expect(r.diagnostics[0]!.message).toContain('position')
+  })
+
+  it('falls back when the SAME bad literal appears twice (ambiguous occurrence)', () => {
+    // Two identical '0 x' literals: picking either occurrence could point at
+    // the WRONG one, so the mapper must fall back to 1:1 — not col 13.
+    const r = run(`p('a', n('0 x'))\np('b', n('0 x'))`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.line).toBe(1)
+    expect(r.diagnostics[0]!.col).toBe(1)
+    // the MiniError's own caret-snippet message is kept for positioning by eye
     expect(r.diagnostics[0]!.message).toContain('position')
   })
 
@@ -289,6 +300,67 @@ describe('evalCode: masterCompress staging', () => {
 
   it('is absent when never called', () => {
     expect(run('const z = 1').masterComp).toBeUndefined()
+  })
+})
+
+describe('evalCode: visual() staging', () => {
+  it('stages the WGSL source verbatim when ok', () => {
+    const r = run("visual('fn mainImage() {}')")
+    expect(r.ok).toBe(true)
+    expect(r.visual).toBe('fn mainImage() {}')
+  })
+
+  it('accepts a template literal (the documented form)', () => {
+    const r = run('visual(`fn f() { let x = 1.0; }`)')
+    expect(r.ok).toBe(true)
+    expect(r.visual).toBe('fn f() { let x = 1.0; }')
+  })
+
+  it('last call wins', () => {
+    expect(run("visual('one')\nvisual('two')").visual).toBe('two')
+  })
+
+  it('rejects a non-string with a diagnostic', () => {
+    const r = run('visual(42)')
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toMatch(/shader source must be a string/)
+  })
+
+  it('is absent when never called', () => {
+    expect(run('const z = 1').visual).toBeUndefined()
+  })
+
+  it('is discarded when the eval later throws (all-or-nothing)', () => {
+    const r = run("visual('fn f() {}')\nthrow new Error('late')")
+    expect(r.ok).toBe(false)
+    expect(r.visual).toBeUndefined()
+  })
+})
+
+describe('synthsUseMic', () => {
+  it('detects a mic() in a VOICE graph', () => {
+    const r = run('const talk = synth(({ mic }) => mic())')
+    expect(r.ok).toBe(true)
+    expect(synthsUseMic(r.synths)).toBe(true)
+  })
+
+  it('detects a mic() reachable only through the POST chain', () => {
+    const r = run(`const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate), ({ input, mic }) => input.add(mic()))`)
+    expect(r.ok).toBe(true)
+    const def = r.synths.get('a')!
+    // precondition: the voice graph is mic-free, so only the post branch fires
+    expect(def.graph.nodes.some((n) => n.type === 'mic')).toBe(false)
+    expect(synthsUseMic(r.synths)).toBe(true)
+  })
+
+  it('is false when no staged synth touches the mic', () => {
+    const r = run(`const a = ${SYNTH_SRC}\nconst b = synth(({ saw, note, gate }) => saw(note.freq).mul(gate), ({ input, reverb }) => reverb(input, { roomSize: 0.5 }))`)
+    expect(r.ok).toBe(true)
+    expect(synthsUseMic(r.synths)).toBe(false)
+  })
+
+  it('is false for an empty synth map', () => {
+    expect(synthsUseMic(new Map())).toBe(false)
   })
 })
 

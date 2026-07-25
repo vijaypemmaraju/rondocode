@@ -41,17 +41,16 @@ describe('LiveWriter (live per-move rewrites with write-verify)', () => {
     const h = host('adsr .003 .2 .3 .1')
     const w = new LiveWriter(h, 5, 18)
     expect(w.write('0.01 .2 .3 .1')).toBe(true)
-    // someone else edits under the gesture
+    // someone else edits OUTSIDE the range: the gesture keeps writing
     h.dispatch({ changes: { from: 0, to: 4, insert: 'envX' } })
-    const before = h.text()
     expect(w.write('0.02 .2 .3 .1')).toBe(true) // range text still matches → fine
+    expect(h.text()).toBe('envX 0.02 .2 .3 .1') // the write really landed
     // now corrupt the range itself
     h.dispatch({ changes: { from: 5, to: 6, insert: 'Z' } })
     const corrupted = h.text()
     expect(w.write('0.03 .2 .3 .1')).toBe(false)
     expect(h.text()).toBe(corrupted) // no write happened
     expect(w.write('0.04 .2 .3 .1')).toBe(false) // and it stays aborted
-    expect(before.length).toBeGreaterThan(0)
   })
 
   it('skips the dispatch when the text is unchanged (no no-op transactions)', () => {

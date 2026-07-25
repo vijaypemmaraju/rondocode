@@ -209,6 +209,51 @@ describe('rondo → rondocode codegen', () => {
       .toContain(`n('0 3 5').sound('s1').every(4, x => x.rev())`)
   })
 
+  it('beat NoteSpans strip velocity suffixes and carry buffer-mapping pieces', () => {
+    // REGRESSION (user report): the hat row `~ hat:.6 ~ hat …` never flashed —
+    // the emitted mini is STRIPPED but the span still held the original text,
+    // so events' loc.src matched nothing
+    const src = 'beat\n  ~ hat:.6 ~ hat ~ hat:.6 ~ hat\n'
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const span = r.notes[0]!
+    expect(span.content).toBe('~ hat ~ hat ~ hat ~ hat') // equals events' loc.src
+    expect(span.pieces).toBeDefined()
+    // every piece maps a chunk of the stripped string to identical buffer text
+    for (const p of span.pieces!) {
+      expect(src.slice(p.sourceStart, p.sourceStart + p.length))
+        .toBe(span.content.slice(p.assembledStart, p.assembledStart + p.length))
+    }
+    // a plain beat line keeps the simple contiguous form
+    const plain = compile('beat\n  kick ~ kick ~\n')
+    if (plain.ok) expect(plain.notes[0]!.pieces).toBeUndefined()
+  })
+
+  it('reports js escape regions with exact source offsets (for note-flash)', () => {
+    const src = [
+      'synth s1',
+      '  js{ saw(note.freq).mul(0.5) }',
+      '',
+      'js',
+      "  p('x', n('0 3 5')",
+      "    .sound('s1'))",
+      '',
+      "js{ setCps(0.5) }",
+      '',
+    ].join('\n')
+    const r = compile(src)
+    expect(r.ok, JSON.stringify(r.ok ? [] : r.errors)).toBe(true)
+    if (!r.ok) return
+    const texts = r.jsRegions.map((g) => src.slice(g.from, g.to))
+    // inline escapes: the text between the braces; block: the WHOLE body
+    // (one region, so multi-line statements stay parseable by the scanner)
+    expect(texts).toContainEqual(' saw(note.freq).mul(0.5) ')
+    expect(texts).toContainEqual(' setCps(0.5) ')
+    expect(texts).toContainEqual("  p('x', n('0 3 5')\n    .sound('s1'))")
+    expect(r.jsRegions).toHaveLength(3)
+  })
+
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
     expect(compile(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`).ok).toBe(false)
   })

@@ -4,6 +4,7 @@ import { SampleBank } from '../src/samples'
 import { synth } from '../src/builder'
 import { renderOffline } from '../src/render'
 import type { GranularConfig } from '../src/dsp/granular'
+import { goertzel } from './util/goertzel'
 
 const tone = (n: number): Float32Array => Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.05) * 0.8)
 
@@ -62,6 +63,39 @@ describe('GranularKernel', () => {
     const a = run(mk(bank, { density: 50, spray: 0.02, seed: 7 }), 1024, 48000, { pos: 0.3 })
     const b = run(mk(bank, { density: 50, spray: 0.02, seed: 7 }), 1024, 48000, { pos: 0.3 })
     expect([...a]).toEqual([...b])
+  })
+})
+
+describe('GranularKernel: pos scans position, rate pitches grains', () => {
+  const SR = 48000
+  /** 2 s source whose halves differ spectrally: 200 Hz sine then 4000 Hz sine —
+   *  so WHERE the grains read from is visible in the output spectrum. */
+  const splitBank = (): SampleBank => {
+    const len = 2 * SR
+    const buf = new Float32Array(len)
+    for (let i = 0; i < len; i++) {
+      buf[i] = i < len / 2 ? Math.sin((2 * Math.PI * 200 * i) / SR) : Math.sin((2 * Math.PI * 4000 * i) / SR)
+    }
+    const bank = new SampleBank()
+    bank.set('t', buf, SR)
+    return bank
+  }
+  const cloud = (pos: number, rate: number): Float32Array =>
+    run(new GranularKernel('t', { size: 0.05, density: 40, spray: 0.005, loop: false }, splitBank()), SR, SR, { pos, rate })
+
+  it('pos 0.2 reads the low half, pos 0.8 the high half', () => {
+    const lo = cloud(0.2, 1)
+    const hi = cloud(0.8, 1)
+    // measured margins are ~10^7; pin a conservative 100x each way
+    expect(goertzel(lo, 200, SR)).toBeGreaterThan(goertzel(lo, 4000, SR) * 100)
+    expect(goertzel(hi, 4000, SR)).toBeGreaterThan(goertzel(hi, 200, SR) * 100)
+  })
+
+  it('rate 2 pitches the grains an octave up (200 Hz source reads out at 400 Hz)', () => {
+    const natural = cloud(0.2, 1)
+    const doubled = cloud(0.2, 2)
+    expect(goertzel(natural, 200, SR)).toBeGreaterThan(goertzel(natural, 400, SR) * 100)
+    expect(goertzel(doubled, 400, SR)).toBeGreaterThan(goertzel(doubled, 200, SR) * 100)
   })
 })
 

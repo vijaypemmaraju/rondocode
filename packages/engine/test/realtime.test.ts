@@ -10,6 +10,7 @@ import {
   CLIP_THRESHOLD,
   MAX_PENDING_EVENTS,
   MAX_TOTAL_VOICES,
+  MAX_RETIRING,
 } from '../src/realtime'
 import type { EngineEvent, EngineMessage } from '../src/protocol'
 
@@ -666,7 +667,8 @@ describe('RealtimeEngine: sidechain ducking', () => {
 })
 
 describe('RealtimeEngine: budgets and queue bounds', () => {
-  it('drops beyond MAX_PENDING_EVENTS with ONE coalesced error, stays alive', () => {
+  it('drops beyond MAX_PENDING_EVENTS with ONE coalesced report that accumulates the drop count', () => {
+    // (Formerly two tests, the first a strict subset of this one.)
     const { eng, events } = makeEngine()
     define(eng, 'dc', dcGraph())
     const n = 5000
@@ -676,22 +678,12 @@ describe('RealtimeEngine: budgets and queue bounds', () => {
     // 904 drops, but exactly one rate-limited report — not an event flood
     expect(errors(events).length).toBe(1)
     expect(errors(events)[0]!.message).toMatch(/queue full/)
-    const { L } = walk(eng, 2)
-    expect(rms(L)).toBe(0) // all queued events are far in the future
-  })
-
-  it('coalesces overflow drops: the next report carries the accumulated count', () => {
-    const { eng, events } = makeEngine()
-    define(eng, 'dc', dcGraph())
-    const n = 5000
-    for (let i = 0; i < n; i++) {
-      send(eng, { kind: 'noteOn', synth: 'dc', note: 60, atFrame: 10_000_000 + i })
-    }
-    expect(errors(events).length).toBe(1)
     expect(errors(events)[0]!.message).toMatch(/dropped 1 event/)
+    const first = walk(eng, 2)
+    expect(rms(first.L)).toBe(0) // all queued events are far in the future
     // advance past the 1-second rate window, then overflow once more:
     // the report includes the 903 silent drops plus this one
-    walk(eng, Math.ceil(SR / BLOCK) + 1)
+    walk(eng, Math.ceil(SR / BLOCK) - 1)
     send(eng, { kind: 'noteOn', synth: 'dc', note: 60, atFrame: 20_000_000 })
     expect(errors(events).length).toBe(2)
     expect(errors(events)[1]!.message).toMatch(new RegExp(`dropped ${n - MAX_PENDING_EVENTS - 1 + 1} event`))
@@ -963,6 +955,269 @@ describe('RealtimeEngine: shared send buses', () => {
     define(eng, 'dc', dcGraph()) // redefine same name — the send must survive
     expect(heldRms(eng)).toBeGreaterThan(DC_HALF + 0.1)
     expect(errors(events)).toEqual([])
+  })
+
+  /* Level bookkeeping for the bus-gain tests: the dry DC path lands at DC_HALF
+   * (0.16) per side; a unity passthrough bus taps the PRE-strip voice level
+   * (0.5·CENTER = 0.3536) and its output is scaled by bus gain g and the
+   * master (0.8): total per side = 0.16 + 0.2828·g. */
+  const BUS_LEG = 0.5 * Math.SQRT1_2 * 0.8
+
+  it('defineBus applies its gain field to the bus contribution', () => {
+    const level = (gain: number): number => {
+      const { eng } = makeEngine()
+      define(eng, 'dc', dcGraph())
+      send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus(), gain })
+      send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+      return heldRms(eng)
+    }
+    expect(level(1)).toBeCloseTo(DC_HALF + BUS_LEG * 1, 2)
+    expect(level(0.5)).toBeCloseTo(DC_HALF + BUS_LEG * 0.5, 2)
+    expect(level(0)).toBeCloseTo(DC_HALF, 2) // gain 0 mutes the bus, dry remains
+  })
+
+  it('two buses sum independently into the master', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'defineBus', name: 'b1', graph: thruBus() })
+    send(eng, { kind: 'defineBus', name: 'b2', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'b1', amount: 1 })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'b2', amount: 1 })
+    expect(heldRms(eng)).toBeCloseTo(DC_HALF + 2 * BUS_LEG, 2)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('enforces the bus limit (8): the 9th defineBus errors; redefines still pass', () => {
+    const { eng, events } = makeEngine()
+    for (let i = 0; i < 8; i++) send(eng, { kind: 'defineBus', name: `b${i}`, graph: thruBus() })
+    expect(errors(events)).toEqual([])
+    send(eng, { kind: 'defineBus', name: 'overflow', graph: thruBus() })
+    expect(errors(events).length).toBe(1)
+    expect(errors(events)[0]!.message).toMatch(/bus limit/)
+    // redefining an EXISTING name at the cap is allowed (no new slot needed)
+    send(eng, { kind: 'defineBus', name: 'b0', graph: thruBus() })
+    expect(errors(events).length).toBe(1)
+  })
+
+  it('collectMeters reports per-bus levels (and omits `buses` when none exist)', () => {
+    const { eng } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    const before = eng.collectMeters()
+    expect(before.kind === 'meters' && before.buses).toBeUndefined()
+    send(eng, { kind: 'defineBus', name: 'thru', graph: thruBus() })
+    send(eng, { kind: 'setSend', synth: 'dc', bus: 'thru', amount: 1 })
+    send(eng, { kind: 'noteOn', synth: 'dc', note: 60 })
+    walk(eng, 3)
+    const m = eng.collectMeters()
+    if (m.kind !== 'meters') return
+    // bus RMS = the pre-strip tap × bus gain 1 = 0.3536 per leg
+    expect(m.buses).toBeDefined()
+    expect(m.buses!['thru']).toBeCloseTo(0.5 * Math.SQRT1_2, 2)
+  })
+})
+
+/** Engine on its OWN ctx object (not the shared module `ctx`): the engine
+ *  publishes its SampleBank onto the ctx it is given, so sample-loading tests
+ *  must not share a ctx (a second engine would adopt the first one's bank). */
+const makeIsolated = () => {
+  const events: EngineEvent[] = []
+  const eng = new RealtimeEngine({ sampleRate: SR })
+  eng.onEvent = (ev) => events.push(ev)
+  return { eng, events }
+}
+
+/** A one-shot sample player: plays 'clip' start→end per gate edge, IGNORING
+ *  note-off (that is the one-shot contract — see SampleKernel). */
+const drumGraph = (): GraphSpec => synth(({ gate, sample }) => sample(gate, 'clip')).graph
+
+/** loadSample message with 1 s of constant 0.5 — a held DC-like tone whose
+ *  per-side engine level is exactly DC_HALF while playing. */
+const loadClip = (eng: RealtimeEngine, seconds = 1) =>
+  send(eng, { kind: 'loadSample', name: 'clip', data: new Float32Array(Math.round(seconds * SR)).fill(0.5), sampleRate: SR })
+
+describe('RealtimeEngine: silenceAll', () => {
+  it('hard-stops a mid-flight one-shot sample that allNotesOff would let ring, plus held notes and the queue', () => {
+    const { eng, events } = makeIsolated()
+    loadClip(eng)
+    define(eng, 'drum', drumGraph())
+    define(eng, 'pad', dcGraph())
+    send(eng, { kind: 'noteOn', synth: 'drum', note: 60 })
+    send(eng, { kind: 'noteOn', synth: 'pad', note: 60 })
+    const both = walk(eng, 2)
+    expect(rms(both.L, BLOCK)).toBeCloseTo(2 * DC_HALF, 3) // drum 0.16 + pad 0.16
+
+    // Control: allNotesOff drops the pad's gate but the ONE-SHOT drum plays on
+    // (gating is the amp env's job for one-shots) — this is exactly the case
+    // silenceAll exists for.
+    send(eng, { kind: 'allNotesOff' })
+    const after = walk(eng, 2)
+    expect(rms(after.L, BLOCK)).toBeCloseTo(DC_HALF, 3) // drum only, still going
+
+    // Re-arm a held note and a queued future note, then silence EVERYTHING.
+    send(eng, { kind: 'noteOn', synth: 'pad', note: 60 })
+    send(eng, { kind: 'noteOn', synth: 'pad', note: 64, atFrame: eng.currentFrame + 5000 })
+    const rearmed = walk(eng, 1)
+    expect(rms(rearmed.L)).toBeGreaterThan(0.2)
+    send(eng, { kind: 'silenceAll' })
+    // Silent PROMPTLY: the very next block is already all-zero — the noteOff
+    // ran before the kernel reset, so the zeroed gate cannot re-edge the
+    // sample (a reset-before-noteOff would retrigger the one-shot here).
+    const blocks = Math.ceil(5000 / BLOCK) + 4 // walk well past the queued frame
+    const silent = walk(eng, blocks)
+    expect(rms(silent.L)).toBe(0) // includes block 1 (prompt) and the queued frame (dropped)
+    expect(rms(silent.R)).toBe(0)
+
+    // Not a dead engine: new notes play again after silenceAll.
+    send(eng, { kind: 'noteOn', synth: 'drum', note: 60 })
+    send(eng, { kind: 'noteOn', synth: 'pad', note: 60 })
+    const revived = walk(eng, 2)
+    expect(rms(revived.L, BLOCK)).toBeCloseTo(2 * DC_HALF, 3)
+    expect(errors(events)).toEqual([])
+  })
+})
+
+describe('RealtimeEngine: loadSample / clearSample messages (the live sample wire path)', () => {
+  it('loadSample makes a sample synth audible; clearSample silences it mid-play', () => {
+    const { eng, events } = makeIsolated()
+    define(eng, 'drum', drumGraph())
+    send(eng, { kind: 'noteOn', synth: 'drum', note: 60 })
+    expect(rms(walk(eng, 2).L)).toBe(0) // nothing loaded yet -> silence
+
+    loadClip(eng)
+    // The kernel starts on the NEXT gate edge (not retroactively): re-edge it.
+    send(eng, { kind: 'noteOff', synth: 'drum', note: 60 })
+    walk(eng, 1)
+    send(eng, { kind: 'noteOn', synth: 'drum', note: 60 })
+    expect(rms(walk(eng, 2).L, BLOCK)).toBeCloseTo(DC_HALF, 3) // audible at the sample's level
+
+    // clearSample while the one-shot is still playing: the kernel re-resolves
+    // the bank each block, so the very next block falls silent.
+    send(eng, { kind: 'clearSample', name: 'clip' })
+    expect(rms(walk(eng, 2).L)).toBe(0)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('rejects malformed payloads with error events, without crashing or corrupting the bank', () => {
+    const { eng, events } = makeIsolated()
+    define(eng, 'drum', drumGraph())
+    const bad: unknown[] = [
+      { kind: 'loadSample' }, // no name
+      { kind: 'loadSample', name: '', data: new Float32Array(4), sampleRate: SR },
+      { kind: 'loadSample', name: 'clip', data: [0.5, 0.5, 0.5], sampleRate: SR }, // not a Float32Array
+      { kind: 'loadSample', name: 'clip', data: new Float32Array(4) }, // no sampleRate
+      { kind: 'loadSample', name: 'clip', data: new Float32Array(4), sampleRate: 0 },
+      { kind: 'loadSample', name: 'clip', data: new Float32Array(4), sampleRate: -44100 },
+      { kind: 'loadSample', name: 'clip', data: new Float32Array(4), sampleRate: NaN },
+      { kind: 'clearSample' }, // no name
+      { kind: 'clearSample', name: 5 },
+    ]
+    for (const m of bad) expect(() => eng.handleMessage(m as EngineMessage)).not.toThrow()
+    expect(errors(events).length).toBe(bad.length)
+    // none of the rejects half-loaded anything: the synth is still silent
+    send(eng, { kind: 'noteOn', synth: 'drum', note: 60 })
+    expect(rms(walk(eng, 2).L)).toBe(0)
+    // and a valid load afterwards still works (engine fully alive)
+    loadClip(eng)
+    send(eng, { kind: 'noteOff', synth: 'drum', note: 60 })
+    walk(eng, 1)
+    send(eng, { kind: 'noteOn', synth: 'drum', note: 60 })
+    expect(rms(walk(eng, 2).L, BLOCK)).toBeCloseTo(DC_HALF, 3)
+  })
+})
+
+describe('RealtimeEngine: MAX_RETIRING bounds the redefine backlog', () => {
+  it('rapid redefines with ringing voices cap at MAX_RETIRING pools; the oldest is hard-stopped', () => {
+    // Each redefine retires the (still-held) old pool. 20 redefines with a
+    // held note each would sum to 20 pools if the backlog were unbounded; the
+    // cap keeps exactly MAX_RETIRING retirees + the current pool audible.
+    // Constant k = 0.02 per synth -> per-side level k*0.32 per pool.
+    const { eng, events } = makeEngine()
+    const quiet = (): GraphSpec => synth((c) => c.gate.mul(0.02)).graph
+    for (let k = 0; k < 20; k++) {
+      send(eng, { kind: 'defineSynth', name: 's', graph: quiet(), maxVoices: 1 })
+      send(eng, { kind: 'noteOn', synth: 's', note: 60 + k })
+    }
+    const { L } = walk(eng, 4)
+    const perPool = 0.02 * 0.32
+    expect(rms(L)).toBeCloseTo((MAX_RETIRING + 1) * perPool, 3) // bounded: 7 pools, not 20
+    for (let i = 0; i < L.length; i++) expect(Number.isFinite(L[i]!)).toBe(true)
+    expect(errors(events)).toEqual([])
+    // and the CURRENT pool still takes new notes (rms grows when re-gated)
+    send(eng, { kind: 'noteOff', synth: 's', note: 79 })
+    const after = walk(eng, 4)
+    expect(rms(after.L)).toBeCloseTo(MAX_RETIRING * perPool, 3) // current pool released
+  })
+})
+
+describe('RealtimeEngine: valid setMaster', () => {
+  it('applies the gain through a one-block ramp (no hard step)', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'dc', dcGraph())
+    send(eng, { kind: 'noteOn', synth: 'dc', note: 60 })
+    const settled = walk(eng, 4)
+    expect(rms(settled.L, 3 * BLOCK)).toBeCloseTo(DC_HALF, 3) // default master 0.8
+
+    send(eng, { kind: 'setMaster', gain: 0.4 }) // half the default
+    const ramp = walk(eng, 1).L
+    // ramped, not stepped: per-sample delta stays ~ (0.08 / BLOCK), far below
+    // the 0.08 hard step an unramped gain change would produce
+    let maxDelta = Math.abs(ramp[0]! - DC_HALF)
+    for (let i = 1; i < BLOCK; i++) maxDelta = Math.max(maxDelta, Math.abs(ramp[i]! - ramp[i - 1]!))
+    expect(maxDelta).toBeLessThan(0.005)
+    expect(ramp[BLOCK - 1]!).toBeCloseTo(DC_HALF / 2, 3) // reaches the target by block end
+
+    const after = walk(eng, 2)
+    expect(rms(after.L, BLOCK)).toBeCloseTo(DC_HALF / 2, 3) // and stays there
+    expect(errors(events)).toEqual([])
+  })
+})
+
+describe('RealtimeEngine: patchConstants message', () => {
+  /** sine(220) * 0.3 as a RAW GraphSpec, so node ids are known for patching. */
+  const patchable = (): GraphSpec => ({
+    nodes: [
+      { id: 1, type: 'sine', inputs: { freq: 220 } },
+      { id: 2, type: 'mul', inputs: { a: { node: 1 }, b: 0.3 } },
+      { id: 3, type: 'out', inputs: { in: { node: 2 } } },
+    ],
+    out: 3,
+    params: [],
+  })
+
+  it('applies valid patches and silently filters malformed entries', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'tone', patchable())
+    send(eng, { kind: 'noteOn', synth: 'tone', note: 60 })
+    walk(eng, 2)
+    const before = rms(walk(eng, 8).L) // 0.3-amp sine -> ~0.068 per side
+    expect(before).toBeGreaterThan(0.05)
+    send(eng, {
+      kind: 'patchConstants',
+      name: 'tone',
+      patches: [
+        null, // not an object
+        'x', // not an object
+        { node: 'two', port: 'b', value: 0.9 }, // node not a number
+        { node: 2, port: 7, value: 0.9 }, // port not a string
+        { node: 2, port: 'b', value: NaN }, // value not finite
+        { node: 2, port: 'b', value: 0.9 }, // THE one valid entry
+      ],
+    } as unknown as EngineMessage)
+    // no errors — malformed ENTRIES are filtered, the message itself is fine
+    expect(errors(events)).toEqual([])
+    const after = rms(walk(eng, 8).L)
+    // 0.3 -> 0.9 is a 3x gain (window phase wobbles the rms by a percent or two)
+    expect(after / before).toBeGreaterThan(2.7)
+    expect(after / before).toBeLessThan(3.3)
+  })
+
+  it('rejects a malformed message shape (bad name / non-array patches) with an error event', () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'tone', patchable())
+    send(eng, { kind: 'patchConstants', name: 7, patches: [] } as unknown as EngineMessage)
+    send(eng, { kind: 'patchConstants', name: 'nope', patches: [] })
+    send(eng, { kind: 'patchConstants', name: 'tone', patches: 'all' } as unknown as EngineMessage)
+    expect(errors(events).length).toBe(3)
   })
 })
 

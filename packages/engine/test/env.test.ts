@@ -156,11 +156,28 @@ describe('EnvKernel (multi-segment)', () => {
 
   it('retriggers from the current level (no click) and reset() idles', () => {
     const k = new EnvKernel({ points: [[0.1, 1]], release: 0.5 })
-    // gate on 0.05s (partway up), off, then on again quickly
+    // gate on 0.05s (partway up, level ~0.5), off (release from 0.5, slow),
+    // then on again at 0.1s — by then the release has only fallen to ~0.45.
     const g = new Float32Array(sr)
     g.fill(1, 0, Math.round(0.05 * sr))
     g.fill(1, Math.round(0.1 * sr), Math.round(0.2 * sr))
     const out = run(k, g)
+    const retrig = Math.round(0.1 * sr)
+    const gateEnd = Math.round(0.2 * sr)
+    // Level continuity: the retriggered segment resumes from the mid-release
+    // level (~0.45) — it must never snap toward 0 (that IS the click). Pin a
+    // floor across the whole retriggered span, like the AdsrKernel test above.
+    expect(out[retrig]!).toBeGreaterThan(0.4)
+    expect(out[retrig]!).toBeLessThan(0.55)
+    for (let i = retrig; i < gateEnd; i++) {
+      expect(out[i]!).toBeGreaterThan(0.4)
+    }
+    // ...and ramps monotonically from there toward 1 (reached as the 0.1s
+    // segment completes right at the end of the gate window).
+    for (let i = retrig + 1; i < gateEnd; i++) {
+      expect(out[i]!).toBeGreaterThanOrEqual(out[i - 1]!)
+    }
+    expect(out[gateEnd - 1]!).toBeGreaterThan(0.97)
     for (let i = 0; i < out.length; i++) expect(Number.isFinite(out[i]!)).toBe(true)
     k.reset()
     const idle = run(k, new Float32Array(256))

@@ -54,10 +54,15 @@ describe('WavetableKernel: produces a tone', () => {
     expect(atFund).toBeGreaterThan(goertzel(out, 880, ctx.sampleRate) * 50)
   })
 
-  it('defaults to the basic table when no name is given', () => {
-    const out = run(undefined, 440, 0, 4800)
-    const atFund = goertzel(out, 440, ctx.sampleRate)
-    expect(atFund).toBeGreaterThan(0)
+  it('defaults to the basic table when no name is given (sample-identical output)', () => {
+    // The default is DEFINED as the basic table: same phase accumulator, same
+    // frames, same mipmaps — so the two renders must match sample-for-sample.
+    // (A >0-energy check would pass for ANY table; identity pins the contract.)
+    const def = run(undefined, 440, 0.35, 4800)
+    const basic = run('basic', 440, 0.35, 4800)
+    expect(Array.from(def)).toEqual(Array.from(basic))
+    // and it is a real tone, not silence trivially matching silence
+    expect(goertzel(def, 440, ctx.sampleRate)).toBeGreaterThan(1e-3)
   })
 })
 

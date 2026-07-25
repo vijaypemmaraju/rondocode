@@ -98,6 +98,36 @@ describe('mono glide (portamento)', () => {
     expect(zcFreq(win(r, 0.21, 0.25), SR)).toBeGreaterThan(400)
   })
 
+  it('glide-back: releasing the top note glides back to the still-held note WITHOUT a re-attack', () => {
+    // Hold A, add B (legato slide up), release B while A is still held: the
+    // pool must slide back toward A — and the envelope must NOT restart.
+    // s = 0.6 makes a re-attack detectable: retriggering would ramp the level
+    // from 0.6 back up to 1 (rms ~0.5); a true legato fallback holds ~0.3.
+    const def = synth(
+      ({ note, gate, sine, adsr }) => sine(note.freq).mul(adsr(gate, { a: 0.01, d: 0.05, s: 0.6, r: 0.05 })),
+      { mono: true, glide: 0.06, unison: 1, detune: 0, spread: 0 } as VoiceOpts,
+    )
+    const A = 45 // 110 Hz
+    const B = 57 // 220 Hz
+    const events: RenderEvent[] = [on(0, A), on(0.3, B), off(0.6, B), off(1.0, A)]
+    const r = renderOffline(def, events, 1.1)
+    // pitch: at B just before its release, mid-glide after, back at A late
+    expect(zcFreq(win(r, 0.5, 0.58), SR)).toBeGreaterThan(200) // reached B (220)
+    const mid = zcFreq(win(r, 0.62, 0.66), SR)
+    expect(mid).toBeGreaterThan(120) // gliding, not an instant jump...
+    expect(mid).toBeLessThan(200) // ...and clearly left B already
+    const late = zcFreq(win(r, 0.85, 0.95), SR)
+    expect(late).toBeGreaterThan(100) // settled back on A (110)
+    expect(late).toBeLessThan(120)
+    // envelope: level stays pinned at sustain through the fallback — no dip
+    // (release) and no swell toward 1 (re-attack). sustain rms = 0.6*0.5 = 0.3.
+    for (const [t0, t1] of [[0.55, 0.6], [0.6, 0.65], [0.65, 0.7], [0.7, 0.8]] as const) {
+      const level = rms(win(r, t0, t1))
+      expect(level, `rms at ${t0}s`).toBeGreaterThan(0.25)
+      expect(level, `rms at ${t0}s`).toBeLessThan(0.35)
+    }
+  })
+
   it('mono uses ONE voice: a fast run of distinct notes never exceeds one active voice', () => {
     const pool = new VoicePool(sineSynth({ mono: true, glide: 0.05 }).graph, ctx, 8, sineSynth({ mono: true, glide: 0.05 }).voiceOpts)
     for (const n of [45, 47, 48, 50, 52, 53, 55, 57]) {

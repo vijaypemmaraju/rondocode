@@ -4,6 +4,7 @@ import { ExciterKernel } from '../src/dsp/exciter'
 import { OttKernel } from '../src/dsp/ott'
 import { synth } from '../src/builder'
 import { renderOffline } from '../src/render'
+import { goertzel } from './util/goertzel'
 
 const SR = 48000
 
@@ -50,6 +51,23 @@ describe('EqKernel', () => {
   it('an hp cut attenuates a low sine', () => {
     const eq = new EqKernel([{ type: 'hp', freq: 500 }])
     expect(rms(tail(runSine(eq, 80)))).toBeLessThan(0.3) // well below unity
+  })
+
+  it('an lp cut passes lows ~unchanged and attenuates highs', () => {
+    const lp = () => new EqKernel([{ type: 'lp', freq: 1000 }])
+    expect(rms(tail(runSine(lp(), 200)))).toBeCloseTo(Math.SQRT1_2, 1) // passband
+    expect(rms(tail(runSine(lp(), 8000)))).toBeLessThan(0.05) // 12 dB/oct, 3 octaves up
+  })
+
+  it('a lowshelf boosts lows by ~its configured dB and leaves highs ~unchanged', () => {
+    const shelf = (gain: number) => new EqKernel([{ type: 'lowshelf', freq: 500, gain }])
+    const unity = rms(tail(runSine(new EqKernel([]), 100)))
+    // +12 dB ≈ 4x in amplitude down in the shelf
+    expect(rms(tail(runSine(shelf(12), 100)))).toBeGreaterThan(unity * 3)
+    // -12 dB ≈ 0.25x
+    expect(rms(tail(runSine(shelf(-12), 100)))).toBeLessThan(unity * 0.35)
+    // well above the shelf corner: ~unity either way
+    expect(rms(tail(runSine(shelf(12), 6000)))).toBeCloseTo(Math.SQRT1_2, 1)
   })
 
   it('is finite even with an aggressive stack', () => {
@@ -169,12 +187,24 @@ describe('eq/exciter/ott through synth() + renderOffline (builder wiring)', () =
     expect(finite(out)).toBe(true)
   })
 
-  it('eq works in the VOICE graph too', () => {
-    const s = synth(({ note, gate, adsr, saw, eq }) =>
-      eq(saw(note.freq), [{ type: 'peak', freq: 800, gain: 9, q: 2 }]).mul(adsr(gate, { a: 0.001, s: 1 })))
-    const out = renders(s)
-    expect(out.every((x) => Number.isFinite(x))).toBe(true)
-    expect(rms(out)).toBeGreaterThan(0)
+  it('eq works in the VOICE graph too: the +9 dB peak is measurable vs a no-eq baseline', () => {
+    // Same trap the comment at the top of this describe warns about: rms>0
+    // would pass even if the eq node were a pass-through. Measure the boosted
+    // bin against an identical synth WITHOUT the eq. The peak sits at 880 Hz —
+    // the 4th harmonic of note 57 (220 Hz) — so Goertzel reads it coherently.
+    const eqd = synth(({ note, gate, adsr, saw, eq }) =>
+      eq(saw(note.freq), [{ type: 'peak', freq: 880, gain: 9, q: 2 }]).mul(adsr(gate, { a: 0.001, s: 1 })))
+    const plain = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.001, s: 1 })))
+    const win = (out: Float32Array) => out.subarray(Math.round(0.05 * SR), Math.round(0.3 * SR))
+    const a = win(renders(eqd))
+    const b = win(renders(plain))
+    // +9 dB is ~7.9x in POWER (10^0.9); measured 7.94. Pin > 4x.
+    expect(goertzel(a, 880, SR)).toBeGreaterThan(goertzel(b, 880, SR) * 4)
+    // the fundamental (far below the bell) is left ~unchanged
+    const loRatio = goertzel(a, 220, SR) / goertzel(b, 220, SR)
+    expect(loRatio).toBeGreaterThan(0.7)
+    expect(loRatio).toBeLessThan(1.5)
+    expect(a.every((x) => Number.isFinite(x))).toBe(true)
   })
 })
 

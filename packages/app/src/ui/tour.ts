@@ -240,8 +240,13 @@ export function mountTour(
     })()
   }
 
-  /** The whole flow, from the survey. */
-  const runFlow = (): void => showSurvey()
+  /** The whole flow, from the survey. Any in-flight coach bubble is dropped
+   *  first (a replay can start while a previous run is mid-tour). */
+  const runFlow = (): void => {
+    machine = null
+    render(null)
+    showSurvey()
+  }
 
   // ---- first-run auto-start ----
   let auto = false

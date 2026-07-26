@@ -619,8 +619,9 @@ setCps(0.5)`,
   {
     id: 'midi-import',
     group: 'voice & visuals',
-    title: 'Importing MIDI',
+    title: 'MIDI import & export',
     blocks: [
+      p('Export goes the other way too: the export button in the header (next to play) writes the staged track as a Standard MIDI File, so MuseScore, Dorico or any DAW can open it as sheet music or an arrangement. Pick a cycle count and tap MIDI (.mid): each synth becomes its own named track, .gain becomes velocity, and one cycle is one bar of 4/4 at the current tempo. Custom-tuning notes that fall between semitones are rounded to the nearest one, with a pitch-bend written alongside so bend-aware players still hit the exact pitch. Channels that trigger samples or sing() export their trigger notes.'),
       p('A MIDI file can be turned into an editable rondocode example deterministically: the tempo, time signature, note timing and track split come straight from the file, nothing is guessed. Run the importer from the repo: `pnpm tsx packages/server/scripts/midi-to-rondocode.ts song.mid "my song"`. It picks a synth per track, derives setCps from the tempo, and prints an example you can paste here and edit.'),
       p('Imported patterns read like anything else you would write: a held note uses an `@` weight (on a 1/16 grid, `@16` is a whole bar), chords become stacked voice lines, and each track routes to its own synth. This is a small hand-written example in that same shape.'),
       code(

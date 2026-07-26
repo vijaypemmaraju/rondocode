@@ -31,7 +31,7 @@ import { evalCode } from '../../app/src/session/evalCode'
 import type { Diagnostic, BusDef, SendSpec } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
 import { Scheduler } from '../../pattern/src/index'
-import type { ControlMap, Pattern } from '../../pattern/src/index'
+import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
 import { BLOCK, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
 import type { RenderEvent, SynthDef } from '../../engine/src/index'
 
@@ -174,6 +174,53 @@ export function runPatterns(
     off.time = next === Infinity ? naturalEnd : next + SLIDE_OVERLAP_SEC
   }
   return bySynth
+}
+
+/**
+ * Drive the SAME virtual-clock Scheduler runPatterns uses over `cycles` whole
+ * cycles and capture each onset as a pattern-time note for MIDI export: onset
+ * and duration in CYCLES (timeSec·cps — the scheduler anchors cycle 0 at
+ * t=0), pitch from controls.note (kept fractional; the SMF writer handles
+ * rounding + pitch bend), velocity from controls.gain exactly like the
+ * offline render, track = the sound name. sing()/sample channels export their
+ * TRIGGER notes — that is honest MIDI. Events lacking a string `sound` or
+ * numeric `note` are skipped, exactly like runPatterns; durations here are
+ * the pattern's own (no gate-gap shortening, no slide extension — those are
+ * envelope-render concerns, not notation).
+ */
+export function capturePatternNotes(
+  patterns: Map<string, Pattern<ControlMap>>,
+  opts: RunOpts,
+): ExportNote[] {
+  const { cycles, cps } = opts
+  const notes: ExportNote[] = []
+  const durationSec = cycles / cps
+  const clock = { now: 0 }
+  const sched = new Scheduler({
+    getTime: () => clock.now,
+    onEvents: (evs) => {
+      for (const ev of evs) {
+        if (ev.cycle >= cycles) continue
+        const sound = ev.controls.sound
+        const midi = ev.controls.note
+        if (typeof sound !== 'string' || typeof midi !== 'number') continue
+        const gain = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
+        notes.push({ timeCycles: ev.timeSec * cps, durCycles: ev.durSec * cps, midi, velocity: gain, track: sound })
+      }
+    },
+    lookahead: 0.1,
+  })
+  sched.setCps(cps)
+  for (const [name, pat] of patterns) sched.setPattern(name, pat)
+  sched.play()
+  // One lookahead past the end guarantees the final window is queried.
+  while (clock.now < durationSec + 0.2) {
+    sched.tick()
+    clock.now += TICK_SEC
+  }
+  sched.stop()
+  notes.sort((a, b) => a.timeCycles - b.timeCycles || a.midi - b.midi)
+  return notes
 }
 
 export interface MixOpts {

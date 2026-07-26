@@ -1,10 +1,10 @@
 import { encodeWav16 } from '@rondocode/engine'
-import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
 import type { EditorView } from '@codemirror/view'
 import type { AudioSession } from '../audio/AudioSession'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
+import { renderStagedMix } from './resample'
 
 /* Export the current tune to a WAV two ways:
  *   - bounce: render N cycles offline (deterministic, uses the render path)
@@ -33,25 +33,16 @@ function download(bytes: Uint8Array, name: string): void {
  *  `samples` is the live engine's loaded sample bank (built-ins + baked sing()
  *  vocals) so the offline sample('name') nodes play the same audio — without it
  *  a program using samples (or sing()) bounces silent for those voices.
- *  Exported for tests: the staged→renderMix option mapping is where a staged
- *  feature (sidechain/buses/masterComp/samples) could silently drop. */
+ *  The staged→renderMix option mapping lives in renderStagedMix (shared with
+ *  the resample-to-loop path) so a staged feature (sidechain/buses/masterComp/
+ *  samples) can never silently drop from one path but not the other. */
 export function bounceLoop(
   code: string,
   cycles: number,
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,
 ): Uint8Array | { error: string } {
-  const staged = stageCode(code)
-  if (!staged.ok) return { error: staged.diagnostics.find((d) => d.severity === 'error')?.message ?? 'eval failed' }
-  const cps = staged.cps ?? 0.5
-  const durationSec = cycles / cps
-  const events = runPatterns(staged.patterns, { cycles, cps })
-  const mix = renderMix(staged.synths, events, durationSec, {
-    sampleRate: 48000,
-    ...(samples ? { samples } : {}),
-    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
-  })
+  const mix = renderStagedMix(code, cycles, samples)
+  if ('error' in mix) return mix
   return encodeWav16(mix.left, mix.right, mix.sampleRate)
 }
 

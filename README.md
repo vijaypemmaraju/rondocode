@@ -44,6 +44,43 @@ load (or record, or resample) a sample.
 - **Offline render**: bounce to WAV, headless or in-app, through the same
   engine you hear live.
 
+## Why another live-coding system?
+
+[TidalCycles](https://tidalcycles.org), [Strudel](https://strudel.cc) and
+[Gibber](https://gibber.cc) already exist and are excellent. If you live-code
+on a laptop and love them, keep them. rondocode exists because of three bets
+they are not making:
+
+1. **Phone-first is a design center, not a breakpoint.** Not "the editor
+   also renders on mobile", but: a language with no brackets, backticks or
+   arrows to hunt for on a software keyboard; a tap palette that only offers
+   grammatically legal next tokens; degree chips that sound as they write;
+   inline knobs, envelopes, step sequencers and piano rolls sized for thumbs;
+   press-hold value lenses with precision tiers; a performance lock so a
+   stray finger cannot wreck a live set. The bet: the instrument most people
+   actually carry is a phone.
+2. **Synthesis-first, not sample-first.** The pattern side follows the Tidal
+   lineage, but the sound side is a from-scratch signal-graph DSP engine you
+   program in the same breath: subtractive, FM, physical modeling, supersaw
+   stacks, vocoder, per-voice envelopes, shared post-chains, sidechain and
+   master glue, all as code. Samples are one source among many (load one,
+   record one on the mic, or resample your own track), not the foundation.
+3. **The text and the controls are the same thing.** Every widget gesture
+   rewrites the source; the source is always the whole truth, so anything
+   you can touch you can also type, undo, diff and share. And the two
+   languages are round-trip convertible: the editor decompiles JavaScript
+   into rondo and back, byte-identically, so choosing the terse language
+   never locks you out of the full API.
+
+Some things here simply have no equivalent elsewhere yet: on-device neural
+singing from lyrics + melody, the live mic as a first-class signal, custom
+temperaments down to cents and ratios, MIDI in both directions, and a
+deterministic offline render through the same engine you perform on.
+
+So yes: if you want a one-line answer, "compose real tracks on your phone,
+with synths you designed" is the value proposition. The rest of this README
+is the evidence.
+
 ## Monorepo layout
 
 pnpm workspace, TypeScript throughout. Packages import each other by name

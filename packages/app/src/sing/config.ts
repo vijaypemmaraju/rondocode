@@ -50,6 +50,21 @@ export function phonemeModelUrls(small: boolean = preferSmallAligner()): string[
   return small ? [PHONEME_INT8_MODEL_URL, PHONEME_MODEL_URL] : [PHONEME_MODEL_URL]
 }
 
+/** True when the bake should run its model stages SEQUENTIALLY - create the
+ *  sessions for one stage, use them, dispose them before the next stage - so
+ *  peak session memory is the largest single stage instead of the sum of all
+ *  of them. On by default on iOS/iPadOS (tight per-tab kill line); the
+ *  localStorage flag (`rc.singSequential` = '1') opts any device in so the
+ *  path can be exercised on desktop. */
+export function sequentialSingSessions(): boolean {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('rc.singSequential') === '1') return true
+  } catch {
+    /* storage blocked: fall through to the UA check */
+  }
+  return isIOSWebKit()
+}
+
 /** True on iOS/iPadOS WebKit (every iOS browser is WebKit, including Chrome
  *  and Firefox shells). Two reasons the sing stack cares: (1) ORT's WebGPU
  *  execution provider is immature on WebKit and can take the whole tab down,

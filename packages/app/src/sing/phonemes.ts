@@ -18,6 +18,8 @@ import * as ort from 'onnxruntime-web'
 
 import { isIOSWebKit, phonemeModelUrls } from './config'
 import { cachedBytes, firstAvailableBytes } from './modelcache'
+import { ModelSlot } from './lifecycle'
+import { markPhase } from './bakephase'
 const VOCAB_URL = 'https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft/resolve/main/vocab.json'
 const CACHE = 'rondocode-phonemes-v1'
 
@@ -33,12 +35,11 @@ export interface Phone {
   vowel: boolean
 }
 
-let session: ort.InferenceSession | null = null
+const slot = new ModelSlot<ort.InferenceSession>((s) => s.release())
 let idToSym: string[] = []
 let vowelIds: number[] = []
 const symToId = new Map<string, number>()
 let sortedSyms: string[] = [] // non-special vocab symbols, longest first (for greedy tokenization)
-let loading: Promise<void> | null = null
 let ortReady = false
 
 // eSpeak stress / boundary marks the phonemizer emits that aren't in the vocab.
@@ -86,31 +87,39 @@ export function ipaToTokens(ipa: string): { id: number; sym: string; vowel: bool
 /** Load (or reuse) the phoneme CTC model + vocab. fp32 (~1.2 GB) or the int8
  *  build (~0.36 GB) per phonemeModelUrls(), cached. */
 export async function loadPhonemes(onProgress?: (p: { label: string; done: number; total: number }) => void): Promise<void> {
-  if (session) return
-  if (!loading) {
-    loading = (async () => {
-      if (!ortReady) {
-        ort.env.wasm.numThreads = 1
-        if (!ort.env.wasm.wasmPaths) ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/` /* browser CDN; node presets a local path */
-        ortReady = true
-      }
-      let webgpu = false
-      try {
-        webgpu = !isIOSWebKit() && typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
-      } catch {
-        webgpu = false
-      }
-      const { buf } = await firstAvailableBytes(phonemeModelUrls(), (url) =>
-        cachedBytes(url, CACHE, (l, t) => onProgress?.({ label: 'phoneme model', done: l, total: t })),
-      )
-      session = await ort.InferenceSession.create(buf, { executionProviders: webgpu ? ['webgpu', 'wasm'] : ['wasm'] })
-      const res = await fetch(VOCAB_URL)
-      if (!res.ok) throw new Error(`vocab fetch: ${res.status}`)
-      const vocab = (await res.json()) as Record<string, number>
-      installVocab(vocab)
-    })()
-  }
-  await loading
+  await slot.load(async () => {
+    if (!ortReady) {
+      ort.env.wasm.numThreads = 1
+      if (!ort.env.wasm.wasmPaths) ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/` /* browser CDN; node presets a local path */
+      ortReady = true
+    }
+    let webgpu = false
+    try {
+      webgpu = !isIOSWebKit() && typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
+    } catch {
+      webgpu = false
+    }
+    markPhase('download:aligner')
+    const { buf } = await firstAvailableBytes(phonemeModelUrls(), (url) =>
+      cachedBytes(url, CACHE, (l, t) => onProgress?.({ label: 'phoneme model', done: l, total: t })),
+    )
+    markPhase('create:aligner')
+    // `buf` stays local: ORT copies the bytes on create, so the JS-side copy is
+    // collectable while the session lives.
+    const s = await ort.InferenceSession.create(buf, { executionProviders: webgpu ? ['webgpu', 'wasm'] : ['wasm'] })
+    const res = await fetch(VOCAB_URL)
+    if (!res.ok) throw new Error(`vocab fetch: ${res.status}`)
+    const vocab = (await res.json()) as Record<string, number>
+    installVocab(vocab)
+    return s
+  })
+}
+
+/** Release the aligner session and reset the singleton, so a later
+ *  loadPhonemes() re-creates it from the (disk-backed) Cache API. The vocab
+ *  tables stay installed (tiny, and pure data). Safe to call twice. */
+export function disposePhonemes(): Promise<void> {
+  return slot.dispose()
 }
 
 function to16k(x: Float32Array, sr: number): Float32Array {
@@ -146,6 +155,7 @@ function normalize(x: Float32Array): Float32Array {
  *  syllable count from the lyrics, the caller snaps exactly N vowel centres to
  *  its peaks (warp.ts), so syllable→note alignment can never miscount. */
 export async function vowelActivity(audio: Float32Array, sr: number): Promise<{ prob: Float32Array; fps: number }> {
+  const session = slot.get()
   if (!session) throw new Error('phoneme model not loaded')
   const x16 = normalize(to16k(audio, sr))
   const out = await session.run({ input_values: new ort.Tensor('float32', x16, [1, x16.length]) })
@@ -176,6 +186,7 @@ export async function vowelActivity(audio: Float32Array, sr: number): Promise<{ 
  *  the same path as over log-softmax (the per-frame normaliser is constant across
  *  paths), so we skip the softmax. */
 export async function emissions(audio: Float32Array, sr: number): Promise<{ logits: Float32Array; T: number; V: number; fps: number }> {
+  const session = slot.get()
   if (!session) throw new Error('phoneme model not loaded')
   const x16 = normalize(to16k(audio, sr))
   const out = await session.run({ input_values: new ort.Tensor('float32', x16, [1, x16.length]) })
@@ -187,6 +198,7 @@ export async function emissions(audio: Float32Array, sr: number): Promise<{ logi
 
 /** Phoneme timeline for `audio`. Blank (id 0) + repeats collapsed. */
 export async function extractPhonemes(audio: Float32Array, sr: number): Promise<Phone[]> {
+  const session = slot.get()
   if (!session) throw new Error('phoneme model not loaded')
   const x16 = normalize(to16k(audio, sr))
   const out = await session.run({ input_values: new ort.Tensor('float32', x16, [1, x16.length]) })

@@ -15,6 +15,8 @@
 import * as ort from 'onnxruntime-web'
 import { SING_MODELS_BASE, isIOSWebKit } from './config'
 import { cachedBytes } from './modelcache'
+import { ModelSlot } from './lifecycle'
+import { markPhase } from './bakephase'
 
 /** Where the ONNX models are served (CORS). Local static server in dev; swap to
  *  HF/R2 for production (same idea as supertonic.ts). */
@@ -40,9 +42,18 @@ export interface RvcProgress {
   total: number
 }
 
-let contentVec: ort.InferenceSession | null = null
-const generators = new Map<string, ort.InferenceSession>()
+const contentVecSlot = new ModelSlot<ort.InferenceSession>((s) => s.release())
+const generatorSlots = new Map<string, ModelSlot<ort.InferenceSession>>()
 let ortReady = false
+
+function generatorSlot(voiceId: string): ModelSlot<ort.InferenceSession> {
+  let s = generatorSlots.get(voiceId)
+  if (!s) {
+    s = new ModelSlot<ort.InferenceSession>((sess) => sess.release())
+    generatorSlots.set(voiceId, s)
+  }
+  return s
+}
 
 
 async function ortOptions(): Promise<ort.InferenceSession.SessionOptions> {
@@ -64,16 +75,30 @@ async function ortOptions(): Promise<ort.InferenceSession.SessionOptions> {
  *  the ONNX bytes. ContentVec is ~378 MB, each generator ~112 MB (one-time). */
 export async function loadRvc(voiceId: string, onProgress?: (p: RvcProgress) => void): Promise<void> {
   const opts = await ortOptions()
-  if (!contentVec) {
+  await contentVecSlot.load(async () => {
+    markPhase('download:vec')
     const buf = await cachedBytes(CONTENTVEC_URL, CACHE, (l, t) => onProgress?.({ label: 'voice encoder', done: l, total: t }))
-    contentVec = await ort.InferenceSession.create(buf, opts)
-  }
-  if (!generators.has(voiceId)) {
+    markPhase('create:rvc')
+    // `buf` stays local: ORT copies the bytes on create.
+    return ort.InferenceSession.create(buf, opts)
+  })
+  await generatorSlot(voiceId).load(async () => {
     const v = VOICES.find((x) => x.id === voiceId)
     if (!v) throw new Error(`unknown voice ${voiceId}`)
+    markPhase(`download:gen_${voiceId}`)
     const buf = await cachedBytes(v.url, CACHE, (l, t) => onProgress?.({ label: `voice: ${v.label}`, done: l, total: t }))
-    generators.set(voiceId, await ort.InferenceSession.create(buf, opts))
-  }
+    markPhase('create:rvc')
+    return ort.InferenceSession.create(buf, opts)
+  })
+}
+
+/** Release the ContentVec encoder + every loaded voice generator and reset the
+ *  singletons, so a later loadRvc() re-creates them from the (disk-backed)
+ *  Cache API. Safe to call twice or with nothing loaded. */
+export async function disposeRvc(): Promise<void> {
+  const slots = [contentVecSlot, ...generatorSlots.values()]
+  generatorSlots.clear()
+  await Promise.all(slots.map((s) => s.dispose()))
 }
 
 /** Linear resample to 16 kHz (ContentVec's rate). */
@@ -105,8 +130,9 @@ function randn(n: number): Float32Array {
  *  `f0Frames` is the target f0 (Hz) sampled on the generator's frame grid; if its
  *  length differs from the content length it is linearly resampled to match. */
 export async function rvcConvert(guide: Float32Array, sr: number, f0Frames: Float32Array, voiceId: string): Promise<{ audio: Float32Array; sr: number }> {
+  const contentVec = contentVecSlot.get()
   if (!contentVec) throw new Error('rvc not loaded')
-  const gen = generators.get(voiceId)
+  const gen = generatorSlots.get(voiceId)?.get()
   if (!gen) throw new Error(`voice ${voiceId} not loaded`)
   const x16 = to16k(guide, sr)
 

@@ -8,6 +8,7 @@
 import './singDialog.css'
 import { isIOSWebKit } from '../sing/config'
 import { onSingProgress, onSingError } from '../sing/singMgr'
+import { takeCrashReport } from '../sing/bakephase'
 
 /** First-time consent: singing needs a large one-time model download, so ask
  *  before kicking it off (only called when the models aren't cached yet).
@@ -62,6 +63,16 @@ export function confirmSingDownload(): Promise<boolean> {
 
 export function mountSingDialog(): void {
   if (document.getElementById('sing-dialog')) return
+
+  // Crash-point telemetry: if the LAST bake died mid-phase (iOS kills an
+  // out-of-memory tab with no error at all), say where it stopped - in the
+  // console now, and in the bake dialog the next time a bake runs.
+  const crash = takeCrashReport()
+  if (crash) {
+    // eslint-disable-next-line no-console
+    console.warn(`[sing] last vocal bake stopped at "${crash.phase}" - the tab likely ran out of memory there`)
+  }
+
   const el = document.createElement('div')
   el.id = 'sing-dialog'
   el.className = 'sing-dialog hidden'
@@ -70,10 +81,16 @@ export function mountSingDialog(): void {
       <div class="sing-title">baking vocals…</div>
       <div class="sing-label"></div>
       <div class="sing-bar"><div class="sing-fill"></div></div>
+      <div class="sing-crashnote hidden"></div>
     </div>`
   document.body.appendChild(el)
   const label = el.querySelector<HTMLElement>('.sing-label')!
   const fill = el.querySelector<HTMLElement>('.sing-fill')!
+  const crashNote = el.querySelector<HTMLElement>('.sing-crashnote')!
+  if (crash) {
+    crashNote.textContent = `last vocal bake stopped at ${crash.phase} - the tab likely ran out of memory there`
+    crashNote.classList.remove('hidden')
+  }
 
   const HUMAN: Record<string, string> = {
     download: 'downloading models',

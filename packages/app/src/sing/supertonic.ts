@@ -13,6 +13,8 @@
 import * as ort from 'onnxruntime-web'
 import { SUPERTONIC_BASE, isIOSWebKit } from './config'
 import { cachedBytes } from './modelcache'
+import { ModelSlot } from './lifecycle'
+import { markPhase } from './bakephase'
 
 const HF = SUPERTONIC_BASE
 const CACHE = 'rondocode-supertonic-v3'
@@ -80,15 +82,12 @@ async function cachedJson<T>(url: string): Promise<T> {
   return JSON.parse(new TextDecoder().decode(await cachedFetch(url))) as T
 }
 
-let engine: SupertonicEngine | null = null
-let loading: Promise<SupertonicEngine> | null = null
+const slot = new ModelSlot<SupertonicEngine>((e) => e.release())
 
 /** Boot (or reuse) the TTS engine: fetch + cache the 4 models + config, create
  *  ORT sessions (WebGPU, WASM fallback). ~380MB the first time, then instant. */
 export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<SupertonicEngine> {
-  if (engine) return Promise.resolve(engine)
-  if (loading) return loading
-  loading = (async () => {
+  return slot.load(async () => {
     // Serve the ORT wasm binaries from the matching CDN build (no COOP/COEP →
     // single-threaded; WebGPU carries the heavy models anyway).
     ort.env.wasm.numThreads = 1
@@ -108,15 +107,25 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
     const sessions: ort.InferenceSession[] = []
     for (let i = 0; i < MODELS.length; i++) {
       const name = MODELS[i]!
+      markPhase(`download:${name}`)
       const buf = await cachedFetch(`${HF}/onnx/${name}.onnx`, (loaded, total) =>
         onProgress?.({ phase: 'download', label: `voice model ${i + 1}/${MODELS.length}`, done: loaded, total }),
       )
+      markPhase('create:tts')
+      // NOTE: `buf` is only referenced by this loop iteration; ORT copies the
+      // bytes into its own heap on create, so the JS-side ArrayBuffer is
+      // collectable as soon as the next iteration starts.
       sessions.push(await ort.InferenceSession.create(buf, opts))
     }
-    engine = new SupertonicEngine(cfgs, new UnicodeProcessor(indexer), sessions)
-    return engine
-  })()
-  return loading
+    return new SupertonicEngine(cfgs, new UnicodeProcessor(indexer), sessions)
+  })
+}
+
+/** Release the 4 TTS sessions and reset the singleton, so a later loadEngine()
+ *  re-creates them from the (disk-backed) Cache API. Used by the sequential
+ *  bake on constrained devices; safe to call twice or with nothing loaded. */
+export function disposeEngine(): Promise<void> {
+  return slot.dispose()
 }
 
 /* --------------------------- the TTS engine ----------------------------- */
@@ -138,6 +147,14 @@ export class SupertonicEngine {
     private readonly sess: ort.InferenceSession[],
   ) {
     this.sampleRate = cfgs.ae.sample_rate
+  }
+
+  /** Release the underlying ORT sessions (weights freed in the ORT heap). The
+   *  engine is unusable afterwards; drop every reference so it can be GC'd. */
+  async release(): Promise<void> {
+    this.styleCache.clear()
+    await Promise.all(this.sess.map((s) => s.release()))
+    this.sess.length = 0
   }
 
   private async style(voice: string): Promise<{ ttl: ort.Tensor; dp: ort.Tensor }> {

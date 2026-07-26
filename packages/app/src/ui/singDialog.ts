@@ -16,16 +16,31 @@ export function confirmSingDownload(): Promise<boolean> {
   return new Promise((resolve) => {
     const el = document.createElement('div')
     el.className = 'sing-consent'
-    // phones have tight per-tab memory budgets; be honest that a bake may not
-    // survive on-device (the models alone approach the tab kill line on iOS)
-    const iosNote = isIOSWebKit()
-      ? '<div class="sing-consent-body">Heads up: baking on a phone is slow and memory-hungry; if the tab reloads, try again on a laptop or desktop.</div>'
-      : ''
+    // iOS/iPadOS: the alignment model alone is a 2.3GB fp32 wav2vec2 (its CTC
+    // output collapses under quantization, so no smaller build exists yet).
+    // A phone tab cannot hold it - the old flow let users download gigabytes
+    // and THEN die. Explain and play the track without the vocal instead.
+    if (isIOSWebKit()) {
+      el.innerHTML = `
+      <div class="sing-consent-card" role="dialog" aria-modal="true">
+        <div class="sing-consent-title">Singing needs a bigger device</div>
+        <div class="sing-consent-body">Baking a vocal runs ~2.6&nbsp;GB of neural models, more memory than a phone browser tab allows. The track will play without the vocal here. On a laptop or desktop the same code sings.</div>
+        <div class="sing-consent-actions">
+          <button class="sing-consent-go" type="button">Play without vocal</button>
+        </div>
+      </div>`
+      const done = (): void => {
+        el.remove()
+        resolve(false) // the declined path: play the track, skip the bake
+      }
+      el.querySelector('.sing-consent-go')!.addEventListener('click', done)
+      document.body.appendChild(el)
+      return
+    }
     el.innerHTML = `
       <div class="sing-consent-card" role="dialog" aria-modal="true">
         <div class="sing-consent-title">Download voice models?</div>
-        <div class="sing-consent-body">Singing runs a neural voice entirely on your device. The first play downloads the voice models (~380&nbsp;MB), then they're cached, so later plays are instant. This can take a few minutes on your connection.</div>
-        ${iosNote}
+        <div class="sing-consent-body">Singing runs a neural voice entirely on your device. The first play downloads the voice models (~2.6&nbsp;GB with the aligner), then they're cached, so later plays are instant. This can take a while on your connection.</div>
         <div class="sing-consent-actions">
           <button class="sing-consent-cancel" type="button">Not now</button>
           <button class="sing-consent-go" type="button">Download &amp; play</button>

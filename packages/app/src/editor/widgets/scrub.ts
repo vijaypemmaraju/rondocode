@@ -53,6 +53,16 @@ export const SCRUB_THROTTLE_MS = 30
  *  engages instantly; vertical past this = it's a scroll, hand it back. */
 const TOUCH_ENGAGE_PX = 8
 
+/** PRECISION TIERS: while scrubbing, vertical distance from the origin row
+ *  scales each horizontal increment - drag away from the line (up OR down)
+ *  for finer control, the standard precision-scrub gesture. Pure. */
+export function scrubSpeedFactor(dyPx: number): number {
+  const d = Math.abs(dyPx)
+  if (d < 48) return 1
+  if (d < 120) return 0.1
+  return 0.01
+}
+
 /** Per-pixel delta and output quantum for a scrub starting at `start`. */
 export function scrubStep(start: number, isInt: boolean): { perPixel: number; quantum: number } {
   const per100 = Math.max(Math.abs(start) * 0.1, isInt ? 1 : SCRUB_MIN_STEP)
@@ -83,6 +93,11 @@ const scrubMark = Decoration.mark({ class: 'cm-scrub' })
 interface ActiveScrub {
   pointerId: number
   x0: number
+  y0: number
+  /** last seen x - horizontal increments accumulate through the speed factor. */
+  lastX: number
+  /** current precision tier (1, 0.1, 0.01) - shown in the lens. */
+  speed: number
   v0: number
   isInt: boolean
   from: number
@@ -168,6 +183,9 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     active = {
       pointerId: e.pointerId,
       x0: e.clientX,
+      y0: e.clientY,
+      lastX: e.clientX,
+      speed: 1,
       v0: lit.value,
       isInt: lit.isInt,
       from: lit.from,
@@ -177,7 +195,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       lastText: view.state.doc.sliceString(lit.from, lit.to),
       lastApply: 0,
       trailing: undefined,
-      lastDx: 0,
+      lastDx: 0, // VIRTUAL dx: horizontal travel accumulated through the speed factor
       abort: () => {},
     }
     try {
@@ -194,7 +212,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       const text = scrubText(a.v0, dx, a.isInt)
       if (text === a.lastText) return
       a.lastText = text
-      lens.update(text)
+      lens.update(text + (a.speed < 1 ? (a.speed === 0.1 ? '  x.1' : '  x.01') : ''))
       try {
         selfDispatch = true
         view.dispatch({ changes: { from: a.from, to: a.to, insert: text } })
@@ -209,7 +227,14 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     const onMove = (ev: PointerEvent): void => {
       const a = active
       if (a === null || ev.pointerId !== a.pointerId) return
-      a.lastDx = ev.clientX - a.x0
+      const factor = scrubSpeedFactor(ev.clientY - a.y0)
+      a.lastDx += (ev.clientX - a.lastX) * factor
+      a.lastX = ev.clientX
+      if (factor !== a.speed) {
+        a.speed = factor
+        // tier changed with no value change yet - refresh the suffix now
+        if (a.lastText !== null) lens.update(a.lastText + (factor < 1 ? (factor === 0.1 ? '  x.1' : '  x.01') : ''))
+      }
       lens.move(ev.clientX, ev.clientY)
       const wait = SCRUB_THROTTLE_MS - (Date.now() - a.lastApply)
       clearTimeout(a.trailing)

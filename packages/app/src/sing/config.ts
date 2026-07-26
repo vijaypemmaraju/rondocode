@@ -24,6 +24,32 @@ export const SUPERTONIC_BASE =
   (import.meta.env.VITE_SUPERTONIC_BASE as string | undefined)?.replace(/\/+$/, '') ??
   'https://huggingface.co/Supertone/supertonic-3/resolve/main'
 
+/** The two builds of the phoneme aligner served from SING_MODELS_BASE: the
+ *  fp32 original and the ~3.5x smaller dynamic-int8 build (lm_head kept fp32;
+ *  whole-graph quantization is what used to collapse the CTC output). */
+export const PHONEME_MODEL_URL = `${SING_MODELS_BASE}/phoneme.onnx`
+export const PHONEME_INT8_MODEL_URL = `${SING_MODELS_BASE}/phoneme-int8.onnx`
+
+/** True when this client should prefer the small int8 aligner: iOS/iPadOS
+ *  (tight per-tab memory budget) or the explicit opt-in flag for testing the
+ *  small build on any device (`localStorage['rc.singSmallAligner'] = '1'`). */
+export function preferSmallAligner(): boolean {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('rc.singSmallAligner') === '1') return true
+  } catch {
+    /* storage blocked: fall through to the UA check */
+  }
+  return isIOSWebKit()
+}
+
+/** Ordered aligner URLs to try. When the small build is preferred it comes
+ *  first with the fp32 build as fallback, so a client keeps working while
+ *  phoneme-int8.onnx isn't uploaded yet (404 falls through to fp32). Pure,
+ *  exported for tests. */
+export function phonemeModelUrls(small: boolean = preferSmallAligner()): string[] {
+  return small ? [PHONEME_INT8_MODEL_URL, PHONEME_MODEL_URL] : [PHONEME_MODEL_URL]
+}
+
 /** True on iOS/iPadOS WebKit (every iOS browser is WebKit, including Chrome
  *  and Firefox shells). Two reasons the sing stack cares: (1) ORT's WebGPU
  *  execution provider is immature on WebKit and can take the whole tab down,

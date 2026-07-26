@@ -58,6 +58,26 @@ export async function streamIntoCache(
   }
 }
 
+/** Try `urls` in order through `fetchBytes`, returning the first that loads
+ *  (and which one it was). A failure on a non-final URL falls through to the
+ *  next; only the last failure is thrown. Drives the small-aligner fallback:
+ *  [phoneme-int8.onnx, phoneme.onnx] keeps working while the small build
+ *  isn't uploaded yet. Pure fetch-order logic, exported for tests. */
+export async function firstAvailableBytes(
+  urls: string[],
+  fetchBytes: (url: string) => Promise<ArrayBuffer>,
+): Promise<{ url: string; buf: ArrayBuffer }> {
+  let lastErr: unknown = new Error('no model URLs to try')
+  for (const url of urls) {
+    try {
+      return { url, buf: await fetchBytes(url) }
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+}
+
 /** Fetch `url` (or return it from `cacheName`), storing the full bytes on first
  *  success. `onProgress(loaded,total)` fires while streaming. Throws after
  *  RETRIES consecutive failures. */
@@ -74,6 +94,9 @@ export async function cachedBytes(
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     try {
       const res = await fetch(url)
+      // 404 is deterministic (the file isn't there): fail fast so a fallback
+      // URL can be tried instead of burning the retry backoff on it.
+      if (res.status === 404) throw Object.assign(new Error(`404 ${res.statusText} for ${url}`), { permanent: true })
       if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`)
       await streamIntoCache(res, cache, url, onProgress)
       const stored = await cache.match(url)
@@ -82,6 +105,7 @@ export async function cachedBytes(
       return stored.arrayBuffer()
     } catch (e) {
       lastErr = e
+      if ((e as { permanent?: boolean }).permanent) break
       if (attempt < RETRIES - 1) await new Promise((r) => setTimeout(r, 600 * (attempt + 1)))
     }
   }

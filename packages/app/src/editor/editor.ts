@@ -872,7 +872,21 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     getLang: () => lang,
     getStagedCode: () => lastStagedJs,
   })
-  const disposeExport = mountExport({ view, audio, anchor: exportBtn })
+  // Export bounces need EVAL-READY code: the doc itself in JS mode, the
+  // transpiled JS in rondo mode (raw rondo source cannot stage offline).
+  const disposeExport = mountExport({
+    view,
+    audio,
+    anchor: exportBtn,
+    getEvalCode: () => {
+      const source = view.state.doc.toString()
+      if (lang !== 'rondo') return source
+      const c = compile(source)
+      if (c.ok) return c.code
+      const first = c.errors[0]
+      return { error: first ? `line ${first.line}: ${first.message}` : 'rondo compile failed' }
+    },
+  })
 
   // karaoke: light up the current sing() syllable + note as the vocal plays,
   // driven by the sing-trigger event's timing against the AudioContext clock.

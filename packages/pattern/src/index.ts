@@ -53,6 +53,8 @@ export {
   midiNotesToVoices,
 } from './midi'
 export type { MidiFile, MidiTrack, MidiNote, MiniOptions, MiniResult } from './midi'
+export { notesToSmf, velocityToMidi, bendValue, trackChannel } from './midiExport'
+export type { ExportNote, SmfOptions } from './midiExport'
 
 // Side-effect import: combinators.ts installs the musical API (every, iter,
 // euclid, degradeBy, segment, ...) onto Pattern.prototype via declaration

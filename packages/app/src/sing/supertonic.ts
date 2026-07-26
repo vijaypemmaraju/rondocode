@@ -84,7 +84,7 @@ let engine: SupertonicEngine | null = null
 let loading: Promise<SupertonicEngine> | null = null
 
 /** Boot (or reuse) the TTS engine: fetch + cache the 4 models + config, create
- *  ORT sessions (WebGPU, WASM fallback). ~250MB the first time, then instant. */
+ *  ORT sessions (WebGPU, WASM fallback). ~380MB the first time, then instant. */
 export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<SupertonicEngine> {
   if (engine) return Promise.resolve(engine)
   if (loading) return loading

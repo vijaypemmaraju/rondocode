@@ -11,7 +11,7 @@ import type { TourStorage } from '../src/ui/tour-machine'
 /* The first-run tour's brain. Pinned: the step order, that steps advance on
  * REAL action events only, the drag-stream quiet gap on the chips step, the
  * done-flag semantics (finish or skip, never show again), and the predicate
- * that keeps the tour away from share links and non-pristine buffers. */
+ * that keeps onboarding away from share links and repeat visitors. */
 
 const memStorage = (init?: Record<string, string>): TourStorage & { data: Map<string, string> } => {
   const data = new Map(Object.entries(init ?? {}))
@@ -181,18 +181,12 @@ describe('createTourMachine', () => {
 })
 
 describe('shouldShowTour', () => {
-  const starter = 'const kick = synth(...)'
-  const starterRondo = 'synth kick\n  sine'
-  const base = {
-    storage: memStorage(),
-    shareHash: null,
-    doc: starter,
-    starterDocs: [starter, starterRondo] as const,
-  }
+  const base = { storage: memStorage(), shareHash: null }
 
-  it('shows on a pristine first visit', () => {
+  it('shows for any first-time visitor (the flag is absent)', () => {
+    // No pristine-buffer condition anymore: onboarding creates its own
+    // welcome project, so it may show even after the visitor edited first.
     expect(shouldShowTour(base)).toBe(true)
-    expect(shouldShowTour({ ...base, doc: starterRondo })).toBe(true)
   })
 
   it('never shows once the done flag is set', () => {
@@ -202,16 +196,6 @@ describe('shouldShowTour', () => {
 
   it('never interrupts a share link being opened', () => {
     expect(shouldShowTour({ ...base, shareHash: 'pAbCd123' })).toBe(false)
-  })
-
-  it('never shows over a buffer that is not a starter example', () => {
-    expect(shouldShowTour({ ...base, doc: 'my own tune' })).toBe(false)
-    expect(shouldShowTour({ ...base, doc: '' })).toBe(false)
-  })
-
-  it('tolerates undefined starter variants (an example without rondo source)', () => {
-    expect(shouldShowTour({ ...base, starterDocs: [starter, undefined] })).toBe(true)
-    expect(shouldShowTour({ ...base, doc: 'x', starterDocs: [undefined] })).toBe(false)
   })
 
   it('stays quiet when storage is unreadable (cannot remember a dismissal)', () => {

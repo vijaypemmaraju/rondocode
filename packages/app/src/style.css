@@ -1643,6 +1643,69 @@ body.shaderviz-on .cm-content {
   -webkit-touch-callout: none;
 }
 
+/* ---- onboarding survey (ui/tour.ts) ------------------------------------ */
+/* One question before anything else: a small centered card with three big
+ * tappable options. The only modal piece of onboarding; the coach marks
+ * below stay overlay-free. */
+.tour-survey-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 46; /* above the header popovers (45): nothing competes with it */
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-3);
+}
+.tour-survey-backdrop.hidden {
+  display: none;
+}
+.tour-survey {
+  width: min(360px, 100%);
+  padding: var(--sp-4) var(--sp-3);
+  background: var(--c-raised);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-accent);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.tour-survey-title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  color: var(--c-text);
+}
+.tour-survey-opt {
+  min-height: 48px; /* the primary choices: comfortably thumb-sized */
+  padding: 0 var(--sp-3);
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  text-align: left;
+  cursor: pointer;
+}
+.tour-survey-opt:hover,
+.tour-survey-opt:focus-visible {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.tour-survey-skip {
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  cursor: pointer;
+}
+.tour-survey-skip:hover {
+  color: var(--c-text);
+}
+
 /* ---- first-run tour (ui/tour.ts) --------------------------------------- */
 /* One small coach bubble at a time, anchored near its target. No overlay:
  * every step asks for a real action, so the app stays fully touchable. The

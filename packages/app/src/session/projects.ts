@@ -56,6 +56,14 @@ export interface ProjectStoreOpts {
 }
 
 const byUpdatedDesc = (a: Project, b: Project): number => b.updatedAt - a.updatedAt
+
+/** Resolve a project by exact name from a listProjects() result (which is
+ *  updatedAt-descending, so a duplicate name resolves to the freshest one).
+ *  Pure: onboarding replay uses this to decide "reopen welcome" vs "recreate". */
+export const findProjectNamed = <T extends { name: string }>(
+  projects: readonly T[],
+  name: string,
+): T | undefined => projects.find((p) => p.name === name)
 const byCreatedDesc = (a: Version, b: Version): number => b.createdAt - a.createdAt
 
 export class ProjectStore {

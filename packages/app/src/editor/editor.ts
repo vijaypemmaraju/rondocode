@@ -20,6 +20,7 @@ import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { getSetting } from '../ui/settings'
 import { EXAMPLES } from '../examples'
+import { readLangPref } from '../ui/onboarding'
 import { EventFlasher, FLASH_MS, jsRegionLiterals, rondoNoteLiterals } from './flash'
 import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
@@ -53,16 +54,19 @@ const LANG_KEY = 'rondocode-lang'
 /** The editor's active language surface. */
 export type EditorLang = 'rondocode' | 'rondo'
 
-/** The initial language: a saved choice wins; otherwise default to rondo on
- *  touch/small screens (the mobile-native language) and rondocode on desktop. */
+/** The initial language: a saved choice wins; then the surveyed preference
+ *  (onboarding's rc.langPref); otherwise default to rondo on touch/small
+ *  screens (the mobile-native language) and rondocode on desktop. */
 const initialLang = (): EditorLang => {
   try {
     const saved = localStorage.getItem(LANG_KEY)
     if (saved === 'rondo' || saved === 'rondocode') return saved
     // A saved buffer with no saved lang predates the toggle — it's rondocode
     // JS. Booting it into rondo mode would squiggle the user's own work, so
-    // the mobile default only applies to FRESH visits.
+    // preference/mobile defaults only apply to FRESH visits.
     if (localStorage.getItem(DOC_KEY) !== null) return 'rondocode'
+    const pref = readLangPref(localStorage)
+    if (pref !== null) return pref
   } catch {
     // ignore storage failures — fall through to the heuristic
   }

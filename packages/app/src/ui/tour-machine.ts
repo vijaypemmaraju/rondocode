@@ -74,18 +74,15 @@ export function tourSteps(opts: { chips: boolean }): TourStep[] {
   return steps
 }
 
-/** Should the tour auto-show on this visit? Only when it has never been
- *  finished or skipped, the visit is not opening a share link, and the buffer
- *  is still a pristine starter example (an existing user's own work must not
- *  get a walkthrough dropped on top of it). */
+/** Should onboarding auto-show on this visit? Only when it has never been
+ *  finished or skipped, and the visit is not opening a share link. There is
+ *  no pristine-buffer condition anymore: the flow creates its own dedicated
+ *  welcome project, so it never narrates (or clobbers) the user's own work,
+ *  and any first-time visitor gets it even after editing first. */
 export function shouldShowTour(args: {
   storage: TourStorage
   /** The share payload from location.hash (session/share.readShareHash). */
   shareHash: string | null
-  /** The editor buffer at mount time. */
-  doc: string
-  /** Every starter-doc variant (both languages); undefined entries are fine. */
-  starterDocs: readonly (string | undefined)[]
 }): boolean {
   let flag: string | null
   try {
@@ -96,8 +93,7 @@ export function shouldShowTour(args: {
     return false
   }
   if (flag !== null) return false
-  if (args.shareHash !== null) return false
-  return args.starterDocs.some((s) => s !== undefined && s === args.doc)
+  return args.shareHash === null
 }
 
 export interface TourMachine {

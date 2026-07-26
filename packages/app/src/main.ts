@@ -86,15 +86,18 @@ AudioSession.start().then(
   (audio) => {
     const editor = mountEditor(app, audio)
     // mixer + scopes panel removed for now (mountViz) — see viz/viz.ts to restore
-    void mountLibrary(editor).catch((e) => console.warn('[library] failed to mount', e))
+    const library = mountLibrary(editor)
+    void library.catch((e) => console.warn('[library] failed to mount', e))
     mountDocs(editor)
     mountSynthLib(editor)
     mountShaderViz(app, editor, audio)
     mountProbes(editor) // inline live-value readouts on modulation expressions
-    // First-run tour: coach bubbles that advance on real actions. Mounted
-    // after docs/synthlib so its anchors (docs button, chip bar) exist;
-    // auto-shows only on a pristine first visit (never over a share link).
-    const tour = mountTour(editor)
+    // First-run onboarding: a one-question survey sets the default language,
+    // a dedicated welcome project owns the coach marks (created through the
+    // library, hence the promise). Mounted after docs/synthlib so the coach
+    // anchors (docs button, chip bar) exist; auto-shows for first-time
+    // visitors only (never over a share link).
+    const tour = mountTour(editor, { library })
     mountOptions(editor, { showTour: () => tour.start() }) // user settings popover (gear)
     mountMidi(editor, audio)
     mountHeaderOverflow(editor.topbar) // after every module has added its button

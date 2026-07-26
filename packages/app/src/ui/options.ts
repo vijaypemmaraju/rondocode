@@ -71,7 +71,7 @@ export function mountOptions(editor: EditorHandle, extras?: OptionsExtras): () =
     const text = el('div', 'opt-text')
     text.append(
       el('div', 'opt-label', 'Show intro tour'),
-      el('div', 'opt-help', 'Replay the quick walkthrough: run the track, drag a control, write a note.'),
+      el('div', 'opt-help', 'Replay the intro: pick your language, open the welcome track, take the tour.'),
     )
     row.append(text)
     row.addEventListener('click', () => {

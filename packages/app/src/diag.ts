@@ -1,15 +1,7 @@
 import './diag/diag.css'
 import { applyPalette } from './ui/palette'
 import workletUrl from './audio/worklet/processor?worker&url'
-import {
-  cadenceStats,
-  deriveCadenceStatus,
-  formatLogTime,
-  parseUserAgent,
-  rmsDb,
-  serializeReport,
-  statusGlyph,
-} from './diag/report'
+import { cadenceStats, deriveCadenceStatus, formatLogTime, latencySummary, parseUserAgent, rmsDb, serializeReport, statusGlyph } from './diag/report'
 import type { CadenceSample, CheckResult, LogEntry, Status } from './diag/report'
 
 /* ------------------------------------------------------------------------- *
@@ -199,11 +191,9 @@ const runAudioChecks = async (): Promise<void> => {
   })
 
   await safe(setLatency, () => {
-    const base = c.baseLatency
     const out = (c as AudioContext & { outputLatency?: number }).outputLatency
-    const baseMs = typeof base === 'number' ? `base ${(base * 1000).toFixed(1)} ms` : 'base unavailable'
-    const outMs = typeof out === 'number' && out > 0 ? `output ${(out * 1000).toFixed(1)} ms` : 'outputLatency unavailable'
-    setLatency(typeof base === 'number' ? 'pass' : 'warn', `${baseMs}, ${outMs}`)
+    const sum = latencySummary(c.baseLatency, out)
+    setLatency(sum.status, sum.detail)
   })
 
   await safe(setWorklet, async () => {

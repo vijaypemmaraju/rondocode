@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scrubStep, scrubText, scrubValue } from '../src/editor/widgets/scrub'
+import { lensClampX, scrubStep, scrubText, scrubValue } from '../src/editor/widgets/scrub'
 
 /* Pure scrub math: pixels → value. Per-100px delta is 10% of |start|
  * (floor 0.01; floor 1 for integer literals), quantized to a nice step. */
@@ -50,5 +50,18 @@ describe('scrubStep', () => {
     expect(scrubStep(0.5, false).quantum).toBe(0.005)
     expect(scrubStep(800, true).quantum).toBe(5)
     expect(scrubStep(5, true).quantum).toBe(1)
+  })
+})
+
+describe('lensClampX (the scrub lens never leaves the viewport)', () => {
+  it('centers on the finger when there is room', () => {
+    expect(lensClampX(200, 80, 400)).toBe(200)
+  })
+  it('clamps at the left and right edges', () => {
+    expect(lensClampX(0, 80, 400)).toBe(44)
+    expect(lensClampX(400, 80, 400)).toBe(356)
+  })
+  it('a pill wider than the viewport pins to the left rule', () => {
+    expect(lensClampX(10, 500, 400)).toBe(254)
   })
 })

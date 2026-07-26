@@ -95,6 +95,50 @@ interface ActiveScrub {
   abort: () => void
 }
 
+/** Clamp the lens' center-x so the pill never leaves the viewport. Pure. */
+export function lensClampX(x: number, pillWidth: number, viewportWidth: number): number {
+  const half = pillWidth / 2
+  return Math.min(Math.max(x, half + 4), Math.max(half + 4, viewportWidth - half - 4))
+}
+
+/* THE SCRUB LENS: on touch, the finger sits exactly on the number being
+ * changed - so while a touch scrub is armed (press-hold) or engaged (drag),
+ * a knob-style enlarged readout floats above the finger showing the live
+ * value. Mouse scrubs skip it (the cursor hides nothing). One element,
+ * created lazily, shared by every scrub. */
+const lens = (() => {
+  let el: HTMLDivElement | null = null
+  const ensure = (): HTMLDivElement => {
+    if (el === null) {
+      el = document.createElement('div')
+      el.className = 'scrub-lens'
+      el.setAttribute('aria-hidden', 'true')
+      document.body.append(el)
+    }
+    return el
+  }
+  return {
+    show(x: number, y: number, text: string): void {
+      const d = ensure()
+      d.textContent = text
+      d.classList.add('on')
+      this.move(x, y)
+    },
+    move(x: number, y: number): void {
+      if (el === null) return
+      const w = el.offsetWidth || 64
+      el.style.left = `${lensClampX(x, w, window.innerWidth)}px`
+      el.style.top = `${Math.max(8, y - 64)}px`
+    },
+    update(text: string): void {
+      if (el !== null) el.textContent = text
+    },
+    hide(): void {
+      el?.classList.remove('on')
+    },
+  }
+})()
+
 export function scrubExtension(hooks: { requestEval: (immediate: boolean) => void }): Extension {
   /** The literal under the pointer, from a FRESH detect (cheap: <10 KB docs). */
   const litAt = (view: EditorView, x: number, y: number): ScrubLit | null => {
@@ -120,7 +164,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
 
   const blockTouch = (e: TouchEvent): void => e.preventDefault()
 
-  const startScrub = (view: EditorView, lit: ScrubLit, e: PointerEvent): void => {
+  const startScrub = (view: EditorView, lit: ScrubLit, e: PointerEvent, touch = false): void => {
     active = {
       pointerId: e.pointerId,
       x0: e.clientX,
@@ -142,6 +186,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       // capture is best-effort; window listeners carry the drag regardless
     }
     view.dom.classList.add('cm-scrubbing')
+    if (touch) lens.show(e.clientX, e.clientY, view.state.doc.sliceString(lit.from, lit.to))
     const apply = (dx: number): void => {
       const a = active
       if (a === null) return
@@ -149,6 +194,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       const text = scrubText(a.v0, dx, a.isInt)
       if (text === a.lastText) return
       a.lastText = text
+      lens.update(text)
       try {
         selfDispatch = true
         view.dispatch({ changes: { from: a.from, to: a.to, insert: text } })
@@ -164,6 +210,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       const a = active
       if (a === null || ev.pointerId !== a.pointerId) return
       a.lastDx = ev.clientX - a.x0
+      lens.move(ev.clientX, ev.clientY)
       const wait = SCRUB_THROTTLE_MS - (Date.now() - a.lastApply)
       clearTimeout(a.trailing)
       if (wait <= 0) apply(a.lastDx)
@@ -179,6 +226,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       window.removeEventListener('pointercancel', end)
       window.removeEventListener('touchmove', blockTouch)
       view.dom.classList.remove('cm-scrubbing')
+      lens.hide()
     }
     const end = (ev: PointerEvent): void => {
       const a = active
@@ -207,13 +255,24 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     hold?.cancel() // one armed gesture at a time — a second touch re-arms
     const { pointerId, clientX, clientY } = e
     const target = e.target
+    // PRESS-HOLD PREVIEW: a stationary hold on a number enlarges its value
+    // above the finger (the lens) - the teaching moment that says "this is
+    // a control". Engaging keeps the lens; lifting or scrolling hides it.
+    const holdTimer = setTimeout(() => {
+      if (hold !== null && hold.cancel === cancel) {
+        const lit = litAt(view, clientX, clientY)
+        if (lit !== null) lens.show(clientX, clientY, view.state.doc.sliceString(lit.from, lit.to))
+      }
+    }, 260)
     // cancel closes over ITS OWN listeners, so a stale record can never
     // clear a newer one (multi-touch safety)
     const cancel = (): void => {
+      clearTimeout(holdTimer)
       if (hold !== null && hold.cancel === cancel) hold = null
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', cancel)
       window.removeEventListener('pointercancel', cancel)
+      if (active === null) lens.hide() // an engaged scrub keeps it
     }
     const onMove = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return
@@ -227,7 +286,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       const fresh = litAt(view, clientX, clientY)
       if (fresh === null) return
       // engage with the original press point as the drag origin
-      startScrub(view, fresh, { pointerId, clientX, clientY, target } as PointerEvent)
+      startScrub(view, fresh, { pointerId, clientX, clientY, target } as PointerEvent, true)
     }
     hold = { cancel }
     window.addEventListener('pointermove', onMove)

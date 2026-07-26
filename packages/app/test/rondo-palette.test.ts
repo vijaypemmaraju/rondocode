@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deleteTokenRange, notationCtxAt, paletteChips } from '../src/editor/rondo/palette'
+import { cycleScaleEdit, deleteTokenRange, notationCtxAt, paletteChips } from '../src/editor/rondo/palette'
 
 /* The tap palette's brain: (doc, cursor) → the grammar's legal next moves.
  * Pure and pinned — a wrong context means the bar offers illegal tokens. */
@@ -124,5 +124,36 @@ describe('degree chips carry their preview degree', () => {
     expect(digits.map((c) => c.previewDegree)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     expect(chips.find((c) => c.label === '⌫')?.action).toBe('del-token')
     expect(chips.find((c) => c.label === '~')?.previewDegree).toBeUndefined()
+  })
+})
+
+describe('cycleScaleEdit (the mode-cycling scale chip)', () => {
+  const doc = 'play s\n  0 3 5\n  scale: a-min\n'
+  it('advances the enclosing block scale to the next mode', () => {
+    const e = cycleScaleEdit(doc, doc.indexOf('0 3 5') + 3)
+    expect(e).not.toBeNull()
+    expect(doc.slice(e!.from, e!.to)).toBe('a-min')
+    expect(e!.insert).toBe('c-maj')
+  })
+  it('wraps chromatic back to the start', () => {
+    const d = 'play s\n  0 3\n  scale: c-chromatic\n'
+    expect(cycleScaleEdit(d, d.indexOf('0 3') + 2)!.insert).toBe('a-min')
+  })
+  it('an off-cycle scale starts the cycle from the top', () => {
+    const d = 'play s\n  0 3\n  scale: d-min\n'
+    expect(cycleScaleEdit(d, d.indexOf('0 3') + 2)!.insert).toBe('a-min')
+  })
+  it('inline scale on the notation line cycles too', () => {
+    const d = 'play s\n  0 3 5  scale:d-dor\n'
+    const e = cycleScaleEdit(d, d.indexOf('0 3') + 2)!
+    expect(d.slice(e.from, e.to)).toBe('d-dor')
+    expect(e.insert).toBe('e-phr')
+  })
+  it('null with no scale in the block (chip inserts instead)', () => {
+    expect(cycleScaleEdit('play s\n  0 3\n', 10)).toBeNull()
+  })
+  it('never reaches into the NEXT block', () => {
+    const d = 'play a\n  0 3\n\nplay b\n  0  scale:c-maj\n'
+    expect(cycleScaleEdit(d, d.indexOf('0 3') + 2)).toBeNull()
   })
 })

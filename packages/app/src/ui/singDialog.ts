@@ -6,6 +6,7 @@
  * input; live edits keep flowing (background bakes are silent unless slow).
  * ------------------------------------------------------------------------- */
 import './singDialog.css'
+import { isIOSWebKit } from '../sing/config'
 import { onSingProgress, onSingError } from '../sing/singMgr'
 
 /** First-time consent: singing needs a large one-time model download, so ask
@@ -15,10 +16,16 @@ export function confirmSingDownload(): Promise<boolean> {
   return new Promise((resolve) => {
     const el = document.createElement('div')
     el.className = 'sing-consent'
+    // phones have tight per-tab memory budgets; be honest that a bake may not
+    // survive on-device (the models alone approach the tab kill line on iOS)
+    const iosNote = isIOSWebKit()
+      ? '<div class="sing-consent-body">Heads up: on iPhone and iPad the models may exceed the browser tab\'s memory and the bake can fail. A laptop or desktop is the reliable place to sing.</div>'
+      : ''
     el.innerHTML = `
       <div class="sing-consent-card" role="dialog" aria-modal="true">
         <div class="sing-consent-title">Download voice models?</div>
-        <div class="sing-consent-body">Singing runs a neural voice entirely on your device. The first play downloads the voice models (~2&nbsp;GB), then they're cached — later plays are instant. This can take a few minutes on your connection.</div>
+        <div class="sing-consent-body">Singing runs a neural voice entirely on your device. The first play downloads the voice models (~2&nbsp;GB), then they're cached, so later plays are instant. This can take a few minutes on your connection.</div>
+        ${iosNote}
         <div class="sing-consent-actions">
           <button class="sing-consent-cancel" type="button">Not now</button>
           <button class="sing-consent-go" type="button">Download &amp; play</button>

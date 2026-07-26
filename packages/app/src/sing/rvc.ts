@@ -13,7 +13,7 @@
  * v2 .pth); the ContentVec encoder is shared across voices.
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
-import { SING_MODELS_BASE } from './config'
+import { SING_MODELS_BASE, isIOSWebKit } from './config'
 import { cachedBytes } from './modelcache'
 
 /** Where the ONNX models are served (CORS). Local static server in dev; swap to
@@ -53,7 +53,7 @@ async function ortOptions(): Promise<ort.InferenceSession.SessionOptions> {
   }
   let webgpu = false
   try {
-    webgpu = typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
+    webgpu = !isIOSWebKit() && typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
   } catch {
     webgpu = false
   }

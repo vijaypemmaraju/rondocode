@@ -11,7 +11,7 @@
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
 
-import { SING_MODELS_BASE } from './config'
+import { SING_MODELS_BASE, isIOSWebKit } from './config'
 import { cachedBytes } from './modelcache'
 const BASE = SING_MODELS_BASE
 const MODEL_URL = `${BASE}/phoneme.onnx`
@@ -92,7 +92,7 @@ export async function loadPhonemes(onProgress?: (p: { label: string; done: numbe
       }
       let webgpu = false
       try {
-        webgpu = typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
+        webgpu = !isIOSWebKit() && typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
       } catch {
         webgpu = false
       }

@@ -27,8 +27,9 @@ export interface Chip {
   /** a degree chip previews this scale degree through the enclosing play's
    *  synth + scale when the transport is stopped (play-to-write). */
   previewDegree?: number
-  /** non-insert chips: 'del-token' erases the token before the caret. */
-  action?: 'del-token'
+  /** non-insert chips: 'del-token' erases the token before the caret;
+   *  'cycle-scale' advances the block's scale through the modes. */
+  action?: 'del-token' | 'cycle-scale'
 }
 
 const chip = (label: string, insert: string, kind?: Chip['kind'], cursor?: number): Chip => {
@@ -103,7 +104,10 @@ const NOTE_CHIPS: Chip[] = [
   chip('[', '[', 'op'),
   chip(']', '] ', 'op'),
   { ...chip('⌫', '', 'op'), action: 'del-token' },
-  chip('scale', ' scale:a-min', 'kw'),
+  // progression preset: uppercase roots are CHORD names, ready to sing over
+  chip('chords', '<Cmaj7 Am7 Fmaj7 G7> ', 'note'),
+  // taps CYCLE the block's scale through the modes (insert on first tap)
+  { ...chip('scale', ' scale:a-min', 'kw'), action: 'cycle-scale' },
 ]
 
 const MOD_CHIPS: Chip[] = [
@@ -230,6 +234,38 @@ export function notationCtxAt(doc: string, pos: number): { synth?: string; scale
   return out
 }
 
+/** The scale chip CYCLES: each tap advances the enclosing play block's
+ *  scale through the modes (and chromatic), teaching that they exist. When
+ *  the block has no scale yet, returns null (the chip inserts instead). */
+export const SCALE_CYCLE = ['a-min', 'c-maj', 'd-dor', 'e-phr', 'f-lyd', 'g-mix', 'b-loc', 'a-pentatonic', 'c-chromatic'] as const
+
+export function cycleScaleEdit(doc: string, pos: number): { from: number; to: number; insert: string } | null {
+  const lines = doc.split('\n')
+  const lineIdx = doc.slice(0, pos).split('\n').length - 1
+  const ctx = enclosing(lines, lineIdx)
+  if (ctx.block !== 'play' || ctx.headerIdx < 0) return null
+  const headerIndent = /^[ \t]*/.exec(lines[ctx.headerIdx] ?? '')![0].length
+  let off = 0
+  for (let i = 0; i < ctx.headerIdx + 1; i++) off += lines[i]!.length + 1
+  for (let i = ctx.headerIdx + 1; i < lines.length; i++) {
+    const ln = lines[i]!
+    if (ln.trim() !== '') {
+      const indent = /^[ \t]*/.exec(ln)![0].length
+      if (indent <= headerIndent) break
+      const m = /\bscale:[ \t]*([a-gA-G][a-z0-9#-]*)/.exec(ln)
+      if (m !== null) {
+        const cur = m[1]!
+        const idx = SCALE_CYCLE.indexOf(cur as (typeof SCALE_CYCLE)[number])
+        const next = SCALE_CYCLE[(idx + 1) % SCALE_CYCLE.length]!
+        const start = off + m.index + m[0].length - cur.length
+        return { from: start, to: start + cur.length, insert: next }
+      }
+    }
+    off += ln.length + 1
+  }
+  return null
+}
+
 /** The range of the token immediately before `pos` on its own line
  *  (including the spaces that separate it), or null when the caret sits at
  *  the start of the line's content. Pure - the ⌫ chip's brain. */
@@ -332,6 +368,14 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView, hooks: Pal
             const range = deleteTokenRange(view.state.doc.toString(), view.state.selection.main.head)
             if (range !== null) view.dispatch({ changes: range, selection: { anchor: range.from }, scrollIntoView: true })
             return
+          }
+          if (c.action === 'cycle-scale') {
+            const edit = cycleScaleEdit(view.state.doc.toString(), view.state.selection.main.head)
+            if (edit !== null) {
+              view.dispatch({ changes: edit, scrollIntoView: true })
+              return
+            }
+            // no scale in the block yet: fall through and insert one
           }
           insert(c)
           // play-to-write: a degree chip SOUNDS while stopped, through the

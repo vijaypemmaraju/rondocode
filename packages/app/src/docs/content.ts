@@ -115,6 +115,7 @@ const pad = synth(({ note, gate, adsr, saw, svf }) =>
 p('lead', n('0 2 4 <7 6> 4 2').scale('c minor').sound('lead'))
 p('pad', chord('<Cm7 Abmaj7>').sound('pad').dur(0.96))`,
       ),
+      p("Every mode is built in: major, minor, dorian, phrygian, lydian, mixolydian, aeolian, locrian, both pentatonics, and CHROMATIC. `.scale('c chromatic')` makes degrees 0..11 the full 12-tone set, and note names (`c4 f#4 g#4`) are always chromatic, scale or no scale. Changing `'e dorian'` to `'e phrygian'` recolors a whole line with one word."),
       p("Chords sit in root position by default. Reshape them with .invert(k) (inversions), .octave(n), and .voicing('drop2') (open/jazz spreads). Best of all, .voiceLead() nudges each chord onto the octaves nearest the previous one, so a progression glides smoothly instead of leaping, the difference between a beginner and a pro-sounding comp."),
       code(
         'The same progression, voice-led so the chords barely move.',
@@ -124,6 +125,7 @@ p('pad', chord('<Cm7 Abmaj7>').sound('pad').dur(0.96))`,
 p('pad', chord('<Cmaj7 Fmaj7 Bm7b5 E7>').voiceLead().sound('pad').dur(0.98))
 setCps(0.4)`,
       ),
+      p('A progression to sing over is one line: pick a preset shape (pop `<C G Am F>`, doo-wop `<C Am F G7>`, a ii-V-I `<Dm7 G7 Cmaj7>`), give it a soft pad and a slow tempo, and the changes loop underneath your voice. The chords chip in the rondo tap palette inserts one ready to edit.'),
     ],
   },
   {
@@ -719,7 +721,7 @@ cps .5`,
     group: 'the rondo language',
     blocks: [
       p('A `play NAME` block routes notation to a synth, and NAME is also the channel (`sidechain` and `bus` target it). The FIRST body lines are notation; everything after the first modifier line is modifiers. What the notation means depends on how it is written: bare digits are scale degrees (`0 3 5` with a `scale:`), lowercase letters are note names (`c2 e2 g2`), and an UPPERCASE root means chord names (`<Em Cmaj7 G>`).'),
-      p('The scale can sit inline (`0 3 5  scale:a-min`) or on its own modifier line (`scale: a-min`). Short mode names: `maj min dor phr lyd mix loc`. Degrees resolve through the scale, so changing `a-min` to `c-maj` moves the whole part.'),
+      p('The scale can sit inline (`0 3 5  scale:a-min`) or on its own modifier line (`scale: a-min`). Short mode names: `maj min dor phr lyd mix loc`, plus `pentatonic` and `chromatic` in full. `scale: c-chromatic` makes degrees 0..11 the whole 12-tone set, and note names (`c4 f#4`) are always chromatic. Tapping the scale chip in the palette CYCLES the block through the modes, so you can hear what dorian does without typing it. Degrees resolve through the scale, so changing `a-min` to `c-maj` moves the whole part.'),
       p('EXTRA notation lines before the modifiers stack as voices, one line per voice: a hand-built chord. Voices of different lengths cross-rhythm automatically, because every line spans exactly one cycle.'),
       p('`irand 8 seg:16` as a notation line plays random scale degrees 0..7, sixteen steps per cycle: a deterministic improviser (the same riff at the same spot every loop). The whole line pulses with the playhead while it sounds.'),
       rondo(

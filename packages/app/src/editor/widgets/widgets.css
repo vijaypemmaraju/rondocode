@@ -138,3 +138,28 @@
     max-height: 40vh;
   }
 }
+
+/* the SCRUB LENS: enlarged live value floating above a touch scrub (the
+ * finger covers the number itself). translate(-50%) centers on the clamped
+ * x; pointer-events none so it never eats the gesture. */
+.scrub-lens {
+  position: fixed;
+  z-index: 60;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-accent);
+  color: var(--c-accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 24px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+.scrub-lens.on {
+  opacity: 1;
+}

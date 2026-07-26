@@ -53,14 +53,22 @@ export const SCRUB_THROTTLE_MS = 30
  *  engages instantly; vertical past this = it's a scroll, hand it back. */
 const TOUCH_ENGAGE_PX = 8
 
-/** PRECISION TIERS: while scrubbing, vertical distance from the origin row
- *  scales each horizontal increment - drag away from the line (up OR down)
- *  for finer control, the standard precision-scrub gesture. Pure. */
+/** SPEED TIERS, directional: while scrubbing, vertical distance from the
+ *  origin row scales each horizontal increment. Drag UP for coarse (x10,
+ *  x100 - decade sweeps like 80..8000), DOWN for fine (x.1, x.01). Screen
+ *  y grows downward, so up is negative dy. Pure. */
 export function scrubSpeedFactor(dyPx: number): number {
-  const d = Math.abs(dyPx)
-  if (d < 48) return 1
-  if (d < 120) return 0.1
+  if (dyPx <= -120) return 100
+  if (dyPx <= -48) return 10
+  if (dyPx < 48) return 1
+  if (dyPx < 120) return 0.1
   return 0.01
+}
+
+/** The lens suffix for a tier ('' at full speed). Pure. */
+export function speedSuffix(factor: number): string {
+  if (factor === 1) return ''
+  return factor >= 1 ? `  x${factor}` : `  x${String(factor).replace('0.', '.')}`
 }
 
 /** Per-pixel delta and output quantum for a scrub starting at `start`. */
@@ -212,7 +220,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       const text = scrubText(a.v0, dx, a.isInt)
       if (text === a.lastText) return
       a.lastText = text
-      lens.update(text + (a.speed < 1 ? (a.speed === 0.1 ? '  x.1' : '  x.01') : ''))
+      lens.update(text + speedSuffix(a.speed))
       try {
         selfDispatch = true
         view.dispatch({ changes: { from: a.from, to: a.to, insert: text } })
@@ -233,7 +241,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       if (factor !== a.speed) {
         a.speed = factor
         // tier changed with no value change yet - refresh the suffix now
-        if (a.lastText !== null) lens.update(a.lastText + (factor < 1 ? (factor === 0.1 ? '  x.1' : '  x.01') : ''))
+        if (a.lastText !== null) lens.update(a.lastText + speedSuffix(factor))
       }
       lens.move(ev.clientX, ev.clientY)
       const wait = SCRUB_THROTTLE_MS - (Date.now() - a.lastApply)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lensClampX, scrubSpeedFactor, scrubStep, scrubText, scrubValue } from '../src/editor/widgets/scrub'
+import { lensClampX, scrubSpeedFactor, scrubStep, scrubText, scrubValue, speedSuffix } from '../src/editor/widgets/scrub'
 
 /* Pure scrub math: pixels → value. Per-100px delta is 10% of |start|
  * (floor 0.01; floor 1 for integer literals), quantized to a nice step. */
@@ -66,19 +66,30 @@ describe('lensClampX (the scrub lens never leaves the viewport)', () => {
   })
 })
 
-describe('scrubSpeedFactor (vertical precision tiers)', () => {
+describe('scrubSpeedFactor (directional speed tiers)', () => {
   it('near the row: full speed', () => {
     expect(scrubSpeedFactor(0)).toBe(1)
     expect(scrubSpeedFactor(47)).toBe(1)
     expect(scrubSpeedFactor(-47)).toBe(1)
   })
-  it('one tier out: tenth speed, both directions', () => {
+  it('DOWN goes fine: x.1 then x.01', () => {
     expect(scrubSpeedFactor(48)).toBe(0.1)
-    expect(scrubSpeedFactor(-100)).toBe(0.1)
-  })
-  it('far out: hundredth speed', () => {
+    expect(scrubSpeedFactor(119)).toBe(0.1)
     expect(scrubSpeedFactor(120)).toBe(0.01)
-    expect(scrubSpeedFactor(-500)).toBe(0.01)
+    expect(scrubSpeedFactor(500)).toBe(0.01)
+  })
+  it('UP goes coarse: x10 then x100', () => {
+    expect(scrubSpeedFactor(-48)).toBe(10)
+    expect(scrubSpeedFactor(-119)).toBe(10)
+    expect(scrubSpeedFactor(-120)).toBe(100)
+    expect(scrubSpeedFactor(-500)).toBe(100)
+  })
+  it('lens suffixes', () => {
+    expect(speedSuffix(1)).toBe('')
+    expect(speedSuffix(10)).toBe('  x10')
+    expect(speedSuffix(100)).toBe('  x100')
+    expect(speedSuffix(0.1)).toBe('  x.1')
+    expect(speedSuffix(0.01)).toBe('  x.01')
   })
   it('accumulating through tiers refines instead of jumping', () => {
     // 100px at full speed then 100px at x.1 ≈ 110 virtual px - the fine

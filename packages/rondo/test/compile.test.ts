@@ -59,6 +59,33 @@ describe('rondo → rondocode codegen', () => {
     expect(ok(`synth p\n  saw\n\nplay p\n  c4 e4 g4\n`)).toContain("note('c4 e4 g4')")
   })
 
+  it('passes digit-bearing and long mode names through: 19edo, minorPentatonic', () => {
+    // inline extractor and modifier line both accept them
+    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5  scale:c-19edo\n`)).toContain(".scale('c 19edo')")
+    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5\n  scale: e-minorPentatonic\n`)).toContain(".scale('e minorPentatonic')")
+    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5\n  scale: c-my_bell\n`)).toContain(".scale('c my_bell')")
+  })
+
+  it('scaledef: a top-level tuning line → defineScale, HOISTED above the plays', () => {
+    const out = ok(`synth p\n  saw\n\nplay p\n  0 1 2  scale:c-pelog\n\nscaledef pelog 0 1.2 2.7 5.4 6.7\n`)
+    expect(out).toContain("defineScale('pelog', [0, 1.2, 2.7, 5.4, 6.7])")
+    // hoisted: .scale() parses eagerly at eval, the tuning must register first
+    expect(out.indexOf('defineScale(')).toBeLessThan(out.indexOf(".scale('c pelog')"))
+  })
+
+  it('scaledef accepts negative + float steps', () => {
+    expect(ok(`scaledef odd -1.5 0 2.25\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+      "defineScale('odd', [-1.5, 0, 2.25])",
+    )
+  })
+
+  it('scaledef: positioned errors for a missing name, bad steps, too few steps', () => {
+    failsAt(`scaledef\n`, 'scaledef needs a name', 1, 1)
+    failsAt(`scaledef pelog 0 x 2\n`, 'scaledef steps are numbers', 1, 18)
+    failsAt(`scaledef pelog 0\n`, 'at least 2 steps', 1, 1)
+    failsAt(`scaledef 19edo 0 1\n`, 'scaledef needs a name', 1, 1)
+  })
+
   it('topologically orders bindings so each const precedes its use', () => {
     const out = ok(`synth s\n  sine mod\n  mod = sine base\n  base = adsr .01 .1 .5 .1\n`)
     expect(out.indexOf('const base =')).toBeLessThan(out.indexOf('const mod ='))

@@ -19,7 +19,7 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
 /** Block keywords. */
-const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'visual', 'js', 'section', 'song'])
+const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'scaledef', 'visual', 'js', 'section', 'song'])
 /** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
  *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([
@@ -107,6 +107,7 @@ const OPTIONS: Completion[] = [
   c('cps', 'keyword', 'cps N', 'Set tempo in cycles per second.'),
   c('sidechain', 'keyword', 'sidechain kick depth:.7 lead:.5', 'The pump: every kick ducks the other channels. Extra name:amount pairs are per-channel duck.'),
   c('master', 'keyword', 'master threshold:-6 ratio:2', 'Master-bus glue compressor.'),
+  c('scaledef', 'keyword', 'scaledef pelog 0 1.2 2.7 5.4 6.7', 'Define a custom tuning: step offsets in semitones from the root (floats welcome), then `scale: c-pelog`. `Nedo` scales (`scale: c-19edo`) need no scaledef.'),
   c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),
   c('send', 'keyword', 'send lead .35', 'Route a synth into this bus (0..1, pre-fader).'),
   c('visual', 'keyword', 'visual', 'A WGSL fragment shader block, rendered behind the code.'),

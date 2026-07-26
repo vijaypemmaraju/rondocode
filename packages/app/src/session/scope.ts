@@ -25,6 +25,7 @@ import {
   arrange,
   rise,
   fall,
+  defineScale,
 } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -87,6 +88,10 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   arrange,
   rise,
   fall,
+  // custom tunings: register a scale for .scale(). NOT per-eval staging —
+  // the registry lives in the pattern package; evalCode snapshots/clears/
+  // restores it around each run so it mirrors the last successful eval.
+  defineScale,
   // continuous signals
   sine,
   sine2,

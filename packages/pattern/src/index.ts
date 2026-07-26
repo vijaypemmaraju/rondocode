@@ -11,7 +11,17 @@ export type { Loc, MiniValue } from './mini'
 export { n, note, sound, s } from './controls'
 export type { ControlMap, ControlValue } from './controls'
 export { chord, parseChord } from './chords'
-export { SCALES, parseScaleName, scaleDegree, noteNameToMidi } from './scales'
+export {
+  SCALES,
+  parseScaleName,
+  scaleDegree,
+  noteNameToMidi,
+  defineScale,
+  clearCustomScales,
+  snapshotCustomScales,
+  restoreCustomScales,
+} from './scales'
+export type { ScaleSpec, CustomScaleSnapshot } from './scales'
 export { Scheduler } from './scheduler'
 export type { SchedulerEvent, SchedulerOpts } from './scheduler'
 export {

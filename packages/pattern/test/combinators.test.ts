@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { F, Pattern, saw, note, n, hasOnset, TimeSpan } from '../src/index'
+import { F, Pattern, clearCustomScales, defineScale, saw, note, n, hasOnset, TimeSpan } from '../src/index'
 import type { Hap } from '../src/index'
 import { q, qw, sortHaps, span } from './helpers'
 
@@ -163,6 +163,19 @@ describe('arithmetic (Pattern<number>)', () => {
     // down a scale step stays in key: degree 2 (C#4=61) → degree 1 (B3=59)
     const down = n('2').scale('a major').sub(1).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
     expect((down[0]!.value as { note: number }).note).toBe(59)
+  })
+
+  it('add through a CUSTOM scale re-resolves with its float steps and period', () => {
+    defineScale('bell', [0, 1.4, 3.8])
+    try {
+      // degree 1 (61.4) + 2 scale steps = degree 3 = root + period (72)
+      const up = n('1').scale('c bell').add(2).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+      expect((up[0]!.value as { note: number }).note).toBe(72)
+      const frac = n('0').scale('c bell').add(1).query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+      expect((frac[0]!.value as { note: number }).note).toBeCloseTo(61.4, 10)
+    } finally {
+      clearCustomScales()
+    }
   })
 
   it('add/sub after .scale() PRESERVE a prior .octave()/.invert()/.voicing()', () => {

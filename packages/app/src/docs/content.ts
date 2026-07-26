@@ -126,6 +126,22 @@ p('pad', chord('<Cmaj7 Fmaj7 Bm7b5 E7>').voiceLead().sound('pad').dur(0.98))
 setCps(0.4)`,
       ),
       p('A progression to sing over is one line: pick a preset shape (pop `<C G Am F>`, doo-wop `<C Am F G7>`, a ii-V-I `<Dm7 G7 Cmaj7>`), give it a soft pad and a slow tempo, and the changes loop underneath your voice. The chords chip in the rondo tap palette inserts one ready to edit.'),
+      p("TUNINGS are not locked to those 12 notes: note numbers are floats all the way to the oscillator, so fractional midi is a real pitch. Any `Nedo` scale name divides the octave into N equal steps (`'c 19edo'`, `'a 31edo'`), and defineScale() registers your own scale from a math spec: step offsets in semitones from the root (floats welcome), cents, or frequency ratios like `{ ratios: [1, 9/8, 5/4, 3/2, 5/3] }` for just intonation, each with an optional period for non-octave tunings (Bohlen-Pierce is `{ ratios: [...], periodRatio: 3 }`). The spec is a plain array, so adding or subtracting a note is just editing the array. Custom names then work anywhere a scale name does; degrees past the last entry wrap up by the period, exactly like degree 7 in a major scale."),
+      code(
+        'Two tunings you cannot play on a piano: 19 equal steps, then a pelog-style pentatonic given in cents.',
+        `const bell = synth(({ note, gate, adsr, fm }) => {
+  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.2, s: 0, r: 0.5 }).mul(2.2))
+  return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 1.4, s: 0, r: 0.6 })).mul(0.4)
+})
+
+// 19 notes per octave, no setup needed: any Nedo name works
+p('lead', n('0 3 6 8 11 14 16 19').scale('c 19edo').sound('bell'))
+
+// your own tuning, in cents from the root
+defineScale('pelog', { cents: [0, 120, 270, 670, 785] })
+p('gong', n('<0 4 1 3>').sub(5).scale('c pelog').sound('bell').dur(2))
+setCps(0.35)`,
+      ),
     ],
   },
   {
@@ -722,6 +738,7 @@ cps .5`,
     blocks: [
       p('A `play NAME` block routes notation to a synth, and NAME is also the channel (`sidechain` and `bus` target it). The FIRST body lines are notation; everything after the first modifier line is modifiers. What the notation means depends on how it is written: bare digits are scale degrees (`0 3 5` with a `scale:`), lowercase letters are note names (`c2 e2 g2`), and an UPPERCASE root means chord names (`<Em Cmaj7 G>`).'),
       p('The scale can sit inline (`0 3 5  scale:a-min`) or on its own modifier line (`scale: a-min`). Short mode names: `maj min dor phr lyd mix loc`, plus `pentatonic` and `chromatic` in full. `scale: c-chromatic` makes degrees 0..11 the whole 12-tone set, and note names (`c4 f#4`) are always chromatic. Tapping the scale chip in the palette CYCLES the block through the modes, so you can hear what dorian does without typing it. Degrees resolve through the scale, so changing `a-min` to `c-maj` moves the whole part.'),
+      p('CUSTOM TUNINGS: a top-level `scaledef NAME steps...` line registers your own scale, steps in semitones from the root, floats welcome (`scaledef pelog 0 1.2 2.7 6.7 7.85`), and any `Nedo` mode divides the octave into N equal steps with no scaledef at all. Both work anywhere a scale name does: `scale: c-pelog`, `scale: c-19edo`.'),
       p('EXTRA notation lines before the modifiers stack as voices, one line per voice: a hand-built chord. Voices of different lengths cross-rhythm automatically, because every line spans exactly one cycle.'),
       p('`irand 8 seg:16` as a notation line plays random scale degrees 0..7, sixteen steps per cycle: a deterministic improviser (the same riff at the same spot every loop). The whole line pulses with the playhead while it sounds.'),
       rondo(
@@ -740,6 +757,21 @@ play pad
   gain: .5
 
 cps .4`,
+      ),
+      rondo(
+        'A custom five-step tuning, defined in one line.',
+        `scaledef pelog 0 1.2 2.7 6.7 7.85
+
+synth glass
+  tri
+  * env
+  env = adsr .005 .4 .2 .4
+
+play glass
+  0 1 2 4 <3 5> 2 1 0
+  scale: c-pelog
+
+cps .45`,
       ),
     ],
   },
@@ -983,7 +1015,7 @@ js
 
 cps .5`,
       ),
-      p('Cheat sheet, the shapes at a glance: `synth NAME [mono glide:… unison:…]` · pipeline lines (source / `* env` / processor / sig-op) · `name = expr` · `knob DEF lo..hi [log]` · `post` · `play NAME` (notation, voices, `scale:`, modifiers) · `beat [NAME]` (words are synth names, `word:v` velocity) · `sing NAME voice:…` (lyric/melody pairs + `post`) · `section NAME LEN` + `song …` · `bus NAME` + `send SYNTH AMT` · `sidechain SRC depth:… name:duck` · `master name:value` · `visual` · `js{ … }` / `js` · `cps N`. Comments start with `#`.'),
+      p('Cheat sheet, the shapes at a glance: `synth NAME [mono glide:… unison:…]` · pipeline lines (source / `* env` / processor / sig-op) · `name = expr` · `knob DEF lo..hi [log]` · `post` · `play NAME` (notation, voices, `scale:`, modifiers) · `beat [NAME]` (words are synth names, `word:v` velocity) · `sing NAME voice:…` (lyric/melody pairs + `post`) · `section NAME LEN` + `song …` · `bus NAME` + `send SYNTH AMT` · `sidechain SRC depth:… name:duck` · `master name:value` · `scaledef NAME steps…` · `visual` · `js{ … }` / `js` · `cps N`. Comments start with `#`.'),
     ],
   },
 ]

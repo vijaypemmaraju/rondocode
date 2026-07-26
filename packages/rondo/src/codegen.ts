@@ -492,6 +492,11 @@ function cgMaster(item: Extract<TopItem, { t: 'master' }>): string {
   return `masterCompress(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
 }
 
+/** `scaledef pelog 0 1.2 2.7 …` → defineScale('pelog', [0, 1.2, 2.7, …]). */
+function cgScaleDef(item: Extract<TopItem, { t: 'scaledef' }>): string {
+  return `defineScale('${item.name}', [${item.values.map(num).join(', ')}])`
+}
+
 function cgBus(item: Extract<TopItem, { t: 'bus' }>, errors: RondoError[]): string {
   const fx = cgChain(item.bindings, item.fx, ['input'], errors)
   const sendEntries = Object.entries(item.sends)
@@ -508,13 +513,18 @@ function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
 export function codegen(program: Program, errors: RondoError[]): string {
   const sections = program.items.filter((it): it is Extract<TopItem, { t: 'section' }> => it.t === 'section')
   const song = program.items.find((it): it is Extract<TopItem, { t: 'song' }> => it.t === 'song')
-  const parts = program.items.map((item: TopItem) => {
+  // scaledef lines HOIST to the top: .scale('c pelog') parses eagerly at
+  // eval time, so a tuning must be registered before any play that uses it,
+  // wherever the scaledef sits in the rondo source.
+  const items = [...program.items.filter((it) => it.t === 'scaledef'), ...program.items.filter((it) => it.t !== 'scaledef')]
+  const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
     if (item.t === 'sing') return cgSing(item, errors)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item)
     if (item.t === 'master') return cgMaster(item)
+    if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'bus') return cgBus(item, errors)
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'section') return cgSection(item)

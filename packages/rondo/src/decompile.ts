@@ -631,8 +631,12 @@ function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound
     if (m.method === 'scale' && m.args.length === 1) {
       const sv = strValue(m.args[0]!)
       if (sv === undefined) return null
-      const [root, mode] = sv.split(' ')
-      if (root === undefined || mode === undefined) return null
+      const [root, mode, extra] = sv.split(' ')
+      if (root === undefined || mode === undefined || extra !== undefined) return null
+      // the short form must re-lex as `scale:root-mode` — a root outside
+      // a..g or a mode with other characters bails to a js block instead
+      // of emitting a scale: line the parser reads as something else
+      if (!/^[a-gA-G][#b]?$/.test(root) || !/^[a-zA-Z0-9_]+$/.test(mode)) return null
       scale = `${root}-${SCALE_INV.get(mode) ?? mode}`
     } else if (m.method === 'sound' && m.args.length === 1) {
       const sv = strValue(m.args[0]!)
@@ -905,6 +909,23 @@ function decompileStaging(stmt: Node): string | null {
   if (name === 'setCps' && args.length === 1) {
     const v = numValue(args[0]!)
     return v !== undefined ? `cps ${num(v)}` : null
+  }
+  if (name === 'defineScale' && args.length === 2) {
+    // only the literal-offsets-array form has sugar (`scaledef NAME v v …`,
+    // ≥ 2 values, a word name); cents/ratios specs stay js blocks
+    const sname = strValue(args[0]!)
+    if (sname === undefined || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(sname)) return null
+    const arr = args[1]!
+    if (arr.type !== 'ArrayExpression') return null
+    const vals: string[] = []
+    for (const el of arr['elements'] as (Node | null)[]) {
+      if (el === null) return null
+      const v = numValue(el)
+      if (v === undefined) return null
+      vals.push(num(v))
+    }
+    if (vals.length < 2) return null
+    return `scaledef ${sname} ${vals.join(' ')}`
   }
   if (name === 'masterCompress' && args.length <= 1) {
     if (args.length === 0) return 'master'

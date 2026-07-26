@@ -297,13 +297,13 @@ const applyArith = (op: (a: number, b: number) => number, a: unknown, b: number,
     if (typeof m['n'] === 'number') {
       const nn = op(m['n'], b)
       if (typeof m['scale'] === 'string') {
-        const { root, intervals } = parseScaleName(m['scale'])
+        const { root, intervals, period } = parseScaleName(m['scale'])
         // Preserve any note-level offset a prior .octave()/.invert()/.voicing()
         // baked into `note` on top of the scale resolution — don't recompute the
         // note from the degree alone, or that revoicing is silently discarded.
-        const resolvedOld = root + scaleDegree(intervals, Math.round(m['n']))
+        const resolvedOld = root + scaleDegree(intervals, Math.round(m['n']), period)
         const offset = typeof m['note'] === 'number' ? m['note'] - resolvedOld : 0
-        return { ...m, n: nn, note: root + scaleDegree(intervals, Math.round(nn)) + offset }
+        return { ...m, n: nn, note: root + scaleDegree(intervals, Math.round(nn), period) + offset }
       }
       return { ...m, n: nn }
     }

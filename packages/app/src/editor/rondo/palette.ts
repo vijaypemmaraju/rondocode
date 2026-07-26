@@ -225,7 +225,7 @@ export function notationCtxAt(doc: string, pos: number): { synth?: string; scale
     if (ln.trim() === '') continue
     const indent = /^[ \t]*/.exec(ln)![0].length
     if (indent <= headerIndent) break // left the block
-    const m = /\bscale:[ \t]*([a-gA-G][a-z0-9#-]*)/.exec(ln)
+    const m = /\bscale:[ \t]*([a-gA-G][a-zA-Z0-9#_-]*)/.exec(ln)
     if (m !== null) {
       out.scale = m[1]!
       break
@@ -252,7 +252,7 @@ export function cycleScaleEdit(doc: string, pos: number): { from: number; to: nu
     if (ln.trim() !== '') {
       const indent = /^[ \t]*/.exec(ln)![0].length
       if (indent <= headerIndent) break
-      const m = /\bscale:[ \t]*([a-gA-G][a-z0-9#-]*)/.exec(ln)
+      const m = /\bscale:[ \t]*([a-gA-G][a-zA-Z0-9#_-]*)/.exec(ln)
       if (m !== null) {
         const cur = m[1]!
         const idx = SCALE_CYCLE.indexOf(cur as (typeof SCALE_CYCLE)[number])

@@ -11,7 +11,7 @@
  * vocoder → waveform. See synthesize().
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
-import { SUPERTONIC_BASE } from './config'
+import { SUPERTONIC_BASE, isIOSWebKit } from './config'
 import { cachedBytes } from './modelcache'
 
 const HF = SUPERTONIC_BASE
@@ -99,7 +99,7 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
 
     let webgpu = false
     try {
-      webgpu = typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
+      webgpu = !isIOSWebKit() && typeof navigator !== 'undefined' && 'gpu' in navigator && !!(await (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu!.requestAdapter())
     } catch {
       webgpu = false
     }

@@ -13,6 +13,7 @@ load automatically. You only need to host the phoneme + voice-conversion models:
 | file | ~size | what it is |
 |------|-------|------------|
 | `phoneme.onnx` | ~1.2 GB (fp32) | wav2vec2 CTC — forced-aligns lyrics to the TTS audio |
+| `phoneme-int8.onnx` | ~357 MB | dynamic-int8 build of the same CTC model (lm_head kept fp32); preferred on iOS or via `localStorage['rc.singSmallAligner']='1'`, falls back to fp32 when absent |
 | `vec-768.onnx` | ~378 MB | ContentVec encoder (shared by all voices) |
 | `gen_kizuna.onnx` | ~112 MB | RVC generator — voice "kizuna" |
 | `gen_barbara.onnx` | ~112 MB | RVC generator — voice "barbara" |
@@ -59,10 +60,44 @@ If unset, dev builds default to `127.0.0.1:8790` and production builds to the
 placeholder in `config.ts` (`DEFAULT_BASE`) — change that constant or set the env
 var. `VITE_SUPERTONIC_BASE` overrides the Supertonic host the same way.
 
-## Follow-up: shrink the download
+## The int8 aligner build
 
-The ~2 GB first load (dominated by the fp32 phoneme model) is cached after the
-first visit but is still heavy. Quantizing to int8/fp16 (~4–6× smaller) is the
-main lever; re-test alignment quality after — an earlier int8 export collapsed the
-CTC output (may have been an unrelated feeding bug; worth retrying). Tracked
-separately from this hosting pass.
+`phoneme-int8.onnx` is produced from `phoneme.onnx` with onnxruntime dynamic
+quantization, int8 weights on every MatMul EXCEPT the final `/lm_head/MatMul`
+CTC projection (quantizing the head, or the whole graph, is what collapses the
+CTC output to all-blank; the conv feature extractor stays fp32 by construction
+because only MatMul ops are quantized):
+
+```py
+from onnxruntime.quantization import quantize_dynamic, QuantType
+quantize_dynamic(
+    'phoneme.onnx', 'phoneme-int8.onnx',
+    op_types_to_quantize=['MatMul'],
+    weight_type=QuantType.QInt8,
+    nodes_to_exclude=['/lm_head/MatMul'],
+    extra_options={'MatMulConstBOnly': True},
+)
+```
+
+Measured against fp32 under onnxruntime-web wasm on a fixed Supertonic TTS
+utterance set: 99.4% greedy symbol agreement (the one diff is a spurious
+duplicate the fp32 build emits) and forced-alignment timing p95 delta of 0 ms
+(max 20 ms, exactly one CTC frame). fp16 conversion is NOT usable: ort-web
+1.27 wasm fails to create the session (layer-norm fusion bug).
+
+The models live in the `rondocode-models` R2 bucket behind
+`models.rondocode.com`. For files under 300 MiB, upload with wrangler:
+
+```sh
+npx wrangler r2 object put rondocode-models/<file> \
+  --file <file> --content-type application/octet-stream --remote
+```
+
+Wrangler refuses bigger files (the 340 MiB `phoneme-int8.onnx` included), and
+there are no S3 keys on this machine, so large objects go up via R2's
+multipart API: deploy a throwaway token-gated worker with a `BUCKET` binding
+to `rondocode-models` that exposes createMultipartUpload / uploadPart /
+complete, POST the file in ~90 MiB parts, then delete the worker. After any
+upload, verify `curl -sI https://models.rondocode.com/<file>` reports the
+exact local byte size. Until `phoneme-int8.onnx` exists, clients that prefer
+it fall back to `phoneme.onnx` automatically.

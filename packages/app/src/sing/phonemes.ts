@@ -6,15 +6,18 @@
  *
  * We drive onnxruntime-web ourselves (not transformers.js) so the input_values
  * actually reach the model, and decode the logits against the raw vocab (argmax
- * → collapse repeats/blanks) — no espeak `phonemizer` needed. fp32, no
- * quantization (q4f16/int8 collapse the CTC output to all-blank).
+ * → collapse repeats/blanks) — no espeak `phonemizer` needed. Two builds are
+ * served: the fp32 original and a dynamic-int8 build (~3.5x smaller) for
+ * memory-tight clients. WHOLE-GRAPH q4f16/int8 collapses the CTC output to
+ * all-blank, but int8 with the lm_head projection excluded measures clean
+ * (>=99% greedy-symbol agreement, forced-align timing within one 20ms frame
+ * of fp32 on the fixed TTS utterance set). URL choice + fp32 fallback live in
+ * config.ts/modelcache.ts.
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
 
-import { SING_MODELS_BASE, isIOSWebKit } from './config'
-import { cachedBytes } from './modelcache'
-const BASE = SING_MODELS_BASE
-const MODEL_URL = `${BASE}/phoneme.onnx`
+import { isIOSWebKit, phonemeModelUrls } from './config'
+import { cachedBytes, firstAvailableBytes } from './modelcache'
 const VOCAB_URL = 'https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft/resolve/main/vocab.json'
 const CACHE = 'rondocode-phonemes-v1'
 
@@ -80,7 +83,8 @@ export function ipaToTokens(ipa: string): { id: number; sym: string; vowel: bool
   return out
 }
 
-/** Load (or reuse) the phoneme CTC model + vocab. fp32 (~1.2 GB), cached. */
+/** Load (or reuse) the phoneme CTC model + vocab. fp32 (~1.2 GB) or the int8
+ *  build (~0.36 GB) per phonemeModelUrls(), cached. */
 export async function loadPhonemes(onProgress?: (p: { label: string; done: number; total: number }) => void): Promise<void> {
   if (session) return
   if (!loading) {
@@ -96,7 +100,9 @@ export async function loadPhonemes(onProgress?: (p: { label: string; done: numbe
       } catch {
         webgpu = false
       }
-      const buf = await cachedBytes(MODEL_URL, CACHE, (l, t) => onProgress?.({ label: 'phoneme model', done: l, total: t }))
+      const { buf } = await firstAvailableBytes(phonemeModelUrls(), (url) =>
+        cachedBytes(url, CACHE, (l, t) => onProgress?.({ label: 'phoneme model', done: l, total: t })),
+      )
       session = await ort.InferenceSession.create(buf, { executionProviders: webgpu ? ['webgpu', 'wasm'] : ['wasm'] })
       const res = await fetch(VOCAB_URL)
       if (!res.ok) throw new Error(`vocab fetch: ${res.status}`)

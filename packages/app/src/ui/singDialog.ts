@@ -16,11 +16,16 @@ export function confirmSingDownload(): Promise<boolean> {
   return new Promise((resolve) => {
     const el = document.createElement('div')
     el.className = 'sing-consent'
-    // iOS/iPadOS: the alignment model alone is a 2.3GB fp32 wav2vec2 (its CTC
-    // output collapses under quantization, so no smaller build exists yet).
-    // A phone tab cannot hold it - the old flow let users download gigabytes
-    // and THEN die. Explain and play the track without the vocal instead.
-    if (isIOSWebKit()) {
+    // iOS/iPadOS: the full model set is more memory than a phone tab allows -
+    // the old flow let users download gigabytes and THEN die. Explain and play
+    // the track without the vocal instead. A ~3.5x smaller int8 aligner build
+    // now exists (phonemes.ts prefers it on iOS), but this block stays until a
+    // real device test passes. Escape hatch for that test: set
+    // localStorage['rc.singForce'] = '1' to get the normal consent flow here.
+    const force = ((): boolean => {
+      try { return localStorage.getItem('rc.singForce') === '1' } catch { return false }
+    })()
+    if (isIOSWebKit() && !force) {
       el.innerHTML = `
       <div class="sing-consent-card" role="dialog" aria-modal="true">
         <div class="sing-consent-title">Singing needs a bigger device</div>

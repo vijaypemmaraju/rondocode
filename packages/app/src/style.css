@@ -1635,6 +1635,12 @@ body.shaderviz-on .cm-content {
 }
 .perf-locked .cm-content {
   cursor: default;
+  /* locked = performance surface: no text selection, no iOS long-press
+   * callout - a held finger belongs to widgets (the scrub lens), not to
+   * the selection UI. Widgets never rely on selection. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* ---- first-run tour (ui/tour.ts) --------------------------------------- */

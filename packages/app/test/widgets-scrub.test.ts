@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lensClampX, scrubStep, scrubText, scrubValue } from '../src/editor/widgets/scrub'
+import { lensClampX, scrubSpeedFactor, scrubStep, scrubText, scrubValue } from '../src/editor/widgets/scrub'
 
 /* Pure scrub math: pixels → value. Per-100px delta is 10% of |start|
  * (floor 0.01; floor 1 for integer literals), quantized to a nice step. */
@@ -63,5 +63,32 @@ describe('lensClampX (the scrub lens never leaves the viewport)', () => {
   })
   it('a pill wider than the viewport pins to the left rule', () => {
     expect(lensClampX(10, 500, 400)).toBe(254)
+  })
+})
+
+describe('scrubSpeedFactor (vertical precision tiers)', () => {
+  it('near the row: full speed', () => {
+    expect(scrubSpeedFactor(0)).toBe(1)
+    expect(scrubSpeedFactor(47)).toBe(1)
+    expect(scrubSpeedFactor(-47)).toBe(1)
+  })
+  it('one tier out: tenth speed, both directions', () => {
+    expect(scrubSpeedFactor(48)).toBe(0.1)
+    expect(scrubSpeedFactor(-100)).toBe(0.1)
+  })
+  it('far out: hundredth speed', () => {
+    expect(scrubSpeedFactor(120)).toBe(0.01)
+    expect(scrubSpeedFactor(-500)).toBe(0.01)
+  })
+  it('accumulating through tiers refines instead of jumping', () => {
+    // 100px at full speed then 100px at x.1 ≈ 110 virtual px - the fine
+    // segment contributes a tenth of what the coarse one did
+    let vdx = 0
+    let lastX = 0
+    for (const [x, dy] of [[50, 0], [100, 0], [150, 60], [200, 60]] as const) {
+      vdx += (x - lastX) * scrubSpeedFactor(dy)
+      lastX = x
+    }
+    expect(vdx).toBeCloseTo(100 + 100 * 0.1)
   })
 })

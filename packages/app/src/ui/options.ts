@@ -1,4 +1,5 @@
 import { iconEl } from './icons'
+import { isIOSWebKit } from '../sing/config'
 import { tooltip } from './tooltip'
 import { anchorPopover } from './viewport'
 import { SETTING_META, getSetting, setSetting, onSettingsChange } from './settings'
@@ -77,6 +78,39 @@ export function mountOptions(editor: EditorHandle, extras?: OptionsExtras): () =
     row.addEventListener('click', () => {
       close()
       extras.showTour?.()
+    })
+    pop.append(row)
+  }
+
+  // iOS only: the singing device-test switch. Phones are normally blocked
+  // from the multi-GB vocal bake (singDialog explains why); this opt-in
+  // shows the real consent flow instead, so a brave phone can try the
+  // small-aligner build. A switch here because phones have no console to
+  // set localStorage from.
+  if (isIOSWebKit()) {
+    const KEY = 'rc.singForce'
+    const get = (): boolean => {
+      try { return localStorage.getItem(KEY) === '1' } catch { return false }
+    }
+    const row = el('button', 'opt-row')
+    row.type = 'button'
+    const text = el('div', 'opt-text')
+    text.append(
+      el('div', 'opt-label', 'Try singing on this phone'),
+      el('div', 'opt-help', 'Experimental: allow the vocal model download here. Large, and the tab may run out of memory.'),
+    )
+    const sw = el('span', 'opt-switch')
+    row.append(text, sw)
+    row.setAttribute('role', 'switch')
+    const reflect = (): void => {
+      const on = get()
+      row.classList.toggle('on', on)
+      row.setAttribute('aria-checked', String(on))
+    }
+    reflect()
+    row.addEventListener('click', () => {
+      try { localStorage.setItem(KEY, get() ? '0' : '1') } catch { /* no storage: stays off */ }
+      reflect()
     })
     pop.append(row)
   }

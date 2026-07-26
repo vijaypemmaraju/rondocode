@@ -5,6 +5,7 @@ import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
 import { nextMicName, startMicRecording } from './micrec'
 import type { MicRecording } from './micrec'
+import { resampleTake } from './resample'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
  * "what have I loaded and how do I use it": lists the built-in and user
@@ -42,10 +43,13 @@ export interface SamplesPopoverOpts {
   fileInput: HTMLInputElement
   /** current editor language — inserts use rondo or JS syntax accordingly. */
   getLang?: () => 'rondocode' | 'rondo'
+  /** the last successfully evaluated program (post-transpile JS in rondo
+   *  mode), or null before the first good Run — feeds resample-to-loop. */
+  getStagedCode?: () => string | null
 }
 
 /** Wire up the samples popover. Returns a disposer. */
-export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang }: SamplesPopoverOpts): () => void {
+export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, getStagedCode }: SamplesPopoverOpts): () => void {
   const pop = el('div', 'samples-pop hidden')
   const list = el('div', 'samples-list')
   const loadBtn = el('button', 'samples-load')
@@ -58,7 +62,48 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang }:
   recBtn.append(el('span', 'samples-recdot', '●'), recLabel)
   const recMsg = el('div', 'samples-recmsg')
   recMsg.hidden = true
-  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg)
+  // RESAMPLE TO LOOP: bounce N cycles of the staged track back into the bank
+  // as takeN — compose freely, bounce it, then chop/loop it like any sample.
+  const resRow = el('div', 'samples-resample')
+  resRow.append(el('span', 'samples-resample-label', 'resample'))
+  const resMsg = el('div', 'samples-recmsg')
+  resMsg.hidden = true
+  const chips: HTMLButtonElement[] = []
+  let resampling = false
+  /** enable/disable the chips; show the run-first hint when nothing staged. */
+  const syncResample = (): void => {
+    const staged = (getStagedCode?.() ?? null) !== null
+    for (const c of chips) c.disabled = !staged || resampling
+    resRow.classList.toggle('disabled', !staged)
+    if (!staged) {
+      resMsg.hidden = false
+      resMsg.textContent = 'run the track first'
+    }
+  }
+  for (const cycles of [1, 2, 4, 8]) {
+    const chip = el('button', 'samples-chip', String(cycles))
+    chip.type = 'button'
+    tooltip(chip, `bounce ${cycles} ${cycles === 1 ? 'cycle' : 'cycles'} into the sample bank`)
+    chip.addEventListener('click', () => {
+      const code = getStagedCode?.() ?? null
+      if (code === null || resampling) return
+      resampling = true
+      syncResample()
+      resMsg.hidden = false
+      resMsg.textContent = 'rendering…'
+      // let the label paint before the (synchronous) offline render blocks
+      setTimeout(() => {
+        const res = resampleTake({ code, cycles, audio })
+        resampling = false
+        resMsg.textContent = 'name' in res ? `${res.name} added` : res.error
+        syncResample()
+        render()
+      }, 20)
+    })
+    chips.push(chip)
+    resRow.append(chip)
+  }
+  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg, resRow, resMsg)
   document.body.append(pop)
 
   let open = false
@@ -169,6 +214,8 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang }:
 
   const openPop = (): void => {
     render()
+    resMsg.hidden = true // stale bounce results don't outlive a close
+    syncResample()
     pop.classList.remove('hidden') // must be visible for anchorPopover to measure it
     position()
     open = true

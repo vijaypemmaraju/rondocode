@@ -486,6 +486,7 @@ setCps(0.5)`,
     title: 'Samples & granular',
     blocks: [
       p("`sample(gate, 'name')` plays a loaded audio sample like an oscillator: `root` is the note it plays natural at, and it pitches from there. `vox`, `riser` and `pad` ship built in; load your own with the + button in the editor, or RECORD one on the device microphone (the record button in the same popover): the take is trimmed and normalized and lands as `mic1`, ready to play from a `beat` or `play` block, feed to `granular`, or run through the `vocoder`. `granular` sprays overlapping grains from a scannable position for evolving textures."),
+      p("The same popover can also RESAMPLE the track itself: after a Run, tap a cycle count on the resample row (1, 2, 4 or 8) and that many cycles of the playing program render offline into the bank as `take1` (then `take2`, ...), mono, normalized, and cut to an exact loop length so it repeats seamlessly (tails ringing past the loop end are trimmed). `sample(gate, 'take1')` in JavaScript, or `sample take1` in rondo, plays it back like any sample: compose something freely, bounce it into a take, then chop and loop the take while you build the next layer on top of it."),
       code(
         'A granular cloud over the built-in pad sample, with a vocal on top.',
         `const cloud = synth(

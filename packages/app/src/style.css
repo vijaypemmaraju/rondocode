@@ -1625,6 +1625,49 @@ body.shaderviz-on .cm-content {
   opacity: 0.75;
 }
 
+/* resample to loop: bounce N cycles of the staged track into the bank */
+.samples-resample {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-ctrl);
+  color: var(--c-accent);
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r-sm);
+}
+.samples-resample.disabled {
+  color: var(--c-dim);
+}
+.samples-resample-label {
+  flex: 1 1 auto;
+}
+.samples-chip {
+  flex: none;
+  min-width: 40px;
+  min-height: var(--h-ctrl); /* touch target */
+  padding: 0 var(--sp-1);
+  font-size: var(--fs-ctrl);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.samples-chip:disabled {
+  color: var(--c-dim);
+  cursor: default;
+  opacity: 0.5;
+}
+@media (hover: hover) {
+  .samples-chip:not(:disabled):hover {
+    border-color: var(--c-accent);
+    color: var(--c-accent);
+  }
+}
+
 /* ---- performance lock ------------------------------------------------- */
 /* Text frozen, widgets live: the button glows, the buffer stops looking
  * tappable. Widgets keep their own cursors (grab/ns-resize). */

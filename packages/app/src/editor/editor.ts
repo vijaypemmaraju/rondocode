@@ -372,6 +372,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   /** Source of the last eval attempt / last GOOD eval (dirty tracking). */
   let lastAttempted: string | undefined
   let lastGood: string | undefined
+  /** The last successfully EVALUATED program (post-transpile JS in rondo
+   *  mode) — what "the staged track" means to resample-to-loop. */
+  let lastStagedJs: string | null = null
   let dirtyVsGood = true
   // Synth/channel names of the current sing() vocals (for karaoke detection).
   let singSoundNames = new Set<string>()
@@ -419,6 +422,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     const result = session.evalCode(evalSource, { live: !autoplay }) // diagnostics arrive via callback
     if (result.ok) {
       lastGood = source
+      lastStagedJs = evalSource
       // Note-play flash: rondocode maps onset events by scanning the source's
       // string literals; rondo can't (the eval'd source is transpiled JS), so
       // the compiler hands us each notation string + its buffer offset and we
@@ -860,7 +864,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
 
   // samples popover: lists loaded samples (built-in + user), inserts
   // sample(gate, 'name') at the cursor, and loads audio files.
-  const disposeSamples = mountSamplesPopover({ audio, view, anchor: sampleBtn, fileInput, getLang: () => lang })
+  const disposeSamples = mountSamplesPopover({
+    audio,
+    view,
+    anchor: sampleBtn,
+    fileInput,
+    getLang: () => lang,
+    getStagedCode: () => lastStagedJs,
+  })
   const disposeExport = mountExport({ view, audio, anchor: exportBtn })
 
   // karaoke: light up the current sing() syllable + note as the vocal plays,

@@ -12,12 +12,13 @@
  * grows only on editor.onEval (an explicit Run) or a manual snapshot.
  * ------------------------------------------------------------------------- */
 
-import type { EditorHandle } from './editor'
+import type { EditorHandle, EditorLang } from './editor'
 import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
-import { MemoryDb, ProjectStore } from '../session/projects'
+import { readLangPref } from '../ui/onboarding'
+import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, shareUrl } from '../session/share'
@@ -99,6 +100,13 @@ const ago = (t: number, now: number): string => {
 
 export interface LibraryHandle {
   dispose(): void
+  /** The "new" button's path, exposed for the onboarding flow: create a
+   *  project and switch the editor to it. The current project is saved and
+   *  kept, never clobbered. */
+  createAndOpen(name: string, code: string, lang: EditorLang): Promise<void>
+  /** Switch to the most recently updated project with this exact name.
+   *  Returns false (touching nothing) when no such project exists. */
+  openByName(name: string): Promise<boolean>
 }
 
 export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle> {
@@ -205,6 +213,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     else closeSheet()
   })
 
+  // New projects default to the surveyed language preference when one is
+  // stored (ui/onboarding.ts); otherwise the editor's current language.
+  const newProjectLang = (): EditorLang => readLangPref(localStorage) ?? editor.getLang()
+
   // Switch the editor to a project's working code and mark it active.
   const switchTo = async (p: Project): Promise<void> => {
     // Persist the OUTGOING project's edits before loading the new one: a switch
@@ -285,7 +297,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       void (async () => {
         await store.deleteProject(current.id)
         const rest = await store.listProjects()
-        const next = rest[0] ?? (await store.createProject('untitled', blankStarter(editor.getLang()), editor.getLang()))
+        const lang = newProjectLang()
+        const next = rest[0] ?? (await store.createProject('untitled', blankStarter(lang), lang))
         await switchTo(next)
         await render()
       })()
@@ -300,7 +313,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     newBtn.type = 'button'
     newBtn.addEventListener('click', () => {
       void (async () => {
-        const p = await store.createProject('untitled', blankStarter(editor.getLang()), editor.getLang())
+        const lang = newProjectLang()
+        const p = await store.createProject('untitled', blankStarter(lang), lang)
         await switchTo(p)
         await render()
       })()
@@ -526,5 +540,19 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     projectBtn.remove()
   }
 
-  return { dispose }
+  return {
+    dispose,
+    createAndOpen: async (name, code, lang) => {
+      const p = await store.createProject(name, code, lang)
+      await switchTo(p)
+      await render()
+    },
+    openByName: async (name) => {
+      const p = findProjectNamed(await store.listProjects(), name)
+      if (!p) return false
+      await switchTo(p)
+      await render()
+      return true
+    },
+  }
 }

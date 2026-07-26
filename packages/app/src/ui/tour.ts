@@ -1,21 +1,41 @@
-import type { EditorHandle } from '../editor/editor'
-import { EXAMPLES } from '../examples'
+import type { EditorHandle, EditorLang } from '../editor/editor'
+import type { LibraryHandle } from '../editor/library'
 import { readShareHash } from '../session/share'
 import { anchorPopover } from './viewport'
 import { createTourMachine, shouldShowTour, TOUR_DONE_KEY } from './tour-machine'
 import type { TourMachine, TourStep, TourStepId, TourStorage } from './tour-machine'
+import {
+  SURVEY_OPTIONS,
+  SURVEY_SKIP_LABEL,
+  SURVEY_TITLE,
+  WELCOME_PROJECT_NAME,
+  surveyLang,
+  welcomeCode,
+  writeLangPref,
+} from './onboarding'
+import type { SurveyChoice } from './onboarding'
 
 /* ------------------------------------------------------------------------- *
- * The first-run tour's thin DOM layer. One small bubble at a time, anchored
- * near its target with a soft highlight ring on the anchor itself. There is
- * NO overlay: every step asks the user to actually DO something (press run,
- * drag a control, tap a chip), so nothing may sit between finger and app.
- * All sequencing lives in the pure machine (tour-machine.ts); this file only
- * resolves anchors, positions the bubble, and forwards real events.
+ * Onboarding v2, the thin DOM layer. The flow (pure halves in onboarding.ts
+ * and tour-machine.ts):
+ *
+ *   1. survey: one centered card, one question; the answer sets the default
+ *      language (rc.langPref) - skip keeps the per-device default.
+ *   2. welcome project: a dedicated project (library's own "new" path, the
+ *      current project is kept) seeded with the welcome track in the chosen
+ *      language, so every coach-mark anchor exists by construction.
+ *   3. coach marks: one small bubble at a time, anchored near its target with
+ *      a soft highlight ring. There is NO overlay on this part: every step
+ *      asks the user to actually DO something (press run, drag a control,
+ *      tap a chip), so nothing may sit between finger and app.
+ *
+ * Replay (options panel) re-runs the WHOLE flow: survey again, then reopen
+ * the saved welcome project (or recreate it) - never whatever doc happens to
+ * be loaded, which is what broke v1 replays from other projects.
  * ------------------------------------------------------------------------- */
 
 export interface TourHandle {
-  /** Restart the tour from the top (options panel: "show intro tour"). */
+  /** Re-run the whole flow: survey, welcome project, coach marks. */
   start(): void
   dispose(): void
 }
@@ -51,7 +71,7 @@ const anchorFor = (id: TourStepId): HTMLElement | null => {
     case 'play':
       return q('.topbar .btn.run')
     case 'widget':
-      // a live dial when the doc has one, else any drag-to-scrub number
+      // the welcome track defines a knob; fallbacks cover a user-edited doc
       return q('.rondo-knob') ?? q('.cm-scrub') ?? q('.cm-content')
     case 'chips':
       return q('.rondo-palette')
@@ -61,7 +81,38 @@ const anchorFor = (id: TourStepId): HTMLElement | null => {
   }
 }
 
-export function mountTour(editor: EditorHandle): TourHandle {
+export function mountTour(
+  editor: EditorHandle,
+  opts: { library: Promise<LibraryHandle> },
+): TourHandle {
+  // ---- survey DOM (one instance, shown at the top of every flow run) ----
+  const surveyBackdrop = el('div', 'tour-survey-backdrop hidden')
+  const survey = el('div', 'tour-survey')
+  survey.setAttribute('role', 'dialog')
+  survey.setAttribute('aria-modal', 'true')
+  survey.setAttribute('aria-label', SURVEY_TITLE)
+  survey.append(el('h2', 'tour-survey-title', SURVEY_TITLE))
+  const optionBtns: HTMLButtonElement[] = []
+  for (const { choice, label } of SURVEY_OPTIONS) {
+    const b = el('button', 'tour-survey-opt', label)
+    b.type = 'button'
+    b.addEventListener('click', () => onSurveyAnswer(choice))
+    optionBtns.push(b)
+    survey.append(b)
+  }
+  const surveySkip = el('button', 'tour-survey-skip', SURVEY_SKIP_LABEL)
+  surveySkip.type = 'button'
+  surveySkip.addEventListener('click', () => onSurveyAnswer(null))
+  survey.append(surveySkip)
+  surveyBackdrop.append(survey)
+  document.body.append(surveyBackdrop)
+
+  const showSurvey = (): void => {
+    surveyBackdrop.classList.remove('hidden')
+    optionBtns[0]?.focus()
+  }
+  const hideSurvey = (): void => surveyBackdrop.classList.add('hidden')
+
   // ---- bubble DOM (one instance, retargeted per step) ----
   const pop = el('div', 'tour-bubble hidden')
   const copy = el('div', 'tour-copy')
@@ -158,21 +209,51 @@ export function mountTour(editor: EditorHandle): TourHandle {
     machine.start()
   }
 
+  /** Survey answered (or skipped, choice=null): set the language preference,
+   *  open the welcome project, then run the coach marks against it. */
+  const onSurveyAnswer = (choice: SurveyChoice | null): void => {
+    hideSurvey()
+    // Skip keeps the per-device default: rondo on mobile, the editor's
+    // current language on desktop - exactly what editor.getLang() holds.
+    let lang: EditorLang = editor.getLang()
+    if (choice !== null) {
+      lang = surveyLang(choice)
+      writeLangPref(lang, safeStorage)
+    }
+    void (async (): Promise<void> => {
+      try {
+        const lib = await opts.library
+        // Reopen the saved welcome project when it still exists (replay);
+        // otherwise create it - the library's own "new project" path, so the
+        // user's current project is saved and kept, never clobbered.
+        const reopened = await lib.openByName(WELCOME_PROJECT_NAME)
+        if (!reopened) await lib.createAndOpen(WELCOME_PROJECT_NAME, welcomeCode(lang), lang)
+      } catch (e) {
+        // no project library (IDB mount failed): still land on the welcome
+        // track so the coach-mark anchors exist
+        console.warn('[tour] library unavailable; loading welcome buffer only', e)
+        editor.setLang(lang)
+        editor.loadCode(welcomeCode(lang))
+      }
+      // wait a frame so the header/palette re-layout before measuring anchors
+      requestAnimationFrame(() => begin())
+    })()
+  }
+
+  /** The whole flow, from the survey. */
+  const runFlow = (): void => showSurvey()
+
   // ---- first-run auto-start ----
-  const starter = EXAMPLES[0]
   let auto = false
   try {
     auto = shouldShowTour({
       storage: safeStorage,
       shareHash: readShareHash(location.hash),
-      doc: editor.getDoc(),
-      starterDocs: [starter?.code, starter?.rondo],
     })
   } catch {
-    auto = false // never let the tour break boot
+    auto = false // never let onboarding break boot
   }
-  // wait a frame so the header/palette have laid out before measuring
-  if (auto) requestAnimationFrame(() => begin())
+  if (auto) requestAnimationFrame(() => runFlow())
 
   return {
     start: () => {
@@ -181,7 +262,7 @@ export function mountTour(editor: EditorHandle): TourHandle {
       } catch {
         // storage failures only affect remembering, not this run
       }
-      begin()
+      runFlow()
     },
     dispose: () => {
       offState()
@@ -190,6 +271,7 @@ export function mountTour(editor: EditorHandle): TourHandle {
       window.visualViewport?.removeEventListener('resize', onResize)
       clearRing()
       pop.remove()
+      surveyBackdrop.remove()
       machine = null
       current = null
     },

@@ -97,7 +97,7 @@ export function mountOptions(editor: EditorHandle, extras?: OptionsExtras): () =
     const text = el('div', 'opt-text')
     text.append(
       el('div', 'opt-label', 'Try singing on this phone'),
-      el('div', 'opt-help', 'Experimental: allow the vocal model download here. Large, and the tab may run out of memory.'),
+      el('div', 'opt-help', 'Experimental: allow the vocal model download here. Large, and the tab may run out of memory. If it fails, the app will say where it stopped on the next try.'),
     )
     const sw = el('span', 'opt-switch')
     row.append(text, sw)

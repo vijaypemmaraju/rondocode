@@ -16,6 +16,7 @@ import type { AudioSession } from '../audio/AudioSession'
 import type { SingRequest } from '../session/evalCode'
 import type { SingProgress } from './neural'
 import { PHONEME_INT8_MODEL_URL, PHONEME_MODEL_URL } from './config'
+import { clearPhase } from './bakephase'
 
 /** True once the big models have been downloaded (the phoneme model — the
  *  largest — is in the Cache API; either the fp32 or the int8 build counts).
@@ -85,10 +86,16 @@ export function bake(sings: SingRequest[], cps: number): void {
     const promise = renderOne(r, cps, (p) => emit(p))
       .then(() => {
         loadedKey.set(r.sampleName, k)
+        clearPhase() // clean finish: no crash marker left for the next boot
       })
       .catch((e) => {
         // eslint-disable-next-line no-console
         console.error('[sing] render failed', r.sampleName, e)
+        // A HANDLED failure reached this catch, so the tab is alive and the
+        // error is surfaced right here; clear the phase marker so the next
+        // boot doesn't misreport it as an out-of-memory tab kill (a real kill
+        // never reaches this catch - that's what makes the marker a report).
+        clearPhase()
         onError?.(humanError(e))
       })
       .finally(() => {

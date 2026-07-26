@@ -5,14 +5,17 @@
  * pattern engine). Returns a mono clip + sample rate.
  *   Supertonic TTS → wav2vec2 phoneme CTC → vowel-aware warp → RVC(voice).
  * ------------------------------------------------------------------------- */
-import { loadEngine } from './supertonic'
-import { parseLyrics } from './lyrics'
-import { loadPhonemes } from './phonemes'
+import { loadEngine, disposeEngine } from './supertonic'
+import { parseLyrics, type WordSpan } from './lyrics'
+import { loadPhonemes, disposePhonemes } from './phonemes'
 import { assembleGuide, parseMelodyMini, type Seg } from './warp'
-import { alignedSegments } from './segment'
+import { alignedSegments, type WordReq } from './segment'
 import { psola, estimateF0 } from './psola'
 import type { MelodyNote } from './warp'
-import { loadRvc, rvcConvert } from './rvc'
+import { loadRvc, rvcConvert, disposeRvc } from './rvc'
+import { sequentialSingSessions } from './config'
+import { runStages, type SingStage } from './lifecycle'
+import { markPhase } from './bakephase'
 
 /** Coarse progress for the render dialog. `phase` names the stage; when a model
  *  is downloading, done/total are bytes. */
@@ -40,6 +43,68 @@ function trimSilence(x: Float32Array): Float32Array {
   return x.subarray(a, b)
 }
 
+/** One TTS phrase: the words it covers and the alignment requests for them. */
+interface Phrase {
+  words: WordSpan[]
+  text: string
+  reqs: WordReq[]
+}
+
+/** Best-of-N takes per phrase: Supertonic is non-deterministic and can render
+ *  a syllable weakly, so we try a few takes and keep the strongest. */
+const TAKES = 3
+
+/** Split the song into TTS phrases at the sustained (>=1.4x median duration)
+ *  notes = line ends, where a singer breathes. This is the sweet spot for
+ *  Supertonic:
+ *  - a whole verse is too long — the CTC/segmentation loses syllables;
+ *  - a single word is too short — Supertonic renders isolated function words
+ *    ("I", "a") and even "twinkle" as near-silence;
+ *  - and SLOW speed makes it drop the second of a repeated word ("twinkle
+ *    twinkle"). A normal-speed phrase keeps every syllable audible and gives
+ *    the segmenter enough context. */
+function splitPhrases(words: WordSpan[], melody: MelodyNote[]): Phrase[] {
+  const sortedDurs = melody.map((n) => n.dur).sort((a, b) => a - b)
+  const medDur = sortedDurs[sortedDurs.length >> 1] ?? 0
+  const bounds: number[] = []
+  for (let i = 0; i < melody.length; i++) {
+    if (melody[i]!.dur >= medDur * 1.4 || i === melody.length - 1) bounds.push(i + 1)
+  }
+  const phrases: Phrase[] = []
+  let from = 0
+  for (const to of bounds) {
+    // words whose syllable slots fall in [from,to) make this phrase
+    const phraseWords = words.filter((w) => w.slots[0]! >= from && w.slots[0]! < to)
+    from = to
+    const text = phraseWords.map((w) => w.text).join(' ')
+    if (!text) continue
+    phrases.push({ words: phraseWords, text, reqs: phraseWords.map((w) => ({ text: w.text, syllableCount: w.syllableCount })) })
+  }
+  return phrases
+}
+
+/** BEST-OF-N: align takes in order and keep the one whose WEAKEST syllable is
+ *  loudest, stopping early once a take clears a comfortable floor. (Forced
+ *  alignment already prevents dropped words; this just favours a cleaner
+ *  take.) `nextTake` yields successive takes and null when out: synthesized
+ *  lazily on desktop (the early stop skips unneeded synthesis), pre-rendered
+ *  on constrained devices (the TTS sessions are already disposed by then). */
+async function pickBestTake(nextTake: () => Promise<Float32Array | null>, sr: number, reqs: WordReq[]): Promise<Seg[]> {
+  let best: Seg[] | null = null
+  let bestScore = -1
+  for (;;) {
+    const spoken = await nextTake()
+    if (spoken === null) break
+    markPhase('align')
+    const ws = await alignedSegments(spoken, sr, reqs)
+    let minRms = Infinity
+    for (const s of ws) minRms = Math.min(minRms, rms(s.vowel))
+    if (minRms > bestScore) { bestScore = minRms; best = ws }
+    if (minRms > 0.02) break
+  }
+  return best ?? []
+}
+
 export async function renderNeural(
   lyrics: string,
   notes: string,
@@ -53,82 +118,129 @@ export async function renderNeural(
     throw new Error(`sing(): ${parsed.slots.length} syllables but ${melody.length} notes`)
   }
 
-  const engine = await loadEngine((p) => onProgress?.({ phase: p.phase, label: p.label, done: p.done, total: p.total }))
-  const sr = engine.sampleRate
-  await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
-
-  // Synthesize per PHRASE (split at the sustained @2 notes = line ends, where a
-  // singer breathes), at NORMAL speed. This is the sweet spot for Supertonic:
-  //  - a whole verse is too long — the CTC/segmentation loses syllables;
-  //  - a single word is too short — Supertonic renders isolated function words
-  //    ("I", "a") and even "twinkle" as near-silence;
-  //  - and SLOW speed makes it drop the second of a repeated word ("twinkle
-  //    twinkle"). A normal-speed phrase keeps every syllable audible and gives the
-  //    segmenter enough context. We segment each phrase into its syllables, then
-  //    assemble the whole song vowel-on-beat in one pass so nothing drifts.
-  const sortedDurs = melody.map((n) => n.dur).sort((a, b) => a - b)
-  const medDur = sortedDurs[sortedDurs.length >> 1] ?? 0
-  const bounds: number[] = []
-  for (let i = 0; i < melody.length; i++) {
-    if (melody[i]!.dur >= medDur * 1.4 || i === melody.length - 1) bounds.push(i + 1)
-  }
+  const phrases = splitPhrases(parsed.words, melody)
   const empty = new Float32Array(0)
   const silent: Seg = { onset: empty, vowel: empty, coda: empty }
   const segs: Seg[] = new Array<Seg>(parsed.slots.length).fill(silent)
-  let from = 0
-  for (let bi = 0; bi < bounds.length; bi++) {
-    const to = bounds[bi]!
-    // words whose syllable slots fall in [from,to) make this phrase
-    const phraseWords = parsed.words.filter((w) => w.slots[0]! >= from && w.slots[0]! < to)
-    const text = phraseWords.map((w) => w.text).join(' ')
-    if (!text) { from = to; continue }
-    const reqs = phraseWords.map((w) => ({ text: w.text, syllableCount: w.syllableCount }))
-    onProgress?.({ phase: 'synthesize', label: `phrase ${bi + 1}/${bounds.length}`, done: bi, total: bounds.length })
-    // BEST-OF-N: Supertonic is non-deterministic and can render a syllable weakly.
-    // Synthesize a few takes and keep the one whose WEAKEST syllable is loudest.
-    // (Forced alignment already prevents dropped words; this just favours a
-    // cleaner take.) Stop early once a take clears a comfortable floor.
-    let best: Seg[] | null = null
-    let bestScore = -1
-    for (let take = 0; take < 3; take++) {
-      const spoken = trimSilence(await engine.synthesize(text, { speed: 1.0 }))
-      const ws = await alignedSegments(spoken, sr, reqs)
-      let minRms = Infinity
-      for (const s of ws) minRms = Math.min(minRms, rms(s.vowel))
-      if (minRms > bestScore) { bestScore = minRms; best = ws }
-      if (minRms > 0.02) break
-    }
-    const ws = best ?? []
-    // map each word's syllable segments onto its slots (melisma slots repeat the
-    // last syllable so it holds across those notes; rests stay silent).
+  // map each word's syllable segments onto its slots (melisma slots repeat the
+  // last syllable so it holds across those notes; rests stay silent).
+  const applySegs = (phrase: Phrase, ws: Seg[]): void => {
     let k = 0
-    for (const w of phraseWords) {
+    for (const w of phrase.words) {
       for (let s = 0; s < w.slots.length; s++) {
         segs[w.slots[s]!] = ws[k + Math.min(s, w.syllableCount - 1)] ?? silent
       }
       k += w.syllableCount
     }
-    from = to
   }
-  const { guide, f0 } = assembleGuide(segs, melody, sr)
-  const loopN = guide.length // samples at `sr` = one musical cycle
 
-  // TAIL PAD: RVC's generator rolls its pitch off at the very END of the clip, so
-  // the final held note renders ~50 cents flat (proven: the same word mid-song is
-  // in tune). Repeat the last chunk of the guide + hold its f0 so the roll-off
-  // lands on throwaway padding, then trim it back to the exact loop length.
-  const padN = Math.floor(RVC_TAILPAD_S * sr)
-  const padF = Math.floor(RVC_TAILPAD_S * 100)
-  const gp = new Float32Array(loopN + padN)
-  gp.set(guide)
-  gp.set(guide.subarray(Math.max(0, loopN - padN)), loopN)
-  const fp = new Float32Array(f0.length + padF)
-  fp.set(f0)
-  fp.fill(f0[f0.length - 1] ?? 0, f0.length)
+  // On constrained devices (sequential=true) the three model stages run one at
+  // a time and each stage's sessions are DISPOSED before the next stage loads,
+  // so peak session memory is the largest single stage, not the sum — the
+  // model BYTES stay in the Cache API, so a later bake re-creates sessions
+  // from disk without re-downloading. The price: TTS and alignment can't
+  // interleave, so every phrase synthesizes all TAKES takes up front (raw
+  // audio, a few MB) and the aligner picks the best afterwards. On desktop the
+  // singletons persist and TTS+alignment interleave exactly as before.
+  const sequential = sequentialSingSessions()
+  const takesByPhrase: Float32Array[][] = []
+  let sr = 0
+  let guide!: Float32Array
+  let loopN = 0
+  let audio!: Float32Array
+  let osr = 0
 
-  await loadRvc(voice, (p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
-  onProgress?.({ phase: 'sing', label: 'singing', done: 0, total: 1 })
-  const { audio, sr: osr } = await rvcConvert(gp, sr, fp, voice)
+  const stages: SingStage[] = [
+    {
+      name: 'tts',
+      run: async (): Promise<void> => {
+        markPhase('create:tts')
+        const engine = await loadEngine((p) => onProgress?.({ phase: p.phase, label: p.label, done: p.done, total: p.total }))
+        sr = engine.sampleRate
+        if (sequential) {
+          // synth-only pass: every take now, alignment scores them later
+          for (let pi = 0; pi < phrases.length; pi++) {
+            onProgress?.({ phase: 'synthesize', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })
+            const takes: Float32Array[] = []
+            for (let t = 0; t < TAKES; t++) {
+              markPhase('render:tts')
+              takes.push(trimSilence(await engine.synthesize(phrases[pi]!.text, { speed: 1.0 })))
+            }
+            takesByPhrase.push(takes)
+          }
+          return
+        }
+        // desktop: aligner alongside the TTS, synth/align interleaved so the
+        // best-take early stop skips unneeded synthesis
+        await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
+        for (let pi = 0; pi < phrases.length; pi++) {
+          const phrase = phrases[pi]!
+          onProgress?.({ phase: 'synthesize', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })
+          let take = 0
+          const ws = await pickBestTake(async () => {
+            if (take++ >= TAKES) return null
+            markPhase('render:tts')
+            return trimSilence(await engine.synthesize(phrase.text, { speed: 1.0 }))
+          }, sr, phrase.reqs)
+          applySegs(phrase, ws)
+        }
+      },
+      dispose: disposeEngine,
+    },
+    {
+      name: 'align',
+      run: async (): Promise<void> => {
+        if (!sequential) return // already aligned interleaved with the TTS
+        await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
+        for (let pi = 0; pi < phrases.length; pi++) {
+          onProgress?.({ phase: 'align', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })
+          const takes = takesByPhrase[pi] ?? []
+          let i = 0
+          const ws = await pickBestTake(async () => {
+            const t = takes[i]
+            if (t === undefined) return null
+            takes[i++] = empty // drop the reference once consumed
+            return t
+          }, sr, phrases[pi]!.reqs)
+          applySegs(phrases[pi]!, ws)
+        }
+        takesByPhrase.length = 0
+      },
+      dispose: disposePhonemes,
+    },
+    {
+      name: 'rvc',
+      run: async (): Promise<void> => {
+        markPhase('warp')
+        const { guide: g, f0 } = assembleGuide(segs, melody, sr)
+        guide = g
+        loopN = guide.length // samples at `sr` = one musical cycle
+
+        // TAIL PAD: RVC's generator rolls its pitch off at the very END of the
+        // clip, so the final held note renders ~50 cents flat (proven: the same
+        // word mid-song is in tune). Repeat the last chunk of the guide + hold
+        // its f0 so the roll-off lands on throwaway padding, then trim it back
+        // to the exact loop length.
+        const padN = Math.floor(RVC_TAILPAD_S * sr)
+        const padF = Math.floor(RVC_TAILPAD_S * 100)
+        const gp = new Float32Array(loopN + padN)
+        gp.set(guide)
+        gp.set(guide.subarray(Math.max(0, loopN - padN)), loopN)
+        const fp = new Float32Array(f0.length + padF)
+        fp.set(f0)
+        fp.fill(f0[f0.length - 1] ?? 0, f0.length)
+
+        await loadRvc(voice, (p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
+        onProgress?.({ phase: 'sing', label: 'singing', done: 0, total: 1 })
+        markPhase('rvc')
+        const out = await rvcConvert(gp, sr, fp, voice)
+        audio = out.audio
+        osr = out.sr
+      },
+      dispose: disposeRvc,
+    },
+  ]
+  await runStages(stages, sequential)
 
   // HARD-TUNE off notes to the known melody. RVC leaks a little of the content's
   // own pitch, so some sustained notes (esp. phrase-final ones, low from
@@ -147,6 +259,7 @@ export async function renderNeural(
   const keep = Math.min(audio.length, Math.round((loopN / sr) * osr))
   const loop = audio.subarray(0, keep)
   const rotated = rotateLeft(loop, measureLagSamples(guide, sr, loop, osr))
+  markPhase('done')
   return { audio: rotated, sr: osr }
 }
 

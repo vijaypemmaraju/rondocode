@@ -87,11 +87,13 @@ p('seq', note('c4*2 e4? <g4 a4>/2 [c5 b4 | e5 d5]').scale('c major').sound('pluc
       ),
       p("Write a Euclidean rhythm inline with (pulses, steps): it spreads the pulses as evenly as it can, so (3,8) is the tresillo. And `{a b c, d e}%n` is polymeter, several voices running at n steps per cycle so they drift against each other."),
       code(
-        'Euclid (p,s) and polymeter {…}%n.',
-        `const pluck = synth(({ note, gate, adsr, tri }) =>
+        'Euclid (p,s) and polymeter {…}%n. Two parts get two synths in two registers, so the lines stay distinct instead of overlapping on one voice.',
+        `const tick = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.002, d: 0.06, s: 0, r: 0.04 })))
+const pluck = synth(({ note, gate, adsr, tri }) =>
   tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.15, s: 0, r: 0.1 })))
 
-p('euclid', note('c4(3,8)').sound('pluck'))
+p('euclid', note('c6(3,8)').sound('tick').gain(0.6))
 p('poly', note('{c3 e3 g3, c4 b3}%4').sound('pluck').gain(0.5))`,
       ),
       p('The API reference panel (search or scroll to Mini-notation) lists every operator with a one-line description, `*` `/` `!` `@` `~` `_` `[]` `<>` `{}` `?` `|` and the euclid form, in one place.'),

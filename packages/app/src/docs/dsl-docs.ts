@@ -188,6 +188,12 @@ const GLOBALS: DocEntry[] = [
     "defineSynth('acid', synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate))))",
   ),
   g(
+    'defineScale',
+    "defineScale(name: string, spec: number[] | { cents: number[]; periodCents?: number } | { ratios: number[]; periodRatio?: number })",
+    "Register a custom tuning for .scale(): step offsets in semitones from the root (floats are microtones), cents, or frequency ratios, with an optional period for non-octave tunings; the arrays are plain values, so adding or removing a note is editing the array. Any 'Nedo' name (c 19edo) works without defining anything.",
+    "defineScale('pelog', { cents: [0, 120, 270, 540, 670, 785, 950] })",
+  ),
+  g(
     'setCps',
     'setCps(cps: number)',
     'Set the tempo in cycles per second (0.5 cps with 4 beats per cycle is 120 bpm).',

@@ -207,4 +207,46 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
       .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
     expect(sounding.length).toBeGreaterThan(0)
   })
+
+  it('scaledef end-to-end: a custom tuning compiles, evals, and sounds fractional notes', () => {
+    const src = [
+      'scaledef pelog 0 1.2 2.7 6.7 7.85',
+      '',
+      'synth glass',
+      '  tri',
+      '  * env',
+      '  env = adsr .005 .3 .2 .3',
+      '',
+      'play glass',
+      '  0 1 2 5',
+      '  scale: c-pelog',
+      '',
+      'play glass2 synth:glass',
+      // the generic edo names need no scaledef at all
+      '  0 3 6  scale:c-19edo',
+      '',
+      'cps .5',
+      '',
+    ].join('\n')
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    const notes = result.patterns.get('glass')!
+      .query(new TimeSpan(F(0), F(1)))
+      .filter(hasOnset)
+      .map((h) => h.value.note as number)
+    // degrees 0 1 2 5 in pelog (period 12): 60, 61.2, 62.7, 72
+    expect(notes[0]).toBe(60)
+    expect(notes[1]).toBeCloseTo(61.2, 10)
+    expect(notes[2]).toBeCloseTo(62.7, 10)
+    expect(notes[3]).toBe(72)
+    const edo = result.patterns.get('glass2')!
+      .query(new TimeSpan(F(0), F(1)))
+      .filter(hasOnset)
+      .map((h) => h.value.note as number)
+    expect(edo[1]).toBeCloseTo(60 + (3 * 12) / 19, 10)
+  })
 })

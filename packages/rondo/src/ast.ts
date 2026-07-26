@@ -127,6 +127,15 @@ export interface MasterItem {
   pos: Pos
 }
 
+/** `scaledef NAME v1 v2 …` — register a custom tuning: step offsets in
+ *  semitones from the root (floats welcome) → defineScale(NAME, [v…]). */
+export interface ScaleDefItem {
+  t: 'scaledef'
+  name: string
+  values: number[]
+  pos: Pos
+}
+
 /** A `bus NAME` block: an FX spine folded from `input` + `send SYNTH AMT`
  *  routing lines. */
 export interface BusBlock {
@@ -182,7 +191,7 @@ export interface SingBlock {
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
-  | SectionBlock | SongItem | SingBlock
+  | SectionBlock | SongItem | SingBlock | ScaleDefItem
 
 export interface Program {
   items: TopItem[]

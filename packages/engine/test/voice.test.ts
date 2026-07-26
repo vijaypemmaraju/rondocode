@@ -102,6 +102,23 @@ describe('Voice', () => {
     }
   })
 
+  it('FRACTIONAL midi notes render exact microtones: 60.5 sits 2^(0.5/12) above 60', () => {
+    // The microtonal foundation the scales layer builds on (EDO / defineScale):
+    // note→frequency is 440·2^((n−69)/12) over ALL numbers, so a fractional
+    // note is a real pitch, not a rounded one.
+    const pool = new VoicePool(sineAdsrSpec(), ctx, 1)
+    pool.noteOn(60.5, 1) // an exact quarter-tone above middle C
+    const { L } = render(pool, SR)
+    assertFinite(L)
+    const win = L.subarray(SR / 2) // sustained half, past the attack
+    const target = midiHz(60.5)
+    expect(target).toBeCloseTo(midiHz(60) * 2 ** (0.5 / 12), 9)
+    const pTarget = goertzel(win, target, SR)
+    // the quarter-tone bin dominates BOTH neighboring semitones by a wide margin
+    expect(pTarget).toBeGreaterThan(goertzel(win, midiHz(60), SR) * 50)
+    expect(pTarget).toBeGreaterThan(goertzel(win, midiHz(61), SR) * 50)
+  })
+
   it('noteOff decays below 1e-4 within r + 0.1s, then goes inactive after 8 silent blocks', () => {
     const pool = new VoicePool(acidSpec(), ctx, 2)
     pool.noteOn(45, 1)

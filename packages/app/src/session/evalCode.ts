@@ -1,7 +1,7 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note, TimeSpan, F, hasOnset } from '@rondocode/pattern'
+import { MiniError, Pattern, note, TimeSpan, F, hasOnset, clearCustomScales, snapshotCustomScales, restoreCustomScales } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
 import { busGraph, tapLoc, synth } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
@@ -779,6 +779,18 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
   values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus, sing, tapLoc)
 
+  // Custom-scale registry lifecycle. defineScale (from the scope) writes a
+  // MODULE-GLOBAL registry in the pattern package, the one exception to
+  // "registrations land in per-eval maps": .scale('c custom') must resolve
+  // while this eval's code RUNS, so the registry can't be staged and applied
+  // later. The all-or-nothing contract is kept by hand — clear before the
+  // run (a removed defineScale call must not leave a stale scale), restore
+  // the previous registry on ANY failure (last-good patterns re-resolve
+  // scale names at query time in .add/.sub, so a failed eval must not yank
+  // their scales), keep the new registry only when the eval is applied.
+  const priorScales = snapshotCustomScales()
+  clearCustomScales()
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const fn = new Function(...names, `'use strict';\n${transformed}`)
@@ -789,7 +801,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       e instanceof MiniError ? mapMiniError(e, source, program) : mapRuntimeError(e, lineCount),
     )
     // All-or-nothing: partial registrations from before the throw are
-    // DISCARDED — fresh empty maps, never the staging ones.
+    // DISCARDED — fresh empty maps, never the staging ones — and the
+    // custom-scale registry rolls back with them.
+    restoreCustomScales(priorScales)
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   } finally {
     sealed = true
@@ -805,6 +819,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   ]
   if (stagingErrors.length > 0) {
     diagnostics.push(...stagingErrors)
+    restoreCustomScales(priorScales) // this version is not applied — roll scales back too
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   }
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).

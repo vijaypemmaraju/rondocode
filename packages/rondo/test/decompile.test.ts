@@ -196,6 +196,52 @@ describe('decompile round-trips (audit additions)', () => {
     const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0\n\nmaster\n')
     expect(rondo2).toContain('\nmaster\n')
   })
+
+  it('scaledef lines round-trip (floats, negatives, custom scale references)', () => {
+    const { rondo2 } = fixedPoint(
+      'scaledef pelog 0 1.2 2.7 5.4 6.7\n\nsynth s\n  saw\n\nplay s\n  0 1 2  scale:c-pelog\n',
+    )
+    expect(rondo2).toContain('scaledef pelog 0 1.2 2.7 5.4 6.7')
+    expect(rondo2).toContain('scale: c-pelog')
+    fixedPoint('scaledef odd -1.5 0 2.25\n\nsynth s\n  saw\n\nplay s\n  0\n')
+  })
+
+  it('edo and long-mode scale names round-trip', () => {
+    const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5  scale:c-19edo\n')
+    expect(rondo2).toContain('scale: c-19edo')
+    fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5\n  scale: e-minorPentatonic\n')
+  })
+
+  it('non-sugar defineScale forms bail to js blocks (totality): cents spec, non-literal args, 1 step', () => {
+    for (const stmt of [
+      "defineScale('pelog', { cents: [0, 120, 270] })",
+      'defineScale(name, [0, 1, 2])',
+      "defineScale('x', [0, y])",
+      "defineScale('one', [0])",
+      "defineScale('bad name', [0, 1])",
+    ]) {
+      const r = decompile(stmt + '\n')
+      expect(r, stmt).toContain('js\n')
+      expect(r, stmt).toContain(stmt)
+      expect(r).not.toContain('scaledef')
+      // totality: the wrapped block compiles back to the same statement
+      const back = compile(r)
+      expect(back.ok).toBe(true)
+      if (back.ok) expect(back.code.trim()).toBe(stmt)
+    }
+  })
+
+  it('a .scale() whose name cannot re-lex as `scale:root-mode` bails to a js block', () => {
+    for (const js of [
+      "p('s', n('0').scale('h weird').sound('s'))\n", // root outside a..g
+      "p('s', n('0').scale('c bad-name').sound('s'))\n", // '-' inside the mode
+      "p('s', n('0').scale('c one two').sound('s'))\n", // three words
+    ]) {
+      const r = decompile(js)
+      expect(r, js).toContain('js\n')
+      expect(r, js).not.toContain('scale:')
+    }
+  })
 })
 
 describe('decompile cosmetics', () => {

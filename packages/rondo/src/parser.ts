@@ -462,9 +462,11 @@ function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolean {
   return COMB_WORDS.has(first)
 }
 
-/** Extract notation text (before an inline `scale:`) from a body line. */
+/** Extract notation text (before an inline `scale:`) from a body line.
+ *  The name char class includes uppercase + underscore so long mode names
+ *  (`minorPentatonic`) and `scaledef` names round-trip whole. */
 function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: number; scale?: string } {
-  const m = /\bscale:([a-gA-G][a-z0-9#-]*)/.exec(ln.raw)
+  const m = /\bscale:([a-gA-G][a-zA-Z0-9#_-]*)/.exec(ln.raw)
   const raw = m ? ln.raw.slice(0, m.index) : ln.raw
   const notation = raw.replace(/\s+$/, '')
   // near-miss like `scale:minor` (no a–g root) doesn't match the extractor —
@@ -532,7 +534,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   for (const ln of modLines) {
     // `scale: a-min` as a modifier line (the stacked-voices form needs it
     // somewhere other than inline)
-    const sm = /^scale[ \t]*:[ \t]*([a-gA-G][a-z0-9#-]*)[ \t]*$/.exec(ln.raw)
+    const sm = /^scale[ \t]*:[ \t]*([a-gA-G][a-zA-Z0-9#_-]*)[ \t]*$/.exec(ln.raw)
     if (sm) { scale = sm[1]; scalePos = { line: ln.line, col: ln.rawCol }; continue }
     const mod = parseMod(ln, errors)
     if (mod) mods.push(mod)
@@ -669,6 +671,31 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push(item)
       i++
     }
+    // `scaledef pelog 0 1.2 2.7 5.4 6.7` → defineScale('pelog', [0, …]):
+    // a custom tuning, steps in semitones from the root (floats welcome)
+    else if (head.v === 'scaledef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'scaledef needs a name (`scaledef pelog 0 1.2 2.7 5.4 6.7`)', line: ln.line, col: ln.rawCol })
+      }
+      const values: number[] = []
+      let bad = false
+      for (let k = 2; k < ln.toks.length; k++) {
+        const t = ln.toks[k]!
+        if (t.k !== 'num') {
+          errors.push({ message: 'scaledef steps are numbers — semitones from the root, floats welcome', line: t.pos.line, col: t.pos.col })
+          bad = true
+          break
+        }
+        values.push(t.v)
+      }
+      if (!bad && values.length < 2) {
+        errors.push({ message: 'scaledef needs at least 2 steps (`scaledef pelog 0 1.2 2.7 5.4 6.7`)', line: ln.line, col: ln.rawCol })
+      }
+      items.push({ t: 'scaledef', name, values, pos: head.pos })
+      i++
+    }
     // `master threshold:-6 ratio:2 …` → masterCompress(opts)
     else if (head.v === 'master') {
       const opts: Record<string, number> = {}
@@ -765,7 +792,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bus / sidechain / master / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bus / sidechain / master / scaledef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

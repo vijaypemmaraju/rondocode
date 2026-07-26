@@ -51,7 +51,10 @@ class R {
 const SYNTH_NAMES = ['kickx', 'bassx', 'leadx', 'padx', 'keysx', 'subby', 'arpx', 'stab'] as const
 const BINDING_NAMES = ['e1', 'en2', 'cut', 'wet2', 'lf1', 'amt', 'mo', 'dp'] as const
 const ENUM_WORDS = ['pink', 'white', 'tri', 'sine', 'saw', 'hp', 'lp', 'bell', 'tube', 'soft'] as const
-const SCALES = ['a-min', 'c-maj', 'e-dor', 'g-phr', 'd-lyd'] as const
+const SCALES = ['a-min', 'c-maj', 'e-dor', 'g-phr', 'd-lyd', 'c-19edo', 'd-pelogx'] as const
+// scaledef names: must not collide with builtins/synths/bindings
+const SCALEDEF_NAMES = ['pelogx', 'slendro', 'bellcurve', 'quartz'] as const
+const SCALEDEF_STEPS = ['0', '.5', '1.2', '2.7', '3.86', '5.4', '-1.1', '7.02', '9.7', '10.9'] as const
 const SMALL = ['.1', '.25', '.3', '.5', '.75', '.85', '.9'] as const
 const FREQS = ['55', '110', '220', '440', '800', '1200', '2400', '5200'] as const
 const TIMES = ['.003', '.01', '.05', '.1', '.2', '.4'] as const
@@ -348,6 +351,11 @@ export function genProgram(seed: number): string {
     if (r.chance(0.35)) blocks.push(genBeat(r, synths))
   }
 
+  if (r.chance(0.2)) {
+    // custom tuning: 3-7 float steps (compile/decompile only — never eval'd)
+    const vals = Array.from({ length: r.int(3, 7) }, () => r.pick(SCALEDEF_STEPS))
+    blocks.push(`scaledef ${r.pick(SCALEDEF_NAMES)} ${vals.join(' ')}`)
+  }
   if (r.chance(0.15) && synths.length >= 2) {
     blocks.push(`sidechain ${synths[0]!.name} depth:${r.pick(SMALL)} release:.09 ${synths[1]!.name}:${r.pick(SMALL)}`)
   }

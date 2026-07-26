@@ -551,6 +551,63 @@ describe('evalCode: all-or-nothing staging', () => {
   })
 })
 
+describe('evalCode: custom-scale registry lifecycle', () => {
+  const BELL_SRC = `const k = ${SYNTH_SRC}\ndefineScale('bell', [0, 1.4, 3.8])\np('a', n('0 1').scale('c bell').sound('k'))`
+
+  it('defineScale + .scale() resolve within one eval, notes carry the microtones', () => {
+    const r = run(BELL_SRC)
+    expect(r.ok, JSON.stringify(r.diagnostics)).toBe(true)
+    const notes = cycle0(r.patterns.get('a')!).map((h) => h.value.note as number)
+    expect(notes[0]).toBe(60)
+    expect(notes[1]).toBeCloseTo(61.4, 10)
+  })
+
+  it('a REMOVED defineScale call does not leak into the next eval', () => {
+    expect(run(BELL_SRC).ok).toBe(true)
+    // next eval has no defineScale('bell') — .scale('c bell') must throw,
+    // not silently resolve through last eval's registry
+    const r = run(`const k = ${SYNTH_SRC}\np('a', n('0').scale('c bell').sound('k'))`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toMatch(/unknown scale 'bell'/)
+  })
+
+  it('a FAILED eval restores the previous registry (last-good .add() keeps re-resolving)', () => {
+    const good = run(`${BELL_SRC.replace(".scale('c bell')", ".scale('c bell').add(1)")}`)
+    expect(good.ok).toBe(true)
+    // a broken next eval must not yank 'bell' from under the still-playing
+    // pattern: .add() after .scale() re-parses the scale name at QUERY time
+    const bad = run(`defineScale('other', [0, 1])\nthrow new Error('boom')`)
+    expect(bad.ok).toBe(false)
+    const notes = cycle0(good.patterns.get('a')!).map((h) => h.value.note as number)
+    expect(notes[0]).toBeCloseTo(61.4, 10) // degree 0+1 → 1.4 above the root
+    // and the failed eval's own defineScale rolled back with it
+    const after = run(`const k = ${SYNTH_SRC}\np('a', n('0').scale('c other').sound('k'))`)
+    expect(after.ok).toBe(false)
+  })
+
+  it('an eval failing STAGING VALIDATION rolls the registry back too', () => {
+    expect(run(BELL_SRC).ok).toBe(true)
+    // ctrl() of an undeclared param fails after the code ran — the version is
+    // not applied, so its scale registrations must not stick either
+    const bad = run(
+      `const k = ${SYNTH_SRC}\ndefineScale('stuck', [0, 1])\np('a', n('0').sound('k').ctrl('nope', 1))`,
+    )
+    expect(bad.ok).toBe(false)
+    const q = run(`const k = ${SYNTH_SRC}\np('a', n('0').scale('c stuck').sound('k'))`)
+    expect(q.ok).toBe(false) // 'stuck' never became live
+    // while 'bell' (the last APPLIED eval when 'bad' failed) was restored for
+    // the still-playing patterns; this NEW eval clears it again as usual
+    expect(q.diagnostics[0]!.message).toMatch(/unknown scale 'stuck'/)
+  })
+
+  it('redefining the same scale across evals is silent (idempotent re-runs)', () => {
+    expect(run(BELL_SRC).ok).toBe(true)
+    const r2 = run(BELL_SRC)
+    expect(r2.ok).toBe(true)
+    expect(r2.diagnostics).toEqual([])
+  })
+})
+
 describe('evalCode: ctrl() param validation', () => {
   // A synth with a VOICE param 'cutoff' and a POST param 'wet'.
   const VOICE_POST_SYNTH =

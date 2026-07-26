@@ -79,8 +79,8 @@ export const buzz = (ms = 8): void => {
 export function rollPreviewMidi(scaleShort: string | undefined, degree: number): number | undefined {
   if (scaleShort === undefined) return undefined
   try {
-    const { root, intervals } = parseScaleName(expandScale(scaleShort))
-    return root + scaleDegree(intervals, degree)
+    const { root, intervals, period } = parseScaleName(expandScale(scaleShort))
+    return root + scaleDegree(intervals, degree, period)
   } catch {
     return undefined
   }

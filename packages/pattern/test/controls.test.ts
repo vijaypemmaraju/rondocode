@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MiniError, Pattern, mini, n, note, s, sine, sound } from '../src/index'
+import { MiniError, Pattern, clearCustomScales, defineScale, mini, n, note, s, sine, sound } from '../src/index'
 import type { ControlMap } from '../src/index'
 import { q, qw } from './helpers'
 
@@ -196,6 +196,29 @@ describe('.scale()', () => {
 
   it('throws on an unknown scale name', () => {
     expect(() => n('0').scale('c nope')).toThrow()
+  })
+
+  it('resolves microtonal scales: 19edo degrees land on fractional midi', () => {
+    const p = n('0 1 19').scale('c 19edo')
+    const notes = q(p, 0, 1).map(([, , c]) => (c as ControlMap).note as number)
+    expect(notes[0]).toBe(60)
+    expect(notes[1]).toBeCloseTo(60 + 12 / 19, 12)
+    expect(notes[2]).toBe(72) // one full octave after 19 steps
+  })
+
+  it('resolves defineScale customs, and wraps by their period', () => {
+    defineScale('bell', [0, 1.4, 3.8])
+    try {
+      const p = n('0 1 2 3 -1').scale('c bell')
+      const notes = q(p, 0, 1).map(([, , c]) => (c as ControlMap).note as number)
+      expect(notes[0]).toBe(60)
+      expect(notes[1]).toBeCloseTo(61.4, 10)
+      expect(notes[2]).toBeCloseTo(63.8, 10)
+      expect(notes[3]).toBe(72) // wrap: degree 3 = root + period
+      expect(notes[4]).toBeCloseTo(60 + 3.8 - 12, 10)
+    } finally {
+      clearCustomScales()
+    }
   })
 })
 

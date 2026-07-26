@@ -71,6 +71,12 @@ export function mountDocs(editor: EditorHandle): DocsHandle {
   full.target = '_blank'
   full.rel = 'noopener'
   head.append(full)
+  const gh = el('a', 'docs-full-link') as HTMLAnchorElement
+  gh.append('GitHub ', iconEl('external'))
+  gh.href = 'https://github.com/vijaypemmaraju/rondocode'
+  gh.target = '_blank'
+  gh.rel = 'noopener'
+  head.append(gh)
   const closeBtn = el('button', 'sheet-close')
   closeBtn.type = 'button'
   closeBtn.innerHTML = icon('x')

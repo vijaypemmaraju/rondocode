@@ -227,7 +227,16 @@ export function mountTour(
         // otherwise create it - the library's own "new project" path, so the
         // user's current project is saved and kept, never clobbered.
         const reopened = await lib.openByName(WELCOME_PROJECT_NAME)
-        if (!reopened) await lib.createAndOpen(WELCOME_PROJECT_NAME, welcomeCode(lang), lang)
+        if (!reopened) {
+          await lib.createAndOpen(WELCOME_PROJECT_NAME, welcomeCode(lang), lang)
+        } else if (editor.getLang() !== lang) {
+          // the survey answer CHANGED since this welcome was made (user
+          // report: "I write JavaScript" reopened a rondo doc). Reseed the
+          // project in the chosen language - predictable beats preserving
+          // edits written in a language they just opted out of.
+          editor.setLang(lang)
+          editor.loadCode(welcomeCode(lang))
+        }
       } catch (e) {
         // no project library (IDB mount failed): still land on the welcome
         // track so the coach-mark anchors exist

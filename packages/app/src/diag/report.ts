@@ -180,3 +180,27 @@ export const serializeReport = (
   for (const e of log) lines.push(`  ${formatLogTime(e.atMs)}  ${e.message}`)
   return lines.join('\n')
 }
+
+/** Render base/output latency with a plausibility guard: iOS WebKit has been
+ *  seen reporting outputLatency as garbage (tens of MILLIONS of ms). Any
+ *  latency outside (0, 2] seconds is a browser reporting bug, not a real
+ *  latency - surface it as a warn instead of blessing it. Pure. */
+export function latencySummary(baseSec: number | undefined, outSec: number | undefined): { status: 'pass' | 'warn'; detail: string } {
+  const plausible = (v: number): boolean => v > 0 && v <= 2
+  const fmt = (v: number): string => `${(v * 1000).toFixed(1)} ms`
+  const parts: string[] = []
+  let status: 'pass' | 'warn' = typeof baseSec === 'number' ? 'pass' : 'warn'
+  if (typeof baseSec !== 'number') parts.push('base unavailable')
+  else if (plausible(baseSec)) parts.push(`base ${fmt(baseSec)}`)
+  else {
+    parts.push(`base IMPLAUSIBLE (browser reported ${baseSec})`)
+    status = 'warn'
+  }
+  if (typeof outSec !== 'number' || outSec === 0) parts.push('outputLatency unavailable')
+  else if (plausible(outSec)) parts.push(`output ${fmt(outSec)}`)
+  else {
+    parts.push(`output IMPLAUSIBLE (browser reported ${outSec}; a WebKit reporting bug, not real latency)`)
+    status = 'warn'
+  }
+  return { status, detail: parts.join(', ') }
+}

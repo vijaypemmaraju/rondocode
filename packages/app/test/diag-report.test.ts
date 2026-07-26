@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  cadenceStats,
-  deriveCadenceStatus,
-  formatLogTime,
-  parseUserAgent,
-  rmsDb,
-  serializeReport,
-  statusGlyph,
-  statusLabel,
-} from '../src/diag/report'
+import { cadenceStats, deriveCadenceStatus, formatLogTime, latencySummary, parseUserAgent, rmsDb, serializeReport, statusGlyph, statusLabel } from '../src/diag/report'
 import type { CadenceSample, CheckResult } from '../src/diag/report'
 
 const IPHONE_SAFARI =
@@ -165,5 +156,27 @@ describe('serializeReport', () => {
     const text = serializeReport([], [], { generatedAt: 'now' })
     expect(text).toContain('[EVENT LOG]\n  (empty)')
     expect(text).not.toContain('url:')
+  })
+})
+
+describe('latencySummary (plausibility guard)', () => {
+  it('passes normal values', () => {
+    const r = latencySummary(0.0027, 0.012)
+    expect(r.status).toBe('pass')
+    expect(r.detail).toBe('base 2.7 ms, output 12.0 ms')
+  })
+  it('warns on the iOS garbage-outputLatency bug (field report: 94850321.7 ms)', () => {
+    const r = latencySummary(0.0027, 94850.3217)
+    expect(r.status).toBe('warn')
+    expect(r.detail).toContain('output IMPLAUSIBLE')
+    expect(r.detail).toContain('base 2.7 ms')
+  })
+  it('warns on a missing baseLatency; zero output reads unavailable', () => {
+    const r = latencySummary(undefined, 0)
+    expect(r.status).toBe('warn')
+    expect(r.detail).toBe('base unavailable, outputLatency unavailable')
+  })
+  it('negative values are implausible too', () => {
+    expect(latencySummary(-1, 0.01).status).toBe('warn')
   })
 })

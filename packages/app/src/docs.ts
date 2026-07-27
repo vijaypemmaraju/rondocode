@@ -325,6 +325,9 @@ function renderShortcuts(): HTMLElement {
     ['Cmd/Ctrl + .', 'stop'],
     ['Cmd/Ctrl + P', 'open the projects menu'],
     ['Cmd/Ctrl + D', 'add the next occurrence to the selection (multi-cursor)'],
+    ['Cmd/Ctrl + Shift + F', 'format the whole document (either language)'],
+    ['Cmd/Ctrl + /', 'comment or uncomment the line or selection'],
+    ['Cmd/Ctrl + click a name', 'jump to its definition (a binding, synth, section, wavedef or scale)'],
     ['Alt + drag a number', 'scrub it like a slider'],
     ['double-click a widget', 'edit its underlying value as text'],
   ]

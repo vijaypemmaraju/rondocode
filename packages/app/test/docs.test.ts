@@ -176,3 +176,23 @@ describe('guide grouping', () => {
     }
   })
 })
+
+describe('the guide covers the editor, not just the language', () => {
+  const text = SECTIONS.flatMap((s) => s.blocks.map((b) => ('text' in b ? b.text : ''))).join(' ').toLowerCase()
+
+  it('teaches the touch scrub, its lens and its speed tiers', () => {
+    expect(text).toContain('lens')
+    expect(text).toMatch(/x10|x100/)
+    expect(text).toContain('scrub')
+  })
+
+  it('teaches go-to-definition, comment toggle and the formatter', () => {
+    expect(text).toContain('jump to its definition')
+    expect(text).toMatch(/comments? a line/)
+    expect(text).toContain('format')
+  })
+
+  it('says what the formatter will never do (the promise that makes it safe)', () => {
+    expect(text).toMatch(/never change what your code compiles to/)
+  })
+})

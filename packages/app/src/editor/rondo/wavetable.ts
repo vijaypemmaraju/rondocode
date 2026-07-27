@@ -108,6 +108,13 @@ export interface WavetableCallScan {
    *  (`wavetable note .3`, `wavetable`, `wavetable 220 .5`); undefined when
    *  pos is a binding/signal or the line is too rich to read positionally. */
   posLiteral?: number
+  /** warp mode when the line carries a KNOWN `warp:` word — the ribbon then
+   *  renders every frame through the kernel's phase map. */
+  warp?: WarpMode
+  /** warp amount: the `warpamt:` literal, else the kernel's 0.5 default
+   *  (a signal-driven warpamt renders at the default — honest approximation,
+   *  like the pos sweep). Only meaningful when `warp` is set. */
+  warpAmt?: number
   /** absolute end of the line's code part — where the ribbon anchors. */
   at: number
 }
@@ -126,11 +133,21 @@ export function scanWavetableCalls(text: string): WavetableCallScan[] {
     if (m !== null && synth !== undefined) {
       const args = m[1]!.replace(/[ \t]+$/, '')
       const table = /\btable:[ \t]*([a-zA-Z_]\w*)/.exec(args)?.[1] ?? 'basic'
+      // warp args: a KNOWN warp word arms the phase-map rendering; amt is the
+      // warpamt literal or the kernel's 0.5 default (signals sweep at runtime
+      // — the ribbon shows the default, same honesty as the pos sweep)
+      const warpWord = /\bwarp:[ \t]*([a-zA-Z_]\w*)/.exec(args)?.[1]
+      const warp = warpWord !== undefined && isWarpMode(warpWord) ? warpWord : undefined
+      const amtLit = /\bwarpamt:[ \t]*(-?\d*\.?\d+)/.exec(args)?.[1]
       // positional args: named `k:v` pairs removed; only SIMPLE atom lists
       // (numbers/idents) are read — anything richer leaves pos "a signal"
       const positional = args.replace(/[a-zA-Z_]\w*[ \t]*:[ \t]*\S+/g, ' ').trim()
       const scan: WavetableCallScan = { table, at: off + line.replace(/[ \t]+$/, '').length }
       scan.synth = synth
+      if (warp !== undefined) {
+        scan.warp = warp
+        scan.warpAmt = amtLit !== undefined ? clamp(Number(amtLit), 0, 1) : 0.5
+      }
       if (positional === '') {
         scan.posLiteral = 0 // bare `wavetable` — pos defaults to 0
       } else {
@@ -187,6 +204,49 @@ export function removePartialEdit(scan: WavedefScan, f: number): { from: number;
 }
 
 /* ------------------------------ waveform math ------------------------------ */
+
+/** Warp modes — MUST match the engine's WAVETABLE_WARPS (pinned by test;
+ *  duplicated here for the same no-static-engine-import reason as
+ *  MAX_PARTIALS above). */
+export const WARP_MODES = ['sync', 'bend', 'mirror'] as const
+export type WarpMode = (typeof WARP_MODES)[number]
+
+const isWarpMode = (w: string): w is WarpMode => (WARP_MODES as readonly string[]).includes(w)
+
+/** The kernel's phase-transfer curve at phase `p` (0..1) — the EXACT math
+ *  WavetableKernel applies before its table read (sync re-runs the cycle
+ *  (1+3*amt)x faster and wraps; bend bows p^(1+3*amt); mirror blends toward
+ *  the reflected ramp). ribbon-warp.test.ts pins this against the kernel's
+ *  actual output, so the drawn warp cannot drift from the heard one. Pure. */
+export function warpPhase(warp: WarpMode, amt: number, p: number): number {
+  const a = clamp(Number.isFinite(amt) ? amt : 0, 0, 1)
+  if (a === 0) return p
+  if (warp === 'sync') {
+    const w = p * (1 + 3 * a)
+    return w - Math.floor(w)
+  }
+  if (warp === 'bend') return Math.pow(p, 1 + 3 * a)
+  const refl = 1 - Math.abs(2 * p - 1)
+  return p + a * (refl - p)
+}
+
+/** A single-cycle preview wave read through the warp's phase map (linear
+ *  interpolation, wrapping — the same read the kernel performs). Because a
+ *  phase remap commutes with the samplewise morph blend, warping each frame
+ *  and then morphing equals the kernel's warp of the morphed read. Pure. */
+export function warpWave(wave: Float32Array, warp: WarpMode, amt: number): Float32Array {
+  const n = wave.length
+  const out = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const ph = warpPhase(warp, amt, i / n)
+    const posf = ph * n
+    const i0 = Math.floor(posf) % n
+    const i1 = (i0 + 1) % n
+    const frac = posf - Math.floor(posf)
+    out[i] = wave[i0]! + frac * (wave[i1]! - wave[i0]!)
+  }
+  return out
+}
 
 /** Additive preview of a partial frame: sum of sin(2π·h·t) at `points`
  *  samples, peak-normalized (matches the engine's per-frame normalization

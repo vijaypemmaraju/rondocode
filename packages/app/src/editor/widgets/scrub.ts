@@ -129,7 +129,7 @@ export function lensClampX(x: number, pillWidth: number, viewportWidth: number):
  * a knob-style enlarged readout floats above the finger showing the live
  * value. Mouse scrubs skip it (the cursor hides nothing). One element,
  * created lazily, shared by every scrub. */
-const lens = (() => {
+export const scrubLens = (() => {
   let el: HTMLDivElement | null = null
   const ensure = (): HTMLDivElement => {
     if (el === null) {
@@ -212,7 +212,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       // capture is best-effort; window listeners carry the drag regardless
     }
     view.dom.classList.add('cm-scrubbing')
-    if (touch) lens.show(e.clientX, e.clientY, view.state.doc.sliceString(lit.from, lit.to))
+    if (touch) scrubLens.show(e.clientX, e.clientY, view.state.doc.sliceString(lit.from, lit.to))
     const apply = (dx: number): void => {
       const a = active
       if (a === null) return
@@ -220,7 +220,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       const text = scrubText(a.v0, dx, a.isInt)
       if (text === a.lastText) return
       a.lastText = text
-      lens.update(text + speedSuffix(a.speed))
+      scrubLens.update(text + speedSuffix(a.speed))
       try {
         selfDispatch = true
         view.dispatch({ changes: { from: a.from, to: a.to, insert: text } })
@@ -241,9 +241,9 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       if (factor !== a.speed) {
         a.speed = factor
         // tier changed with no value change yet - refresh the suffix now
-        if (a.lastText !== null) lens.update(a.lastText + speedSuffix(factor))
+        if (a.lastText !== null) scrubLens.update(a.lastText + speedSuffix(factor))
       }
-      lens.move(ev.clientX, ev.clientY)
+      scrubLens.move(ev.clientX, ev.clientY)
       const wait = SCRUB_THROTTLE_MS - (Date.now() - a.lastApply)
       clearTimeout(a.trailing)
       if (wait <= 0) apply(a.lastDx)
@@ -259,7 +259,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       window.removeEventListener('pointercancel', end)
       window.removeEventListener('touchmove', blockTouch)
       view.dom.classList.remove('cm-scrubbing')
-      lens.hide()
+      scrubLens.hide()
     }
     const end = (ev: PointerEvent): void => {
       const a = active
@@ -294,7 +294,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
     const holdTimer = setTimeout(() => {
       if (hold !== null && hold.cancel === cancel) {
         const lit = litAt(view, clientX, clientY)
-        if (lit !== null) lens.show(clientX, clientY, view.state.doc.sliceString(lit.from, lit.to))
+        if (lit !== null) scrubLens.show(clientX, clientY, view.state.doc.sliceString(lit.from, lit.to))
       }
     }, 260)
     // cancel closes over ITS OWN listeners, so a stale record can never
@@ -305,7 +305,7 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', cancel)
       window.removeEventListener('pointercancel', cancel)
-      if (active === null) lens.hide() // an engaged scrub keeps it
+      if (active === null) scrubLens.hide() // an engaged scrub keeps it
     }
     const onMove = (ev: PointerEvent): void => {
       if (ev.pointerId !== pointerId) return

@@ -36,6 +36,33 @@ export const HERO = {
     'There are two kinds of code here: synths, which turn oscillators, filters, and envelopes into a sound, and patterns, which trigger those sounds in time. And two languages to write them in: JavaScript (the full API, below) and rondo (the terse phone-first language; see \u201cthe rondo language\u201d). Press play on any example to hear it, or open it in the editor to change it.',
 }
 
+/** The order the guide's groups read in. Sections are authored in whatever
+ *  order suits editing, so the page GROUPS them by this list before
+ *  rendering: without it a group that appears twice in the array produces two
+ *  separate nav headings (the guide had "sound design" three times). A group
+ *  missing from this list sorts last, and a test pins that none are. */
+export const GROUP_ORDER: readonly string[] = [
+  'start here',
+  'sound design',
+  'effects & mix',
+  'patterns & form',
+  'voice & visuals',
+  'the rondo language',
+]
+
+/** SECTIONS grouped and ordered for display: groups in GROUP_ORDER, sections
+ *  keeping their authored order within a group. Pure. */
+export function orderedSections(sections: readonly Section[] = SECTIONS): Section[] {
+  const rank = (g: string): number => {
+    const i = GROUP_ORDER.indexOf(g)
+    return i < 0 ? GROUP_ORDER.length : i
+  }
+  return sections
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => rank(a.s.group) - rank(b.s.group) || a.i - b.i)
+    .map((x) => x.s)
+}
+
 export const SECTIONS: Section[] = [
   {
     id: 'first-sound',

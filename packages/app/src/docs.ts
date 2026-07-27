@@ -1,6 +1,6 @@
 import './docs/docs.css'
 import { applyPalette } from './ui/palette'
-import { HERO, SECTIONS } from './docs/content'
+import { HERO, SECTIONS, orderedSections } from './docs/content'
 import type { Block, Section } from './docs/content'
 import { docsOfKind } from './docs/dsl-docs'
 import type { DocEntry } from './docs/dsl-docs'
@@ -395,8 +395,25 @@ async function build(): Promise<void> {
 
   const wrap = el('div', 'doc-wrap')
   const nav = el('nav', 'doc-nav')
+  // Mobile contents toggle: hidden on desktop by CSS, where the nav is a
+  // sticky sidebar and always visible.
+  const navToggle = el('button', 'nav-toggle')
+  navToggle.type = 'button'
+  navToggle.textContent = 'contents'
+  navToggle.setAttribute('aria-expanded', 'false')
+  navToggle.addEventListener('click', () => {
+    const open = nav.classList.toggle('open')
+    navToggle.setAttribute('aria-expanded', String(open))
+  })
+  // tapping a link closes the panel: it navigated, the list is in the way
+  nav.addEventListener('click', (e) => {
+    if ((e.target as Element).closest('a') && nav.classList.contains('open')) {
+      nav.classList.remove('open')
+      navToggle.setAttribute('aria-expanded', 'false')
+    }
+  })
   const main = el('main', 'doc-main')
-  wrap.append(nav, main)
+  wrap.append(navToggle, nav, main)
   document.body.append(wrap)
 
   // hero
@@ -419,6 +436,16 @@ async function build(): Promise<void> {
   // nav + guide sections (capture text for search + first code for a deep link)
   const navLinks: { id: string; a: HTMLAnchorElement }[] = []
   const guide: { text: string; el: HTMLElement; row: HTMLElement }[] = []
+  // Groups are CONTAINERS, not sibling headings: on a phone the nav collapses
+  // to one "contents" button and opens as grouped chips, so the guide starts
+  // with the guide instead of a wall of links.
+  let navBody: HTMLElement = nav
+  const startGroup = (name: string): void => {
+    const sect = el('div', 'nav-sect')
+    sect.append(el('div', 'nav-group', name))
+    nav.append(sect)
+    navBody = sect
+  }
   const addNav = (id: string, title: string, firstCode?: string): HTMLElement => {
     const row = el('div', 'nav-item')
     const a = el('a', undefined, title)
@@ -436,14 +463,14 @@ async function build(): Promise<void> {
       })
       row.append(open)
     }
-    nav.append(row)
+    navBody.append(row)
     navLinks.push({ id, a })
     return row
   }
   let lastGroup = ''
-  for (const s of SECTIONS) {
+  for (const s of orderedSections()) {
     if (s.group !== lastGroup) {
-      nav.append(el('div', 'nav-group', s.group))
+      startGroup(s.group)
       lastGroup = s.group
     }
     const r = await renderSection(s)
@@ -453,7 +480,7 @@ async function build(): Promise<void> {
   }
 
   // reference + shortcuts
-  nav.append(el('div', 'nav-group', 'reference'))
+  startGroup('reference')
   const ref = renderReference()
   main.append(ref.section)
   const refRow = addNav('reference', 'Reference')

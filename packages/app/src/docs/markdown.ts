@@ -1,4 +1,4 @@
-import { HERO, SECTIONS } from './content'
+import { HERO, orderedSections } from './content'
 import { docsOfKind } from './dsl-docs'
 import type { DocEntry } from './dsl-docs'
 
@@ -18,7 +18,7 @@ export function docsMarkdown(): string {
   out.push(`# ${HERO.title}`, '', HERO.tagline, '', HERO.blurb, '')
 
   out.push('## Guide', '')
-  for (const s of SECTIONS) {
+  for (const s of orderedSections()) {
     out.push(`### ${s.title}`, '')
     for (const b of s.blocks) {
       if (b.kind === 'p') {

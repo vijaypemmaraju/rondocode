@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { GROUP_ORDER, orderedSections, SECTIONS } from '../src/docs/content'
 import { Pattern } from '@rondocode/pattern'
 import { synth } from '@rondocode/engine'
 import type { PostCtx, Sig, SynthCtx } from '@rondocode/engine'
@@ -148,5 +149,30 @@ describe('docs style rules', () => {
   it('every section carries a nav group', async () => {
     const { SECTIONS } = await import('../src/docs/content')
     for (const s of SECTIONS) expect(s.group.length, `section '${s.id}' has no group`).toBeGreaterThan(0)
+  })
+})
+
+describe('guide grouping', () => {
+  it('every section group is listed in GROUP_ORDER', () => {
+    const known = new Set(GROUP_ORDER)
+    const unknown = [...new Set(SECTIONS.map((s) => s.group))].filter((g) => !known.has(g))
+    expect(unknown).toEqual([]) // a new group must be placed deliberately
+  })
+
+  it('orderedSections emits each group exactly ONCE (the nav headings)', () => {
+    const groups = orderedSections().map((s) => s.group)
+    const headings = groups.filter((g, i) => g !== groups[i - 1])
+    expect(headings).toEqual([...new Set(headings)]) // no group appears twice
+    expect(headings).toEqual(GROUP_ORDER.filter((g) => groups.includes(g)))
+  })
+
+  it('keeps the authored order within a group, and loses no section', () => {
+    const ordered = orderedSections()
+    expect(ordered).toHaveLength(SECTIONS.length)
+    for (const g of GROUP_ORDER) {
+      const authored = SECTIONS.filter((s) => s.group === g).map((s) => s.id)
+      const shown = ordered.filter((s) => s.group === g).map((s) => s.id)
+      expect(shown).toEqual(authored)
+    }
   })
 })

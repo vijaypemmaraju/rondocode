@@ -104,6 +104,9 @@ a:hover {
   gap: var(--sp-8);
 }
 
+.nav-toggle {
+  display: none; /* desktop: the sidebar is always there */
+}
 .doc-nav {
   position: sticky;
   top: 80px;
@@ -368,25 +371,66 @@ a:hover {
     grid-template-columns: 1fr;
     gap: var(--sp-4);
   }
+  /* CONTENTS panel, not a wall of links: 37 sections (each with an
+   * open-in-editor twin) used to pile up as ~70 undifferentiated chips ABOVE
+   * the guide, with the group headings hidden. Now the nav collapses behind
+   * one button and opens grouped. */
+  .nav-toggle {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    font-family: var(--mono);
+    font-size: var(--fs-ctrl);
+    color: var(--c-text);
+    background: var(--c-panel, transparent);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-sm);
+    text-align: left;
+    padding: 0 var(--sp-3);
+  }
+  .nav-toggle::after {
+    content: ' ▾';
+    color: var(--c-faint);
+  }
+  .nav-toggle[aria-expanded='true']::after {
+    content: ' ▴';
+  }
   .doc-nav {
     position: static;
     max-height: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1) var(--sp-2);
+    display: none; /* opened by the contents button */
     padding-bottom: var(--sp-3);
     border-bottom: 1px solid var(--c-border);
   }
+  .doc-nav.open {
+    display: block;
+  }
+  .doc-nav .nav-sect {
+    margin-top: var(--sp-3);
+  }
+  .doc-nav .nav-group {
+    display: block; /* the GROUPS are the organization; keep them */
+    margin: 0 0 var(--sp-1);
+  }
+  .doc-nav .nav-sect > .nav-item {
+    display: inline-block;
+    margin: 0 var(--sp-1) var(--sp-1) 0;
+  }
   .doc-nav a {
     border-left: none;
-    padding: 3px var(--sp-2);
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 var(--sp-2);
     border: 1px solid var(--c-border);
     border-radius: var(--r-sm);
   }
   .doc-nav a.on {
     border-color: var(--c-accent);
   }
-  .doc-nav .nav-group {
+  /* the open-in-editor twin doubles the chip count and every section already
+   * has a play control in its body: drop it on phones */
+  .doc-nav .nav-open {
     display: none;
   }
 }

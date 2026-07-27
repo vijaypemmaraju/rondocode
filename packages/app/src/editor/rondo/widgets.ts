@@ -21,9 +21,11 @@ import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
-import { WavedefWidget, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls } from './wavetable'
+import { WavedefWidget, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave } from './wavetable'
 import { cycleEnumEdit, scanEnumSpans } from './enums'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
+import { scanUnisonHeaders, unisonFan } from './unison'
+import type { UnisonScan } from './unison'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -1366,6 +1368,50 @@ class BeatBlockWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
+/** Unison fan glyph geometry (px). One stroke per sub-voice. */
+const FAN = { voiceGap: 7, pad: 6, h: 22, minStroke: 6 }
+
+/** DISPLAY-ONLY glyph on a `synth … unison:N` header: one vertical stroke
+ *  per sub-voice at its detune position through the curve exponent, stroke
+ *  height = the voice's blend gain, octave voices tinted. The header numbers
+ *  already scrub — this is the read-back, not a control (see unison.ts). */
+class UnisonFanWidget extends WidgetType {
+  constructor(readonly scan: UnisonScan) { super() }
+
+  eq(o: UnisonFanWidget): boolean {
+    const s = this.scan, t = o.scan
+    return s.at === t.at && s.unison === t.unison && s.detune === t.detune &&
+      s.curve === t.curve && s.blend === t.blend && s.octaves === t.octaves
+  }
+
+  toDOM(): HTMLElement {
+    const strokes = unisonFan(this.scan.unison, this.scan.curve, this.scan.blend, this.scan.octaves)
+    const W = 2 * FAN.pad + (strokes.length - 1) * FAN.voiceGap + 2
+    const H = FAN.h
+    const wrap = document.createElement('span')
+    wrap.className = 'rondo-ufan'
+    wrap.setAttribute('role', 'img')
+    wrap.setAttribute('aria-label', `unison ${strokes.length} voices`)
+    wrap.title = `unison ${strokes.length} · ±${this.scan.detune} cents` +
+      (this.scan.curve !== 1 ? ` · curve ${this.scan.curve}` : '') +
+      (this.scan.octaves >= 2 ? ` · every ${this.scan.octaves}th voice +12` : '')
+    const mid = W / 2
+    const span = (W - 2 * FAN.pad) / 2 // x is -1..1
+    let body = ''
+    for (const s of strokes) {
+      const x = (mid + s.x * span).toFixed(1)
+      const len = FAN.minStroke + s.h * (H - 4 - FAN.minStroke)
+      const y0 = (H - 2 - len).toFixed(1)
+      body += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${H - 2}"` +
+        (s.octave ? ' class="oct"' : '') + '/>'
+    }
+    wrap.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${body}</svg>`
+    return wrap
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
 /** The envelope's render width for this editor: full content width, capped. */
 function envWidth(view: EditorView): number {
   return Math.max(200, Math.min(640, view.contentDOM.clientWidth - 48))
@@ -1411,16 +1457,27 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push(Decoration.widget({ widget: new WavedefWidget(wd, wdWidth, hooks, drag), side: 1 }).range(wd.at))
   }
   for (const call of scanWavetableCalls(text)) {
-    const frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
+    let frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
     if (frames === null) continue // unknown table: the eval diagnostic tells that story
+    // a line carrying warp args renders every frame through the kernel's
+    // phase map (warp commutes with the morph blend, so pre-warping the
+    // frames is exactly the warped read — see wavetable.ts warpWave)
+    if (call.warp !== undefined) {
+      frames = frames.map((f) => warpWave(f, call.warp!, call.warpAmt ?? 0.5))
+    }
     const def = wavedefs.find((d) => d.name === call.table)
-    const framesKey = `${call.table}:${def !== undefined ? JSON.stringify(def.frames) : 'bank'}`
+    const framesKey = `${call.table}:${def !== undefined ? JSON.stringify(def.frames) : 'bank'}` +
+      (call.warp !== undefined ? `:${call.warp}:${call.warpAmt}` : '')
     items.push(
       Decoration.widget({
         widget: new WavetableRibbonWidget(call.table, call.posLiteral, call.synth, framesKey, frames, hooks, drag),
         side: 1,
       }).range(call.at),
     )
+  }
+  // unison fan glyphs on `synth … unison:N` headers (display-only)
+  for (const u of scanUnisonHeaders(text)) {
+    items.push(Decoration.widget({ widget: new UnisonFanWidget(u), side: 1 }).range(u.at))
   }
   // filter response curves under svf/ladder/dualsvf/eq lines (static values
   // only — see filtercurve.ts's honesty rules)

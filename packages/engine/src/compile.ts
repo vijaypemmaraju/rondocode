@@ -137,7 +137,9 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   fm: [{ name: 'freq' }, { name: 'mod', def: 0 }, { name: 'feedback', def: 0 }],
   supersaw: [{ name: 'freq' }, { name: 'detune', def: 0.2 }, { name: 'mix', def: 0.7 }],
   lfsr: [{ name: 'freq', def: 4000 }],
-  wavetable: [{ name: 'freq' }, { name: 'pos', def: 0 }],
+  // warpAmt defaults to 0.5 so `warp:'sync'` alone is audibly warped (0 would
+  // make every mode the identity transfer — a silent no-op reads as broken)
+  wavetable: [{ name: 'freq' }, { name: 'pos', def: 0 }, { name: 'warpAmt', def: 0.5 }],
   noise: [],
   // gate required (retrigger edge); speed optional, 1 = natural pitch.
   sample: [{ name: 'gate' }, { name: 'speed', def: 1 }],
@@ -198,7 +200,11 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   fm: (c) => new FMKernel(typeof c['wave'] === 'string' ? c['wave'] : undefined),
   // ctx carries the sample rate the kernel needs for mipmap selection; the
   // table's harmonic content is sample-rate-independent and cached module-level
-  wavetable: (c, ctx) => new WavetableKernel(typeof c['table'] === 'string' ? c['table'] : undefined, ctx),
+  wavetable: (c, ctx) => new WavetableKernel(
+    typeof c['table'] === 'string' ? c['table'] : undefined,
+    ctx,
+    typeof c['warp'] === 'string' ? c['warp'] : undefined,
+  ),
   noise: (c) => new NoiseKernel(typeof c['seed'] === 'number' ? c['seed'] : undefined, typeof c['color'] === 'string' ? c['color'] : undefined),
   supersaw: () => new SuperSawKernel(),
   lfsr: (c) => new LFSRKernel(typeof c['mode'] === 'string' ? c['mode'] : undefined),

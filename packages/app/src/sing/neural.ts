@@ -229,7 +229,7 @@ export async function renderNeural(
       name: 'rvc',
       run: async (): Promise<void> => {
         markPhase('warp')
-        const { guide: g, f0 } = assembleGuide(segs, melody, sr)
+        const { guide: g, f0 } = assembleGuide(segs, melody, sr, cycles / cps)
         guide = g
         loopN = guide.length // samples at `sr` = the melody's `cycles` cycles
 
@@ -362,12 +362,10 @@ const RVC_TAILPAD_S = 0.8
  *  short crossfade at the edges so untouched neighbours don't click. */
 function hardTune(audio: Float32Array, osr: number, notes: MelodyNote[]): void {
   const mtof = (m: number): number => 440 * 2 ** ((m - 69) / 12)
-  let cum = 0
   const edge = Math.floor(0.006 * osr)
   for (const n of notes) {
-    const a = Math.round(cum * osr)
-    cum += n.dur
-    const b = Math.min(audio.length, Math.round(cum * osr))
+    const a = Math.round(n.start * osr)
+    const b = Math.min(audio.length, Math.round((n.start + n.dur) * osr))
     if (b - a < Math.floor(0.06 * osr)) continue
     const region = audio.slice(a, b)
     const target = mtof(n.midi)

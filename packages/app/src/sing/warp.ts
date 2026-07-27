@@ -14,6 +14,11 @@ import { note, TimeSpan, Fraction, hasOnset, type Pattern, type ControlMap } fro
 export interface MelodyNote {
   midi: number
   dur: number
+  /** Seconds from the start of the phrase. A melody's RESTS live in the gaps
+   *  between start+dur and the next start: silence is musical time, so the
+   *  guide has to leave room for it (a pickup that ignores its rest sings
+   *  ahead of the beat, and every later note drifts early). */
+  start: number
   /** portamento: glide from the previous note's pitch into this one. */
   slide: boolean
 }
@@ -40,7 +45,12 @@ export function parseMelodyMini(src: string, cps = 0.5, cycles = 1): MelodyNote[
     .query(span)
     .filter(hasOnset)
     .sort((a, b) => a.whole!.begin.valueOf() - b.whole!.begin.valueOf())
-    .map((h) => ({ midi: h.value.note!, dur: h.whole!.length.valueOf() / cps, slide: false }))
+    .map((h) => ({
+      midi: h.value.note!,
+      dur: h.whole!.length.valueOf() / cps,
+      start: h.whole!.begin.valueOf() / cps,
+      slide: false,
+    }))
 }
 
 /* ------------------------------ tiny FFT -------------------------------- */
@@ -297,12 +307,16 @@ export function syllableSegments(spoken: Float32Array, sr: number, prob: Float32
  *  vowel lands on it — like a real singer — with no per-chunk drift. Only the very
  *  first syllable of the whole song keeps a natural lead-in (nothing precedes it).
  *  f0 sits on the exact beat grid, so pitch and words stay locked together. */
-export function assembleGuide(segs: Seg[], notes: MelodyNote[], sr: number): GuideResult {
+export function assembleGuide(segs: Seg[], notes: MelodyNote[], sr: number, totalSec?: number): GuideResult {
   const n = notes.length
   const tgt = notes.map((nn) => Math.floor(nn.dur * sr))
-  const beat = [0]
-  for (let i = 0; i < n; i++) beat.push(beat[i]! + tgt[i]!)
-  const total = beat[n]!
+  // Notes sit at their OWN start times, so a rest is real silence in between.
+  // `totalSec` is the phrase's musical length (cycles / cps); without it the
+  // clip ends at the last note and a trailing rest would be lost.
+  const beat = notes.map((nn) => Math.floor(nn.start * sr))
+  const lastEnd = n > 0 ? beat[n - 1]! + tgt[n - 1]! : 0
+  const total = totalSec !== undefined ? Math.max(lastEnd, Math.round(totalSec * sr)) : lastEnd
+  beat.push(total)
   const guide = new Float32Array(total)
   const xf = Math.floor(0.008 * sr)
   for (let i = 0; i < n; i++) {
@@ -314,7 +328,8 @@ export function assembleGuide(segs: Seg[], notes: MelodyNote[], sr: number): Gui
     if (oStart < 0) { oStart = 0; vPos = onset.length }
     // hold the vowel to fill until the NEXT syllable's onset must begin
     const nextOnsetLen = i < n - 1 ? segs[i + 1]!.onset.length : 0
-    const budgetEnd = i < n - 1 ? beat[i + 1]! - nextOnsetLen : total
+    const ownEnd = beat[i]! + tgt[i]!
+    const budgetEnd = i < n - 1 ? Math.min(ownEnd, beat[i + 1]! - nextOnsetLen) : Math.min(ownEnd, total)
     const vHeldLen = Math.max(Math.floor(tgt[i]! * 0.2), budgetEnd - vPos - coda.length)
     const held = holdVowel(vowel, vHeldLen, sr)
     // write onset: equal-power crossfade over its first xf samples against
@@ -345,7 +360,8 @@ export function assembleGuide(segs: Seg[], notes: MelodyNote[], sr: number): Gui
   let prev: number | null = null
   for (let i = 0; i < n; i++) {
     const a = Math.floor((beat[i]! / sr) * fps)
-    const b = Math.floor((beat[i + 1]! / sr) * fps)
+    // to the note's own end: a following REST must stay unvoiced
+    const b = Math.floor(((beat[i]! + tgt[i]!) / sr) * fps)
     const hz = mtof(notes[i]!.midi)
     if (notes[i]!.slide && prev !== null && b > a) {
       const tr = Math.max(1, Math.floor((b - a) * 0.35))

@@ -464,11 +464,27 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[]): s
   const notes = block.notes.map((l) => l.text).join(' ')
   const voiceArg = block.voice !== undefined ? `${q(block.voice)}, ` : ''
   const opts: string[] = [`name: ${q(block.name)}`]
+  // `cycles: N` is an OPT (how many bars the phrase spans), not a pattern
+  // method — a real song phrase runs several cycles, and the clip length +
+  // trigger spacing both follow from it.
+  const mods: Mod[] = []
+  for (const m of block.mods) {
+    if (m.kind === 'ctrl' && m.name === 'cycles') {
+      const v = m.value
+      if (v.kind !== 'num' || !Number.isInteger(v.v) || v.v < 1) {
+        errors.push({ message: '`cycles:` needs a whole number of cycles (1 or more)', line: m.pos.line, col: m.pos.col })
+        continue
+      }
+      opts.push(`cycles: ${num(v.v)}`)
+      continue
+    }
+    mods.push(m)
+  }
   if (block.post) {
     opts.push(`post: ${cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)}`)
   }
   let pat = `sing(${voiceArg}${q(lyrics)}, ${q(notes)}, { ${opts.join(', ')} })`
-  for (const m of orderMods(block.mods)) pat += cgMod(m)
+  for (const m of orderMods(mods)) pat += cgMod(m)
   return `p(${q(block.name)}, ${pat})`
 }
 

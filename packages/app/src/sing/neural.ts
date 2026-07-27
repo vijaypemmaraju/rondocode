@@ -125,9 +125,10 @@ export async function renderNeural(
   cps: number,
   voice: string,
   onProgress?: (p: SingProgress) => void,
+  cycles = 1,
 ): Promise<{ audio: Float32Array; sr: number }> {
   const parsed = parseLyrics(lyrics)
-  const melody = parseMelodyMini(notes, cps)
+  const melody = parseMelodyMini(notes, cps, cycles)
   if (parsed.slots.length !== melody.length) {
     throw new Error(`sing(): ${parsed.slots.length} syllables but ${melody.length} notes`)
   }
@@ -230,7 +231,7 @@ export async function renderNeural(
         markPhase('warp')
         const { guide: g, f0 } = assembleGuide(segs, melody, sr)
         guide = g
-        loopN = guide.length // samples at `sr` = one musical cycle
+        loopN = guide.length // samples at `sr` = the melody's `cycles` cycles
 
         // TAIL PAD: RVC's generator rolls its pitch off at the very END of the
         // clip, so the final held note renders ~50 cents flat (proven: the same

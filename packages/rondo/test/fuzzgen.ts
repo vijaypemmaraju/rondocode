@@ -390,8 +390,14 @@ export function genProgram(seed: number): string {
   if (r.chance(0.1)) {
     const n = r.int(2, 4)
     const lyr = Array.from({ length: n }, () => r.pick(['la', 'da', 'sing', 'lo-ver'])).join(' ')
-    const mel = Array.from({ length: n }, () => r.pick(['c4', 'e4', 'g4', 'a4'])).join(' ')
+    // melodies carry mini @weights (a dotted lilt), and a phrase may span
+    // several cycles
+    const mel = Array.from({ length: n }, () => {
+      const nt = r.pick(['c4', 'e4', 'g4', 'a4'])
+      return r.chance(0.4) ? `${nt}@${r.int(2, 6)}` : nt
+    }).join(' ')
     const lines = [`sing v1${r.chance(0.4) ? ` voice:${r.pick(['barbara', 'alto'])}` : ''}`, `  ${lyr}`, `  ${mel}`]
+    if (r.chance(0.4)) lines.push(`  cycles: ${r.int(2, 8)}`)
     if (r.chance(0.6)) lines.push(`  gain: .9`)
     if (r.chance(0.3)) lines.push(`  ${r.pick(['every 2: rev', 'sometimes: rev', 'dur: .9'])}`)
     if (r.chance(0.3)) lines.push('  post', `    reverb room:${r.pick(SMALL)} mix:${r.pick(SMALL)}`)

@@ -82,6 +82,10 @@ export interface SingRequest {
   voice: string
   lyrics: string
   notes: string
+  /** How many CYCLES the melody spans (default 1). A real song phrase runs
+   *  several bars, so the melody mini unrolls over `cycles` cycles, the baked
+   *  clip is that long, and the trigger fires once per `cycles`. */
+  cycles: number
 }
 
 /** djb2 string hash → short stable id (for the per-sing sample/synth names). */
@@ -715,9 +719,16 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       )
     }
     if (opts !== undefined && (typeof opts !== 'object' || opts === null)) {
-      throw new TypeError('sing(): opts must be an object like { name?, post? }')
+      throw new TypeError('sing(): opts must be an object like { name?, post?, cycles? }')
     }
-    const o = (opts ?? {}) as { name?: unknown; post?: unknown }
+    const o = (opts ?? {}) as { name?: unknown; post?: unknown; cycles?: unknown }
+    let cycles = 1
+    if (o.cycles !== undefined) {
+      if (typeof o.cycles !== 'number' || !Number.isInteger(o.cycles) || o.cycles < 1 || o.cycles > 64) {
+        throw new TypeError('sing(): opts.cycles must be a whole number of cycles from 1 to 64')
+      }
+      cycles = o.cycles
+    }
     if (o.post !== undefined && typeof o.post !== 'function') {
       throw new TypeError('sing(): opts.post must be a function (a post-FX chain builder)')
     }
@@ -727,8 +738,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     // Parse the note mini-notation NOW so a syntax error is a POSITIONED editor
     // diagnostic (a MiniError maps to the notes literal), not a vague async
     // "Singing failed" dialog only after the model download at bake time.
-    parseMelodyMini(nt)
-    const id = singId(`${v}\n${l}\n${nt}`)
+    parseMelodyMini(nt, 0.5, cycles)
+    const id = singId(`${v}\n${l}\n${nt}\n${cycles}`)
     const sampleName = `singclip${id}`
     // synth/channel name: default the content hash (also what karaoke + bake
     // dedup key on); opts.name overrides so bus() + sidechain() can target it.
@@ -759,11 +770,13 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
         o.post as Parameters<typeof synth>[1],
       ),
     )
-    sings.push({ sampleName, synthName, voice: v, lyrics: l, notes: nt })
-    // trigger once per cycle (note c4 = the clip's root = natural speed) so the
-    // vocal loops with the transport; cps is set so 1 cycle = the melody length.
-    // Returned (not auto-registered) — the caller wraps it in p(...).
-    return note('c4').sound(synthName) as unknown as Pattern<ControlMap>
+    sings.push({ sampleName, synthName, voice: v, lyrics: l, notes: nt, cycles })
+    // trigger once per `cycles` (note c4 = the clip's root = natural speed) so
+    // the vocal loops with the transport: a 16-cycle phrase retriggers every
+    // 16 bars, not every bar. Returned (not auto-registered) — the caller
+    // wraps it in p(...).
+    const trig = note('c4').sound(synthName) as unknown as Pattern<ControlMap>
+    return (cycles === 1 ? trig : trig.slow(cycles)) as Pattern<ControlMap>
   }
 
   const names: string[] = []

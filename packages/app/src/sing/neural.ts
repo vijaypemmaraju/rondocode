@@ -147,6 +147,38 @@ export function melismaSegs(
   return out
 }
 
+/* ------------------------------------------------------------------------- *
+ * SHARED SPEECH CACHE. A harmony arrangement sings the SAME WORDS in every
+ * part - a barbershop quartet is four bakes of one lyric. The speech render
+ * and the phoneme alignment depend only on the words and how they split into
+ * phrases, never on the pitches or the RVC voice, so the second through
+ * fourth parts can reuse the first part's segments and skip straight to the
+ * warp + voice conversion. That is the whole TTS stage (three takes each on
+ * desktop) plus the whole alignment stage, saved per extra part.
+ *
+ * Keyed by the phrase texts (which encode both the lyrics and the split), so
+ * two parts only share when they really do sing the same thing the same way.
+ * Small and FIFO: this exists to serve one arrangement's parts baked back to
+ * back, not to be a long-lived store. */
+const SEG_CACHE_MAX = 4
+const segCache = new Map<string, Seg[]>()
+
+const segCacheKey = (phrases: { text: string }[]): string => phrases.map((p) => p.text).join('\u0001')
+
+function cacheSegs(key: string, segs: Seg[]): void {
+  segCache.set(key, segs)
+  while (segCache.size > SEG_CACHE_MAX) {
+    const oldest = segCache.keys().next().value
+    if (oldest === undefined) break
+    segCache.delete(oldest)
+  }
+}
+
+/** Drop the shared speech cache (a language/model change invalidates it). */
+export function clearSegCache(): void {
+  segCache.clear()
+}
+
 export async function renderNeural(
   lyrics: string,
   notes: string,
@@ -185,6 +217,14 @@ export async function renderNeural(
   // TTS+alignment interleave exactly as before.
   const sequential = sequentialSingSessions()
   const nTakes = takeCount(sequential)
+  // another part of the same arrangement may already have rendered these words
+  const segKey = segCacheKey(phrases)
+  const cached = segCache.get(segKey)
+  if (cached !== undefined && cached.length === segs.length) {
+    for (let i = 0; i < cached.length; i++) segs[i] = cached[i]!
+    onProgress?.({ phase: 'align', label: 'reusing this arrangement\'s words', done: 1, total: 1 })
+  }
+  const haveSegs = cached !== undefined && cached.length === segs.length
   const takesByPhrase: Float32Array[][] = []
   let sr = 0
   let guide!: Float32Array
@@ -196,6 +236,7 @@ export async function renderNeural(
     {
       name: 'tts',
       run: async (): Promise<void> => {
+        if (haveSegs) return // words already rendered by a sibling part
         markPhase('create:tts')
         const engine = await loadEngine((p) => onProgress?.({ phase: p.phase, label: p.label, done: p.done, total: p.total }))
         sr = engine.sampleRate
@@ -232,6 +273,7 @@ export async function renderNeural(
     {
       name: 'align',
       run: async (): Promise<void> => {
+        if (haveSegs) return // words already aligned by a sibling part
         if (!sequential) return // already aligned interleaved with the TTS
         await loadPhonemes((p) => onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))
         for (let pi = 0; pi < phrases.length; pi++) {
@@ -253,6 +295,7 @@ export async function renderNeural(
     {
       name: 'rvc',
       run: async (): Promise<void> => {
+        if (!haveSegs) cacheSegs(segKey, segs.slice())
         markPhase('warp')
         const { guide: g, f0 } = assembleGuide(segs, melody, sr, cycles / cps)
         guide = g

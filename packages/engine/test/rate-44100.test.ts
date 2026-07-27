@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { AdsrKernel } from '../src/dsp/env'
-import { SvfKernel } from '../src/dsp/filters'
+import { DualSvfKernel, SvfKernel } from '../src/dsp/filters'
 import { NoiseKernel } from '../src/dsp/osc'
 import { duckReleaseCoeff } from '../src/realtime'
 import { synth } from '../src/builder'
@@ -54,6 +54,30 @@ describe('44.1 kHz: filter tuning', () => {
       goertzel(out.subarray(half), f, SR) / goertzel(raw.subarray(half), f, SR)
     expect(resp(250)).toBeGreaterThan(0.5) // passband (measured ~0.83)
     expect(resp(4000)).toBeLessThan(0.01) // 3 octaves above cutoff (measured ~3e-4)
+    expect(out.every((x) => Number.isFinite(x))).toBe(true)
+  })
+
+  it('dualsvf cutoffs are in Hz: serial hp 300 → lp 2500 passes 1 kHz, kills 60 Hz and 8 kHz', () => {
+    const n = SR
+    const raw = new Float32Array(n)
+    new NoiseKernel(1234).process(n, {}, raw, ctx)
+    const out = new Float32Array(n)
+    new DualSvfKernel({ mode: 'serial', a: 'hp', b: 'lp' }).process(
+      n,
+      {
+        in: raw,
+        cutoff: new Float32Array(n).fill(300),
+        cutoff2: new Float32Array(n).fill(2500),
+        res: new Float32Array(n).fill(0.2),
+      },
+      out,
+      ctx,
+    )
+    const half = n >> 1
+    const resp = (f: number): number =>
+      goertzel(out.subarray(half), f, SR) / goertzel(raw.subarray(half), f, SR)
+    expect(resp(1000)).toBeGreaterThan(10 * resp(60))
+    expect(resp(1000)).toBeGreaterThan(10 * resp(8000))
     expect(out.every((x) => Number.isFinite(x))).toBe(true)
   })
 })

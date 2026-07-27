@@ -192,6 +192,14 @@ describe('decompile round-trips (audit additions)', () => {
     expect(rondo2).toContain('every 2: rev')
   })
 
+  it('unison-shaping header opts + dualsvf lines round-trip', () => {
+    const { rondo2 } = fixedPoint(
+      'synth stack unison:5 curve:2 blend:.6 octaves:2\n  saw\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n\nplay stack\n  0 2\n',
+    )
+    expect(rondo2).toContain('synth stack unison:5 curve:2 blend:0.6 octaves:2')
+    expect(rondo2).toContain('dualsvf 400 4000 res:0.3 mode:parallel a:lp b:hp')
+  })
+
   it('a bare `master` line round-trips through masterCompress()', () => {
     const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0\n\nmaster\n')
     expect(rondo2).toContain('\nmaster\n')

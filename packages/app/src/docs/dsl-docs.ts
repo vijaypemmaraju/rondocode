@@ -46,8 +46,8 @@ const g = (name: string, signature: string, summary: string, example?: string): 
 const GLOBALS: DocEntry[] = [
   g(
     'synth',
-    'synth(build: (ctx) => Sig, post?: (ctx) => Sig, opts?: { mono?: boolean; glide?: number; unison?: number; detune?: number; spread?: number })',
-    'Define an instrument: the build function wires oscillators, filters and envelopes into a per-voice sound; the optional post function adds an FX chain (reverb, delay, EQ) over the summed voices, shared, not per note. opts sets voice modes, mono+glide for portamento leads, unison (with detune cents and stereo spread 0..1) for fat detuned stacks; pass opts as the 2nd arg when there is no post. Assign to a top-level const to register it under that name.',
+    'synth(build: (ctx) => Sig, post?: (ctx) => Sig, opts?: { mono?: boolean; glide?: number; unison?: number; detune?: number; spread?: number; curve?: number; blend?: number; octaves?: number })',
+    'Define an instrument: the build function wires oscillators, filters and envelopes into a per-voice sound; the optional post function adds an FX chain (reverb, delay, EQ) over the summed voices, shared, not per note. opts sets voice modes, mono+glide for portamento leads, unison (with detune cents and stereo spread 0..1) for fat detuned stacks, then shape the stack: curve (>1 pulls inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice +12) sculpt Serum-style supersaws; pass opts as the 2nd arg when there is no post. Assign to a top-level const to register it under that name.',
     "const lead = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate)), { mono: true, glide: 0.08 })",
   ),
   g(
@@ -486,9 +486,15 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'svf',
-    "svf(input, cutoff, opts?: { res, mode: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' })",
-    'A clean multimode filter: low-pass by default, high-pass for hats, band-pass for claps, notch to scoop a band out, peak for a resonant bell that boosts at cutoff; res adds a resonant peak.',
+    "svf(input, cutoff, opts?: { res, mode: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' })",
+    'A clean multimode filter: low-pass by default, high-pass for hats, band-pass for claps, notch to scoop a band out, peak for a resonant bell that boosts at cutoff, allpass to swirl the phase without touching the level (stack a few for phaser motion); res adds a resonant peak.',
     "svf(noise(), 1500, { mode: 'bp', res: 0.6 })",
+  ),
+  sc(
+    'dualsvf',
+    "dualsvf(input, cutoff, cutoff2, opts?: { res, mode: 'serial' | 'parallel', a, b })",
+    'A Serum-style dual filter: two svf stages, each with its OWN cutoff and its own response type (a and b, lp default, any svf mode), sharing one res. mode serial (default) cascades A into B, hp into lp carves a steep band, lp into lp is a 24 dB/oct low-pass; parallel sums the two, lp + hp leaves a spectral hole between the cutoffs. Sweep the cutoffs against each other for talking, morphing motion a single filter cannot do.',
+    "dualsvf(saw(note.freq), 400, 4000, { mode: 'parallel', a: 'lp', b: 'hp', res: 0.3 })",
   ),
   sc(
     'ladder',

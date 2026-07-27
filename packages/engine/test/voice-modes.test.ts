@@ -191,6 +191,65 @@ describe('unison + stereo spread', () => {
   })
 })
 
+describe('unison shaping (curve / blend / octaves)', () => {
+  // 2s held note at 880 Hz (midi 81): the long window gives goertzel the
+  // resolution to separate partials a few cents apart.
+  const HOLD: RenderEvent[] = [on(0, 81), off(1.9, 81)]
+  const F0 = midiHz(81)
+  const cents = (c: number): number => F0 * 2 ** (c / 1200)
+  /** Steady-state energy at `f` relative to the fundamental. */
+  const rel = (r: { left: Float32Array }, f: number): number => {
+    const w = r.left.subarray(SR >> 2, Math.round(1.8 * SR))
+    return goertzel(w, f, SR) / goertzel(w, F0, SR)
+  }
+
+  it('curve > 1 pulls the inner sub-voices toward the center (edges stay at ±detune)', () => {
+    // unison 5, detune 50: linear layout puts the inner pair at ±25 cents;
+    // curve 3 moves it to ±50*(0.5^3) = ±6.25 cents — energy at the ±25-cent
+    // bin collapses while the ±50-cent edge voices stay put.
+    const lin = renderOffline(sineSynth({ unison: 5, detune: 50, spread: 0 }), HOLD, 2)
+    const focused = renderOffline(sineSynth({ unison: 5, detune: 50, spread: 0, curve: 3 }), HOLD, 2)
+    const innerLin = rel(lin, cents(25))
+    const innerFocused = rel(focused, cents(25))
+    expect(innerLin).toBeGreaterThan(5 * innerFocused)
+    // both keep their edge voices at +50 cents
+    expect(rel(lin, cents(50))).toBeGreaterThan(0.2)
+    expect(rel(focused, cents(50))).toBeGreaterThan(0.2)
+  })
+
+  it('blend fades the edge voices: blend 0 silences them, blend 1 keeps them equal', () => {
+    const equal = renderOffline(sineSynth({ unison: 3, detune: 40, spread: 0 }), HOLD, 2)
+    const centerOnly = renderOffline(sineSynth({ unison: 3, detune: 40, spread: 0, blend: 0 }), HOLD, 2)
+    const edgeEqual = rel(equal, cents(40))
+    const edgeGone = rel(centerOnly, cents(40))
+    expect(edgeEqual).toBeGreaterThan(5 * edgeGone)
+  })
+
+  it('octaves: 2 lifts every 2nd sub-voice +12, adding a partial at 2·f0', () => {
+    // detune 0 keeps every voice exactly ON pitch, so a pure-sine synth has
+    // NO energy at 2·f0 unless the octave stack adds it.
+    const flat = renderOffline(sineSynth({ unison: 4, detune: 0, spread: 0 }), HOLD, 2)
+    const stacked = renderOffline(sineSynth({ unison: 4, detune: 0, spread: 0, octaves: 2 }), HOLD, 2)
+    expect(rel(stacked, 2 * F0)).toBeGreaterThan(50 * rel(flat, 2 * F0))
+    expect(rel(stacked, 2 * F0)).toBeGreaterThan(0.3) // half the voices are up an octave
+    // the fundamental survives in both
+    const w = stacked.left.subarray(SR >> 2, Math.round(1.8 * SR))
+    expect(goertzel(w, F0, SR)).toBeGreaterThan(0)
+  })
+
+  it('neutral shaping values render byte-identically to omitting them', () => {
+    const legacy = sineSynth({ unison: 5, detune: 20, spread: 0.8 })
+    const explicit = sineSynth({ unison: 5, detune: 20, spread: 0.8, curve: 1, blend: 1, octaves: 0 })
+    const events: RenderEvent[] = [on(0, 57), off(0.5, 57)]
+    const a = renderOffline(legacy, events, 0.6)
+    const b = renderOffline(explicit, events, 0.6)
+    for (let i = 0; i < a.left.length; i++) {
+      expect(a.left[i]).toBe(b.left[i])
+      expect(a.right[i]).toBe(b.right[i])
+    }
+  })
+})
+
 describe('backward compatibility', () => {
   it('a synth with NO opts renders byte-identically before and after the feature', () => {
     // voiceOpts must be undefined for a plain synth, and the render path

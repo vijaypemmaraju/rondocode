@@ -16,7 +16,7 @@ describe('synth() voiceOpts overloads', () => {
   it('synth(voiceFn, opts): a plain-object 2nd arg is opts, not a post fn', () => {
     const d = synth(({ note, saw }) => saw(note.freq), { mono: true, glide: 0.1, unison: 3 })
     expect(d.post).toBeUndefined()
-    expect(d.voiceOpts).toEqual({ mono: true, glide: 0.1, unison: 3, detune: 15, spread: 0.6 })
+    expect(d.voiceOpts).toEqual({ mono: true, glide: 0.1, unison: 3, detune: 15, spread: 0.6, curve: 1, blend: 1, octaves: 0 })
   })
 
   it('synth(voiceFn, postFn, opts): a function 2nd arg is the post chain, 3rd is opts', () => {
@@ -26,7 +26,16 @@ describe('synth() voiceOpts overloads', () => {
       { unison: 7, detune: 30, spread: 1 },
     )
     expect(d.post).toBeDefined()
-    expect(d.voiceOpts).toEqual({ mono: false, glide: 0, unison: 7, detune: 30, spread: 1 })
+    expect(d.voiceOpts).toEqual({ mono: false, glide: 0, unison: 7, detune: 30, spread: 1, curve: 1, blend: 1, octaves: 0 })
+  })
+
+  it('normalizes the unison-shaping opts: curve clamped to [0.2, 5], blend to [0, 1], octaves floored to 0..9', () => {
+    const d = synth(({ note, saw }) => saw(note.freq), { unison: 5, curve: 2.5, blend: 0.4, octaves: 2 })
+    expect(d.voiceOpts).toMatchObject({ curve: 2.5, blend: 0.4, octaves: 2 })
+    const e = synth(({ note, saw }) => saw(note.freq), { unison: 5, curve: 99, blend: -1, octaves: 2.9 })
+    expect(e.voiceOpts).toMatchObject({ curve: 5, blend: 0, octaves: 2 })
+    const f = synth(({ note, saw }) => saw(note.freq), { unison: 5, curve: 0, octaves: -3 })
+    expect(f.voiceOpts).toMatchObject({ curve: 0.2, blend: 1, octaves: 0 })
   })
 
   it('clamps unison to 1..9 and spread to 0..1; unison<1 or non-int is floored/clamped', () => {

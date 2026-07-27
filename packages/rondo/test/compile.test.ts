@@ -451,6 +451,20 @@ describe('rondo → rondocode codegen', () => {
     expect(out2).toContain(', { unison: 5, detune: 14, spread: 0.9 })')
   })
 
+  it('unison-shaping header options (curve/blend/octaves) → the synth() opts arg', () => {
+    const out = ok(`synth stack unison:5 curve:2 blend:.6 octaves:2\n  saw\n`)
+    expect(out).toContain(', { unison: 5, curve: 2, blend: 0.6, octaves: 2 })')
+    failsAt(`synth s wobble:2\n  saw\n`, 'unknown synth option `wobble`', 1, 9)
+  })
+
+  it('dualsvf: two cutoff positionals, routing + per-stage modes as named enums', () => {
+    const out = ok(`synth duo\n  saw\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n`)
+    expect(out).toContain("dualsvf(saw(note.freq), 400, 4000, { res: 0.3, mode: 'parallel', a: 'lp', b: 'hp' })")
+    // bare serial cascade: only the cutoffs
+    const out2 = ok(`synth twin\n  saw\n  dualsvf 800 1200\n`)
+    expect(out2).toContain('dualsvf(saw(note.freq), 800, 1200)')
+  })
+
   it('quotes word arguments in bare combinators (arp updown)', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  arp updown\n`)
     expect(out).toContain(".arp('updown')")

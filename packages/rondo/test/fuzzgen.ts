@@ -219,7 +219,9 @@ function genSynth(r: R, name: string): { text: string; info: SynthInfo } {
   }
   const ctx: ExprCtx = { refs: bindNames, post: false }
   const lines: string[] = []
-  const opts = r.chance(0.15) ? ` ${r.pick(['mono', 'glide:.05', 'unison:3'])}` : ''
+  const opts = r.chance(0.15)
+    ? ` ${r.pick(['mono', 'glide:.05', 'unison:3', 'unison:5 curve:2 blend:.6', 'unison:4 octaves:2', 'unison:7 detune:22 spread:.9 curve:1.5'])}`
+    : ''
   lines.push(`synth ${name}${opts}`)
   // the source is never a bare constant: a fully numeric pipe correctly
   // REJECTS sigop lines now (220.fold() is not a thing), so a constant

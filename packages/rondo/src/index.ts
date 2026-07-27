@@ -9,5 +9,7 @@
 export { compile } from './compile'
 export { expandScale, splitBeatVelocities } from './codegen'
 export { decompile } from './decompile'
+export { BUILTINS } from './builtins'
+export type { BuiltinSpec, PosKind, NamedKind } from './builtins'
 export type { CompileResult, NoteSpan, JsRegion, PulseSpan } from './compile'
 export type { Program, TopItem, SynthBlock, PlayBlock, Expr, RondoError } from './ast'

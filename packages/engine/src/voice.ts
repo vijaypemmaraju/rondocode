@@ -25,13 +25,24 @@ const LOG2_440 = Math.log2(440)
  *    evenly from -detune to +detune around the note. Default 15.
  *  - `spread` — unison stereo width 0..1; sub-voices pan evenly left→right
  *    (center voice stays centered for odd `unison`). 0 = all centered (mono
- *    sum). Default 0.6. */
+ *    sum). Default 0.6.
+ *  - `curve` — detune-curve exponent, clamped to [0.2, 5]. 1 (default) is the
+ *    even spacing above; > 1 pulls the INNER sub-voices toward the note
+ *    (center-weighted, Serum-style focus — edges stay at ±detune); < 1 pushes
+ *    them out toward the edges.
+ *  - `blend` — edge-voice gain 0..1 (default 1 = all equal): sub-voice gain
+ *    fades linearly from 1 at the center to `blend` at the outermost pair.
+ *  - `octaves` — every Nth sub-voice (layout order) plays +12 semitones;
+ *    N >= 2, 0/1 = off (default 0). */
 export interface VoiceOpts {
   mono: boolean
   glide: number
   unison: number
   detune: number
   spread: number
+  curve: number
+  blend: number
+  octaves: number
 }
 
 /** The neutral defaults — a poly, no-glide, unison-1 synth, i.e. exactly the
@@ -43,6 +54,9 @@ export const DEFAULT_VOICE_OPTS: VoiceOpts = Object.freeze({
   unison: 1,
   detune: 15,
   spread: 0.6,
+  curve: 1,
+  blend: 1,
+  octaves: 0,
 })
 
 /** Consecutive silent blocks (gate off, block RMS < 1e-5) before a voice is
@@ -108,16 +122,18 @@ export class Voice {
     this.glideCoeff = coeff
   }
 
-  /** Configure this voice as a unison sub-voice: a constant detune multiplier
-   *  and a stereo pan position `q` in [0, 1] (0.5 = center). The balance is
-   *  normalized so q=0.5 is unity gain on both legs (spread 0 sums to the mono
-   *  result); off-center positions trade the two legs at equal power. */
-  setUnison(detuneMul: number, q: number): void {
+  /** Configure this voice as a unison sub-voice: a constant detune multiplier,
+   *  a stereo pan position `q` in [0, 1] (0.5 = center), and a per-sub-voice
+   *  `gain` (the blend shaping; default 1 = unshaped — `x * 1 === x`, so the
+   *  legacy path stays byte-identical). The balance is normalized so q=0.5 is
+   *  unity gain on both legs (spread 0 sums to the mono result); off-center
+   *  positions trade the two legs at equal power. */
+  setUnison(detuneMul: number, q: number, gain = 1): void {
     this.detuneMul = detuneMul
     // cos/sin give an equal-power PAN; dividing by cos(pi/4) (=SQRT1_2)
     // renormalizes it to a BALANCE that is unity at center.
-    this.glBal = (Math.cos(q * HALF_PI) * Math.SQRT2)
-    this.grBal = (Math.sin(q * HALF_PI) * Math.SQRT2)
+    this.glBal = (Math.cos(q * HALF_PI) * Math.SQRT2) * gain
+    this.grBal = (Math.sin(q * HALF_PI) * Math.SQRT2) * gain
   }
 
   /** Start (or retrigger) a note: notefreq = 440*2^((n-69)/12), gate = 1,
@@ -363,9 +379,11 @@ export class VoicePool {
   private readonly unison: number
   /** How many voices form one cluster (unison, capped by the pool size). */
   private readonly clusterSize: number
-  /** Per-sub-voice detune multipliers and pan positions (length `unison`). */
+  /** Per-sub-voice detune multipliers, pan positions and blend gains (length
+   *  `unison`). */
   private readonly detuneMuls: number[]
   private readonly panPos: number[]
+  private readonly gains: number[]
   /** Mono held-note stack (most-recent last); drives legato note priority. */
   private readonly held: number[] = []
 
@@ -380,17 +398,30 @@ export class VoicePool {
     this.unison = clampUnison(vo.unison)
     const detune = Math.max(0, Number.isFinite(vo.detune) ? vo.detune : 0)
     const spread = clamp(Number.isFinite(vo.spread) ? vo.spread : 0, 0, 1)
+    // Unison SHAPING (see VoiceOpts). Defensive defaults keep pre-feature wire
+    // messages (no curve/blend/octaves fields) on the legacy layout exactly.
+    const curve = clamp(Number.isFinite(vo.curve) ? vo.curve : 1, 0.2, 5)
+    const blend = clamp(Number.isFinite(vo.blend) ? vo.blend : 1, 0, 1)
+    const octaves = Math.floor(clamp(Number.isFinite(vo.octaves) ? vo.octaves : 0, 0, 9))
 
-    // Unison layout: pitches spread evenly across [-detune, +detune] cents and
-    // pans evenly across the field scaled by `spread` (center for odd unison).
+    // Unison layout: pitches spread across [-detune, +detune] cents (evenly at
+    // curve 1; warped toward the center for curve > 1 — the curve===1 guard
+    // keeps the default byte-identical), pans evenly across the field scaled
+    // by `spread` (center for odd unison), gains fading to `blend` at the
+    // edges, and every `octaves`-th sub-voice lifted +12.
     this.detuneMuls = []
     this.panPos = []
+    this.gains = []
     const N = this.unison
     for (let j = 0; j < N; j++) {
-      const frac = N === 1 ? 0 : (j / (N - 1)) * 2 - 1 // -1..+1
-      this.detuneMuls.push(2 ** ((frac * detune) / 1200))
+      const frac = N === 1 ? 0 : (j / (N - 1)) * 2 - 1 // -1..+1, linear
+      const warped = curve === 1 || frac === 0 ? frac : Math.sign(frac) * Math.abs(frac) ** curve
+      let mul = 2 ** ((warped * detune) / 1200)
+      if (octaves >= 2 && (j + 1) % octaves === 0) mul *= 2 // +12 semitones
+      this.detuneMuls.push(mul)
       const panFrac = N === 1 ? 0.5 : j / (N - 1) // 0..1
       this.panPos.push(0.5 + (panFrac - 0.5) * spread)
+      this.gains.push(blend === 1 ? 1 : 1 - (1 - blend) * Math.abs(frac))
     }
 
     // Glide applies only in mono (portamento between successive notes).
@@ -405,7 +436,7 @@ export class VoicePool {
       for (let j = 0; j < this.clusterSize; j++) {
         const v = this.voices[j]!
         v.setGlide(glideCoeff)
-        if (N > 1) v.setUnison(this.detuneMuls[j]!, this.panPos[j]!)
+        if (N > 1) v.setUnison(this.detuneMuls[j]!, this.panPos[j]!, this.gains[j]!)
       }
     }
   }
@@ -495,7 +526,7 @@ export class VoicePool {
     for (let j = 0; j < this.unison; j++) {
       const idx = this.allocIndex()
       this.seqs[idx] = ++this.seqCounter
-      vs[idx]!.setUnison(this.detuneMuls[j]!, this.panPos[j]!)
+      vs[idx]!.setUnison(this.detuneMuls[j]!, this.panPos[j]!, this.gains[j]!)
       vs[idx]!.noteOn(note, vel)
     }
   }

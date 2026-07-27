@@ -23,7 +23,7 @@ const KNOWN_CTX = [
   'note', 'gate', 'velocity', 'param', 'input',
   'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr', 'noise',
   'sample', 'granular', 'pluck', 'modal', 'pan',
-  'svf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
+  'svf', 'dualsvf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
   'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
 ]

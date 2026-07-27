@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { LadderKernel, OnePoleKernel, SvfKernel } from '../src/dsp/filters'
+import { DualSvfKernel, LadderKernel, OnePoleKernel, SvfKernel } from '../src/dsp/filters'
+import type { DualSvfConfig } from '../src/dsp/filters'
 import { NoiseKernel } from '../src/dsp/osc'
 import type { DspContext, Kernel } from '../src/dsp/types'
 import { goertzel } from './util/goertzel'
@@ -121,6 +122,101 @@ describe('SvfKernel', () => {
     }
     expect(maxAbs(filtered)).toBeLessThan(10)
   })
+
+  it('allpass at 1kHz keeps the magnitude flat across the band (within ±3dB)', () => {
+    const raw = noise(sr)
+    const filtered = runFilter(new SvfKernel('allpass'), raw, 1000, 0.5)
+    for (const f of [100, 500, 1000, 2000, 8000]) {
+      const r = response(raw, filtered, f)
+      expect(r, `|H|^2 at ${f}Hz`).toBeGreaterThan(0.5) // -3dB in power
+      expect(r, `|H|^2 at ${f}Hz`).toBeLessThan(2)
+    }
+  })
+
+  it('allpass at cutoff shifts the phase ~180° (anti-correlated with the input) at unchanged level', () => {
+    // steady 1kHz sine through an allpass tuned to 1kHz: a 2nd-order allpass
+    // is at -180° exactly at cutoff, so in/out correlate strongly NEGATIVELY,
+    // while the amplitude stays ~unchanged.
+    const n = sr
+    const input = new Float32Array(n)
+    for (let i = 0; i < n; i++) input[i] = Math.sin((TWO_PI * 1000 * i) / sr)
+    const out = runFilter(new SvfKernel('allpass'), input, 1000, 0.5)
+    const half = n >> 1
+    let dot = 0
+    let pin = 0
+    let pout = 0
+    for (let i = half; i < n; i++) {
+      dot += input[i]! * out[i]!
+      pin += input[i]! * input[i]!
+      pout += out[i]! * out[i]!
+    }
+    expect(Math.sqrt(pout / pin)).toBeGreaterThan(0.95) // level preserved
+    expect(Math.sqrt(pout / pin)).toBeLessThan(1.05)
+    expect(dot / Math.sqrt(pin * pout)).toBeLessThan(-0.9) // ~180° out of phase
+  })
+})
+
+/** Run a DualSvfKernel over `input` with constant cutoffs/res. */
+const runDual = (cfg: DualSvfConfig, input: Float32Array, fa: number, fb: number, res: number): Float32Array => {
+  const n = input.length
+  const out = new Float32Array(n)
+  new DualSvfKernel(cfg).process(
+    n,
+    { in: input, cutoff: constArr(n, fa), cutoff2: constArr(n, fb), res: constArr(n, res) },
+    out,
+    ctx,
+  )
+  return out
+}
+
+describe('DualSvfKernel', () => {
+  it('serial lp+lp at one cutoff rolls off much steeper than a single svf lp', () => {
+    const raw = noise(sr)
+    const single = runFilter(new SvfKernel('lp'), raw, 500, 0.2)
+    const dual = runDual({}, raw, 500, 500, 0.2) // defaults: serial, lp + lp
+    const s = response(raw, single, 4000)
+    const d = response(raw, dual, 4000)
+    expect(d).toBeLessThan(s / 10) // 24dB/oct vs 12dB/oct, 3 octaves up
+    expect(response(raw, dual, 200)).toBeGreaterThan(0.3) // passband intact
+  })
+
+  it('serial hp 500 → lp 2000 passes the middle and kills both edges', () => {
+    const raw = noise(sr)
+    const dual = runDual({ mode: 'serial', a: 'hp', b: 'lp' }, raw, 500, 2000, 0.2)
+    const mid = response(raw, dual, 1000)
+    expect(mid).toBeGreaterThan(10 * response(raw, dual, 100))
+    expect(mid).toBeGreaterThan(10 * response(raw, dual, 8000))
+  })
+
+  it('parallel lp 400 + hp 4000 leaves a spectral hole between the cutoffs', () => {
+    const raw = noise(sr)
+    const dual = runDual({ mode: 'parallel', a: 'lp', b: 'hp' }, raw, 400, 4000, 0.2)
+    const holeF = Math.sqrt(400 * 4000) // ~1265Hz, the geometric middle
+    const hole = response(raw, dual, holeF)
+    expect(hole * 5).toBeLessThan(response(raw, dual, 100))
+    expect(hole * 5).toBeLessThan(response(raw, dual, 10000))
+    // both passbands survive near unity
+    expect(response(raw, dual, 100)).toBeGreaterThan(0.5)
+    expect(response(raw, dual, 10000)).toBeGreaterThan(0.5)
+  })
+
+  it('each stage obeys ITS OWN cutoff (audio-rate independent inputs)', () => {
+    // widen stage B's lp: the top end opens while stage A's hp edge stays put
+    const raw = noise(sr)
+    const narrow = runDual({ mode: 'serial', a: 'hp', b: 'lp' }, raw, 500, 1000, 0.2)
+    const wide = runDual({ mode: 'serial', a: 'hp', b: 'lp' }, raw, 500, 8000, 0.2)
+    expect(response(raw, wide, 4000)).toBeGreaterThan(10 * response(raw, narrow, 4000))
+    // the shared hp edge is unaffected by cutoff2
+    const loNarrow = response(raw, narrow, 100)
+    const loWide = response(raw, wide, 100)
+    expect(loWide).toBeLessThan(loNarrow * 3 + 0.01)
+  })
+
+  it('stays finite and bounded at res=1.0 with extreme cutoffs on 1s of noise', () => {
+    const out = runDual({ mode: 'parallel', a: 'peak', b: 'peak' }, noise(sr), 18000, 30, 1.0)
+    for (let i = 0; i < out.length; i++) expect(Number.isFinite(out[i]!)).toBe(true)
+    expect(maxAbs(out)).toBeLessThan(60) // two resonant bells, still bounded
+  })
 })
 
 describe('LadderKernel', () => {
@@ -173,11 +269,24 @@ describe('OnePoleKernel', () => {
   })
 })
 
+/** Adapter so DualSvfKernel fits the shared in/cutoff/res harness: cutoff2
+ *  mirrors cutoff (both stages tuned together — state hygiene doesn't care). */
+const dualAsFilter = (cfg: DualSvfConfig): Kernel => {
+  const k = new DualSvfKernel(cfg)
+  return {
+    process: (n, inputs, out, c) => k.process(n, { ...inputs, cutoff2: inputs['cutoff']! }, out, c),
+    reset: () => k.reset(),
+  }
+}
+
 // [name, factory] — every filter kernel, for the shared state-hygiene tests.
 const allFilters: [string, () => Kernel][] = [
   ['svf', () => new SvfKernel('lp')],
+  ['svf-allpass', () => new SvfKernel('allpass')],
   ['ladder', () => new LadderKernel()],
   ['onepole', () => new OnePoleKernel()],
+  ['dualsvf-serial', () => dualAsFilter({})],
+  ['dualsvf-parallel', () => dualAsFilter({ mode: 'parallel', a: 'lp', b: 'hp' })],
 ]
 
 describe('denormal flush', () => {

@@ -149,11 +149,12 @@ setCps(0.35)`,
     group: 'sound design',
     title: 'Designing synths',
     blocks: [
-      p('Inside the synth function you build a signal graph out of oscillators (sine, saw, square, tri, pulse, wavetable, noise), filters (svf, ladder, onepole), and envelopes (adsr, lfo). Signals combine with .mul, .add, .mix, and .range.'),
+      p('Inside the synth function you build a signal graph out of oscillators (sine, saw, square, tri, pulse, wavetable, noise), filters (svf, ladder, onepole, dualsvf), and envelopes (adsr, lfo). Signals combine with .mul, .add, .mix, and .range.'),
+      p('dualsvf is the Serum-style dual filter: two svf stages with their own cutoffs and types (a/b), run serial (hp into lp carves a steep band) or parallel (lp + hp leaves a hole between the cutoffs). And unison stacks can be SHAPED from the synth opts: curve (>1 pulls the inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice plays +12) turn a flat detune spread into a sculpted supersaw.'),
       p("The wavetable oscillator is the most sweepable sound in the engine: `wavetable(freq, pos, { table })` scans `pos` (0..1) through a bank of single-cycle waves. Tables: `basic` (sine to saw to square), `harmonic` (a MOVING FORMANT, the vowel-like bloom under a lot of modern leads), `pwm` (widening pulses). Drive `pos` with an envelope so every note opens through the table. The 'wavetable lead' example is the full recipe: formant scan, supersaw width, mono glide, ott sheen."),
       p('This is an acid bass: a sawtooth through a ladder filter, with the envelope opening the cutoff on each note. param() declares a knob you can automate later.'),
       code(
-        'A ladder bass with a resonant filter sweep.',
+        'A ladder bass with a resonant filter sweep, and a dual-filtered, shaped-unison stab over it.',
         `const acid = synth(({ note, gate, param, adsr, saw, square, ladder }) => {
   const cutoff = param('cutoff', 800, { min: 80, max: 8000, curve: 'log' })
   const env = adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })
@@ -161,7 +162,17 @@ setCps(0.35)`,
   return ladder(osc, cutoff.mul(env.pow(2)), { res: 0.85 }).mul(env)
 })
 
-p('bass', note('c2 c2 g2 c2 eb2 c2 g1 c2').sound('acid'))`,
+// dualsvf: parallel lp+hp scoops the middle; curve/blend/octaves shape the unison stack
+const hollow = synth(
+  ({ note, gate, adsr, saw, dualsvf }) => {
+    const env = adsr(gate, { a: 0.004, d: 0.25, s: 0.2, r: 0.15 })
+    return dualsvf(saw(note.freq), 350, 2800, { mode: 'parallel', a: 'lp', b: 'hp', res: 0.3 }).mul(env)
+  },
+  { unison: 5, detune: 16, spread: 0.8, curve: 2, blend: 0.7, octaves: 4 },
+)
+
+p('bass', note('c2 c2 g2 c2 eb2 c2 g1 c2').sound('acid'))
+p('stab', note('<c4 ~ eb4 ~>').sound('hollow').gain(0.5))`,
       ),
     ],
   },
@@ -687,7 +698,7 @@ cps .6`,
       p('Expressions use `+ - * / ^` with ordinary precedence (`^` binds tightest, then `* /`, then `+ -`). `note` is the note frequency in Hz, `gate` the envelope gate, `velocity` the note velocity, and inside a post chain `input` is the summed voice signal. `x -> lo..hi` maps a 0..1 signal into a range: `lfo 4 tri -> 200..3000` is a wobble. Number literals fold: `2 * 3` compiles to `6`, and `1 - env` rewrites algebraically.'),
       p('Arguments are space-separated. Word arguments go bare where the builtin declares them (`noise pink`, `svf 900 mode:hp`, `shape 2 type:tube`); `key:value` pairs are named options, and unknown names are compile errors, never silent drops. Sources: `saw square sine tri pulse supersaw fm noise lfsr wavetable syncsaw`, plus the gated ones `sample granular pluck modal`, plus `mic`: the LIVE microphone as a signal (vocode it, filter it; headphones advised, and it renders silent in offline exports). An oscillator (or pluck/modal) with no frequency argument plays the note.'),
       p('Three builtins have special shapes. `eq hp 170 peak 300 -3 2 highshelf 7000 4` is the parametric EQ: each band is a type word then freq [gain] [q]. `vocoder mod bands:20` makes the pipe the carrier and `mod` the voice. And in bindings, `e = env .005 1 .15 .4 release:.3 curve:3` is the breakpoint envelope, flat time/level pairs, the flexible cousin of `adsr`.'),
-      p('Voice options sit on the header: `synth bass mono glide:.08` is the 303 mono-glide, `unison:5 detune:14 spread:.9` widens a lead, `voices:12` raises polyphony.'),
+      p('Voice options sit on the header: `synth bass mono glide:.08` is the 303 mono-glide, `unison:5 detune:14 spread:.9` widens a lead, `voices:12` raises polyphony. Shape the unison stack with `curve:2` (inner voices hug the note), `blend:.7` (quieter edges) and `octaves:2` (every 2nd voice up an octave).'),
       rondo(
         'Source, filter, drive, delay, VCA, saturation.',
         `synth growl

@@ -7,8 +7,8 @@ import type { PhaserConfig } from './dsp/fx2'
 import { VocoderKernel } from './dsp/vocoder'
 import type { VocoderConfig } from './dsp/vocoder'
 import { WavetableKernel } from './dsp/wavetable'
-import { SvfKernel, LadderKernel, OnePoleKernel } from './dsp/filters'
-import type { SvfMode } from './dsp/filters'
+import { SvfKernel, LadderKernel, OnePoleKernel, DualSvfKernel } from './dsp/filters'
+import type { SvfMode, DualSvfConfig } from './dsp/filters'
 import { AdsrKernel, EnvKernel } from './dsp/env'
 import type { EnvConfig } from './dsp/env'
 import type { AdsrConfig } from './dsp/env'
@@ -148,6 +148,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   svf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   ladder: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   onepole: [{ name: 'in' }, { name: 'cutoff' }],
+  dualsvf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'cutoff2' }, { name: 'res', def: 0 }],
   adsr: [{ name: 'gate' }],
   env: [{ name: 'gate' }],
   lfo: [{ name: 'freq' }],
@@ -211,6 +212,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   svf: (c) => new SvfKernel((c['mode'] as SvfMode | undefined) ?? 'lp'),
   ladder: () => new LadderKernel(),
   onepole: () => new OnePoleKernel(),
+  dualsvf: (c) => new DualSvfKernel(dualsvfCfg(c)),
   adsr: (c) => new AdsrKernel(c as AdsrConfig),
   env: (c) => new EnvKernel(c as unknown as EnvConfig),
   lfo: (c) => new LfoKernel((c['shape'] as LfoShape | undefined) ?? 'sine'),
@@ -259,6 +261,15 @@ const chorusCfg = (c: Record<string, unknown>): ChorusConfig => {
   if (typeof c['rate'] === 'number') out.rate = c['rate']
   if (typeof c['depth'] === 'number') out.depth = c['depth']
   if (typeof c['mix'] === 'number') out.mix = c['mix']
+  return out
+}
+
+/** Keep only well-typed dualsvf config entries (kernel defaults otherwise). */
+const dualsvfCfg = (c: Record<string, unknown>): DualSvfConfig => {
+  const out: DualSvfConfig = {}
+  if (c['mode'] === 'serial' || c['mode'] === 'parallel') out.mode = c['mode']
+  if (typeof c['a'] === 'string') out.a = c['a'] as DualSvfConfig['a']
+  if (typeof c['b'] === 'string') out.b = c['b'] as DualSvfConfig['b']
   return out
 }
 

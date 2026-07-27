@@ -67,6 +67,9 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   // ---- processors (running signal first) ----
   ladder: { kind: 'proc', pos: ['sig'], named: { res: 'sig' }, defaults: { res: '0.5' } },
   svf: { kind: 'proc', pos: ['sig'], named: { res: 'sig', mode: 'enum' } },
+  // dual filter: two svf stages — positionals are the two cutoffs
+  // (`dualsvf 400 4000 mode:parallel a:lp b:hp res:.3`)
+  dualsvf: { kind: 'proc', pos: ['sig', 'sig'], named: { res: 'sig', mode: 'enum', a: 'enum', b: 'enum' } },
   onepole: { kind: 'proc', pos: ['sig'] },
   delay: { kind: 'proc', pos: ['sig', 'sig'], named: { maxtime: 'num' }, alias: { maxtime: 'maxTime' } },
   comb: { kind: 'proc', pos: ['sig', 'sig'], named: { damp: 'num' } },

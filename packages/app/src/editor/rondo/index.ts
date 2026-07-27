@@ -27,7 +27,7 @@ const BUILTINS = new Set([
   'saw', 'square', 'sine', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable',
   'supersaw', 'noise', 'lfsr', 'lfo',
   'sample', 'granular', 'pluck', 'modal',
-  'ladder', 'svf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
+  'ladder', 'svf', 'dualsvf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
   'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'exciter', 'ott',
   'tanh', 'clip', 'fold', 'mix',
 ])
@@ -98,7 +98,7 @@ export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
 const c = (label: string, type: string, detail: string, info: string): Completion => ({ label, type, detail, info })
 
 const OPTIONS: Completion[] = [
-  c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings.'),
+  c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings. Header opts: mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, voices:.'),
   c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
   c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.'),
   c('sing', 'keyword', 'sing NAME voice:barbara', 'A neural vocal: LYRIC lines above MELODY lines (pairs), one syllable per note.'),
@@ -119,7 +119,8 @@ const OPTIONS: Completion[] = [
   c('adsr', 'function', 'adsr a d s r', 'Attack/decay/sustain/release envelope on the note gate.'),
   c('knob', 'function', 'knob DEF lo..hi [log]', 'Declare a live control param (drivable with `name: …`).'),
   c('ladder', 'function', 'ladder cutoff res:…', 'Moog-style resonant low-pass filter on the running signal.'),
-  c('svf', 'function', 'svf cutoff res:… mode:…', 'State-variable filter (lp/hp/bp/notch/peak).'),
+  c('svf', 'function', 'svf cutoff res:… mode:…', 'State-variable filter (lp/hp/bp/notch/peak/allpass).'),
+  c('dualsvf', 'function', 'dualsvf cutA cutB mode:… a:… b:…', 'Dual filter: two svf stages (a/b types, own cutoffs), serial or parallel.'),
   c('onepole', 'function', 'onepole cutoff', 'Gentle one-pole low-pass.'),
   c('supersaw', 'function', 'supersaw detune:… mix:…', 'Seven detuned saws — the wide trance/EDM lead.'),
   c('fm', 'function', 'fm [freq] [mod] feedback:…', 'FM operator: a sine whose pitch the mod signal wobbles at audio rate.'),

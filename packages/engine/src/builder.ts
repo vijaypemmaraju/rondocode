@@ -133,9 +133,14 @@ export interface SynthCtx {
    *  the ring time; `damp` (0..1) mellows the strike by taming higher modes.
    *  Self-enveloping like pluck. */
   modal(gate: SigIn, freq: SigIn, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass'; decay?: number; damp?: number }): Sig
-  svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' }): Sig
+  svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
+  /** Serum-style DUAL filter: two svf stages, each with its own cutoff and
+   *  response type (a/b, 'lp' default), one shared res. mode 'serial' (A then
+   *  B, default) cascades them; 'parallel' sums them (lp + hp leaves a hole
+   *  between the cutoffs). */
+  dualsvf(inp: SigIn, cutoff: SigIn, cutoff2: SigIn, opts?: { res?: SigIn; mode?: 'serial' | 'parallel'; a?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'; b?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   adsr(gate: SigIn, opts?: { a?: number; d?: number; s?: number; r?: number }): Sig
   /** Multi-segment (breakpoint) envelope — the flexible cousin of adsr.
    *  `points` are [timeSec, level] pairs: while the gate is held it ramps
@@ -208,9 +213,14 @@ export interface PostCtx {
   /** The summed-voices signal to process (a businput source). */
   input: Sig
   param(name: string, def: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
-  svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' }): Sig
+  svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
+  /** Serum-style DUAL filter: two svf stages, each with its own cutoff and
+   *  response type (a/b, 'lp' default), one shared res. mode 'serial' (A then
+   *  B, default) cascades them; 'parallel' sums them (lp + hp leaves a hole
+   *  between the cutoffs). */
+  dualsvf(inp: SigIn, cutoff: SigIn, cutoff2: SigIn, opts?: { res?: SigIn; mode?: 'serial' | 'parallel'; a?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'; b?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   lfo(freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
@@ -266,6 +276,16 @@ export interface VoiceOptsInput {
   detune?: number
   /** Unison stereo width, 0..1. Default 0.6. */
   spread?: number
+  /** Unison detune-curve exponent: 1 (default) spaces sub-voices evenly,
+   *  > 1 pulls the inner voices toward the center (Serum-style focus),
+   *  < 1 pushes them out toward the edges. Clamped to [0.2, 5]. */
+  curve?: number
+  /** Edge-voice gain, 0..1: 1 (default) keeps all sub-voices equal, lower
+   *  values fade the outer voices relative to the center. */
+  blend?: number
+  /** Octave stacking: every Nth unison sub-voice plays +12 semitones
+   *  (N >= 2; 0/1 = off, the default). */
+  octaves?: number
   /** Max simultaneous notes (voice-pool size), 1..64. Default 8. Right-size it
    *  to save the shared voice budget and CPU: drums/leads want 2-4, a mono
    *  bass 1, a held pad or chord stack 8-12. */
@@ -277,7 +297,8 @@ export interface SynthDef {
   /** Optional per-synth FX chain over the summed voices (see PostCtx). Absent
    *  when synth() was called with no postFn. */
   post?: GraphSpec
-  /** Normalized voice-allocation options (mono/glide/unison/detune/spread).
+  /** Normalized voice-allocation options (mono/glide/unison/detune/spread
+   *  plus the unison shaping curve/blend/octaves).
    *  ABSENT when synth() was called with no opts — the pool then takes its
    *  neutral defaults (poly, unison 1), preserving pre-feature behavior. */
   voiceOpts?: VoiceOpts
@@ -301,6 +322,9 @@ const normalizeVoiceOpts = (o: VoiceOptsInput): VoiceOpts => {
     unison: Math.floor(Math.min(9, Math.max(1, num(o.unison, 1)))),
     detune: Math.max(0, num(o.detune, 15)),
     spread: Math.min(1, Math.max(0, num(o.spread, 0.6))),
+    curve: Math.min(5, Math.max(0.2, num(o.curve, 1))),
+    blend: Math.min(1, Math.max(0, num(o.blend, 1))),
+    octaves: Math.floor(Math.min(9, Math.max(0, num(o.octaves, 0)))),
   }
 }
 
@@ -480,7 +504,7 @@ const makeShared = (b: Builder) => {
       b.params.push(spec)
       return b.node('param', {}, { name })
     },
-    svf: (inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' }): Sig => {
+    svf: (inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig => {
       const inputs: Record<string, InputSource> = {
         in: src(inp, 'svf in'),
         cutoff: src(cutoff, 'svf cutoff'),
@@ -498,6 +522,20 @@ const makeShared = (b: Builder) => {
     },
     onepole: (inp: SigIn, cutoff: SigIn): Sig =>
       b.node('onepole', { in: src(inp, 'onepole in'), cutoff: src(cutoff, 'onepole cutoff') }),
+    dualsvf: (
+      inp: SigIn,
+      cutoff: SigIn,
+      cutoff2: SigIn,
+      opts?: { res?: SigIn; mode?: 'serial' | 'parallel'; a?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'; b?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = {
+        in: src(inp, 'dualsvf in'),
+        cutoff: src(cutoff, 'dualsvf cutoff'),
+        cutoff2: src(cutoff2, 'dualsvf cutoff2'),
+      }
+      if (opts?.res !== undefined) inputs['res'] = src(opts.res, 'dualsvf res')
+      return b.node('dualsvf', inputs, definedConfig({ mode: opts?.mode, a: opts?.a, b: opts?.b }))
+    },
     lfo: (freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig =>
       b.node('lfo', { freq: src(freq, 'lfo freq') }, definedConfig({ shape })),
     delay: (inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig => {
@@ -616,6 +654,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     svf: shared.svf,
     ladder: shared.ladder,
     onepole: shared.onepole,
+    dualsvf: shared.dualsvf,
     lfo: shared.lfo,
     delay: shared.delay,
     reverb: shared.reverb,
@@ -767,7 +806,8 @@ const returnsOwnSig = (result: unknown, b: Builder): boolean =>
 /** Define a synth. `voiceFn` wires the PER-VOICE sound (SynthCtx). The optional
  *  `postFn` wires a PER-SYNTH FX chain (PostCtx) that processes the SUMMED
  *  voices ONCE — shared reverb/delay/EQ instead of one-per-note. `opts` sets
- *  voice-allocation modes (mono/glide/unison/detune/spread); it may be passed
+ *  voice-allocation modes (mono/glide/unison/detune/spread and the unison
+ *  shaping curve/blend/octaves); it may be passed
  *  as the SECOND argument when there is no post chain — a plain object there is
  *  read as opts, a function as the post fn. Both graphs are validated +
  *  compiled here so errors surface at definition time; a synth with no postFn

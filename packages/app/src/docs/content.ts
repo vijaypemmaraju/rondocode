@@ -505,7 +505,7 @@ setCps(0.5)`,
     title: 'Samples & granular',
     blocks: [
       p("`sample(gate, 'name')` plays a loaded audio sample like an oscillator: `root` is the note it plays natural at, and it pitches from there. `vox`, `riser` and `pad` ship built in; load your own with the + button in the editor, or RECORD one on the device microphone (the record button in the same popover): the take is trimmed and normalized and lands as `mic1`, ready to play from a `beat` or `play` block, feed to `granular`, or run through the `vocoder`. `granular` sprays overlapping grains from a scannable position for evolving textures."),
-      p("The same popover can also RESAMPLE the track itself: after a Run, tap a cycle count on the resample row (1, 2, 4 or 8) and that many cycles of the playing program render offline into the bank as `take1` (then `take2`, ...), mono, normalized, and cut to an exact loop length so it repeats seamlessly (tails ringing past the loop end are trimmed). `sample(gate, 'take1')` in JavaScript, or `sample take1` in rondo, plays it back like any sample: compose something freely, bounce it into a take, then chop and loop the take while you build the next layer on top of it."),
+      p("The same popover can also RESAMPLE the track itself: after a Run, tap a cycle count on the resample row (1, 2, 4 or 8) and that many cycles of the playing program render offline into the bank as `take1` (then `take2`, ...), mono, normalized, and cut to an exact loop length so it repeats seamlessly (tails ringing past the loop end are trimmed). `sample(gate, 'take1')` in JavaScript, or `sample take1` in rondo, plays it back like any sample: compose something freely, bounce it into a take, then chop and loop the take while you build the next layer on top of it. Chopping a sample, next, is how you cut a take into pieces."),
       code(
         'A granular cloud over the built-in pad sample, with a vocal on top.',
         `const cloud = synth(
@@ -523,6 +523,57 @@ const voc = synth(({ gate, adsr, sample }) =>
 p('cloud', chord('<Cmaj7 Am7>').sound('cloud').dur(0.98))
 p('voc', note('<c4 ~ e4 ~>').sound('voc').gain(0.5))
 setCps(0.3)`,
+      ),
+    ],
+  },
+  {
+    id: 'chopping',
+    group: 'sound design',
+    title: 'Chopping a sample',
+    blocks: [
+      p('A sample does not have to play from the top. `start` and `end` are fractions of the buffer (0 is the very beginning, 1 the very end) and they narrow playback to a WINDOW: `{ start: 0.5 }` plays the back half, and a loop wraps inside the window instead of running to the end of the file. `reverse: true` plays that window backwards. Both compose with `speed` and `root`, so a reversed half can still be pitched.'),
+      p('`slices: N` is the chopper. It divides the window into N equal pieces and hands the choice to the NOTE: `root` (60 by default) plays chop 0, the next semitone up plays chop 1, and it wraps past the last one. Each chop plays at natural speed no matter which note picked it, which is the classic chopped-breakbeat behaviour: a note pattern becomes a sequencer for the pieces of a loop. Reorder the notes and you get a new beat out of the same audio. Set `root: 36` to move the whole chop keyboard down to where your drum notes live.'),
+      p('Chops start and stop mid-waveform, which would click, so every sliced voice gets a 3 ms ramp at both edges of the window. Raise it with `fade` (in seconds) for softer, more blended chops, or set `fade: 0` when you want the raw edge. Whole-buffer playback is untouched by all of this.'),
+      p("This is the other half of resampling. Bounce a few cycles of your own track into `take1` from the samples popover, then chop the take: `sample(gate, 'take1', { slices: 8 })` in JavaScript, `sample take1 slices:8` in rondo, and your own music becomes the source material for the next layer."),
+      code(
+        'Eight chops of the built-in break, resequenced, over a reversed tail of the same loop.',
+        `const chop = synth(({ gate, adsr, sample }) =>
+  sample(gate, 'break', { slices: 8 }).mul(adsr(gate, { a: 0.001, d: 0.22, s: 1, r: 0.02 })))
+// the back half of the same break, reversed and looped, as a bed
+const tail = synth(({ gate, adsr, sample, svf }) =>
+  svf(sample(gate, 'break', { start: 0.5, reverse: true, loop: true }), 2400)
+    .mul(adsr(gate, { a: 0.02, d: 0.5, s: 0.7, r: 0.4 })).mul(0.3))
+
+// c4 is chop 0, db4 is chop 1, on up to g4 for chop 7
+p('chop', note('c4 e4 f4 g4 db4 c4 gb4 e4').sound('chop').gain(0.95))
+p('tail', note('c4').slow(4).sound('tail').gain(0.8))
+setCps(0.5)`,
+      ),
+      p('In rondo the slice options are named arguments on the `sample` line, and the note pattern in the `play` block does the chopping.'),
+      rondo(
+        'The same chopper as a rondo program.',
+        `synth chop
+  sample break slices:8
+  * a
+  a = adsr .001 .22 1 .02
+
+synth tail
+  sample break start:.5 reverse:1 loop:1
+  svf 2400
+  * a
+  * .3
+  a = adsr .02 .5 .7 .4
+
+play chop
+  c4 e4 f4 g4 db4 c4 gb4 e4
+  gain: .95
+
+play tail
+  c4
+  slow 4
+  gain: .8
+
+cps .5`,
       ),
     ],
   },

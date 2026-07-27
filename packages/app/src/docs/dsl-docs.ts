@@ -468,9 +468,9 @@ const SYNTH_CTX: DocEntry[] = [
   sc('supersaw', 'supersaw(freq, opts?: { detune?, mix? })', 'The fat trance/EDM lead: 7 detuned sawtooths in one oscillator. detune (0..1, def 0.2) spreads them apart; mix (0..1, def 0.7) is how loud the 6 side saws are versus the centre. Anti-aliased, so it stays clean up high.', "supersaw(note.freq, { detune: 0.3, mix: 0.8 })"),
   sc(
     'sample',
-    'sample(gate, name, opts?: { root, speed, loop })',
-    'Play a loaded audio sample (drums, vocal chops, risers). A rising gate edge retriggers from the start; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. Mono out, shape it with an ADSR like an oscillator. Unknown name → silence.',
-    "sample(gate, 'break', { root: 60 }).mul(adsr(gate, { r: 0.1 }))",
+    'sample(gate, name, opts?: { root, speed, loop, start, end, reverse, slices, fade })',
+    'Play a loaded audio sample (drums, vocal chops, risers, your own bounced takes). A rising gate edge retriggers from the start; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. SLICING: start and end (fractions 0..1 of the buffer) play only that window, and a loop wraps inside it; reverse:true plays it backwards; slices:N divides the window into N chops and the NOTE picks one at natural speed (root selects chop 0, root+1 the next, wrapping), so a note pattern sequences the chops; fade (seconds, def 0.003 once sliced) ramps the chop edges so they do not click. Mono out, shape it with an ADSR like an oscillator. Unknown name → silence.',
+    "sample(gate, 'break', { slices: 8 }).mul(adsr(gate, { r: 0.02 }))",
   ),
   sc(
     'granular',

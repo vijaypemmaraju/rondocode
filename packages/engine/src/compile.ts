@@ -30,6 +30,7 @@ import type { BitcrushConfig } from './dsp/bitcrush'
 import { ShapeKernel } from './dsp/shape'
 import type { ShapeType } from './dsp/shape'
 import { SampleKernel } from './dsp/sample'
+import type { SampleSliceConfig } from './dsp/sample'
 import { GranularKernel } from './dsp/granular'
 import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
@@ -141,8 +142,10 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   // make every mode the identity transfer — a silent no-op reads as broken)
   wavetable: [{ name: 'freq' }, { name: 'pos', def: 0 }, { name: 'warpAmt', def: 0.5 }],
   noise: [],
-  // gate required (retrigger edge); speed optional, 1 = natural pitch.
-  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }],
+  // gate required (retrigger edge); speed optional, 1 = natural pitch; pitch is
+  // the note-to-reference RATIO that picks a chop when `slices` is set (1 = the
+  // reference note = slice 0), ignored otherwise.
+  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],
@@ -210,7 +213,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   lfsr: (c) => new LFSRKernel(typeof c['mode'] === 'string' ? c['mode'] : undefined),
   // ctx carries the shared sample bank the kernel resolves `name` against each
   // block (so samples loaded after compile still play).
-  sample: (c, ctx) => new SampleKernel(String(c['name'] ?? ''), c['loop'] === true, ctx.samples),
+  sample: (c, ctx) => new SampleKernel(String(c['name'] ?? ''), c['loop'] === true, ctx.samples, sampleCfg(c)),
   granular: (c, ctx) => new GranularKernel(String(c['name'] ?? ''), granularCfg(c), ctx.samples),
   // ctx sizes the delay line to the lowest note at the engine rate up front
   pluck: (c, ctx) => new PluckKernel(c as PluckConfig, ctx),
@@ -284,6 +287,15 @@ const bitcrushCfg = (c: Record<string, unknown>): BitcrushConfig => {
   const out: BitcrushConfig = {}
   if (typeof c['bits'] === 'number') out.bits = c['bits']
   if (typeof c['downsample'] === 'number') out.downsample = c['downsample']
+  return out
+}
+
+const sampleCfg = (c: Record<string, unknown>): SampleSliceConfig => {
+  const out: SampleSliceConfig = {}
+  for (const k of ['start', 'end', 'slices', 'fade'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  if (typeof c['reverse'] === 'boolean') out.reverse = c['reverse']
   return out
 }
 

@@ -3,6 +3,8 @@ import { AdsrKernel } from '../src/dsp/env'
 import { WavetableBank, WavetableKernel } from '../src/dsp/wavetable'
 import { DualSvfKernel, SvfKernel } from '../src/dsp/filters'
 import { NoiseKernel } from '../src/dsp/osc'
+import { SampleKernel } from '../src/dsp/sample'
+import { SampleBank } from '../src/samples'
 import { duckReleaseCoeff } from '../src/realtime'
 import { synth } from '../src/builder'
 import { renderOffline } from '../src/render'
@@ -172,5 +174,31 @@ describe('44.1 kHz: renderOffline', () => {
     const steady = r.left.subarray(Math.round(0.1 * SR), Math.round(0.35 * SR))
     expect(goertzel(steady, 110, SR)).toBeGreaterThan(goertzel(steady, 137, SR) * 50)
     expect(goertzel(steady, 110, SR)).toBeGreaterThan(goertzel(steady, 110 * 48000 / 44100, SR) * 20)
+  })
+})
+
+describe('44.1 kHz: sample slicing', () => {
+  it('the chop edge fade is 3 ms of SOURCE frames (132 at 44.1k, not 144)', () => {
+    const bank = new SampleBank()
+    bank.set('dc', new Float32Array(SR).fill(1), SR) // flat 1.0: the output IS the fade curve
+    const k = new SampleKernel('dc', false, bank, { start: 0.25, end: 0.75 }) // default 3 ms fade
+    const out = new Float32Array(SR)
+    k.process(SR, { gate: new Float32Array(SR).fill(1) }, out, ctx)
+    // 0.003 * 44100 = 132.3 frames: full level by 133, half way at 66.
+    // A baked-in 48000 would give 144 frames and read 0.917 here.
+    expect(out[66]).toBeCloseTo(0.5, 2)
+    expect(out[132]!).toBeGreaterThan(0.99)
+    expect(out[133]).toBe(1)
+  })
+
+  it('a window is a FRACTION of the buffer at any rate', () => {
+    const bank = new SampleBank()
+    bank.set('r', Float32Array.from({ length: SR }, (_, i) => i), SR)
+    const k = new SampleKernel('r', false, bank, { start: 0.5, end: 0.75, fade: 0 })
+    const out = new Float32Array(SR)
+    k.process(SR, { gate: new Float32Array(SR).fill(1) }, out, ctx)
+    expect(out[0]).toBe(SR / 2) // 22050, not 24000
+    expect(out[SR / 4 - 1]).toBe(SR * 0.75 - 1)
+    expect(out[SR / 4]).toBe(0) // exactly a quarter of the buffer long
   })
 })

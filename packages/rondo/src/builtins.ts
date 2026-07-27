@@ -59,7 +59,15 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   mic: { kind: 'osc', pos: [] },
 
   // ---- gated sources (samplers, physical models) ----
-  sample: { kind: 'gated', pos: ['enum'], named: { root: 'num', speed: 'sig', loop: 'bool' } },
+  // start/end window the buffer (fractions 0..1), slices chops that window and
+  // the NOTE picks a chop, reverse plays it backwards, fade softens the edges
+  sample: {
+    kind: 'gated', pos: ['enum'],
+    named: {
+      root: 'num', speed: 'sig', loop: 'bool',
+      start: 'num', end: 'num', reverse: 'bool', slices: 'num', fade: 'num',
+    },
+  },
   granular: {
     kind: 'gated', pos: ['enum'],
     named: { pos: 'sig', root: 'num', rate: 'sig', size: 'num', density: 'num', spray: 'num', loop: 'bool' },

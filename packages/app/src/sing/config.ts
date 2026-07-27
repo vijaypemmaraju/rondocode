@@ -14,14 +14,32 @@
  *  http://127.0.0.1:8790 for a local model server). */
 const DEFAULT_BASE = 'https://models.rondocode.com'
 
-const envBase = (import.meta.env.VITE_SING_MODELS_BASE as string | undefined)?.replace(/\/+$/, '')
+const readEnv = (key: string): string | undefined => {
+  // Vite inlines import.meta.env at build time; node has no such object, and
+  // the headless renderer imports this module directly. Try both, quietly.
+  try {
+    const v = (import.meta as { env?: Record<string, string | undefined> }).env?.[key]
+    if (typeof v === 'string' && v !== '') return v
+  } catch {
+    /* no import.meta.env here */
+  }
+  try {
+    const v = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[key]
+    if (typeof v === 'string' && v !== '') return v
+  } catch {
+    /* no process.env here */
+  }
+  return undefined
+}
+
+const envBase = readEnv('VITE_SING_MODELS_BASE')?.replace(/\/+$/, '')
 
 /** Base URL (no trailing slash) for phoneme.onnx, vec-768.onnx, gen_<voice>.onnx. */
 export const SING_MODELS_BASE = envBase ?? DEFAULT_BASE
 
 /** Supertonic TTS models — already public on HuggingFace, overridable too. */
 export const SUPERTONIC_BASE =
-  (import.meta.env.VITE_SUPERTONIC_BASE as string | undefined)?.replace(/\/+$/, '') ??
+  readEnv('VITE_SUPERTONIC_BASE')?.replace(/\/+$/, '') ??
   'https://huggingface.co/Supertone/supertonic-3/resolve/main'
 
 /** The two builds of the phoneme aligner served from SING_MODELS_BASE: the

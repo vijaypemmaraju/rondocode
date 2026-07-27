@@ -12,6 +12,18 @@
 
 const RETRIES = 3
 
+/** How a cache is opened. The browser uses the Cache API; node has none, so
+ *  the headless renderer swaps in a filesystem store. Everything else about
+ *  the download path (streaming, truncation checks, retries) is identical. */
+export type CacheOpener = (name: string) => Promise<CacheLike>
+
+let openCache: CacheOpener = (name) => caches.open(name) as unknown as Promise<CacheLike>
+
+/** Swap the cache backend (headless render, tests). */
+export function setCacheOpener(fn: CacheOpener): void {
+  openCache = fn
+}
+
 /** The cache surface streamIntoCache needs - the real Cache object satisfies
  *  it; tests stub it. */
 export interface CacheLike {
@@ -86,7 +98,7 @@ export async function cachedBytes(
   cacheName: string,
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<ArrayBuffer> {
-  const cache = await caches.open(cacheName)
+  const cache = await openCache(cacheName)
   const hit = await cache.match(url)
   if (hit) return hit.arrayBuffer()
 

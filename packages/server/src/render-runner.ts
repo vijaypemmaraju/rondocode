@@ -28,7 +28,7 @@
 // see mcp.ts header): the app's eval core gives us the exact browser
 // vocabulary; pattern/engine give the scheduler and offline renderer.
 import { evalCode } from '../../app/src/session/evalCode'
-import type { Diagnostic, BusDef, SendSpec } from '../../app/src/session/evalCode'
+import type { BusDef, Diagnostic, SendSpec, SingRequest } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
 import { Scheduler } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
@@ -68,6 +68,10 @@ export type StageResult =
       /** Present iff the code called masterCompress() — master-bus glue
        *  compressor config (dB / ratio / ms). */
       masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+      /** Staged sing() requests: the neural vocals a headless render must
+       *  bake before mixing (the browser bakes them into the sample bank; see
+       *  sing-headless.ts for the node path). */
+      sings: SingRequest[]
       /** Non-fatal eval diagnostics (warnings). */
       warnings: Diagnostic[]
     }
@@ -85,6 +89,7 @@ export function stageCode(source: string): StageResult {
     patterns: r.patterns,
     buses: r.buses,
     sends: r.sends,
+    sings: r.sings,
     warnings: r.diagnostics,
   }
   if (r.cps !== undefined) out.cps = r.cps

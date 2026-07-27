@@ -39,6 +39,9 @@ const MODIFIERS = new Set([
 
 const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
   name: 'rondo',
+  // Mod-/ toggle comment (the defaultKeymap binding) needs to know rondo's
+  // line-comment token; without this the command silently no-ops in rondo.
+  languageData: { commentTokens: { line: '#' } },
   startState: () => ({}),
   token(stream) {
     if (stream.eatSpace()) return null

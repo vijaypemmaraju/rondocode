@@ -1,4 +1,4 @@
-import { redo, redoDepth, undo, undoDepth } from '@codemirror/commands'
+import { redo, redoDepth, toggleComment, undo, undoDepth } from '@codemirror/commands'
 /* The rondo TAP PALETTE — the original design thesis, made real: because we
  * own the grammar, we know exactly which tokens are legal at the cursor. So a
  * chip bar (docked above the software keyboard) offers ONLY the valid next
@@ -355,6 +355,9 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView, hooks: Pal
     bar.replaceChildren(
       histChip('↶', 'undo', () => undo(view), () => undoDepth(view.state)),
       histChip('↷', 'redo', () => redo(view), () => redoDepth(view.state)),
+      // comment toggle: the mobile spelling of Mod-/ (works on the current
+      // line or the whole selection, either language)
+      histChip('#', 'toggle comment', () => toggleComment(view), () => 1),
       ...chips.map((c) => {
         const b = document.createElement('button')
         b.type = 'button'

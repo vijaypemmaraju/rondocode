@@ -55,6 +55,10 @@ const SCALES = ['a-min', 'c-maj', 'e-dor', 'g-phr', 'd-lyd', 'c-19edo', 'd-pelog
 // scaledef names: must not collide with builtins/synths/bindings
 const SCALEDEF_NAMES = ['pelogx', 'slendro', 'bellcurve', 'quartz'] as const
 const SCALEDEF_STEPS = ['0', '.5', '1.2', '2.7', '3.86', '5.4', '-1.1', '7.02', '9.7', '10.9'] as const
+// wavedef names: same rule (and never the built-in tables basic/harmonic/pwm)
+const WAVEDEF_NAMES = ['wtx', 'morphy', 'vowelz', 'glasswt'] as const
+// partial amplitudes incl. a negative (a phase flip — legal, must round-trip)
+const WAVEDEF_AMPS = ['0', '.1', '.25', '.5', '.75', '.9', '1', '-.5'] as const
 const SMALL = ['.1', '.25', '.3', '.5', '.75', '.85', '.9'] as const
 const FREQS = ['55', '110', '220', '440', '800', '1200', '2400', '5200'] as const
 const TIMES = ['.003', '.01', '.05', '.1', '.2', '.4'] as const
@@ -339,6 +343,20 @@ export function genProgram(seed: number): string {
     const g = genSynth(r, SYNTH_NAMES[(seed + i * 3) % SYNTH_NAMES.length]!)
     synths.push(g.info)
     blocks.push(g.text)
+  }
+
+  if (r.chance(0.2)) {
+    // custom wavetable: 2-4 '/'-separated frames of 1-8 partials — and,
+    // usually, a synth whose oscillator references it by `table:` (the refs
+    // must survive the round trip too). 'wavtx' collides with nothing above.
+    const wname = r.pick(WAVEDEF_NAMES)
+    const frames = Array.from({ length: r.int(2, 4) }, () =>
+      Array.from({ length: r.int(1, 8) }, () => r.pick(WAVEDEF_AMPS)).join(' '))
+    blocks.push(`wavedef ${wname} ${frames.join(' / ')}`)
+    if (r.chance(0.7)) {
+      blocks.push(`synth wavtx\n  wavetable note ${r.pick(SMALL)} table:${wname}\n  * ${r.pick(SMALL)}`)
+      synths.push({ name: 'wavtx' })
+    }
   }
 
   if (r.chance(0.2)) {

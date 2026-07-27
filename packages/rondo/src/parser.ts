@@ -696,6 +696,55 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push({ t: 'scaledef', name, values, pos: head.pos })
       i++
     }
+    // `wavedef vox 1 .3 / .5 1 .6 / .3 .8 1` → defineWavetable('vox', [[…]]):
+    // a custom wavetable — '/'-separated FRAMES of harmonic partial
+    // amplitudes (harmonic 1, 2, 3, … per frame; the morph scans frames)
+    else if (head.v === 'wavedef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'wavedef needs a name (`wavedef vox 1 .3 / .5 1 .6`)', line: ln.line, col: ln.rawCol })
+      }
+      const frames: number[][] = []
+      let frame: number[] = []
+      let bad = false
+      for (let k = 2; k < ln.toks.length; k++) {
+        const t = ln.toks[k]!
+        if (t.k === 'op' && t.v === '/') {
+          if (frame.length === 0) {
+            errors.push({ message: 'wavedef: empty frame — every `/` needs partial amplitudes on both sides', line: t.pos.line, col: t.pos.col })
+            bad = true
+            break
+          }
+          frames.push(frame)
+          frame = []
+          continue
+        }
+        if (t.k !== 'num') {
+          errors.push({ message: 'wavedef frames are numbers — harmonic partial amplitudes, `/` separates frames', line: t.pos.line, col: t.pos.col })
+          bad = true
+          break
+        }
+        if (frame.length >= 32) {
+          errors.push({ message: 'wavedef: a frame has at most 32 partials', line: t.pos.line, col: t.pos.col })
+          bad = true
+          break
+        }
+        frame.push(t.v)
+      }
+      if (!bad) {
+        if (frame.length > 0) frames.push(frame)
+        else if (frames.length > 0) {
+          errors.push({ message: 'wavedef: empty frame — every `/` needs partial amplitudes on both sides', line: ln.line, col: ln.rawCol })
+          bad = true
+        }
+      }
+      if (!bad && frames.length < 2) {
+        errors.push({ message: 'wavedef needs at least 2 frames to morph between (`wavedef vox 1 .3 / .5 1 .6`)', line: ln.line, col: ln.rawCol })
+      }
+      items.push({ t: 'wavedef', name, frames, pos: head.pos })
+      i++
+    }
     // `master threshold:-6 ratio:2 …` → masterCompress(opts)
     else if (head.v === 'master') {
       const opts: Record<string, number> = {}
@@ -792,7 +841,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bus / sidechain / master / scaledef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bus / sidechain / master / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

@@ -497,6 +497,12 @@ function cgScaleDef(item: Extract<TopItem, { t: 'scaledef' }>): string {
   return `defineScale('${item.name}', [${item.values.map(num).join(', ')}])`
 }
 
+/** `wavedef vox 1 .3 / .5 1 .6` → defineWavetable('vox', [[1, 0.3], …]). */
+function cgWaveDef(item: Extract<TopItem, { t: 'wavedef' }>): string {
+  const frames = item.frames.map((f) => `[${f.map(num).join(', ')}]`).join(', ')
+  return `defineWavetable('${item.name}', [${frames}])`
+}
+
 function cgBus(item: Extract<TopItem, { t: 'bus' }>, errors: RondoError[]): string {
   const fx = cgChain(item.bindings, item.fx, ['input'], errors)
   const sendEntries = Object.entries(item.sends)
@@ -515,8 +521,12 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const song = program.items.find((it): it is Extract<TopItem, { t: 'song' }> => it.t === 'song')
   // scaledef lines HOIST to the top: .scale('c pelog') parses eagerly at
   // eval time, so a tuning must be registered before any play that uses it,
-  // wherever the scaledef sits in the rondo source.
-  const items = [...program.items.filter((it) => it.t === 'scaledef'), ...program.items.filter((it) => it.t !== 'scaledef')]
+  // wherever the scaledef sits in the rondo source. wavedef lines hoist for
+  // the same reason, one stage earlier: synth() eager-compiles its graph and
+  // the wavetable kernel resolves table names at CONSTRUCTION, so a table
+  // must be registered before any synth that names it.
+  const isDef = (it: TopItem): boolean => it.t === 'scaledef' || it.t === 'wavedef'
+  const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
   const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors)
     if (item.t === 'play') return cgPlay(item)
@@ -525,6 +535,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'sidechain') return cgSidechain(item)
     if (item.t === 'master') return cgMaster(item)
     if (item.t === 'scaledef') return cgScaleDef(item)
+    if (item.t === 'wavedef') return cgWaveDef(item)
     if (item.t === 'bus') return cgBus(item, errors)
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'section') return cgSection(item)

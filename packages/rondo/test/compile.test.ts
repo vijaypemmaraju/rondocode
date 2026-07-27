@@ -86,6 +86,30 @@ describe('rondo → rondocode codegen', () => {
     failsAt(`scaledef 19edo 0 1\n`, 'scaledef needs a name', 1, 1)
   })
 
+  it('wavedef: a top-level table line → defineWavetable, HOISTED above the synths', () => {
+    const out = ok(`synth p\n  wavetable note .3 table:vox\n\nplay p\n  0 1 2\n\nwavedef vox 1 .3 / .5 1 .6 / .3 .8 1\n`)
+    expect(out).toContain("defineWavetable('vox', [[1, 0.3], [0.5, 1, 0.6], [0.3, 0.8, 1]])")
+    // hoisted: synth() eager-compiles and the kernel resolves the table name
+    // at construction, so the table must register before the synth
+    expect(out.indexOf('defineWavetable(')).toBeLessThan(out.indexOf('const p ='))
+  })
+
+  it('wavedef accepts negative partials (phase flips) and floats', () => {
+    expect(ok(`wavedef odd 1 -.5 / .25 1\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+      "defineWavetable('odd', [[1, -0.5], [0.25, 1]])",
+    )
+  })
+
+  it('wavedef: positioned errors for missing name, bad partials, empty/too few frames, >32 partials', () => {
+    failsAt(`wavedef\n`, 'wavedef needs a name', 1, 1)
+    failsAt(`wavedef vox 1 x / 1\n`, 'wavedef frames are numbers', 1, 15)
+    failsAt(`wavedef vox 1\n`, 'at least 2 frames', 1, 1)
+    failsAt(`wavedef vox 1 / / 1\n`, 'empty frame', 1, 17)
+    failsAt(`wavedef vox 1 / 1 /\n`, 'empty frame', 1, 1)
+    failsAt(`wavedef 9lives 1 / 1\n`, 'wavedef needs a name', 1, 1)
+    failsAt(`wavedef big ${Array.from({ length: 33 }, () => '1').join(' ')} / 1\n`, 'at most 32 partials', 1, 77)
+  })
+
   it('topologically orders bindings so each const precedes its use', () => {
     const out = ok(`synth s\n  sine mod\n  mod = sine base\n  base = adsr .01 .1 .5 .1\n`)
     expect(out.indexOf('const base =')).toBeLessThan(out.indexOf('const mod ='))

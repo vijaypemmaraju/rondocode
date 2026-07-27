@@ -927,6 +927,30 @@ function decompileStaging(stmt: Node): string | null {
     if (vals.length < 2) return null
     return `scaledef ${sname} ${vals.join(' ')}`
   }
+  if (name === 'defineWavetable' && args.length === 2) {
+    // only the literal frames-of-numbers form has sugar (`wavedef NAME a b /
+    // c d`, >= 2 frames of 1..32 partials, a word name); anything computed
+    // stays a js block
+    const wname = strValue(args[0]!)
+    if (wname === undefined || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(wname)) return null
+    const outer = args[1]!
+    if (outer.type !== 'ArrayExpression') return null
+    const frames: string[] = []
+    for (const fr of outer['elements'] as (Node | null)[]) {
+      if (fr === null || fr.type !== 'ArrayExpression') return null
+      const parts: string[] = []
+      for (const el of fr['elements'] as (Node | null)[]) {
+        if (el === null) return null
+        const v = numValue(el)
+        if (v === undefined) return null
+        parts.push(num(v))
+      }
+      if (parts.length < 1 || parts.length > 32) return null
+      frames.push(parts.join(' '))
+    }
+    if (frames.length < 2) return null
+    return `wavedef ${wname} ${frames.join(' / ')}`
+  }
   if (name === 'masterCompress' && args.length <= 1) {
     if (args.length === 0) return 'master'
     const o = objEntries(args[0]!)

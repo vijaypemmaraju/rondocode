@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
 import { compile } from '../src/compile'
+import { renderOffline } from '../../engine/src/render'
 // Deep source imports across packages are the established pattern here (see
 // packages/server/src/render-runner.ts). Vitest/Vite resolve the raw TS.
 import { evalCode } from '../../app/src/session/evalCode'
@@ -248,5 +249,42 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
       .filter(hasOnset)
       .map((h) => h.value.note as number)
     expect(edo[1]).toBeCloseTo(60 + (3 * 12) / 19, 10)
+  })
+
+  it('wavedef end-to-end: a custom table compiles, evals, and RENDERS sound', () => {
+    const src = [
+      'synth vlead',
+      '  wavetable note scan table:voxy',
+      '  * env',
+      '  env = adsr .005 .1 .8 .1',
+      '  scan = env -> .1...9',
+      '',
+      'play vlead',
+      '  0 3 5',
+      '  scale: a-min',
+      '',
+      // wavedef BELOW its use on purpose: codegen hoists it above the synth
+      'wavedef voxy 1 .3 / .4 1 .6 / .2 .7 1',
+      '',
+      'cps .5',
+      '',
+    ].join('\n')
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(result.ok).toBe(true)
+    // the staged synth actually SOUNDS: render it offline against the table
+    // the eval just registered (same realm) and measure energy
+    const def = result.synths.get('vlead')!
+    const r = renderOffline(
+      def,
+      [{ time: 0, type: 'noteOn', note: 57 }, { time: 0.4, type: 'noteOff', note: 57 }],
+      0.5,
+    )
+    let sum = 0
+    for (let i = 0; i < r.left.length; i++) sum += r.left[i]! * r.left[i]!
+    expect(Math.sqrt(sum / r.left.length)).toBeGreaterThan(0.01)
   })
 })

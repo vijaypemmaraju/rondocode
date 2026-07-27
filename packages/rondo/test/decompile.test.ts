@@ -214,6 +214,33 @@ describe('decompile round-trips (audit additions)', () => {
     fixedPoint('scaledef odd -1.5 0 2.25\n\nsynth s\n  saw\n\nplay s\n  0\n')
   })
 
+  it('wavedef lines round-trip (frames, floats, negatives, table references)', () => {
+    const { rondo2 } = fixedPoint(
+      'wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1\n\nsynth s\n  wavetable note 0.3 table:vox\n\nplay s\n  0 1 2\n',
+    )
+    expect(rondo2).toContain('wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1')
+    expect(rondo2).toContain('table:vox')
+  })
+
+  it('non-sugar defineWavetable forms bail to js blocks (totality)', () => {
+    for (const stmt of [
+      'defineWavetable(name, [[1], [0.5]])', // non-literal name
+      "defineWavetable('x', [[1, y], [1]])", // non-literal partial
+      "defineWavetable('x', [[1]])", // one frame: wavedef needs 2+ to morph
+      "defineWavetable('x', frames)", // computed frames
+      "defineWavetable('bad name', [[1], [1]])",
+    ]) {
+      const r = decompile(stmt + '\n')
+      expect(r, stmt).toContain('js\n')
+      expect(r, stmt).toContain(stmt)
+      expect(r).not.toContain('wavedef')
+      // totality: the wrapped block compiles back to the same statement
+      const back = compile(r)
+      expect(back.ok).toBe(true)
+      if (back.ok) expect(back.code.trim()).toBe(stmt)
+    }
+  })
+
   it('edo and long-mode scale names round-trip', () => {
     const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5  scale:c-19edo\n')
     expect(rondo2).toContain('scale: c-19edo')

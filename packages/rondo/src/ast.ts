@@ -136,6 +136,16 @@ export interface ScaleDefItem {
   pos: Pos
 }
 
+/** `wavedef NAME p1 p2 / p1 p2 p3 …` — register a custom wavetable:
+ *  '/'-separated FRAMES of harmonic partial amplitudes (frames[f][i] =
+ *  harmonic i+1) → defineWavetable(NAME, [[…], […]]). */
+export interface WaveDefItem {
+  t: 'wavedef'
+  name: string
+  frames: number[][]
+  pos: Pos
+}
+
 /** A `bus NAME` block: an FX spine folded from `input` + `send SYNTH AMT`
  *  routing lines. */
 export interface BusBlock {
@@ -191,7 +201,7 @@ export interface SingBlock {
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
-  | SectionBlock | SongItem | SingBlock | ScaleDefItem
+  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem
 
 export interface Program {
   items: TopItem[]

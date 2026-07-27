@@ -46,8 +46,8 @@ const g = (name: string, signature: string, summary: string, example?: string): 
 const GLOBALS: DocEntry[] = [
   g(
     'synth',
-    'synth(build: (ctx) => Sig, post?: (ctx) => Sig, opts?: { mono?: boolean; glide?: number; unison?: number; detune?: number; spread?: number; curve?: number; blend?: number; octaves?: number })',
-    'Define an instrument: the build function wires oscillators, filters and envelopes into a per-voice sound; the optional post function adds an FX chain (reverb, delay, EQ) over the summed voices, shared, not per note. opts sets voice modes, mono+glide for portamento leads, unison (with detune cents and stereo spread 0..1) for fat detuned stacks, then shape the stack: curve (>1 pulls inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice +12) sculpt Serum-style supersaws; pass opts as the 2nd arg when there is no post. Assign to a top-level const to register it under that name.',
+    'synth(build: (ctx) => Sig, post?: (ctx) => Sig, opts?: { mono?: boolean; glide?: number; unison?: number; detune?: number; spread?: number; curve?: number; blend?: number; octaves?: number; humanize?: number })',
+    'Define an instrument: the build function wires oscillators, filters and envelopes into a per-voice sound; the optional post function adds an FX chain (reverb, delay, EQ) over the summed voices, shared, not per note. opts sets voice modes, mono+glide for portamento leads, unison (with detune cents and stereo spread 0..1) for fat detuned stacks, then shape the stack: curve (>1 pulls inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice +12) sculpt Serum-style supersaws; humanize (0..1) nudges every voice off the grid by a hair, up to ±8 cents and 14 ms late, hashed per voice so the render still repeats exactly, so a stack stops sounding like N identical copies; pass opts as the 2nd arg when there is no post. Assign to a top-level const to register it under that name.',
     "const lead = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate)), { mono: true, glide: 0.08 })",
   ),
   g(
@@ -610,6 +610,24 @@ const SYNTH_CTX: DocEntry[] = [
     'ott(input, opts?: { depth, low, high, makeup })',
     'The "OTT" multiband compressor: splits the signal into three bands and applies upward AND downward compression to each, squashing dynamics and pulling up detail so the sound reads as louder, fuller, and brighter: the glue behind modern EDM/future-bass. depth 0..1 (def 0.5) blends dry to fully-processed (it is aggressive), low/high are the crossover frequencies in Hz (def 240/2500), makeup is output gain in dB.',
     'ott(chordBus, { depth: 0.4 })',
+  ),
+  sc(
+    'width',
+    "width(input, amount?, opts?: { mode: 'wide' | 'tight' })",
+    'A stereo widener that makes a MONO sound big: a post chain runs the graph once per side, and this trades a short delayed copy between them (added on the left, subtracted on the right), so the two channels pull apart. amount 0..1 (def 0.5) sets how wide; mode is the delay character, wide (12 ms, the default) or tight (3 ms, subtler, keeps the low end solid). It is mono safe by construction: summing the channels cancels the delayed copy exactly and gives back the dry signal with a flat trim (0 dB at amount 0, -3 dB at 1) and no comb notches. The price is that each channel ALONE is comb filtered, which is exactly what makes it sound wide. Put it in a post chain or a bus, a per-voice graph only ever has one side and there it is just a comb.',
+    'width(input, 0.7)',
+  ),
+  sc(
+    'transient',
+    'transient(input, opts?: { attack, sustain })',
+    'A transient designer: attack (-1..1) sharpens or softens the hit, sustain (-1..1) lifts or cuts the tail behind it. Snap a lazy kick, take the room off a snare, put the pick back on a bass. It reads the RATIO of a fast and a slow envelope follower, so it is level independent, a quiet hit and a loud hit are shaped identically, and that is what makes it not a compressor. It also does not control level, so leave headroom.',
+    'transient(drumBus, { attack: 0.6, sustain: -0.3 })',
+  ),
+  sc(
+    'flanger',
+    'flanger(input, opts?: { rate, depth, feedback, mix })',
+    'The jet-plane whoosh: one very short delay (0.3 to 8 ms) swept by an LFO and fed back into itself, so a comb of notches slides up and down the spectrum with resonant peaks between them. rate Hz (def 0.3), depth 0..1 (def 0.7), feedback -0.95..0.95 (def 0.7, negative shifts the notches for a hollower colour), mix 0..1 (def 0.5). Chorus thickens with three unfed taps around 11 ms; this one resonates, and that is the difference you hear.',
+    'flanger(pad, { rate: 0.15, feedback: 0.8 })',
   ),
   sc('pan', 'pan(input, pos)', 'Place the signal in the stereo field: 0 left, 0.5 center, 1 right.', 'pan(osc, 0.3)'),
   sc('mix', 'mix(a, b, t)', 'Crossfade between two signals: t=0 is all a, t=1 all b.', 'mix(saw(note.freq), square(note.freq), 0.3)'),

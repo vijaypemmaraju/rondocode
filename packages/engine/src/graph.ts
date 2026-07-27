@@ -5,7 +5,7 @@ export type NodeType =
   | 'adsr' | 'env' | 'lfo'
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'
   | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'phaser' | 'formant' | 'vocoder'
-  | 'eq' | 'exciter' | 'ott'
+  | 'eq' | 'exciter' | 'ott' | 'width' | 'transient' | 'flanger'
   | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'
   | 'businput' | 'mic' | 'mix' | 'out'
 

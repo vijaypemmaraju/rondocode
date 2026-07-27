@@ -243,6 +243,35 @@ describe('decompile round-trips (audit additions)', () => {
     expect(rondo2).toContain('dualsvf 400 4000 res:0.3 mode:parallel a:lp b:hp')
   })
 
+  it('width/transient/flanger post lines + humanize round-trip', () => {
+    const { rondo2 } = fixedPoint(
+      [
+        'synth pad humanize:.5',
+        '  saw',
+        '  post',
+        '    transient attack:.6 sustain:-.35',
+        '    width .7 mode:tight',
+        '    flanger rate:.12 depth:.8 feedback:-.5 mix:.45',
+        '',
+        'play pad',
+        '  0 2',
+        '',
+      ].join('\n'),
+    )
+    expect(rondo2).toContain('synth pad humanize:0.5')
+    expect(rondo2).toContain('transient attack:0.6 sustain:-0.35')
+    expect(rondo2).toContain('width 0.7 mode:tight')
+    expect(rondo2).toContain('flanger rate:0.12 depth:0.8 feedback:-0.5 mix:0.45')
+  })
+
+  it('a bare `width` fills its amount default rather than sliding opts into it', () => {
+    // `width mode:tight` with no positional must NOT emit
+    // `width(input, { mode })` — the opts object would land in the amount slot.
+    const { code, rondo2 } = fixedPoint('synth s\n  saw\n  post\n    width mode:tight\n\nplay s\n  0\n')
+    expect(code).toContain("width(input, 0.5, { mode: 'tight' })")
+    expect(rondo2).toContain('width 0.5 mode:tight')
+  })
+
   it('a bare `master` line round-trips through masterCompress()', () => {
     const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0\n\nmaster\n')
     expect(rondo2).toContain('\nmaster\n')

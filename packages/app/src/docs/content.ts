@@ -152,7 +152,7 @@ setCps(0.35)`,
     title: 'Designing synths',
     blocks: [
       p('Inside the synth function you build a signal graph out of oscillators (sine, saw, square, tri, pulse, wavetable, noise), filters (svf, ladder, onepole, dualsvf), and envelopes (adsr, lfo). Signals combine with .mul, .add, .mix, and .range.'),
-      p('dualsvf is the Serum-style dual filter: two svf stages with their own cutoffs and types (a/b), run serial (hp into lp carves a steep band) or parallel (lp + hp leaves a hole between the cutoffs). And unison stacks can be SHAPED from the synth opts: curve (>1 pulls the inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice plays +12) turn a flat detune spread into a sculpted supersaw.'),
+      p('dualsvf is the Serum-style dual filter: two svf stages with their own cutoffs and types (a/b), run serial (hp into lp carves a steep band) or parallel (lp + hp leaves a hole between the cutoffs). And unison stacks can be SHAPED from the synth opts: curve (>1 pulls the inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice plays +12) turn a flat detune spread into a sculpted supersaw. humanize (0..1) is the last touch: every voice gets its own tiny pitch and timing offset, up to 8 cents and 14 ms late at full amount, so the stack breathes instead of sounding like N identical copies. The offsets are hashed from the voice and the note rather than rolled at random, so the render still repeats exactly.'),
       p("The wavetable oscillator is the most sweepable sound in the engine: `wavetable(freq, pos, { table })` scans `pos` (0..1) through a bank of single-cycle waves. Built-in tables: `basic` (sine to saw to square), `harmonic` (a MOVING FORMANT, the vowel-like bloom under a lot of modern leads), `pwm` (widening pulses). Drive `pos` with an envelope so every note opens through the table. The 'wavetable lead' example is the full recipe: formant scan, supersaw width, mono glide, ott sheen."),
       p("You can also DESIGN a table: `defineWavetable('vox', [[1, 0.25], [0.4, 1, 0.5], [0.3, 0.8, 1, 0.7]])` registers a custom bank where each frame is a list of harmonic partial amplitudes (harmonic 1, 2, 3, ...) and `pos` morphs between the frames. The engine synthesizes band-limited waves from the partials, so a custom table stays as clean up high as the built-ins, and because the table is just numbers in your code, editing an amplitude IS sound design. Call defineWavetable before the synth that names the table."),
       p("Or RECORD one: every sample row in the samples popover has a wave button that FFT-resynthesizes that audio (a mic take, a resampled bounce, a loaded file) into partial frames and appends the defineWavetable call to your code. Your voice becomes a morphing oscillator, as numbers you can edit."),
@@ -173,7 +173,7 @@ const hollow = synth(
     const env = adsr(gate, { a: 0.004, d: 0.25, s: 0.2, r: 0.15 })
     return dualsvf(saw(note.freq), 350, 2800, { mode: 'parallel', a: 'lp', b: 'hp', res: 0.3 }).mul(env)
   },
-  { unison: 5, detune: 16, spread: 0.8, curve: 2, blend: 0.7, octaves: 4 },
+  { unison: 5, detune: 16, spread: 0.8, curve: 2, blend: 0.7, octaves: 4, humanize: 0.5 },
 )
 
 p('bass', note('c2 c2 g2 c2 eb2 c2 g1 c2').sound('acid'))
@@ -285,6 +285,72 @@ p('bed', chord('<Cmaj7 Am7>').sound('pad').dur(0.98))
 // one reverb, fed by both synths (pluck brighter, pad deeper)
 bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9, damp: 0.3 }), { pluck: 0.35, pad: 0.6 })
 setCps(0.5)`,
+      ),
+    ],
+  },
+  {
+    id: 'stereo-snap',
+    group: 'effects & mix',
+    title: 'Width, snap & flange',
+    blocks: [
+      p("Three post-chain tools shape a sound's SPACE and its ATTACK rather than its pitch. width(input, amount) makes a mono instrument wide: the post-chain already runs once per stereo side, and width trades a short delayed copy between the two, adding it on the left and subtracting it on the right. Because the sides subtract back to the dry signal, the mono sum has no comb notches at all, only a flat trim (0 dB at amount 0, down to -3 dB at 1). The price is that a soloed channel is comb filtered, which is exactly what your ears read as wide. mode: 'tight' uses a shorter delay if the low end feels smeared."),
+      p('transient(input, { attack, sustain }) is the drum-shaping tool. attack (-1..1) sharpens or softens the hit, sustain (-1..1) lifts or dries the tail behind it. It works off the RATIO of a fast and a slow envelope follower, so it is level independent: a quiet hit and a loud hit get exactly the same shaping. That is the whole difference from a compressor, and it also means it will not control your level, so leave headroom.'),
+      p('flanger(input, { rate, depth, feedback, mix }) is the jet whoosh: one very short delay, 0.3 to 8 ms, swept by an LFO and fed back on itself. Chorus thickens with three unfed taps around 11 ms and can never exceed unity gain; the flanger resonates, building peaks between its notches, and that is the sound.'),
+      code(
+        'A wide, snappy stab and a flanged pad.',
+        `const stab = synth(
+  ({ note, gate, adsr, saw }) =>
+    saw(note.freq).mul(adsr(gate, { a: 0.002, d: 0.14, s: 0.15, r: 0.12 })).mul(0.5),
+  ({ input, transient, width, reverb }) => {
+    // snap the onset, dry the tail, THEN spread it across the field
+    const snap = transient(input, { attack: 0.6, sustain: -0.35 })
+    const wide = width(snap, 0.7)
+    return wide.mix(reverb(wide, { roomSize: 0.8, damp: 0.4 }), 0.22)
+  },
+)
+
+const pad = synth(
+  ({ note, gate, adsr, saw, svf }) =>
+    svf(saw(note.freq).add(saw(note.freq.mul(1.006))), 2000, { res: 0.2 })
+      .mul(adsr(gate, { a: 0.35, d: 0.4, s: 0.8, r: 0.6 })).mul(0.28),
+  ({ input, flanger }) => flanger(input, { rate: 0.12, depth: 0.8, feedback: 0.75, mix: 0.45 }),
+)
+
+p('stab', note('<c4 eb4 g4 bb4>').sound('stab'))
+p('pad', chord('<Cm7 Abmaj7>').sound('pad').dur(0.95))
+setCps(0.5)`,
+      ),
+      p('The same three, in rondo: they are ordinary processor lines in a `post` block, folding from the implicit `input`.'),
+      rondo(
+        'Post lines: transient, then width, then a flanged pad.',
+        `synth stab
+  saw
+  * env
+  env = adsr .002 .14 .15 .12
+  post
+    transient attack:.6 sustain:-.35
+    width .7
+    reverb room:.8 mix:.22
+
+synth pad
+  saw
+  + saw note*1.006
+  svf 2000 res:.2
+  * env
+  * .3
+  env = adsr .35 .4 .8 .6
+  post
+    flanger rate:.12 depth:.8 feedback:.75 mix:.45
+
+play stab
+  <0 2 4 6>  scale:c-min
+  gain: .5
+
+play pad
+  <Cm7 Abmaj7>
+  dur: .95
+
+cps .5`,
       ),
     ],
   },
@@ -758,7 +824,7 @@ cps .6`,
       p('Arguments are space-separated. Word arguments go bare where the builtin declares them (`noise pink`, `svf 900 mode:hp`, `shape 2 type:tube`); `key:value` pairs are named options, and unknown names are compile errors, never silent drops. Sources: `saw square sine tri pulse supersaw fm noise lfsr wavetable syncsaw`, plus the gated ones `sample granular pluck modal`, plus `mic`: the LIVE microphone as a signal (vocode it, filter it; headphones advised, and it renders silent in offline exports). An oscillator (or pluck/modal) with no frequency argument plays the note.'),
       p('Three builtins have special shapes. `eq hp 170 peak 300 -3 2 highshelf 7000 4` is the parametric EQ: each band is a type word then freq [gain] [q]. `vocoder mod bands:20` makes the pipe the carrier and `mod` the voice. And in bindings, `e = env .005 1 .15 .4 release:.3 curve:3` is the breakpoint envelope, flat time/level pairs, the flexible cousin of `adsr`.'),
       p('`sync:1` turns a rate MUSICAL instead of absolute. `cut = lfo .25 tri sync:1 -> 150..3200` is a quarter-note wobble: the number is a length in cycles, so `1` is one sweep per cycle, `.125` an eighth, `.0625` a sixteenth. `delay .1875 .25 sync:1` is the dotted-eighth echo. Both read `cps` live, so changing the tempo re-rates them mid-note. Leave `sync:1` off and the lfo rate is Hz and the delay time seconds, which is what you want for a tremolo or a fixed slapback. `maxtime:` still sizes the delay buffer in SECONDS and caps a synced time, so raise it for long musical delays at slow tempos.'),
-      p('Voice options sit on the header: `synth bass mono glide:.08` is the 303 mono-glide, `unison:5 detune:14 spread:.9` widens a lead, `voices:12` raises polyphony. Shape the unison stack with `curve:2` (inner voices hug the note), `blend:.7` (quieter edges) and `octaves:2` (every 2nd voice up an octave).'),
+      p('Voice options sit on the header: `synth bass mono glide:.08` is the 303 mono-glide, `unison:5 detune:14 spread:.9` widens a lead, `voices:12` raises polyphony. Shape the unison stack with `curve:2` (inner voices hug the note), `blend:.7` (quieter edges) and `octaves:2` (every 2nd voice up an octave). `humanize:.5` nudges each voice off the grid by a hair (up to 8 cents and 14 ms at 1), deterministically, so the stack breathes and the render still repeats.'),
       rondo(
         'Source, filter, drive, delay, VCA, saturation.',
         `synth growl

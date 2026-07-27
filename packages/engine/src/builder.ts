@@ -246,6 +246,27 @@ export interface SynthCtx {
    *  brightness). `depth` 0..1 dry→full (def 0.5), `low`/`high` crossovers Hz
    *  (def 240 / 2500), `makeup` dB. */
   ott(inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig
+  /** WIDTH — Lauridsen pseudo-stereo. `amount` 0..1 (def 0.5, audio-rate)
+   *  trades a delayed copy between the two post instances (+ on the left, − on
+   *  the right), so a MONO source becomes wide stereo. `mode` 'wide' (12 ms,
+   *  default) or 'tight' (3 ms). The mono sum is the DRY signal with a flat
+   *  trim (0 dB at amount 0, −3.01 dB at 1) — no comb notches, nothing
+   *  cancels. Each channel alone IS comb filtered (that is the trade). Belongs
+   *  in a post chain or bus: in a per-voice graph there is only one instance,
+   *  so it degrades to a fixed comb with no width. */
+  width(inp: SigIn, amount?: SigIn, opts?: { mode?: 'wide' | 'tight' }): Sig
+  /** TRANSIENT shaper: `attack` −1..1 sharpens (+) or softens (−) the onset,
+   *  `sustain` −1..1 lifts (+) or cuts (−) the tail. Driven by the RATIO of a
+   *  fast and a slow envelope follower, so it is LEVEL-INDEPENDENT — a quiet
+   *  hit and a loud hit are shaped identically, unlike a compressor. It does
+   *  not control level: leave headroom. */
+  transient(inp: SigIn, opts?: { attack?: number; sustain?: number }): Sig
+  /** FLANGER: one short (0.3–8 ms) modulated delay WITH feedback — the swept,
+   *  resonant, jet-engine comb. `rate` Hz (def 0.3), `depth` 0..1 (def 0.7),
+   *  `feedback` −0.95..0.95 (def 0.7, negative moves the notches), `mix` 0..1
+   *  (def 0.5). Unlike chorus (three unfed taps around 11 ms, a thickener) the
+   *  feedback builds resonant PEAKS between the notches. */
+  flanger(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
@@ -307,6 +328,27 @@ export interface PostCtx {
    *  brightness). `depth` 0..1 dry→full (def 0.5), `low`/`high` crossovers Hz
    *  (def 240 / 2500), `makeup` dB. */
   ott(inp: SigIn, opts?: { depth?: number; low?: number; high?: number; makeup?: number }): Sig
+  /** WIDTH — Lauridsen pseudo-stereo. `amount` 0..1 (def 0.5, audio-rate)
+   *  trades a delayed copy between the two post instances (+ on the left, − on
+   *  the right), so a MONO source becomes wide stereo. `mode` 'wide' (12 ms,
+   *  default) or 'tight' (3 ms). The mono sum is the DRY signal with a flat
+   *  trim (0 dB at amount 0, −3.01 dB at 1) — no comb notches, nothing
+   *  cancels. Each channel alone IS comb filtered (that is the trade). Belongs
+   *  in a post chain or bus: in a per-voice graph there is only one instance,
+   *  so it degrades to a fixed comb with no width. */
+  width(inp: SigIn, amount?: SigIn, opts?: { mode?: 'wide' | 'tight' }): Sig
+  /** TRANSIENT shaper: `attack` −1..1 sharpens (+) or softens (−) the onset,
+   *  `sustain` −1..1 lifts (+) or cuts (−) the tail. Driven by the RATIO of a
+   *  fast and a slow envelope follower, so it is LEVEL-INDEPENDENT — a quiet
+   *  hit and a loud hit are shaped identically, unlike a compressor. It does
+   *  not control level: leave headroom. */
+  transient(inp: SigIn, opts?: { attack?: number; sustain?: number }): Sig
+  /** FLANGER: one short (0.3–8 ms) modulated delay WITH feedback — the swept,
+   *  resonant, jet-engine comb. `rate` Hz (def 0.3), `depth` 0..1 (def 0.7),
+   *  `feedback` −0.95..0.95 (def 0.7, negative moves the notches), `mix` 0..1
+   *  (def 0.5). Unlike chorus (three unfed taps around 11 ms, a thickener) the
+   *  feedback builds resonant PEAKS between the notches. */
+  flanger(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
@@ -336,6 +378,12 @@ export interface VoiceOptsInput {
   /** Octave stacking: every Nth unison sub-voice plays +12 semitones
    *  (N >= 2; 0/1 = off, the default). */
   octaves?: number
+  /** Per-voice HUMANIZE, 0..1 (default 0 = off): a small deterministic pitch
+   *  and timing offset per voice, so a unison stack or a stacked chord is not
+   *  N machine-identical copies. At 1 the pitch spreads ±8 cents and the onset
+   *  is held back 0..14 ms; the offsets are hashed from the voice slot and the
+   *  note (never Math.random), so a render is reproducible. */
+  humanize?: number
   /** Max simultaneous notes (voice-pool size), 1..64. Default 8. Right-size it
    *  to save the shared voice budget and CPU: drums/leads want 2-4, a mono
    *  bass 1, a held pad or chord stack 8-12. */
@@ -347,8 +395,8 @@ export interface SynthDef {
   /** Optional per-synth FX chain over the summed voices (see PostCtx). Absent
    *  when synth() was called with no postFn. */
   post?: GraphSpec
-  /** Normalized voice-allocation options (mono/glide/unison/detune/spread
-   *  plus the unison shaping curve/blend/octaves).
+  /** Normalized voice-allocation options (mono/glide/unison/detune/spread,
+   *  the unison shaping curve/blend/octaves, and humanize).
    *  ABSENT when synth() was called with no opts — the pool then takes its
    *  neutral defaults (poly, unison 1), preserving pre-feature behavior. */
   voiceOpts?: VoiceOpts
@@ -375,6 +423,7 @@ const normalizeVoiceOpts = (o: VoiceOptsInput): VoiceOpts => {
     curve: Math.min(5, Math.max(0.2, num(o.curve, 1))),
     blend: Math.min(1, Math.max(0, num(o.blend, 1))),
     octaves: Math.floor(Math.min(9, Math.max(0, num(o.octaves, 0)))),
+    humanize: Math.min(1, Math.max(0, num(o.humanize, 0))),
   }
 }
 
@@ -690,6 +739,23 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'ott in') },
         definedConfig({ depth: opts?.depth, low: opts?.low, high: opts?.high, makeup: opts?.makeup }),
       ),
+    width: (inp: SigIn, amount?: SigIn, opts?: { mode?: 'wide' | 'tight' }): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'width in') }
+      if (amount !== undefined) inputs['amount'] = src(amount, 'width amount')
+      return b.node('width', inputs, definedConfig({ mode: opts?.mode }))
+    },
+    transient: (inp: SigIn, opts?: { attack?: number; sustain?: number }): Sig =>
+      b.node(
+        'transient',
+        { in: src(inp, 'transient in') },
+        definedConfig({ attack: opts?.attack, sustain: opts?.sustain }),
+      ),
+    flanger: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig =>
+      b.node(
+        'flanger',
+        { in: src(inp, 'flanger in') },
+        definedConfig({ rate: opts?.rate, depth: opts?.depth, feedback: opts?.feedback, mix: opts?.mix }),
+      ),
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
     // LIVE MIC: the device microphone as a signal (silence offline / when no
@@ -731,6 +797,9 @@ const makeCtx = (b: Builder): SynthCtx => {
     eq: shared.eq,
     exciter: shared.exciter,
     ott: shared.ott,
+    width: shared.width,
+    transient: shared.transient,
+    flanger: shared.flanger,
     mix: shared.mix,
     mic: shared.mic,
 
@@ -902,8 +971,8 @@ const returnsOwnSig = (result: unknown, b: Builder): boolean =>
 /** Define a synth. `voiceFn` wires the PER-VOICE sound (SynthCtx). The optional
  *  `postFn` wires a PER-SYNTH FX chain (PostCtx) that processes the SUMMED
  *  voices ONCE — shared reverb/delay/EQ instead of one-per-note. `opts` sets
- *  voice-allocation modes (mono/glide/unison/detune/spread and the unison
- *  shaping curve/blend/octaves); it may be passed
+ *  voice-allocation modes (mono/glide/unison/detune/spread, the unison
+ *  shaping curve/blend/octaves, and humanize); it may be passed
  *  as the SECOND argument when there is no post chain — a plain object there is
  *  read as opts, a function as the post fn. Both graphs are validated +
  *  compiled here so errors surface at definition time; a synth with no postFn

@@ -25,6 +25,7 @@ const KNOWN_CTX = [
   'sample', 'granular', 'pluck', 'modal', 'pan',
   'svf', 'dualsvf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
   'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
+  'width', 'transient', 'flanger',
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
 ]
 
@@ -207,6 +208,12 @@ class SynthGen {
     if ((spec.kind === 'osc' || spec.kind === 'gated') && spec.freqDefault === true && a.length === 0) {
       this.uses.add('note')
       a.push('note.freq')
+    }
+    // fill omitted positionals from the registry (see BuiltinSpec.posDefault):
+    // a trailing opts object must never slide into a positional slot.
+    if (spec.posDefault !== undefined) {
+      const implicit = spec.kind === 'proc' || spec.kind === 'sigop' ? 1 : 0
+      for (let k = a.length - implicit; k < spec.pos.length; k++) a.push(spec.posDefault[k]!)
     }
 
     // named args → an opts object (aliases applied; enums quoted by expr();

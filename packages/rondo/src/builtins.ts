@@ -30,6 +30,11 @@ export interface BuiltinSpec {
   alias?: Record<string, string>
   /** always-emitted opts defaults (ladder's res). */
   defaults?: Record<string, string>
+  /** literal JS values for POSITIONALS the call omitted. Needed whenever a
+   *  builtin has an optional positional AND named args: without it,
+   *  `width mode:tight` would emit `width(input, { mode: 'tight' })` and the
+   *  opts object would land in the positional slot. */
+  posDefault?: string[]
   /** emit named args as an opts OBJECT (default true when `named` present);
    *  false = positionals only (lfo's shape is positional). */
   optsObject?: boolean
@@ -100,6 +105,10 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   phaser: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', stages: 'num', mix: 'num' } },
   reverb: { kind: 'proc', pos: [], named: { room: 'num', damp: 'num', mix: 'sig' }, alias: { room: 'roomSize' } },
   chorus: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', mix: 'num' } },
+  // pseudo-stereo widener — the positional is `amount` 0..1 (`width .8 mode:tight`)
+  width: { kind: 'proc', pos: ['sig'], posDefault: ['0.5'], named: { mode: 'enum' } },
+  transient: { kind: 'proc', pos: [], named: { attack: 'num', sustain: 'num' } },
+  flanger: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', mix: 'num' } },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },
   ott: { kind: 'proc', pos: [], named: { depth: 'num', low: 'num', high: 'num', makeup: 'num' } },
   // parametric EQ — bands are special-parsed word-then-numbers groups:

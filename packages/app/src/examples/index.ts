@@ -2940,6 +2940,39 @@ play breath
 cps .45
 `
 
+
+/** WAVETABLE LEAD: the harmonic table's moving formant, scanned by the
+ *  envelope - the most sweepable sound in the engine, showcased. */
+const waveleadRondo = `# WAVETABLE LEAD. the harmonic
+# table is a MOVING FORMANT; the
+# envelope scans it every note, so
+# each note blooms like a vowel.
+# ott is the modern sheen. grab
+# detune, glide, or the scan top.
+
+synth lead mono glide:.045
+  wavetable note scan table:harmonic
+  mix wide .45
+  * env
+  ott depth:.8
+  eq hp 180 peak 2800 2.5 1
+  * .95
+  env = adsr .004 .12 .75 .2
+  scan = env -> .12...85
+  wide = supersaw detune:.55 mix:.9
+  post
+    chorus rate:.6 depth:.4 mix:.35
+    delay .375 .28
+    reverb room:.85 mix:.22
+
+play lead
+  0 3 5 7 5 3 <7 9> 5
+  scale: b-min
+  dur: .82
+
+cps .55
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -2977,6 +3010,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'drum machine', code: fromRondo(drumMachineRondo), rondo: drumMachineRondo },
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
+  { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

@@ -150,6 +150,7 @@ setCps(0.35)`,
     title: 'Designing synths',
     blocks: [
       p('Inside the synth function you build a signal graph out of oscillators (sine, saw, square, tri, pulse, wavetable, noise), filters (svf, ladder, onepole), and envelopes (adsr, lfo). Signals combine with .mul, .add, .mix, and .range.'),
+      p("The wavetable oscillator is the most sweepable sound in the engine: `wavetable(freq, pos, { table })` scans `pos` (0..1) through a bank of single-cycle waves. Tables: `basic` (sine to saw to square), `harmonic` (a MOVING FORMANT, the vowel-like bloom under a lot of modern leads), `pwm` (widening pulses). Drive `pos` with an envelope so every note opens through the table. The 'wavetable lead' example is the full recipe: formant scan, supersaw width, mono glide, ott sheen."),
       p('This is an acid bass: a sawtooth through a ladder filter, with the envelope opening the cutoff on each note. param() declares a knob you can automate later.'),
       code(
         'A ladder bass with a resonant filter sweep.',

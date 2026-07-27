@@ -161,12 +161,22 @@ export function melismaSegs(
  * Small and FIFO: this exists to serve one arrangement's parts baked back to
  * back, not to be a long-lived store. */
 const SEG_CACHE_MAX = 4
-const segCache = new Map<string, Seg[]>()
+/** Cached speech: the per-slot segments AND the TTS sample rate they were
+ *  rendered at. The rate MUST travel with them: it is produced by the TTS
+ *  stage, so a cache hit that skipped that stage would otherwise assemble the
+ *  guide at rate 0 and bake silence (exactly what shipped for one hour: in a
+ *  four-part arrangement only the first part sounded). */
+interface CachedSpeech {
+  segs: Seg[]
+  sr: number
+}
+const segCache = new Map<string, CachedSpeech>()
 
 const segCacheKey = (phrases: { text: string }[]): string => phrases.map((p) => p.text).join('\u0001')
 
-function cacheSegs(key: string, segs: Seg[]): void {
-  segCache.set(key, segs)
+function cacheSegs(key: string, segs: Seg[], sr: number): void {
+  if (sr <= 0) return // never cache an unusable rate
+  segCache.set(key, { segs, sr })
   while (segCache.size > SEG_CACHE_MAX) {
     const oldest = segCache.keys().next().value
     if (oldest === undefined) break
@@ -220,13 +230,14 @@ export async function renderNeural(
   // another part of the same arrangement may already have rendered these words
   const segKey = segCacheKey(phrases)
   const cached = segCache.get(segKey)
-  if (cached !== undefined && cached.length === segs.length) {
-    for (let i = 0; i < cached.length; i++) segs[i] = cached[i]!
-    onProgress?.({ phase: 'align', label: 'reusing this arrangement\'s words', done: 1, total: 1 })
-  }
-  const haveSegs = cached !== undefined && cached.length === segs.length
+  const haveSegs = cached !== undefined && cached.segs.length === segs.length && cached.sr > 0
   const takesByPhrase: Float32Array[][] = []
   let sr = 0
+  if (haveSegs && cached !== undefined) {
+    for (let i = 0; i < cached.segs.length; i++) segs[i] = cached.segs[i]!
+    sr = cached.sr // the rate travels WITH the words, or the guide is empty
+    onProgress?.({ phase: 'align', label: 'reusing this arrangement’s words', done: 1, total: 1 })
+  }
   let guide!: Float32Array
   let loopN = 0
   let audio!: Float32Array
@@ -295,7 +306,7 @@ export async function renderNeural(
     {
       name: 'rvc',
       run: async (): Promise<void> => {
-        if (!haveSegs) cacheSegs(segKey, segs.slice())
+        if (!haveSegs) cacheSegs(segKey, segs.slice(), sr)
         markPhase('warp')
         const { guide: g, f0 } = assembleGuide(segs, melody, sr, cycles / cps)
         guide = g

@@ -260,6 +260,26 @@ describe('rondo → rondocode codegen', () => {
     expect(ok(`synth s\n  saw\n  * env\n  env = adsr .01 .1 .5 .1\n`)).toContain('.mul(env)')
   })
 
+  it('sync:1 makes lfo rates and delay times musical, sync:0 and absence do not', () => {
+    // lfo WITH a shape word, and without it (opts land in the shape slot)
+    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo .25 tri sync:1 -> 150..3200\n`))
+      .toContain("lfo(0.25, 'tri', { sync: true })")
+    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo .25 sync:1 -> 150..3200\n`))
+      .toContain('lfo(0.25, { sync: true })')
+    // sync:0 is explicit OFF, and no sync at all emits no opts object
+    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo 4 tri sync:0 -> 150..3200\n`))
+      .toContain("lfo(4, 'tri', { sync: false })")
+    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo 4 tri -> 150..3200\n`))
+      .toContain("lfo(4, 'tri')")
+    // delay: sync alongside the existing maxtime alias
+    expect(ok(`synth s\n  saw\n  delay .1875 .25 sync:1\n`))
+      .toContain('delay(saw(note.freq), 0.1875, 0.25, { sync: true })')
+    expect(ok(`synth s\n  saw\n  delay .1875 .25 maxtime:1 sync:1\n`))
+      .toContain('delay(saw(note.freq), 0.1875, 0.25, { maxTime: 1, sync: true })')
+    expect(ok(`synth s\n  saw\n  delay .375 .25\n`))
+      .toContain('delay(saw(note.freq), 0.375, 0.25)')
+  })
+
   it('eq: word-then-numbers band groups → the bands array', () => {
     const out = ok(`synth s\n  saw\n  eq hp 170 highshelf 7000 4\n`)
     expect(out).toContain("eq(saw(note.freq), [{ type: 'hp', freq: 170 }, { type: 'highshelf', freq: 7000, gain: 4 }])")

@@ -32,7 +32,7 @@ import type { Diagnostic, BusDef, SendSpec } from '../../app/src/session/evalCod
 import { baseScope } from '../../app/src/session/scope'
 import { Scheduler } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
-import { BLOCK, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
+import { BLOCK, DEFAULT_CPS, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
 import type { RenderEvent, SynthDef } from '../../engine/src/index'
 
 /** Control keys that are NOT synth params (mirrors Session.ts / demo-render). */
@@ -226,6 +226,11 @@ export function capturePatternNotes(
 export interface MixOpts {
   /** Default 48000. */
   sampleRate?: number
+  /** TRANSPORT TEMPO in cycles per second (default 0.5). Threaded into every
+   *  stem render and every bus chain so `sync` lfo/delay nodes run at the same
+   *  musical rate they do live — pass the SAME cps the events were scheduled
+   *  at, or the bounce drifts from the session. */
+  cps?: number
   /** Per-stem polyphony. Default 12. */
   maxVoices?: number
   /** Sidechain duck: every noteOn of `source` snaps a per-sample envelope down
@@ -323,6 +328,7 @@ export function renderMix(
 ): MixResult {
   const sampleRate = opts?.sampleRate ?? 48000
   const maxVoices = opts?.maxVoices ?? 12
+  const cps = opts?.cps ?? DEFAULT_CPS
   const total = Math.round(durationSec * sampleRate)
   const left = new Float32Array(total)
   const right = new Float32Array(total)
@@ -358,6 +364,7 @@ export function renderMix(
     // — pre-duck, mirroring the live signal path. No separate post pass here.
     const stem = renderOffline(def, evs, durationSec, {
       sampleRate,
+      cps,
       maxVoices: def.maxVoices ?? maxVoices,
       samples: opts?.samples,
       wavetables: opts?.wavetables,
@@ -401,7 +408,7 @@ export function renderMix(
     for (const [busName, def] of opts.buses) {
       const acc = busAccums.get(busName)
       if (acc === undefined) continue
-      const chain = new PostChain(def.graph, { sampleRate })
+      const chain = new PostChain(def.graph, { sampleRate, cps })
       for (let i = 0; i < total; i += BLOCK) {
         const n = Math.min(BLOCK, total - i)
         chain.processStereo(acc.L.subarray(i, i + n), acc.R.subarray(i, i + n), n)

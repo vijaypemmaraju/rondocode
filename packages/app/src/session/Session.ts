@@ -173,6 +173,10 @@ export class Session {
   private evalDiags: Diagnostic[] = []
   /** Runtime diagnostics keyed by `source message` for dedup. */
   private readonly runtimeDiags = new Map<string, Diagnostic>()
+  /** Tempo last pushed to the ENGINE (setCps), the diff base so an unchanged
+   *  tempo isn't resent every eval. Starts at the scheduler's own default,
+   *  which is also the engine's — the two agree before anyone sets anything. */
+  private liveCps: number | undefined
   private playing = false
   private lastGoodSource = ''
   private lastAttemptedSource = ''
@@ -212,6 +216,10 @@ export class Session {
         this.reportRuntime('scheduler', name === '*' ? msg : `pattern '${name}': ${msg}`)
       },
     })
+
+    // The engine boots at the same default tempo the scheduler does, so the
+    // first setCps only goes out once they actually diverge.
+    this.liveCps = this.scheduler.cps
 
     // Take ownership of the engine event stream (single listener by design).
     this.audio.onEvent = (ev) => {
@@ -329,6 +337,7 @@ export class Session {
     }
 
     if (result.cps !== undefined) this.scheduler.setCps(result.cps)
+    this.syncCps()
 
     // Sidechain: send setSidechain on new/changed config, clearSidechain when
     // it vanishes — same apply-on-ok, diff-and-send discipline as synths.
@@ -427,6 +436,18 @@ export class Session {
     return this.lastAttemptedSource
   }
 
+  /** Push the scheduler's tempo to the ENGINE when it changed, so `sync` lfo
+   *  and delay nodes re-rate to the transport. Called from every place the
+   *  scheduler's cps can move — a `cps` line in an eval, and transport() —
+   *  which is exactly what keeps a live tempo edit audible without a rebuild.
+   *  Diffed, because an eval that did not touch the tempo should send nothing. */
+  private syncCps(): void {
+    const cps = this.scheduler.cps
+    if (cps === this.liveCps) return
+    this.liveCps = cps
+    this.audio.send({ kind: 'setCps', cps })
+  }
+
   /** Send defineSynth NOW and record it as the live def/fingerprint. */
   private defineSynthNow(name: string, def: SynthDef, json: string): void {
     const msg: Extract<EngineMessage, { kind: 'defineSynth' }> = { kind: 'defineSynth', name, graph: def.graph }
@@ -517,6 +538,7 @@ export class Session {
    *  clamped to [0.05, 4] like setCps. */
   transport(cmd: 'play' | 'stop', opts?: { cps?: number }): void {
     if (opts?.cps !== undefined) this.scheduler.setCps(clampCps(opts.cps))
+    this.syncCps()
     if (cmd === 'play') {
       if (this.setIntervalImpl !== undefined && this.clearIntervalImpl !== undefined) {
         this.scheduler.start(this.setIntervalImpl, this.clearIntervalImpl)

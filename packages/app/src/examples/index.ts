@@ -1134,16 +1134,20 @@ const wobbleRondo = `# wobble bass. supersaw + sub through an
 # LFO-swept ladder, tube drive, delay,
 # saturation — a mono glide bass.
 
+# sync:1 makes the rate MUSICAL: the wobble
+# is an eighth note and the echo a dotted
+# eighth, at whatever cps you set below.
+
 synth wob mono glide:.05
   supersaw detune:.5 mix:.85
   + square note/2
   ladder cut res:.8
   shape 2.2 type:tube
-  delay .375 .25
+  delay .1875 .25 sync:1 maxtime:1
   * env
   tanh
-  cut = lfo rate tri -> 150..3200
-  rate = knob 4 .5..16
+  cut = lfo rate tri sync:1 -> 150..3200
+  rate = knob .125 .0625..1
   env = adsr .005 .1 .9 .06
 
 play wob

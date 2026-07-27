@@ -6,6 +6,20 @@
  *  end. */
 export const flush = (s: number): number => (!Number.isFinite(s) || Math.abs(s) < 1e-15 ? 0 : s)
 
+/** Transport tempo assumed when a host never sent one: 0.5 cycles per second,
+ *  which with four beats to a cycle is 120 bpm. */
+export const DEFAULT_CPS = 0.5
+
+/** The tempo a synced kernel should use this block. Structurally typed (not
+ *  DspContext) so util.ts stays import-free. A missing, non-finite or
+ *  non-positive cps falls back to DEFAULT_CPS — a synced LFO must keep
+ *  wobbling at a sane rate even if a host writes garbage into the ctx, and
+ *  dividing by 0 or NaN would poison every phase downstream. */
+export const cpsOf = (ctx: { cps?: number }): number => {
+  const c = ctx.cps
+  return c === undefined || !Number.isFinite(c) || c <= 0 ? DEFAULT_CPS : c
+}
+
 /** Per-sample defensive clamp; NaN passes through (flush() catches it). */
 export const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v)
 

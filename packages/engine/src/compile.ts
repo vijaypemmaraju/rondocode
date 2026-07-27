@@ -221,7 +221,8 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   dualsvf: (c) => new DualSvfKernel(dualsvfCfg(c)),
   adsr: (c) => new AdsrKernel(c as AdsrConfig),
   env: (c) => new EnvKernel(c as unknown as EnvConfig),
-  lfo: (c) => new LfoKernel((c['shape'] as LfoShape | undefined) ?? 'sine'),
+  // sync flips 'freq' from Hz to transport cycles; the kernel reads ctx.cps
+  lfo: (c) => new LfoKernel((c['shape'] as LfoShape | undefined) ?? 'sine', undefined, c['sync'] === true),
   mul: () => new MulKernel(),
   add: () => new AddKernel(),
   sub: () => new SubKernel(),

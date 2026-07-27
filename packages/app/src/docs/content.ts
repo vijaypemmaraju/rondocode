@@ -246,6 +246,7 @@ setCps(0.5)`,
 
 p('chords', chord('<Am7 Dm7 G7 Cmaj7>').sound('stab'))`,
       ),
+      p('`delay(input, 0.375, 0.4)` is 375 milliseconds, an echo that only lands on the beat at one tempo. `delay(input, 0.1875, 0.4, { sync: true })` reads the time in CYCLES instead, so it stays a dotted eighth wherever you take the tempo: 0.25 is a quarter, 0.125 an eighth, 0.1875 the dotted eighth every dub delay wants. The buffer is still sized in SECONDS by maxTime (0.5 s by default) and a synced time is clamped to it, so a long musical delay at a slow tempo wants `{ sync: true, maxTime: 2 }`.'),
       p("A post-chain can declare `param(...)` too, and it is a live control just like a voice param: `.ctrl('wet', ...)` on the pattern automates it as the music plays. Here the reverb blend opens and closes under an LFO: the same `.ctrl` you use for a filter cutoff drives an effect deep in the post-chain."),
       code(
         'A drivable post param: .ctrl automates the reverb blend live.',
@@ -408,6 +409,7 @@ p('pad', chord('<Am7 Dm7 G Cmaj7>').sound('pad').dur(0.96))
 p('stab', n('0 3 5 7 5 3 5 7').scale('a minor').sound('stab').ctrl('cutoff', sine.range(600, 5000).fast(3)))
 setCps(0.4)`,
       ),
+      p("An LFO rate is in Hz, which means a wobble you tuned by ear slides out of the groove the moment the tempo changes. Pass `{ sync: true }` and the rate becomes a length in CYCLES instead, locked to the transport: `lfo(1, 'tri', { sync: true })` is one sweep per cycle, `0.25` a quarter-note wobble, `0.0625` a sixteenth. Move setCps and it re-rates itself mid-note, keeping its phase, so nothing clicks. Keep Hz for movement that is about SOUND rather than rhythm: a 5 Hz tremolo, a 0.05 Hz drift across a pad."),
       p("When adsr's four stages are not enough, env() takes a list of [seconds, level] breakpoints for any shape you like, and drives amplitude, pitch or a filter. Here a two-stage pluck envelope shapes the amp, while a second env bends the pitch down at the very start for a synthetic 'blip' attack."),
       code(
         'A breakpoint envelope for the amp, and a fast pitch blip on the attack.',
@@ -704,6 +706,7 @@ cps .6`,
       p('Expressions use `+ - * / ^` with ordinary precedence (`^` binds tightest, then `* /`, then `+ -`). `note` is the note frequency in Hz, `gate` the envelope gate, `velocity` the note velocity, and inside a post chain `input` is the summed voice signal. `x -> lo..hi` maps a 0..1 signal into a range: `lfo 4 tri -> 200..3000` is a wobble. Number literals fold: `2 * 3` compiles to `6`, and `1 - env` rewrites algebraically.'),
       p('Arguments are space-separated. Word arguments go bare where the builtin declares them (`noise pink`, `svf 900 mode:hp`, `shape 2 type:tube`); `key:value` pairs are named options, and unknown names are compile errors, never silent drops. Sources: `saw square sine tri pulse supersaw fm noise lfsr wavetable syncsaw`, plus the gated ones `sample granular pluck modal`, plus `mic`: the LIVE microphone as a signal (vocode it, filter it; headphones advised, and it renders silent in offline exports). An oscillator (or pluck/modal) with no frequency argument plays the note.'),
       p('Three builtins have special shapes. `eq hp 170 peak 300 -3 2 highshelf 7000 4` is the parametric EQ: each band is a type word then freq [gain] [q]. `vocoder mod bands:20` makes the pipe the carrier and `mod` the voice. And in bindings, `e = env .005 1 .15 .4 release:.3 curve:3` is the breakpoint envelope, flat time/level pairs, the flexible cousin of `adsr`.'),
+      p('`sync:1` turns a rate MUSICAL instead of absolute. `cut = lfo .25 tri sync:1 -> 150..3200` is a quarter-note wobble: the number is a length in cycles, so `1` is one sweep per cycle, `.125` an eighth, `.0625` a sixteenth. `delay .1875 .25 sync:1` is the dotted-eighth echo. Both read `cps` live, so changing the tempo re-rates them mid-note. Leave `sync:1` off and the lfo rate is Hz and the delay time seconds, which is what you want for a tremolo or a fixed slapback. `maxtime:` still sizes the delay buffer in SECONDS and caps a synced time, so raise it for long musical delays at slow tempos.'),
       p('Voice options sit on the header: `synth bass mono glide:.08` is the 303 mono-glide, `unison:5 detune:14 spread:.9` widens a lead, `voices:12` raises polyphony. Shape the unison stack with `curve:2` (inner voices hug the note), `blend:.7` (quieter edges) and `octaves:2` (every 2nd voice up an octave).'),
       rondo(
         'Source, filter, drive, delay, VCA, saturation.',

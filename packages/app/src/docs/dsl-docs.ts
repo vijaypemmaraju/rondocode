@@ -523,9 +523,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'lfo',
-    "lfo(freq, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand')",
-    'A slow oscillator 0..1 for movement, wobble a filter, a pulse width, a pan. Shapes sine/tri/square/saw, plus rand: a sample-and-hold that jumps to a new random level each cycle and holds it, for stepped random modulation.',
-    'lfo(0.5).range(400, 2000)',
+    "lfo(freq, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand', opts?: { sync })",
+    'A slow oscillator 0..1 for movement, wobble a filter, a pulse width, a pan. Shapes sine/tri/square/saw, plus rand: a sample-and-hold that jumps to a new random level each cycle and holds it, for stepped random modulation. freq is in Hz, or with sync it is a length in CYCLES that follows the tempo: 1 is one sweep per cycle, 0.25 a quarter-note wobble, 0.0625 a sixteenth.',
+    "lfo(0.25, 'tri', { sync: true }).range(400, 2000)",
   ),
   sc(
     'mic',
@@ -535,9 +535,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'delay',
-    'delay(input, time, feedback?, opts?: { maxTime })',
-    'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off.',
-    'tone.add(delay(tone, 0.28, 0.45))',
+    'delay(input, time, feedback?, opts?: { maxTime, sync })',
+    'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off. With sync, time is read in CYCLES instead and the echo rides the tempo: 0.25 is a quarter note, 0.1875 the dotted eighth every dub delay wants. maxTime still sizes the buffer in seconds and caps a synced time, so raise it for slow tempos or long musical delays.',
+    'tone.add(delay(tone, 0.1875, 0.45, { sync: true }))',
   ),
   sc(
     'reverb',

@@ -59,6 +59,9 @@ export function renderStagedMix(
   const tables = getCustomWavetables()
   const mix = renderMix(staged.synths, events, durationSec, {
     sampleRate: 48000,
+    // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
+    // themselves off it, so an omitted cps would bounce at the wrong speed.
+    cps,
     ...(samples ? { samples } : {}),
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),

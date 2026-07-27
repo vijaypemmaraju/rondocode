@@ -133,8 +133,29 @@ export interface SynthCtx {
    *  note equals that MIDI root and tracks the note otherwise; `{ speed }` sets
    *  an explicit rate multiplier (overrides root). No root/speed → natural rate
    *  (drums). Output is mono — shape amplitude with an ADSR like an oscillator.
-   *  Unknown/not-yet-loaded name → silence. */
-  sample(gate: SigIn, name: string, opts?: { root?: number; speed?: SigIn; loop?: boolean }): Sig
+   *  Unknown/not-yet-loaded name → silence.
+   *
+   *  SLICING: `{ start, end }` (fractions 0..1, end must exceed start) narrow
+   *  playback to a window; loop, speed and reverse then act on the window only.
+   *  `{ slices: N }` divides that window into N equal chops and the NOTE picks
+   *  one (root = slice 0, root+1 = slice 1, wrapping) at natural speed, so a
+   *  note pattern sequences the chops. `{ reverse: true }` plays the window
+   *  backwards. `{ fade }` (seconds, def 0.003 once sliced) ramps the window
+   *  edges so a chop does not click. */
+  sample(
+    gate: SigIn,
+    name: string,
+    opts?: {
+      root?: number
+      speed?: SigIn
+      loop?: boolean
+      start?: number
+      end?: number
+      reverse?: boolean
+      slices?: number
+      fade?: number
+    },
+  ): Sig
   /** GRANULAR synthesis over a loaded sample: sprays short windowed grains from
    *  a scannable position, pitched independently. Grains spawn while `gate` is
    *  high. `pos` (0..1) is the read centre — freeze it for a drone, sweep it to
@@ -750,15 +771,48 @@ const makeCtx = (b: Builder): SynthCtx => {
 
     sample: (gate, name, opts) => {
       const inputs: Record<string, InputSource> = { gate: src(gate, 'sample gate') }
-      // Pitch: explicit speed wins; else root -> track note.freq / freq(root);
-      // else natural rate (no speed input, kernel treats as 1).
+      const frac = (v: number | undefined, what: string): void => {
+        if (v !== undefined && !(Number.isFinite(v) && v >= 0 && v <= 1)) {
+          throw new GraphError(`sample ${what}: must be a fraction of the buffer in 0..1, got ${v}`)
+        }
+      }
+      frac(opts?.start, 'start')
+      frac(opts?.end, 'end')
+      const start = opts?.start ?? 0
+      const end = opts?.end ?? 1
+      if (end <= start) {
+        throw new GraphError(`sample window: end (${end}) must be greater than start (${start})`)
+      }
+      if (opts?.slices !== undefined && !(Number.isInteger(opts.slices) && opts.slices >= 1)) {
+        throw new GraphError(`sample slices: must be a whole number of slices >= 1, got ${opts.slices}`)
+      }
+      if (opts?.fade !== undefined && !(Number.isFinite(opts.fade) && opts.fade >= 0)) {
+        throw new GraphError(`sample fade: must be a length in seconds >= 0, got ${opts.fade}`)
+      }
+      // `root` is the reference note either way: WITHOUT slices it is the note
+      // that plays at natural pitch (the note tracks the speed); WITH slices
+      // the note picks the chop instead, so root is the note that picks slice 0
+      // and playback stays at natural speed unless an explicit speed is given.
+      const rootFreq = 440 * Math.pow(2, ((opts?.root ?? 60) - 69) / 12)
       let speed: SigIn | undefined = opts?.speed
-      if (speed === undefined && opts?.root !== undefined) {
-        const rootFreq = 440 * Math.pow(2, (opts.root - 69) / 12)
+      if (speed === undefined && opts?.root !== undefined && opts.slices === undefined) {
         speed = noteFreq.div(rootFreq)
       }
       if (speed !== undefined) inputs['speed'] = src(speed, 'sample speed')
-      return b.node('sample', inputs, definedConfig({ name, loop: opts?.loop }))
+      if (opts?.slices !== undefined) inputs['pitch'] = src(noteFreq.div(rootFreq), 'sample pitch')
+      return b.node(
+        'sample',
+        inputs,
+        definedConfig({
+          name,
+          loop: opts?.loop,
+          start: opts?.start,
+          end: opts?.end,
+          reverse: opts?.reverse,
+          slices: opts?.slices,
+          fade: opts?.fade,
+        }),
+      )
     },
 
     granular: (gate, name, opts) => {

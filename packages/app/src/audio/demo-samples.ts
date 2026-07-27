@@ -108,3 +108,50 @@ export function makeRiser(sampleRate: number): Float32Array {
   if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.85 / peak
   return out
 }
+
+/** A 2 s drum loop built as EIGHT equal 0.25 s steps, so it lines up exactly
+ *  with `sample(gate, 'break', { slices: 8 })`: note 60 plays step 0, note 61
+ *  step 1, and so on. One hit per step (kick, hat, snare, hat, kick, kick,
+ *  snare, hat) so every chop is recognizably different, which is the whole
+ *  point of a chopper. Stands in for your own bounced take. */
+export function makeBreak(sampleRate: number): Float32Array {
+  const step = 0.25
+  const n = Math.round(8 * step * sampleRate)
+  const out = new Float32Array(n)
+  let seed = 90210
+  const rnd = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return seed / 0x40000000 - 1
+  }
+  const add = (at: number, dur: number, gen: (t: number) => number): void => {
+    const from = Math.round(at * sampleRate)
+    const len = Math.round(dur * sampleRate)
+    for (let i = 0; i < len && from + i < n; i++) out[from + i]! += gen(i / sampleRate)
+  }
+  // kick: pitch envelope 130 -> 45 Hz, fast body decay
+  const kick = (gain: number) => (t: number): number => {
+    const f = 45 + 85 * Math.exp(-t * 45)
+    return gain * Math.sin(2 * Math.PI * f * t) * Math.exp(-t * 11)
+  }
+  // snare: a 190 Hz shell under a noise crack
+  const snare = (gain: number) => (t: number): number =>
+    gain * (0.45 * Math.sin(2 * Math.PI * 190 * t) + 0.9 * rnd()) * Math.exp(-t * 22)
+  // hat: noise through a crude one-pole highpass, very short
+  let hlp = 0
+  const hat = (gain: number) => (t: number): number => {
+    const x = rnd()
+    hlp += (x - hlp) * 0.55
+    return gain * (x - hlp) * Math.exp(-t * 90)
+  }
+  const hits: [number, (t: number) => number][] = [
+    [0, kick(1)], [1, hat(0.5)], [2, snare(0.8)], [3, hat(0.4)],
+    [4, kick(0.9)], [5, kick(0.7)], [6, snare(0.85)], [7, hat(0.5)],
+  ]
+  // every hit starts ON its step boundary and decays inside it, so a chop is
+  // one clean hit and never the tail of the previous one
+  for (const [i, gen] of hits) add(i * step, step * 0.95, gen)
+  let peak = 0
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]!))
+  if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.85 / peak
+  return out
+}

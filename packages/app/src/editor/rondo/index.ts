@@ -133,7 +133,7 @@ const OPTIONS: Completion[] = [
   c('noise', 'function', 'noise [white|pink|brown]', 'Noise source — pink/brown are warmer.'),
   c('lfo', 'function', 'lfo rate [sine|tri|square|saw|rand]', 'Low-frequency modulator (wobble: `lfo 4 tri -> 200..3000`).'),
   c('mic', 'function', 'mic', 'The LIVE microphone as a signal. Vocode it, filter it, granular it. Headphones advised.'),
-  c('sample', 'function', 'sample name root:… loop:1', 'Play a loaded sample, pitched from its root note.'),
+  c('sample', 'function', 'sample name root:… loop:1 start:… end:… reverse:1 slices:8', 'Play a loaded sample, pitched from its root note. Slice it with start/end, reverse it, or chop it with slices:N and let the note pick the chop.'),
   c('granular', 'function', 'granular name pos:… size:…', 'Grain cloud over a loaded sample.'),
   c('pluck', 'function', 'pluck [freq] decay:…', 'Karplus–Strong plucked string.'),
   c('modal', 'function', 'modal [freq] model:bell', 'Modal resonator: bell/bar/drum/glass.'),

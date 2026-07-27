@@ -15,7 +15,7 @@ import type { SessionState, ProbeTarget } from '../session/Session'
 import { synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
-import { makeVox, makeRiser, makePad } from '../audio/demo-samples'
+import { makeVox, makeRiser, makePad, makeBreak } from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
@@ -282,6 +282,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
     audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
     audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
+    audio.loadSamplePcm('break', makeBreak(audio.sampleRate), audio.sampleRate, true)
     // sing(): wire the neural render manager + its progress dialog
     singMgr.initSing(audio)
     mountSingDialog()

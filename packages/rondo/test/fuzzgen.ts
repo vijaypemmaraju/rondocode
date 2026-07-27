@@ -116,7 +116,11 @@ function genCall(r: R, ctx: ExprCtx, depth = 1): string {
   }
   for (const [k, kind] of Object.entries(spec.named ?? {})) {
     if (!r.chance(0.3)) continue
-    const v = kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'bool' ? '1' : kind === 'num' ? num(r) : genSigArg(r, ctx, depth)
+    // bools go BOTH ways: `reverse:0` compiles to `false` and has its own
+    // decompile path, so generating only `1` would leave half of it unfuzzed
+    const v = kind === 'enum' ? r.pick(ENUM_WORDS)
+      : kind === 'bool' ? (r.chance(0.5) ? '1' : '0')
+      : kind === 'num' ? num(r) : genSigArg(r, ctx, depth)
     parts.push(`${k}:${v}`)
   }
   return parts.join(' ')
@@ -202,7 +206,9 @@ function genTransformLine(r: R, ctx: ExprCtx): string {
   for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, 1))
   for (const [k, kind] of Object.entries(spec.named ?? {})) {
     if (!r.chance(0.35)) continue
-    const v = kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'bool' ? '1' : kind === 'num' ? num(r) : genSigArg(r, ctx, 1)
+    const v = kind === 'enum' ? r.pick(ENUM_WORDS)
+      : kind === 'bool' ? (r.chance(0.5) ? '1' : '0')
+      : kind === 'num' ? num(r) : genSigArg(r, ctx, 1)
     parts.push(`${k}:${v}`)
   }
   return parts.join(' ')

@@ -95,6 +95,7 @@ const SOURCE_CHIPS: Chip[] = [
   chip('fm', 'fm note mod feedback:.2'),
   chip('noise', 'noise pink'),
   chip('sample', 'sample vox root:57'),
+  chip('chop', 'sample break slices:8'),
 ]
 
 const NOTE_CHIPS: Chip[] = [

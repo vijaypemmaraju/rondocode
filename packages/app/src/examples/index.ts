@@ -2984,6 +2984,56 @@ play lead
 cps .55
 `
 
+const chopRondo = `# CHOP. slices:8 cuts the built-in
+# break into eight equal pieces and
+# the NOTE picks one: c4 is slice 0,
+# db4 is slice 1, on up to g4 for
+# slice 7. reorder them and the same
+# two seconds becomes a new beat.
+#
+# bounce your OWN loop into take1
+# with resample, then chop that:
+# sample take1 slices:8
+
+synth chop
+  sample break slices:8
+  * a
+  * .95
+  a = adsr .001 .22 1 .02
+
+# the back half of the same break,
+# reversed and looped, as a bed
+synth tail
+  sample break start:.5 reverse:1 loop:1
+  svf 2400
+  * a
+  * .3
+  a = adsr .02 .5 .7 .4
+
+synth sub
+  sine
+  * a
+  tanh
+  * .35
+  a = adsr .004 .2 .55 .12
+
+# eight chops, reordered
+play chop
+  c4 e4 f4 g4 db4 c4 gb4 e4
+  gain: .95
+
+play tail
+  c4
+  slow 4
+  gain: .8
+
+play sub
+  c2 ~ <g1 f1> ~
+  gain: .9
+
+cps .5
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -3022,6 +3072,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
+  { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

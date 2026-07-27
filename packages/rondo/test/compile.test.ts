@@ -494,8 +494,20 @@ describe('rondo → rondocode codegen', () => {
     expect(out2).toContain('pluck(gate, note.freq, { decay: 0.4 })')
   })
 
+  it('sample slicing: the window, the chops and reverse all emit', () => {
+    expect(ok(`synth c\n  sample take1 start:.25 end:.5\n`))
+      .toContain("sample(gate, 'take1', { start: 0.25, end: 0.5 })")
+    expect(ok(`synth c\n  sample take1 slices:8\n`)).toContain("sample(gate, 'take1', { slices: 8 })")
+    // the full chopper spelling: a windowed, reversed, chopped, root-mapped take
+    expect(ok(`synth c\n  sample take1 root:48 start:.25 end:.75 reverse:1 slices:8 fade:.005\n`)).toContain(
+      "sample(gate, 'take1', { root: 48, start: 0.25, end: 0.75, reverse: true, slices: 8, fade: 0.005 })",
+    )
+    expect(ok(`synth c\n  sample take1 reverse:0\n`)).toContain("sample(gate, 'take1', { reverse: false })")
+  })
+
   it('rejects a named arg the builtin does not declare', () => {
     failsAt(`synth s\n  supersaw wobble:3\n`, '`supersaw` has no `wobble:` argument', 2, 3)
+    failsAt(`synth s\n  sample take1 slice:3\n`, '`sample` has no `slice:` argument', 2, 3)
   })
 
   it('synth header voice options → the synth() opts arg', () => {

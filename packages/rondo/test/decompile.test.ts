@@ -65,6 +65,25 @@ describe('decompile round-trips', () => {
     expect(second.code).toBe(first.code)
   })
 
+  it('sample slice args survive the round trip, bools included', () => {
+    const src = [
+      'synth chop',
+      '  sample take1 root:48 start:.25 end:.75 reverse:1 slices:8 fade:.004',
+      '  * a',
+      '  a = adsr .001 .1 1 .02',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('sample take1 root:48 start:0.25 end:0.75 reverse:1 slices:8 fade:0.004')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   it('beat blocks and irand notation survive the round trip', () => {
     const src = [
       'synth kick',

@@ -132,7 +132,7 @@ setCps(0.4)`,
       code(
         'Two tunings you cannot play on a piano: 19 equal steps, then a pelog-style pentatonic given in cents.',
         `const bell = synth(({ note, gate, adsr, fm }) => {
-  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.2, s: 0, r: 0.5 }).mul(2.2))
+  const mod = fm(note.freq.mul(2)).mul(adsr(gate, { a: 0.001, d: 1.2, s: 0, r: 0.5 }).mul(0.2))
   return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 1.4, s: 0, r: 0.6 })).mul(0.4)
 })
 
@@ -197,7 +197,7 @@ p('stab', note('<c4 ~ eb4 ~>').sound('hollow').gain(0.5))`,
 })
 const bell = synth(({ note, gate, adsr, fm }) => {
   // 1.4 ratio is inharmonic; a LOW index (2.2) keeps the ring soft, not clangy
-  const mod = fm(note.freq.mul(1.4)).mul(adsr(gate, { a: 0.001, d: 1.2, s: 0, r: 0.5 }).mul(2.2))
+  const mod = fm(note.freq.mul(2)).mul(adsr(gate, { a: 0.001, d: 1.2, s: 0, r: 0.5 }).mul(0.2))
   return fm(note.freq, mod).mul(adsr(gate, { a: 0.001, d: 1.6, s: 0, r: 0.6 })).mul(0.35)
 })
 

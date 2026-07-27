@@ -91,8 +91,9 @@ export interface SynthCtx {
   fm(freq: SigIn, mod?: SigIn, opts?: { feedback?: SigIn; wave?: 'sine' | 'tri' | 'saw' | 'square' }): Sig
   /** Morphing, anti-aliased wavetable oscillator. `pos` (0..1, default 0) scans
    *  through a bank of single-cycle waveforms; `table` names a built-in bank
-   *  ('basic' | 'harmonic' | 'pwm', default 'basic'). Band-limited via mipmaps,
-   *  so it stays clean at high notes. */
+   *  ('basic' | 'harmonic' | 'pwm', default 'basic') or a CUSTOM one registered
+   *  with defineWavetable(). Band-limited via mipmaps, so it stays clean at
+   *  high notes. */
   wavetable(freq: SigIn, pos?: SigIn, opts?: { table?: string }): Sig
   /** SUPERSAW: 7 detuned saws for a fat trance/EDM lead. `detune` (0..1, def
    *  0.2) spreads them; `mix` (0..1, def 0.7) is the side-saw level vs centre.

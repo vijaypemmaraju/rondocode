@@ -22,6 +22,7 @@ import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
+import { WavedefWidget, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls } from './wavetable'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -61,6 +62,11 @@ export interface Hooks {
   /** current tempo (cycles/sec) — lets the read-only query roll map an
    *  event's absolute time to its phase within the cycle. */
   cps?: () => number
+  /** wavetable bank lookup (engine getWavetableBank), INJECTED because this
+   *  module sits in the docs page's eager graph and must not statically pull
+   *  the audio engine — see wavetable.ts's module doc. Absent, the ribbon
+   *  still draws tables defined by the doc's own wavedef lines. */
+  wavetableBank?: (name: string) => Float32Array[][] | undefined
 }
 
 /** A tiny haptic tick on widget interactions (Android; a silent no-op where
@@ -1390,6 +1396,27 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     // one sequencer per block, hanging off the LAST qualifying row's line
     const pos = b.rows[b.rows.length - 1]!.to
     items.push({ pos, deco: Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }) })
+  }
+  // wavetable widgets: v2 EDITOR on wavedef lines, v1 RIBBON on synth-body
+  // wavetable calls. The doc's own wavedefs feed both (fresh while typing);
+  // built-ins and last-eval registry tables feed the ribbon.
+  const wavedefs = scanWavedefs(text)
+  const wdWidth = envWidth(view)
+  for (const wd of wavedefs) {
+    items.push({ pos: wd.at, deco: Decoration.widget({ widget: new WavedefWidget(wd, wdWidth, hooks, drag), side: 1 }) })
+  }
+  for (const call of scanWavetableCalls(text)) {
+    const frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
+    if (frames === null) continue // unknown table: the eval diagnostic tells that story
+    const def = wavedefs.find((d) => d.name === call.table)
+    const framesKey = `${call.table}:${def !== undefined ? JSON.stringify(def.frames) : 'bank'}`
+    items.push({
+      pos: call.at,
+      deco: Decoration.widget({
+        widget: new WavetableRibbonWidget(call.table, call.posLiteral, call.synth, framesKey, frames, hooks, drag),
+        side: 1,
+      }),
+    })
   }
   items.sort((x, y) => x.pos - y.pos)
   const b = new RangeSetBuilder<Decoration>()

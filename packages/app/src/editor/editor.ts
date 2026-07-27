@@ -7,6 +7,7 @@ import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { javascript } from '@codemirror/lang-javascript'
 import { compile, decompile } from '@rondocode/rondo'
 import type { NoteSpan } from '@rondocode/rondo'
+import { getWavetableBank } from '@rondocode/engine'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
@@ -618,6 +619,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         const notes = toNoteEvs(evs)
         if (notes.length > 0) fn(notes)
       }),
+    // wavetable ribbon: built-in + last-eval custom banks, injected so the
+    // widget module never statically imports the engine (docs eager-graph
+    // boundary — see wavetable.ts)
+    wavetableBank: (name) => getWavetableBank(name),
   }
   // the tap palette: grammar-legal chips above the keyboard (rondo mode).
   // Mounted BEFORE the language wiring: the mount-time Compartment reconfigure

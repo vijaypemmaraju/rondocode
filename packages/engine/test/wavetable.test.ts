@@ -1,10 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect } from 'vitest'
 import {
   WavetableKernel,
+  WavetableBank,
   WAVETABLE_TABLES,
   WAVETABLE_FRAME_SIZE,
   getWavetable,
+  getWavetableBank,
+  getCustomWavetables,
+  defineWavetable,
+  clearCustomWavetables,
+  snapshotCustomWavetables,
+  restoreCustomWavetables,
+  hasWavetable,
 } from '../src/dsp/wavetable'
+import { RealtimeEngine, BLOCK } from '../src/index'
+import type { EngineEvent } from '../src/index'
+import { synth } from '../src/builder'
+import { renderOffline } from '../src/render'
 import { goertzel } from './util/goertzel'
 import type { DspContext } from '../src/dsp/types'
 
@@ -17,6 +29,12 @@ const run = (table: string | undefined, freq: number, pos: number, n: number): F
   const out = new Float32Array(n)
   new WavetableKernel(table, ctx).process(n, { freq: f, pos: p }, out, ctx)
   return out
+}
+
+const rmsOf = (x: Float32Array): number => {
+  let s = 0
+  for (let i = 0; i < x.length; i++) s += x[i]! * x[i]!
+  return Math.sqrt(s / x.length)
 }
 
 const minMax = (out: Float32Array, start = 0): [number, number] => {
@@ -248,5 +266,200 @@ describe('WavetableKernel: table set', () => {
 
   it('rejects an unknown table name', () => {
     expect(() => new WavetableKernel('nope', ctx)).toThrow()
+  })
+})
+
+/* ---------------------------- custom tables -------------------------------- */
+
+describe('custom wavetables: defineWavetable + registry', () => {
+  afterEach(() => clearCustomWavetables())
+
+  it('partial list -> exact spectrum: [1, 0, 0.5] has h1 and h3, no h2 (Goertzel)', () => {
+    defineWavetable('spec13', [[1, 0, 0.5]])
+    // 240 Hz divides 48000 (200 samples/cycle) so harmonic probes are coherent
+    const out = run('spec13', 240, 0, 48000)
+    const h1 = goertzel(out, 240, ctx.sampleRate)
+    const h2 = goertzel(out, 480, ctx.sampleRate)
+    const h3 = goertzel(out, 720, ctx.sampleRate)
+    expect(h1).toBeGreaterThan(h2 * 1000) // h2 amplitude is 0
+    expect(h3).toBeGreaterThan(h2 * 100)
+    // POWER ratio h1/h3 = (1/0.5)^2 = 4 (amplitudes normalize together)
+    expect(h1 / h3).toBeGreaterThan(3)
+    expect(h1 / h3).toBeLessThan(5.5)
+  })
+
+  it('morphs between custom frames: pos 0 = fundamental, pos 1 = 4th harmonic', () => {
+    defineWavetable('morph14', [[1], [0, 0, 0, 1]])
+    const at0 = run('morph14', 240, 0, 24000)
+    const at1 = run('morph14', 240, 1, 24000)
+    expect(goertzel(at0, 240, ctx.sampleRate)).toBeGreaterThan(goertzel(at0, 960, ctx.sampleRate) * 100)
+    expect(goertzel(at1, 960, ctx.sampleRate)).toBeGreaterThan(goertzel(at1, 240, ctx.sampleRate) * 100)
+  })
+
+  it('band-limits at high notes: an 8th-harmonic-only frame goes quiet up high', () => {
+    defineWavetable('h8only', [[0, 0, 0, 0, 0, 0, 0, 1]])
+    // low note: 8th harmonic (1760 Hz) is fully in band — audible
+    const lo = run('h8only', 220, 0, 24000)
+    expect(goertzel(lo, 1760, ctx.sampleRate)).toBeGreaterThan(1e-4)
+    // high note: 8 x 8000 = 64 kHz is FAR above Nyquist; the mipmap for 8 kHz
+    // keeps only harmonics <= 3, so the frame renders (near) silence instead
+    // of aliasing the 8th harmonic back into band
+    const hi = run('h8only', 8000, 0, 24000)
+    expect(rmsOf(hi)).toBeLessThan(1e-6)
+    expect(rmsOf(lo)).toBeGreaterThan(0.1)
+  })
+
+  it('rejects bad names and specs; hasWavetable/getCustomWavetables reflect the registry', () => {
+    expect(() => defineWavetable('basic', [[1]])).toThrow(/shadows a built-in/)
+    expect(() => defineWavetable('9lives', [[1]])).toThrow(/name must be a word/)
+    expect(() => defineWavetable('t', [])).toThrow(/frames/)
+    expect(() => defineWavetable('t', [[]])).toThrow(/partial/)
+    expect(() => defineWavetable('t', [Array.from({ length: 33 }, () => 1)])).toThrow(/partial/)
+    expect(() => defineWavetable('t', [[1, NaN]])).toThrow(/finite/)
+    expect(() => defineWavetable('t', [[99]])).toThrow(/finite numbers with/)
+    defineWavetable('goodwt', [[1, 0.5], [0.2, 1]])
+    expect(hasWavetable('goodwt')).toBe(true)
+    expect(hasWavetable('basic')).toBe(true)
+    expect(hasWavetable('gone')).toBe(false)
+    expect(getCustomWavetables().get('goodwt')).toEqual([[1, 0.5], [0.2, 1]])
+    expect(getWavetableBank('goodwt')![0]![0]!.length).toBe(WAVETABLE_FRAME_SIZE)
+  })
+
+  it('unknown custom name throws and lists the registered customs', () => {
+    defineWavetable('knownwt', [[1]])
+    expect(() => new WavetableKernel('nopewt', ctx)).toThrow(/knownwt/)
+  })
+
+  it('snapshot/clear/restore round-trips (the eval staging lifecycle)', () => {
+    defineWavetable('keepme', [[1, 0.5]])
+    const snap = snapshotCustomWavetables()
+    clearCustomWavetables()
+    expect(hasWavetable('keepme')).toBe(false)
+    restoreCustomWavetables(snap)
+    expect(hasWavetable('keepme')).toBe(true)
+    expect(getCustomWavetables().get('keepme')).toEqual([[1, 0.5]])
+  })
+})
+
+describe('custom wavetables: WavetableBank on the ctx (the engine store)', () => {
+  it('kernel resolves via ctx.wavetables, and a re-load is heard per block without a rebuild', () => {
+    const bank = new WavetableBank()
+    bank.set('livewt', [[1]]) // pure fundamental
+    const bctx: DspContext = { sampleRate: 48000, wavetables: bank }
+    const k = new WavetableKernel('livewt', bctx)
+    const n = 24000
+    const f = new Float32Array(n).fill(240)
+    const p = new Float32Array(n)
+    const a = new Float32Array(n)
+    k.process(n, { freq: f, pos: p }, a, bctx)
+    expect(goertzel(a, 240, 48000)).toBeGreaterThan(goertzel(a, 480, 48000) * 100)
+    // REPLACE the table (same name, new partials): next block reads the new bank
+    bank.set('livewt', [[0, 1]]) // pure 2nd harmonic
+    const b = new Float32Array(n)
+    k.process(n, { freq: f, pos: p }, b, bctx)
+    expect(goertzel(b, 480, 48000)).toBeGreaterThan(goertzel(b, 240, 48000) * 100)
+  })
+
+  it('bank.set validates like defineWavetable (shadow + spec errors throw)', () => {
+    const bank = new WavetableBank()
+    expect(() => bank.set('pwm', [[1]])).toThrow(/shadows a built-in/)
+    expect(() => bank.set('x', [[Infinity]])).toThrow(/finite/)
+    bank.set('ok', [[1, 0.3]])
+    expect(bank.has('ok')).toBe(true)
+    expect(bank.names()).toEqual(['ok'])
+    bank.delete('ok')
+    expect(bank.get('ok')).toBeUndefined()
+  })
+})
+
+describe('custom wavetables: wire messages (loadWavetable / clearWavetable)', () => {
+  /** Build the GraphSpec with the registry TEMPORARILY holding the table
+   *  (synth() eager-compiles), then clear it — so the engine-side tests below
+   *  exercise ONLY the wire path (ctx.wavetables), never the realm fallback. */
+  const wtSynth = (table: string) => {
+    defineWavetable(table, [[1]])
+    const g = synth((c) => c.wavetable(c.note.freq, 0.5, { table }).mul(c.gate)).graph
+    clearCustomWavetables()
+    return g
+  }
+
+  const makeEngine = () => {
+    const events: EngineEvent[] = []
+    const eng = new RealtimeEngine({ sampleRate: 48000 }) // fresh ctx: isolated banks
+    eng.onEvent = (ev) => events.push(ev)
+    return { eng, events }
+  }
+  const errs = (events: EngineEvent[]) =>
+    events.filter((e): e is Extract<EngineEvent, { kind: 'error' }> => e.kind === 'error')
+  const walk = (eng: RealtimeEngine, blocks: number): Float32Array => {
+    const L = new Float32Array(blocks * BLOCK)
+    const bl = new Float32Array(BLOCK)
+    const br = new Float32Array(BLOCK)
+    for (let b = 0; b < blocks; b++) {
+      eng.process(bl, br, eng.currentFrame)
+      L.set(bl, b * BLOCK)
+    }
+    return L
+  }
+
+  it('loadWavetable then defineSynth + noteOn produces sound', () => {
+    const { eng, events } = makeEngine()
+    eng.handleMessage({ kind: 'loadWavetable', name: 'wirewt', frames: [[1, 0.5], [0.2, 1, 0.7]] })
+    eng.handleMessage({ kind: 'defineSynth', name: 'lead', graph: wtSynth('wirewt') })
+    eng.handleMessage({ kind: 'noteOn', synth: 'lead', note: 60, velocity: 1 })
+    const out = walk(eng, 20)
+    expect(errs(events)).toEqual([])
+    expect(rmsOf(out)).toBeGreaterThan(0.01)
+  })
+
+  it('defineSynth against a missing table is an error event, not a crash', () => {
+    const { eng, events } = makeEngine()
+    eng.handleMessage({ kind: 'defineSynth', name: 'lead', graph: wtSynth('missingwt') })
+    expect(errs(events).some((e) => e.message.includes('missingwt'))).toBe(true)
+  })
+
+  it('a bad frames spec is an error event; clearWavetable makes later defines fail', () => {
+    const { eng, events } = makeEngine()
+    eng.handleMessage({ kind: 'loadWavetable', name: 'badwt', frames: [[NaN]] })
+    expect(errs(events).some((e) => e.message.includes('finite'))).toBe(true)
+    eng.handleMessage({ kind: 'loadWavetable', name: 'okwt', frames: [[1]] })
+    eng.handleMessage({ kind: 'clearWavetable', name: 'okwt' })
+    eng.handleMessage({ kind: 'defineSynth', name: 'lead', graph: wtSynth('okwt') })
+    expect(errs(events).some((e) => e.message.includes('okwt'))).toBe(true)
+  })
+})
+
+describe('custom wavetables: offline render', () => {
+  afterEach(() => clearCustomWavetables())
+
+  // synth() runs an eager validation compile at DEFINITION time, so the table
+  // must already resolve in this realm when the def is built (defineWavetable
+  // first — exactly the order the rondo codegen hoists wavedef into).
+  const def = (table: string) =>
+    synth((c) => c.wavetable(c.note.freq, 0.25, { table }).mul(c.adsr(c.gate, { a: 0.005, d: 0.05, s: 0.8, r: 0.05 })))
+
+  const NOTE_EVENTS = [
+    { time: 0, type: 'noteOn' as const, note: 57 },
+    { time: 0.4, type: 'noteOff' as const, note: 57 },
+  ]
+
+  it('building a synth on an UNKNOWN table throws at definition (the existing throw)', () => {
+    expect(() => def('renderwt')).toThrow(/unknown wavetable 'renderwt'/)
+  })
+
+  it('renderOffline with the wavetables option is NOT silent (option overrides the realm)', () => {
+    defineWavetable('renderwt', [[1]])
+    const d = def('renderwt')
+    clearCustomWavetables() // the registry is gone; only the OPTION can supply the bank
+    const res = renderOffline(d, NOTE_EVENTS, 0.5, {
+      wavetables: { renderwt: [[1, 0.4], [0.3, 1, 0.6]] },
+    })
+    expect(rmsOf(res.left)).toBeGreaterThan(0.02)
+  })
+
+  it('renderOffline falls back to the defineWavetable registry (same realm as the eval)', () => {
+    defineWavetable('fallbackwt', [[1, 0.6, 0.3]])
+    const res = renderOffline(def('fallbackwt'), NOTE_EVENTS, 0.5)
+    expect(rmsOf(res.left)).toBeGreaterThan(0.02)
   })
 })

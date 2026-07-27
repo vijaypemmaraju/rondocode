@@ -65,6 +65,7 @@ function topChips(doc: string): Chip[] {
     chip('＋ sing', `sing vox voice:barbara\n  la la la\n  c4 e4 g4\n  gain: .9\n`, 'kw'),
     chip('＋ section', `section part 4\n  play ${target}\n    0 3 5 7  scale:a-min\n`, 'kw'),
     chip('＋ bus', `bus space\n  reverb room:.9 damp:.35\n  send ${target} .3\n`, 'kw'),
+    chip('＋ wavedef', `wavedef wt 1 .25 / .5 1 .5 / .3 .8 1\n\nsynth ${next}\n  wavetable note scan table:wt\n  * env\n  env = adsr .01 .15 .6 .2\n  scan = env -> .1...9\n`, 'kw'),
     chip('sidechain', `sidechain kick depth:.7 release:.12\n`, 'kw'),
     chip('master', `master threshold:-6 ratio:2\n`, 'kw'),
     chip('cps', 'cps .5\n', 'kw'),

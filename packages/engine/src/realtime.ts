@@ -5,6 +5,7 @@ import { PostChain } from './post'
 import type { GraphSpec } from './graph'
 import type { DspContext } from './dsp/types'
 import { SampleBank } from './samples'
+import { WavetableBank } from './dsp/wavetable'
 import { gainReductionDb, smoothCoeff } from './dsp/compress'
 import { clamp, softClipTanh } from './dsp/util'
 import type { EngineEvent, EngineMessage } from './protocol'
@@ -241,6 +242,10 @@ export class RealtimeEngine {
   /** Shared sample store; also exposed on ctx.samples so compiled
    *  SampleKernels resolve names against it (and see later loads). */
   private readonly samples: SampleBank
+  /** Custom wavetable store; also exposed on ctx.wavetables so compiled
+   *  WavetableKernels resolve custom names against it (and see re-loads —
+   *  they re-resolve per block, same contract as samples). */
+  private readonly wavetables: WavetableBank
   /** the shared live-mic block (see ctx.mic aliasing in the constructor). */
   private readonly micBlock: Float32Array
   private micQuiet = true
@@ -250,6 +255,11 @@ export class RealtimeEngine {
     // it back onto the ctx so voice graphs compiled with this ctx can read it.
     this.samples = (ctx.samples as SampleBank | undefined) ?? new SampleBank()
     ctx.samples = this.samples
+    // Custom wavetables: same adopt-or-publish as the sample bank, so every
+    // voice graph compiled with this ctx resolves custom table names against
+    // ONE store that loadWavetable messages fill.
+    this.wavetables = (ctx.wavetables as WavetableBank | undefined) ?? new WavetableBank()
+    ctx.wavetables = this.wavetables
     // LIVE MIC: adopt any block the host already put on the ctx, else create
     // one and publish it back (same pattern as the sample bank) — every graph
     // compiled with this ctx aliases ONE buffer, so writeMic() is one copy
@@ -686,6 +696,10 @@ export class RealtimeEngine {
         return this.msgLoadSample(m)
       case 'clearSample':
         return this.msgClearSample(m)
+      case 'loadWavetable':
+        return this.msgLoadWavetable(m)
+      case 'clearWavetable':
+        return this.msgClearWavetable(m)
       case 'setMasterComp':
         return this.msgSetMasterComp(m)
       case 'clearMasterComp':
@@ -1075,6 +1089,29 @@ export class RealtimeEngine {
       return this.error(`'name' must be a non-empty string`, 'clearSample')
     }
     this.samples.delete(name)
+  }
+
+  private msgLoadWavetable(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'loadWavetable')
+    }
+    // WavetableBank.set validates the name (word, no built-in shadowing) and
+    // the frames spec (1..64 frames x 1..32 finite partials) and synthesizes
+    // the mipmapped bank; a bad spec throws and becomes an error event.
+    try {
+      this.wavetables.set(name, m['frames'] as number[][])
+    } catch (e) {
+      this.error(e instanceof Error ? e.message : String(e), `loadWavetable '${name}'`)
+    }
+  }
+
+  private msgClearWavetable(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'clearWavetable')
+    }
+    this.wavetables.delete(name)
   }
 
   private msgSetMasterComp(m: Record<string, unknown>): void {

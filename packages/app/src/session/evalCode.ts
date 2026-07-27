@@ -3,7 +3,7 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, clearCustomScales, snapshotCustomScales, restoreCustomScales } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { busGraph, tapLoc, synth } from '@rondocode/engine'
+import { busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -788,8 +788,16 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   // the previous registry on ANY failure (last-good patterns re-resolve
   // scale names at query time in .add/.sub, so a failed eval must not yank
   // their scales), keep the new registry only when the eval is applied.
+  // Custom WAVETABLES follow the identical lifecycle (registry in the engine
+  // package): synth() eager-compiles while the code runs and resolves table
+  // names at construction, so defineWavetable can't be staged either — and a
+  // failed eval must not yank tables from playing patterns (live kernels
+  // re-resolve their bank per block against the engine-side store, which only
+  // the Session's diff of a SUCCESSFUL eval rewrites).
   const priorScales = snapshotCustomScales()
+  const priorWavetables = snapshotCustomWavetables()
   clearCustomScales()
+  clearCustomWavetables()
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -802,8 +810,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     )
     // All-or-nothing: partial registrations from before the throw are
     // DISCARDED — fresh empty maps, never the staging ones — and the
-    // custom-scale registry rolls back with them.
+    // custom-scale + custom-wavetable registries roll back with them.
     restoreCustomScales(priorScales)
+    restoreCustomWavetables(priorWavetables)
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   } finally {
     sealed = true
@@ -820,6 +829,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   if (stagingErrors.length > 0) {
     diagnostics.push(...stagingErrors)
     restoreCustomScales(priorScales) // this version is not applied — roll scales back too
+    restoreCustomWavetables(priorWavetables) // ...and the wavetables with them
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   }
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).

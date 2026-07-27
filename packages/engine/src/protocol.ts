@@ -95,6 +95,19 @@ export type EngineMessage = (
   | { kind: 'loadSample'; name: string; data: Float32Array; sampleRate: number }
   /** Drop a loaded sample; synths referencing `name` fall back to silence. */
   | { kind: 'clearSample'; name: string }
+  /** Load (or REPLACE) a custom wavetable under `name`: `frames` is an array
+   *  of FRAMES, each an array of harmonic partial amplitudes (frames[f][i] =
+   *  harmonic i+1, 1..32 partials, |a| <= 16). The engine synthesizes
+   *  band-limited mipmapped single-cycle frames from the partials (same
+   *  anti-aliasing as the built-in tables). Control-plane op; wavetable
+   *  kernels re-resolve the name per block, so a replace is heard live.
+   *  Names must not shadow the built-ins (basic/harmonic/pwm). Hosts send
+   *  this BEFORE defineSynth of any synth using the table (kernels resolve
+   *  at voice construction and an unknown name fails the define). */
+  | { kind: 'loadWavetable'; name: string; frames: number[][] }
+  /** Drop a custom wavetable. Synths still referencing it keep playing their
+   *  last resolved bank; re-DEFINING such a synth then fails (unknown name). */
+  | { kind: 'clearWavetable'; name: string }
   /** MASTER GLUE COMPRESSOR: a stereo-linked feed-forward compressor on the
    *  master bus, after master gain and before the limiter. All fields optional
    *  with compressor defaults (threshold -18 dB, ratio 4, attack 10 ms, release

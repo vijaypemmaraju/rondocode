@@ -3,6 +3,8 @@ import type { DecorationSet } from '@codemirror/view'
 import { StateEffect, StateField } from '@codemirror/state'
 import type { EditorState, Extension } from '@codemirror/state'
 import { stringCallName, syntacticContext } from './complete'
+import { syntaxTree } from '@codemirror/language'
+import { rondoDefinitionTarget } from './rondo/navigate'
 
 /* ------------------------------------------------------------------------- *
  * Smart go-to-definition (Cmd/Ctrl-click). Two cases, resolved from the doc
@@ -63,6 +65,14 @@ function resolveAt(state: EditorState, pos: number): { source: Range; target: Ra
   const doc = state.doc.toString()
   const id = identifierAt(doc, pos)
   if (!id) return null
+  // RONDO buffers (a StreamLanguage tree, not the JS 'Script' tree) resolve
+  // through the rondo-shaped rules: bindings, synth/section headers,
+  // wavedef/scaledef names. Same click UX either language.
+  if (syntaxTree(state).type.name !== 'Script') {
+    const t = rondoDefinitionTarget(doc, id.text, pos)
+    if (t === null || t.from === id.from) return null
+    return { source: { from: id.from, to: id.to }, target: t }
+  }
   const kind = syntacticContext(state, pos)
   const call = kind === 'string' ? stringCallName(state, pos) : null
   const isSoundName = call === 'sound' || call === 's'

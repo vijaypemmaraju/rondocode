@@ -14,6 +14,7 @@
  * and its pointer capture — survive. */
 
 import { StateEffect, StateField } from '@codemirror/state'
+import { scrubLens } from '../widgets/scrub'
 import type { EditorState, Extension, Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
@@ -703,6 +704,9 @@ function attachTransposeGesture(
     if (target === null) return null
     buzz()
     grab.classList.add('active')
+    // the add line often sits screens below a wrapped mega-notation - float
+    // the pending value above the finger so the edit is visible AT the drag
+    scrubLens.show(e.clientX, e.clientY, `add ${target.base}`)
     const y0 = e.clientY
     let steps = 0
     let wrote = false
@@ -711,9 +715,11 @@ function attachTransposeGesture(
       : null
     return {
       onMove: (ev) => {
+        scrubLens.move(ev.clientX, ev.clientY)
         const s = transposeSteps(y0 - ev.clientY, opts.rowH)
         if (s === steps) return
         steps = s
+        scrubLens.update(`add ${target.base + steps}`)
         buzz()
         if (writer !== null) {
           if (!writer.write(String(target.base + steps))) return // aborted: go quiet
@@ -723,6 +729,7 @@ function attachTransposeGesture(
         opts.preview(steps)
       },
       onEnd: () => {
+        scrubLens.hide()
         grab.classList.remove('active')
         opts.preview(0)
         if (writer !== null) {

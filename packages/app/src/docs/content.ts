@@ -1169,6 +1169,17 @@ cps .55`,
     ],
   },
   {
+    id: 'editing',
+    group: 'start here',
+    title: 'Editing: touch, keys, tidy',
+    blocks: [
+      p('EVERY NUMBER IS A CONTROL. Drag one sideways to scrub it (hold Alt with a mouse); the value follows your finger and the code rewrites as it moves, so what you hear and what is written never disagree. On touch, press and hold first: the value floats above your finger in a lens, because a fingertip covers the very digits it is changing.'),
+      p('While you drag, the VERTICAL axis picks the step size. Near the line you get normal speed; drag UP for x10 then x100, so a cutoff can sweep from 80 to 8000 in one gesture; drag DOWN for a tenth then a hundredth, for the last two decimal places. The lens shows the active tier, and crossing tiers never jumps the value.'),
+      p('KEYS: `Cmd/Ctrl + Enter` runs (and hot-updates a running program), `Cmd/Ctrl + .` stops, `Cmd/Ctrl + /` comments a line or selection, and `Cmd/Ctrl + Shift + F` formats the whole document in either language. `Cmd/Ctrl + click` a name to jump to its definition: a binding jumps within its synth, a name in a play or beat block jumps to the synth, a song name to its section, a `table:` or `scale:` to its wavedef or scaledef. On a phone the chip bar at the bottom carries undo, redo, comment and format, so none of it needs a keyboard.'),
+      p('The formatter is deliberately conservative: it fixes indentation and spacing, never rewraps your notation or touches an escape hatch, and it can never change what your code compiles to. Turn on "format on newline" in options if you would rather it tidy each line as you leave it.'),
+    ],
+  },
+  {
     id: 'rondo-widgets',
     title: 'rondo: live controls in the code',
     group: 'the rondo language',

@@ -23,7 +23,7 @@ const NUM_RE = /^-?\d*\.?\d+$/
 
 /** synth-header voice options: `synth acid mono glide:.08 unison:5 …`. */
 const VOICE_FLAGS = new Set(['mono'])
-const VOICE_OPTS = new Set(['glide', 'unison', 'detune', 'spread', 'curve', 'blend', 'octaves', 'voices'])
+const VOICE_OPTS = new Set(['glide', 'unison', 'detune', 'spread', 'curve', 'blend', 'octaves', 'humanize', 'voices'])
 
 const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
 
@@ -305,7 +305,7 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
       k += 2
       continue
     }
-    errors.push({ message: `unknown synth option \`${t.k === 'ident' ? t.v : t.k}\` (mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, voices:)`, line: t.pos.line, col: t.pos.col })
+    errors.push({ message: `unknown synth option \`${t.k === 'ident' ? t.v : t.k}\` (mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, humanize:, voices:)`, line: t.pos.line, col: t.pos.col })
     break
   }
   const { body, next } = bodyLines(lines, i + 1)

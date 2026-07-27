@@ -343,14 +343,23 @@ const pad = synth(({ note, gate, adsr, saw, svf, lfo }) => {
     .mix(saw(f.mul(1.009)), 0.34).mix(saw(f.mul(0.991)), 0.34)
     .mix(saw(f.mul(1.015)), 0.28).mix(saw(f.mul(0.985)), 0.28)
   return svf(wide, lfo(0.05).range(900, 2400), { res: 0.15 }).mul(env).mul(0.5)
-}, ({ input, chorus, reverb, exciter }) => {
+}, ({ input, chorus, reverb, exciter, width }) => {
   // post-chain: CHORUS (huge, wide, the engine runs it decorrelated L/R) →
-  // EXCITER (a little top-end sheen so it glistens) → REVERB. This is why the
-  // pad sounds enormous.
+  // EXCITER (a little top-end sheen so it glistens) → WIDTH → REVERB. This is
+  // why the pad sounds enormous. width() pulls L and R apart by trading a
+  // short delayed copy between them (added on one side, subtracted on the
+  // other), so it stays mono-safe: the sum cancels back to the dry signal,
+  // with a flat trim and no comb notches.
   const wide = chorus(input, { rate: 0.5, depth: 0.004, mix: 0.55 })
   const air = exciter(wide, { freq: 6000, amount: 0.2 })
-  return air.mix(reverb(air, { roomSize: 0.9, damp: 0.35 }), 0.4)
-})
+  const spread = width(air, 0.55)
+  return spread.mix(reverb(spread, { roomSize: 0.9, damp: 0.35 }), 0.4)
+},
+// humanize: each of the four chord voices takes its own tiny pitch and timing
+// offset (hashed from the voice and the note, so the render still repeats
+// exactly), so the stack breathes instead of landing as one machine-perfect
+// block.
+{ humanize: 0.5 })
 
 // --- arp: bright resonant pluck, short and wet, the rolling sequence ---
 const arp = synth(({ note, gate, param, adsr, saw, svf }) => {
@@ -358,7 +367,15 @@ const arp = synth(({ note, gate, param, adsr, saw, svf }) => {
   const env = adsr(gate, { a: 0.002, d: 0.13, s: 0.05, r: 0.14 })
   const osc = saw(note.freq).mix(saw(note.freq.mul(1.005)), 0.4)
   return svf(osc, env.range(0.4, 1).mul(bright), { res: 0.4 }).mul(env).mul(0.52)
-}, ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.7, damp: 0.3 }), 0.4))
+}, ({ input, reverb, transient, flanger }) => {
+  // TRANSIENT sharpens each pluck's onset and dries its tail. It is level
+  // independent, so a quiet note gets exactly the same snap as a loud one.
+  // Then a very slow FLANGER (a 0.3-8 ms delay fed back on itself) walks a
+  // resonant comb through the arp, the kind of motion chorus cannot make.
+  const snap = transient(input, { attack: 0.5, sustain: -0.25 })
+  const swept = flanger(snap, { rate: 0.07, depth: 0.7, feedback: 0.55, mix: 0.28 })
+  return swept.mix(reverb(swept, { roomSize: 0.7, damp: 0.3 }), 0.4)
+})
 
 // --- bass: deep round sub ---
 const bass = synth(({ note, gate, adsr, sine, saw, onepole }) => {
@@ -2634,8 +2651,12 @@ const synthscapeRondo = `# lush synthscape. Am(add9) Cmaj7 Dm7
 # E7: the E7's g# leans hard back to
 # A. every number scrubs, drag to mix
 # live. the kick pumps everything.
+# width spreads the pad (mono-safe),
+# transient snaps the arp, a slow
+# flanger walks a comb through it,
+# humanize:.5 unlocks the chord.
 
-synth pad
+synth pad humanize:.5
   saw
   mix w2 .5
   mix w3 .4
@@ -2663,6 +2684,7 @@ synth pad
   post
     chorus rate:.5 depth:.004 mix:.55
     exciter freq:6000 amount:.2
+    width .55
     reverb room:.9 damp:.35 mix:.4
 
 synth arp
@@ -2678,6 +2700,8 @@ synth arp
   cut = cutv * bright
   env = adsr .002 .13 .05 .14
   post
+    transient attack:.5 sustain:-.25
+    flanger rate:.07 depth:.7 feedback:.55 mix:.28
     reverb room:.7 damp:.3 mix:.4
 
 synth bass

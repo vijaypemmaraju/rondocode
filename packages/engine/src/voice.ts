@@ -33,7 +33,14 @@ const LOG2_440 = Math.log2(440)
  *  - `blend` — edge-voice gain 0..1 (default 1 = all equal): sub-voice gain
  *    fades linearly from 1 at the center to `blend` at the outermost pair.
  *  - `octaves` — every Nth sub-voice (layout order) plays +12 semitones;
- *    N >= 2, 0/1 = off (default 0). */
+ *    N >= 2, 0/1 = off (default 0).
+ *  - `humanize` — 0..1 (default 0 = off), how far a player's hand drifts off
+ *    the grid. Each voice gets its own small pitch and timing offset, so a
+ *    unison stack or a stacked chord stops being N bit-identical copies. At
+ *    full amount the pitch offset spans ±HUMANIZE_CENTS cents and the note is
+ *    held back by 0..HUMANIZE_DELAY_MS ms (see those constants). The offsets
+ *    are HASHED from the voice slot and the midi note, never Math.random, so a
+ *    render is reproducible sample-for-sample. */
 export interface VoiceOpts {
   mono: boolean
   glide: number
@@ -43,6 +50,34 @@ export interface VoiceOpts {
   curve: number
   blend: number
   octaves: number
+  humanize: number
+}
+
+/** Full-amount humanize pitch spread, in cents (±): the offset is uniform over
+ *  [-8, +8] cents at humanize 1. Deliberately under a tenth of a semitone —
+ *  enough to stop unison voices phase-locking, small enough to never read as
+ *  out of tune. */
+export const HUMANIZE_CENTS = 8
+/** Full-amount humanize timing spread, in ms: the note is held back by a
+ *  uniform 0..14 ms at humanize 1. ONE-SIDED (a player can be late, never
+ *  early — there is no future to read). A note shorter than its own delay is
+ *  released before it ever sounds; at 14 ms that only reaches sub-14 ms
+ *  events. */
+export const HUMANIZE_DELAY_MS = 14
+
+/** 32-bit integer avalanche hash of (a, b, salt) → uniform [0, 1). This is the
+ *  whole determinism story for humanize: the offsets are a pure function of
+ *  the voice slot and the midi note, so re-rendering the same events gives
+ *  bit-identical audio. (The voice SLOT is part of the key, so two renders
+ *  agree because voice allocation is itself deterministic — not because a
+ *  given note always lands on the same offset.) */
+const hash01 = (a: number, b: number, salt: number): number => {
+  let h = (Math.imul(a + 1, 0x9e3779b1) ^ Math.imul(b + 1, 0x85ebca6b) ^ salt) | 0
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d)
+  h ^= h >>> 12
+  h = Math.imul(h ^ (h >>> 13), 0x297a2d39)
+  h ^= h >>> 16
+  return (h >>> 0) / 4294967296
 }
 
 /** The neutral defaults — a poly, no-glide, unison-1 synth, i.e. exactly the
@@ -57,6 +92,7 @@ export const DEFAULT_VOICE_OPTS: VoiceOpts = Object.freeze({
   curve: 1,
   blend: 1,
   octaves: 0,
+  humanize: 0,
 })
 
 /** Consecutive silent blocks (gate off, block RMS < 1e-5) before a voice is
@@ -111,6 +147,19 @@ export class Voice {
   private glBal = 1
   private grBal = 1
 
+  /** Humanize state (see VoiceOpts.humanize). `humanizeAmt` 0 = off, and then
+   *  `humanizeMul` stays exactly 1 and `pendingSamples` exactly 0 — a multiply
+   *  by 1.0 is the identity in IEEE-754 and the gate path below is skipped, so
+   *  a humanize-free synth is byte-identical to the pre-feature engine. */
+  private humanizeAmt = 0
+  private slot = 0
+  private humanizeMul = 1
+  /** Samples of note-onset delay still owed before the gate may rise. */
+  private pendingSamples = 0
+  /** True while a delayed gate still has stale zeros at the head of the gate
+   *  buffer that must be overwritten once the delay has fully elapsed. */
+  private gateSettle = false
+
   constructor(
     private readonly graph: CompiledGraph,
     private readonly ctx: DspContext,
@@ -136,6 +185,14 @@ export class Voice {
     this.grBal = (Math.sin(q * HALF_PI) * Math.SQRT2) * gain
   }
 
+  /** Configure this voice's HUMANIZE: `amount` 0..1 and the voice's pool slot
+   *  (the hash key alongside the note — see hash01). Called once by VoicePool
+   *  at construction; 0 leaves every humanize path dormant. */
+  setHumanize(amount: number, slot: number): void {
+    this.humanizeAmt = clamp(Number.isFinite(amount) ? amount : 0, 0, 1)
+    this.slot = slot
+  }
+
   /** Start (or retrigger) a note: notefreq = 440*2^((n-69)/12), gate = 1,
    *  velocity clamped to [0, 1]. Kernels are NOT reset (see class doc). */
   noteOn(midiNote: number, velocity: number): void {
@@ -146,10 +203,19 @@ export class Voice {
     this.silentBlocks = 0
     const v = clamp(velocity, 0, 1)
     this.vel = v
+    // HUMANIZE: derive this voice's pitch and timing offset deterministically
+    // from (slot, note). At amount 0 both are exactly the neutral value.
+    if (this.humanizeAmt > 0) {
+      const a = this.humanizeAmt
+      const cents = (hash01(this.slot, midiNote, 0x1f2e3d4c) * 2 - 1) * HUMANIZE_CENTS * a
+      this.humanizeMul = 2 ** (cents / 1200)
+      const ms = hash01(this.slot, midiNote, 0x7a5c9b31) * HUMANIZE_DELAY_MS * a
+      this.pendingSamples = Math.round((ms / 1000) * this.ctx.sampleRate)
+    }
     if (this.glideCoeff === 0) {
       // Instant pitch (default): fill notefreq once. detuneMul is 1 for a
       // non-unison voice, and `freq * 1 === freq`, so this stays byte-identical.
-      g.noteFreq.fill(440 * 2 ** ((midiNote - 69) / 12) * this.detuneMul)
+      g.noteFreq.fill(440 * 2 ** ((midiNote - 69) / 12) * this.detuneMul * this.humanizeMul)
     } else {
       // Gliding: set the target; snap current on the very first note (no slide
       // from silence). process() fills notefreq per sample from here on.
@@ -158,7 +224,14 @@ export class Voice {
       this.tgtLog = baseLog
       this.hasPitch = true
     }
-    g.gate.fill(1)
+    // A humanized onset holds the gate LOW until its delay elapses (process()
+    // raises it mid-block); without humanize this is the original fill(1).
+    if (this.pendingSamples > 0) {
+      g.gate.fill(0)
+      this.gateSettle = true
+    } else {
+      g.gate.fill(1)
+    }
     // The `velocity` signal buffer stays populated for TIMBRE modulation
     // inside the graph; amplitude scaling by v happens in process().
     g.velocity.fill(v)
@@ -171,7 +244,7 @@ export class Voice {
   glideTo(midiNote: number): void {
     this.midiNote = midiNote
     if (this.glideCoeff === 0) {
-      this.graph.noteFreq.fill(440 * 2 ** ((midiNote - 69) / 12) * this.detuneMul)
+      this.graph.noteFreq.fill(440 * 2 ** ((midiNote - 69) / 12) * this.detuneMul * this.humanizeMul)
     } else {
       this.tgtLog = LOG2_440 + (midiNote - 69) / 12
       if (!this.hasPitch) {
@@ -185,6 +258,10 @@ export class Voice {
    *  silent for the hysteresis window (see `active`). */
   noteOff(): void {
     this.gateOn = false
+    // Drop any humanize onset delay still owed: a note released inside its own
+    // delay window never sounds (only reachable for sub-14 ms events).
+    this.pendingSamples = 0
+    this.gateSettle = false
     this.graph.gate.fill(0)
   }
 
@@ -253,6 +330,8 @@ export class Voice {
     // A reclaimed voice has no previous pitch to glide from (mono never takes
     // this path, so its portamento-across-a-gap behavior is unaffected).
     this.hasPitch = false
+    this.pendingSamples = 0
+    this.gateSettle = false
   }
 
   /** False until noteOn; after noteOff, flips false once gate is off AND
@@ -285,6 +364,21 @@ export class Voice {
     if (n <= 0 || !this.isActive) return
     const g = this.graph
     const ctx = this.ctx
+    // HUMANIZE onset delay: hold the gate low for the samples still owed, then
+    // raise it mid-block. Both branches are skipped entirely when humanize is
+    // off (pendingSamples 0, gateSettle false), leaving noteOn's fill(1).
+    if (this.pendingSamples > 0) {
+      const gb = g.gate
+      const k = this.pendingSamples < n ? this.pendingSamples : n
+      gb.fill(0, 0, k)
+      if (k < n) gb.fill(1, k, n)
+      this.pendingSamples -= k
+    } else if (this.gateSettle) {
+      // The delay elapsed mid-block last time; the head of the buffer still
+      // holds its zeros, so overwrite the whole gate with the held-on value.
+      g.gate.fill(1)
+      this.gateSettle = false
+    }
     // Glide: advance the log-space pitch toward its target per sample and fill
     // the notefreq buffer before the kernels read it. Skipped entirely when
     // glideCoeff is 0 (the default), leaving noteOn's constant fill in place.
@@ -292,7 +386,7 @@ export class Voice {
       const nf = g.noteFreq
       const t = this.tgtLog
       const k = this.glideCoeff
-      const dm = this.detuneMul
+      const dm = this.detuneMul * this.humanizeMul
       let c = this.curLog
       for (let i = 0; i < n; i++) {
         c += (t - c) * k
@@ -403,6 +497,12 @@ export class VoicePool {
     const curve = clamp(Number.isFinite(vo.curve) ? vo.curve : 1, 0.2, 5)
     const blend = clamp(Number.isFinite(vo.blend) ? vo.blend : 1, 0, 1)
     const octaves = Math.floor(clamp(Number.isFinite(vo.octaves) ? vo.octaves : 0, 0, 9))
+    // HUMANIZE: hand each voice its pool slot (half the hash key) and the
+    // amount. Guarded so a humanize-free pool never touches a voice at all.
+    const humanize = clamp(Number.isFinite(vo.humanize) ? vo.humanize : 0, 0, 1)
+    if (humanize > 0) {
+      for (let i = 0; i < this.voices.length; i++) this.voices[i]!.setHumanize(humanize, i)
+    }
 
     // Unison layout: pitches spread across [-detune, +detune] cents (evenly at
     // curve 1; warped toward the center for curve > 1 — the curve===1 guard

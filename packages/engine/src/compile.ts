@@ -42,6 +42,12 @@ import { ExciterKernel } from './dsp/exciter'
 import type { ExciterConfig } from './dsp/exciter'
 import { OttKernel } from './dsp/ott'
 import type { OttConfig } from './dsp/ott'
+import { WidthKernel } from './dsp/width'
+import type { WidthConfig } from './dsp/width'
+import { TransientKernel } from './dsp/transient'
+import type { TransientConfig } from './dsp/transient'
+import { FlangerKernel } from './dsp/flanger'
+import type { FlangerConfig } from './dsp/flanger'
 import type { CompressConfig } from './dsp/compress'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
@@ -179,6 +185,11 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   eq: [{ name: 'in' }],
   exciter: [{ name: 'in' }],
   ott: [{ name: 'in' }],
+  // amount defaults to 0.5 so a bare `width(input)` is audibly wide (0 would
+  // be an exact passthrough — a silent no-op reads as broken)
+  width: [{ name: 'in' }, { name: 'amount', def: 0.5 }],
+  transient: [{ name: 'in' }],
+  flanger: [{ name: 'in' }],
   pan: [{ name: 'in' }, { name: 'pos', def: 0.5 }],
   const: [],
   param: [],
@@ -253,6 +264,12 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   eq: (c) => new EqKernel(Array.isArray(c['bands']) ? (c['bands'] as EqBand[]) : []),
   exciter: (c) => new ExciterKernel(exciterCfg(c)),
   ott: (c) => new OttKernel(ottCfg(c)),
+  // ctx carries BOTH the sample rate (eager ring-buffer sizing, off the audio
+  // thread) and the stereo-side marker width/flanger read to decorrelate the
+  // two post instances — see dsp/width.ts and dsp/flanger.ts
+  width: (c, ctx) => new WidthKernel(widthCfg(c), ctx),
+  transient: (c) => new TransientKernel(transientCfg(c)),
+  flanger: (c, ctx) => new FlangerKernel(flangerCfg(c), ctx),
 }
 
 /** Build a { roomSize?, damp? } config, keeping only the numeric entries so the
@@ -327,6 +344,28 @@ const exciterCfg = (c: Record<string, unknown>): ExciterConfig => {
 const ottCfg = (c: Record<string, unknown>): OttConfig => {
   const out: OttConfig = {}
   for (const k of ['depth', 'low', 'high', 'makeup'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const widthCfg = (c: Record<string, unknown>): WidthConfig => {
+  const out: WidthConfig = {}
+  if (c['mode'] === 'wide' || c['mode'] === 'tight') out.mode = c['mode']
+  return out
+}
+
+const transientCfg = (c: Record<string, unknown>): TransientConfig => {
+  const out: TransientConfig = {}
+  for (const k of ['attack', 'sustain'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const flangerCfg = (c: Record<string, unknown>): FlangerConfig => {
+  const out: FlangerConfig = {}
+  for (const k of ['rate', 'depth', 'feedback', 'mix'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out

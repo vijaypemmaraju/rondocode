@@ -30,7 +30,7 @@ const FIRST_CLASS_CTX = [
   'env',
   // processors
   'ladder', 'svf', 'dualsvf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
-  'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'exciter', 'ott',
+  'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'width', 'transient', 'flanger', 'exciter', 'ott',
   'eq', 'vocoder',
   // sig ops on the running signal
   'mix',
@@ -106,7 +106,7 @@ describe('rondo ⇄ JS DSL parity scoreboard', () => {
       `escape-hatch-only (${escapeOnly.length}): ${escapeOnly.join(', ')}`,
     )
     // a regression that drops sugar would lower this — keep it a floor
-    expect(first.size).toBeGreaterThanOrEqual(42)
+    expect(first.size).toBeGreaterThanOrEqual(45)
     // and total parity holds: every remaining name is still reachable via js{ … }
     expect(first.size + escapeOnly.length).toBe(ctxNames.size)
   })

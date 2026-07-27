@@ -28,7 +28,7 @@ const BUILTINS = new Set([
   'supersaw', 'noise', 'lfsr', 'lfo',
   'sample', 'granular', 'pluck', 'modal',
   'ladder', 'svf', 'dualsvf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
-  'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'exciter', 'ott',
+  'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'width', 'transient', 'flanger', 'exciter', 'ott',
   'tanh', 'clip', 'fold', 'mix',
 ])
 /** Pattern modifiers / combinators on play lines. */
@@ -101,7 +101,7 @@ export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
 const c = (label: string, type: string, detail: string, info: string): Completion => ({ label, type, detail, info })
 
 const OPTIONS: Completion[] = [
-  c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings. Header opts: mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, voices:.'),
+  c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings. Header opts: mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, humanize:, voices:.'),
   c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
   c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.'),
   c('sing', 'keyword', 'sing NAME voice:barbara', 'A neural vocal: LYRIC lines above MELODY lines (pairs), one syllable per note.'),
@@ -153,6 +153,9 @@ const OPTIONS: Completion[] = [
   c('vocoder', 'function', 'vocoder MOD bands:20', 'Vocoder: the running signal is the carrier, MOD supplies the voice.'),
   c('reverb', 'function', 'reverb room:… mix:…', 'Algorithmic reverb (post). `mix:` blends wet over dry.'),
   c('chorus', 'function', 'chorus rate:… depth:… mix:…', 'Stereo chorus (post).'),
+  c('width', 'function', 'width AMT mode:wide|tight', 'Stereo widener (post): amount 0..1 pulls the two sides apart, and the mono sum stays clean.'),
+  c('transient', 'function', 'transient attack:… sustain:…', 'Transient designer: attack −1..1 snaps or softens the hit, sustain −1..1 lifts or dries the tail.'),
+  c('flanger', 'function', 'flanger rate:… feedback:…', 'Swept resonant comb — the jet whoosh (post).'),
   c('exciter', 'function', 'exciter freq:… amount:…', 'Harmonic exciter — adds air/sheen (post).'),
   c('ott', 'function', 'ott depth:…', 'OTT multiband compressor — the modern glue (post).'),
   c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.'),

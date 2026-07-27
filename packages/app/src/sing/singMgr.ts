@@ -78,12 +78,21 @@ async function renderOne(r: SingRequest, cps: number, report: (p: SingProgress) 
 /** Bake every request whose (voice,lyrics,notes,cps) changed. Idempotent: an
  *  unchanged clip is skipped; a re-triggered render supersedes an older one for
  *  the same sampleName. Fire-and-forget; use whenReady() to await. */
+/** Serializes bakes: every queued render waits for the previous one. */
+let bakeChain: Promise<unknown> = Promise.resolve()
+
 export function bake(sings: SingRequest[], cps: number): void {
   for (const r of sings) {
     const k = keyOf(r, cps)
     if (loadedKey.get(r.sampleName) === k) continue // already loaded
     if (inflight.get(r.sampleName)?.key === k) continue // already rendering this exact clip
-    const promise = renderOne(r, cps, (p) => emit(p))
+    // QUEUE, do not race: each render is heavy synchronous inference on the
+    // main thread, so N concurrent bakes wedge the tab instead of finishing
+    // sooner (a four-part vocal arrangement locked the page for minutes with
+    // no UI and no progress). Serializing keeps the page alive and the same
+    // total time. A request superseded while queued is skipped at its turn.
+    const promise = bakeChain
+      .then(() => (inflight.get(r.sampleName)?.key === k ? renderOne(r, cps, (p) => emit(p)) : undefined))
       .then(() => {
         loadedKey.set(r.sampleName, k)
         clearPhase() // clean finish: no crash marker left for the next boot
@@ -103,6 +112,7 @@ export function bake(sings: SingRequest[], cps: number): void {
         if (inflight.size === 0) onProgress?.(null)
       })
     inflight.set(r.sampleName, { key: k, promise })
+    bakeChain = promise.catch(() => undefined) // a failure must not stall the queue
     // Show the dialog IMMEDIATELY. renderOne dynamically imports the (large)
     // neural chunk before it emits any progress, so without this the dialog
     // would only appear after a visible delay from clicking play.

@@ -80,6 +80,11 @@ async function renderOne(r: SingRequest, cps: number, report: (p: SingProgress) 
  *  the same sampleName. Fire-and-forget; use whenReady() to await. */
 /** Serializes bakes: every queued render waits for the previous one. */
 let bakeChain: Promise<unknown> = Promise.resolve()
+/** Position within the CURRENT run of queued bakes, so a harmony arrangement
+ *  says "vocal 2 of 4" rather than showing one anonymous dialog four times.
+ *  Resets once the queue drains. */
+let queued = 0
+let queueDone = 0
 
 export function bake(sings: SingRequest[], cps: number): void {
   for (const r of sings) {
@@ -92,7 +97,11 @@ export function bake(sings: SingRequest[], cps: number): void {
     // no UI and no progress). Serializing keeps the page alive and the same
     // total time. A request superseded while queued is skipped at its turn.
     const promise = bakeChain
-      .then(() => (inflight.get(r.sampleName)?.key === k ? renderOne(r, cps, (p) => emit(p)) : undefined))
+      .then(() => {
+        if (inflight.get(r.sampleName)?.key !== k) return undefined
+        const part = queued > 1 ? `vocal ${queueDone + 1} of ${queued}: ` : ''
+        return renderOne(r, cps, (p) => emit({ ...p, label: part + p.label }))
+      })
       .then(() => {
         loadedKey.set(r.sampleName, k)
         clearPhase() // clean finish: no crash marker left for the next boot
@@ -109,9 +118,15 @@ export function bake(sings: SingRequest[], cps: number): void {
       })
       .finally(() => {
         if (inflight.get(r.sampleName)?.key === k) inflight.delete(r.sampleName)
-        if (inflight.size === 0) onProgress?.(null)
+        queueDone++
+        if (inflight.size === 0) {
+          queued = 0
+          queueDone = 0
+          onProgress?.(null)
+        }
       })
     inflight.set(r.sampleName, { key: k, promise })
+    queued++
     bakeChain = promise.catch(() => undefined) // a failure must not stall the queue
     // Show the dialog IMMEDIATELY. renderOne dynamically imports the (large)
     // neural chunk before it emits any progress, so without this the dialog

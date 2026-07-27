@@ -54,6 +54,20 @@ interface Phrase {
  *  a syllable weakly, so we try a few takes and keep the strongest. */
 const TAKES = 3
 
+/** How many takes to synthesize per phrase. On the sequential (phone) path
+ *  this is 1, not 3: alignment can't interleave with the TTS there, so every
+ *  take is synthesized UP FRONT and held as raw audio across the stage
+ *  boundary - N takes multiply both the peak TTS inference work and the held
+ *  audio on exactly the device that is already at the memory kill line.
+ *  The honest quality tradeoff: best-of-3 exists because Supertonic
+ *  occasionally renders a syllable weakly, and with one take a weak take is
+ *  used as-is. Forced alignment still assigns every syllable its region (no
+ *  dropped words); a weak syllable just sings quieter. Desktop keeps
+ *  best-of-3. Exported for tests. */
+export function takeCount(sequential: boolean): number {
+  return sequential ? 1 : TAKES
+}
+
 /** Split the song into TTS phrases at the sustained (>=1.4x median duration)
  *  notes = line ends, where a singer breathes. This is the sweet spot for
  *  Supertonic:
@@ -139,10 +153,12 @@ export async function renderNeural(
   // so peak session memory is the largest single stage, not the sum — the
   // model BYTES stay in the Cache API, so a later bake re-creates sessions
   // from disk without re-downloading. The price: TTS and alignment can't
-  // interleave, so every phrase synthesizes all TAKES takes up front (raw
-  // audio, a few MB) and the aligner picks the best afterwards. On desktop the
-  // singletons persist and TTS+alignment interleave exactly as before.
+  // interleave, so every phrase synthesizes its takeCount(sequential) takes up
+  // front (ONE on phones - see takeCount for the tradeoff) and the aligner
+  // scores them afterwards. On desktop the singletons persist and
+  // TTS+alignment interleave exactly as before.
   const sequential = sequentialSingSessions()
+  const nTakes = takeCount(sequential)
   const takesByPhrase: Float32Array[][] = []
   let sr = 0
   let guide!: Float32Array
@@ -162,7 +178,7 @@ export async function renderNeural(
           for (let pi = 0; pi < phrases.length; pi++) {
             onProgress?.({ phase: 'synthesize', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })
             const takes: Float32Array[] = []
-            for (let t = 0; t < TAKES; t++) {
+            for (let t = 0; t < nTakes; t++) {
               markPhase('render:tts')
               takes.push(trimSilence(await engine.synthesize(phrases[pi]!.text, { speed: 1.0 })))
             }
@@ -178,7 +194,7 @@ export async function renderNeural(
           onProgress?.({ phase: 'synthesize', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })
           let take = 0
           const ws = await pickBestTake(async () => {
-            if (take++ >= TAKES) return null
+            if (take++ >= nTakes) return null
             markPhase('render:tts')
             return trimSilence(await engine.synthesize(phrase.text, { speed: 1.0 }))
           }, sr, phrase.reqs)

@@ -50,6 +50,32 @@ export function phonemeModelUrls(small: boolean = preferSmallAligner()): string[
   return small ? [PHONEME_INT8_MODEL_URL, PHONEME_MODEL_URL] : [PHONEME_MODEL_URL]
 }
 
+/** The Supertonic TTS models with a validated int8 build served from
+ *  SING_MODELS_BASE as `tts_<name>-int8.onnx`. Only these two carry one:
+ *  - vector_estimator (256.5 MB -> 65.6 MB): dynamic int8 on Conv+MatMul with
+ *    the `/vector_estimator/vector_field/proj_out/net/Conv` output head kept
+ *    fp32. Log-mel delta vs fp32 on the fixed utterance set is 0.46 - a third
+ *    of the fp32 seed-to-seed self-noise (~1.3).
+ *  - vocoder (101.4 MB -> 38.6 MB): dynamic int8 on the fat 1x1 pwconvs only;
+ *    the depthwise convs, the input embed conv and the two head convs stay
+ *    fp32 (quantizing the depthwise convs is what pushed the delta past the
+ *    self-noise band).
+ *  duration_predictor (3.5 MB) is not worth shrinking, and text_encoder int8
+ *  measurably drifted phrase prosody (aligned-timing deltas grew past one CTC
+ *  frame on 2/6 fixed utterances), so both stay fp32 everywhere. */
+export const TTS_INT8_MODELS: ReadonlySet<string> = new Set(['vector_estimator', 'vocoder'])
+
+/** Ordered URLs to try for one Supertonic TTS model. On the sequential
+ *  (constrained-device) path the int8 build from SING_MODELS_BASE comes first
+ *  with the fp32 HuggingFace build as fallback, so a client keeps working
+ *  while `tts_<name>-int8.onnx` isn't uploaded yet (404 falls through).
+ *  Desktop stays fp32. Pure, exported for tests. */
+export function supertonicModelUrls(name: string, small: boolean = sequentialSingSessions()): string[] {
+  const fp32 = `${SUPERTONIC_BASE}/onnx/${name}.onnx`
+  if (small && TTS_INT8_MODELS.has(name)) return [`${SING_MODELS_BASE}/tts_${name}-int8.onnx`, fp32]
+  return [fp32]
+}
+
 /** True when the bake should run its model stages SEQUENTIALLY - create the
  *  sessions for one stage, use them, dispose them before the next stage - so
  *  peak session memory is the largest single stage instead of the sum of all

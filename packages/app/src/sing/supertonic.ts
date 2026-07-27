@@ -11,8 +11,8 @@
  * vocoder → waveform. See synthesize().
  * ------------------------------------------------------------------------- */
 import * as ort from 'onnxruntime-web'
-import { SUPERTONIC_BASE, isIOSWebKit } from './config'
-import { cachedBytes } from './modelcache'
+import { SUPERTONIC_BASE, isIOSWebKit, supertonicModelUrls } from './config'
+import { cachedBytes, firstAvailableBytes } from './modelcache'
 import { ModelSlot } from './lifecycle'
 import { markPhase } from './bakephase'
 
@@ -85,7 +85,8 @@ async function cachedJson<T>(url: string): Promise<T> {
 const slot = new ModelSlot<SupertonicEngine>((e) => e.release())
 
 /** Boot (or reuse) the TTS engine: fetch + cache the 4 models + config, create
- *  ORT sessions (WebGPU, WASM fallback). ~380MB the first time, then instant. */
+ *  ORT sessions (WebGPU, WASM fallback). ~380MB fp32 (~225MB with the int8
+ *  builds on constrained devices) the first time, then instant. */
 export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<SupertonicEngine> {
   return slot.load(async () => {
     // Serve the ORT wasm binaries from the matching CDN build (no COOP/COEP →
@@ -108,8 +109,13 @@ export function loadEngine(onProgress?: (p: SingProgress) => void): Promise<Supe
     for (let i = 0; i < MODELS.length; i++) {
       const name = MODELS[i]!
       markPhase(`download:${name}`)
-      const buf = await cachedFetch(`${HF}/onnx/${name}.onnx`, (loaded, total) =>
-        onProgress?.({ phase: 'download', label: `voice model ${i + 1}/${MODELS.length}`, done: loaded, total }),
+      // Constrained devices prefer the int8 builds of the two big models
+      // (vector_estimator, vocoder) with the fp32 build as 404 fallback;
+      // desktop gets a single fp32 URL. See supertonicModelUrls in config.ts.
+      const { buf } = await firstAvailableBytes(supertonicModelUrls(name), (url) =>
+        cachedFetch(url, (loaded, total) =>
+          onProgress?.({ phase: 'download', label: `voice model ${i + 1}/${MODELS.length}`, done: loaded, total }),
+        ),
       )
       markPhase('create:tts')
       // NOTE: `buf` is only referenced by this loop iteration; ORT copies the

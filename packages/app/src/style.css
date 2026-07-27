@@ -194,6 +194,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .samples-play,
+.samples-wt,
 .samples-rm {
   flex: none;
   display: inline-flex;
@@ -222,6 +223,7 @@ body {
 }
 .samples-load svg,
 .samples-play svg,
+.samples-wt svg,
 .samples-rm svg {
   width: 14px;
   height: 14px;
@@ -231,7 +233,8 @@ body {
     background: var(--c-surface);
     border-color: var(--c-border);
   }
-  .samples-play:hover {
+  .samples-play:hover,
+  .samples-wt:hover {
     color: var(--c-accent);
   }
   .samples-rm:hover {

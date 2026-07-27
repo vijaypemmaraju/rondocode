@@ -93,8 +93,11 @@ export interface SynthCtx {
    *  through a bank of single-cycle waveforms; `table` names a built-in bank
    *  ('basic' | 'harmonic' | 'pwm', default 'basic') or a CUSTOM one registered
    *  with defineWavetable(). Band-limited via mipmaps, so it stays clean at
-   *  high notes. */
-  wavetable(freq: SigIn, pos?: SigIn, opts?: { table?: string }): Sig
+   *  high notes. `warp` bends the phase read pre-lookup ('sync' = hard-sync
+   *  tear, 'bend' = bowed transfer tilt, 'mirror' = palindromic reflection),
+   *  driven by `warpAmt` (0..1, default 0.5, audio-rate — sweep it with an
+   *  envelope or LFO). The warped read keeps the mipmap anti-aliasing. */
+  wavetable(freq: SigIn, pos?: SigIn, opts?: { table?: string; warp?: 'sync' | 'bend' | 'mirror'; warpAmt?: SigIn }): Sig
   /** SUPERSAW: 7 detuned saws for a fat trance/EDM lead. `detune` (0..1, def
    *  0.2) spreads them; `mix` (0..1, def 0.7) is the side-saw level vs centre.
    *  Anti-aliased. */
@@ -696,7 +699,8 @@ const makeCtx = (b: Builder): SynthCtx => {
     wavetable: (freq, pos, opts) => {
       const inputs: Record<string, InputSource> = { freq: src(freq, 'wavetable freq') }
       if (pos !== undefined) inputs['pos'] = src(pos, 'wavetable pos')
-      return b.node('wavetable', inputs, definedConfig({ table: opts?.table }))
+      if (opts?.warpAmt !== undefined) inputs['warpAmt'] = src(opts.warpAmt, 'wavetable warpAmt')
+      return b.node('wavetable', inputs, definedConfig({ table: opts?.table, warp: opts?.warp }))
     },
     supersaw: (freq, opts) => {
       const inputs: Record<string, InputSource> = { freq: src(freq, 'supersaw freq') }

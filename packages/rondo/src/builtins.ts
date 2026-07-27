@@ -44,7 +44,11 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   pulse: { kind: 'osc', pos: ['sig', 'sig'], freqDefault: true },
   syncsaw: { kind: 'osc', pos: ['sig', 'sig'], freqDefault: true },
   fm: { kind: 'osc', pos: ['sig', 'sig'], freqDefault: true, named: { feedback: 'sig', wave: 'enum' } },
-  wavetable: { kind: 'osc', pos: ['sig', 'sig'], freqDefault: true, named: { table: 'enum' } },
+  // warp bends the phase read (sync/bend/mirror), warpamt (0..1, sig) drives it
+  wavetable: {
+    kind: 'osc', pos: ['sig', 'sig'], freqDefault: true,
+    named: { table: 'enum', warp: 'enum', warpamt: 'sig' }, alias: { warpamt: 'warpAmt' },
+  },
   supersaw: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { detune: 'sig', mix: 'sig' } },
   noise: { kind: 'osc', pos: ['enum'] },
   lfsr: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { mode: 'enum' } },

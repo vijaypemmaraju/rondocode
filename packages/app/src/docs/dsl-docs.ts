@@ -454,9 +454,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'wavetable',
-    "wavetable(freq: Sig | number, pos?: Sig | number, opts?: { table?: string })",
-    'A morphing wavetable oscillator: pos (0..1) scans through a bank of single-cycle waves for an evolving, sweepable timbre, anti-aliased, so it stays clean up high. Built-in tables: basic (sine→saw→square), harmonic (moving formant), pwm (widening pulses), or name your own table registered with defineWavetable.',
-    "wavetable(note.freq, lfo(0.25).range(0, 1), { table: 'basic' })",
+    "wavetable(freq: Sig | number, pos?: Sig | number, opts?: { table?: string; warp?: 'sync' | 'bend' | 'mirror'; warpAmt?: Sig | number })",
+    'A morphing wavetable oscillator: pos (0..1) scans through a bank of single-cycle waves for an evolving, sweepable timbre, anti-aliased, so it stays clean up high. Built-in tables: basic (sine→saw→square), harmonic (moving formant), pwm (widening pulses), or name your own table registered with defineWavetable. warp bends how each cycle READS the table: sync re-runs it faster and wraps (the hard-sync tear), bend bows the phase curve (tilts the harmonic balance), mirror reflects it at the midpoint (palindromic symmetry). warpAmt (0..1, default 0.5) is audio-rate: sweep it with an envelope for the classic sync scream.',
+    "wavetable(note.freq, 0.5, { table: 'basic', warp: 'sync', warpAmt: adsr(gate, { d: 0.3, s: 0.2 }) })",
   ),
   sc('noise', "noise(color?: 'white' | 'pink' | 'brown')", 'Noise, the raw material of hats, claps, wind and breath. white (default) is flat and bright; pink (−3 dB/oct) is warmer and more natural; brown (−6 dB/oct) is deep and rumbly.', "svf(noise('pink'), 8000, { mode: 'hp' })"),
   sc(

@@ -124,6 +124,35 @@ describe('44.1 kHz: custom wavetable band-limiting', () => {
     expect(rms(dropped)).toBeLessThan(1e-6) // 44.1k selection drops it (48k would keep it)
     expect(goertzel(kept, 12 * 1300, SR)).toBeGreaterThan(1e-3) // kept, on pitch
   })
+
+  it('warp mipmap budget applies at THIS rate: out-of-budget content drops, never folds', () => {
+    // same h12 table, same 1300 Hz that the plain read KEEPS at 44.1k. With
+    // warp:'sync' at amt 1 the read runs 4x faster, so the kernel budgets its
+    // mipmap for 5200 Hz: allowed harmonics 22050/5200 = 4.2 -> the picked
+    // mipmap keeps 4 and the 12th-harmonic table goes SILENT — the honest
+    // tradeoff (content beyond the warped budget is dropped, not aliased).
+    const bank = new WavetableBank()
+    bank.set('h12w', [Array.from({ length: 12 }, (_, i) => (i === 11 ? 1 : 0))])
+    const wctx: DspContext = { sampleRate: SR, wavetables: bank }
+    const render = (warpAmt: number): Float32Array => {
+      const n = SR
+      const out = new Float32Array(n)
+      new WavetableKernel('h12w', wctx, 'sync').process(
+        n,
+        {
+          freq: new Float32Array(n).fill(1300),
+          pos: new Float32Array(n),
+          warpAmt: new Float32Array(n).fill(warpAmt),
+        },
+        out,
+        wctx,
+      )
+      return out
+    }
+    const rms = (x: Float32Array): number => Math.sqrt(x.reduce((s, v) => s + v * v, 0) / x.length)
+    expect(rms(render(0))).toBeGreaterThan(1e-3) // amt 0 = identity, audible
+    expect(rms(render(1))).toBeLessThan(1e-6) // amt 1 = budgeted out, silent not aliased
+  })
 })
 
 describe('44.1 kHz: renderOffline', () => {

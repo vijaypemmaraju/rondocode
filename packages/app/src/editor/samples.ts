@@ -6,6 +6,7 @@ import { anchorPopover } from '../ui/viewport'
 import { nextMicName, startMicRecording } from './micrec'
 import type { MicRecording } from './micrec'
 import { resampleTake } from './resample'
+import { analyzePartials, toDefineWavetableCall, toWavedefLine, wavetableNameFor } from './resynth'
 
 /* The samples popover, anchored under the header "+ sample" button. It answers
  * "what have I loaded and how do I use it": lists the built-in and user
@@ -103,8 +104,50 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, g
     chips.push(chip)
     resRow.append(chip)
   }
-  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg, resRow, resMsg)
+  // RESYNTHESIS: any sample row can become a wavetable, as code (see the
+  // wave button per row below). Result/confirm line for that action:
+  const wtMsg = el('div', 'samples-recmsg')
+  wtMsg.hidden = true
+  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg, resRow, resMsg, wtMsg)
   document.body.append(pop)
+
+  /** Append `text` as a BLOCK at the end of the doc (blank-line separated),
+   *  mirroring how the rondo palette lands its block chips. */
+  const appendBlock = (text: string): void => {
+    const doc = view.state.doc
+    const s = doc.toString()
+    const prefix = doc.length === 0 ? '' : s.endsWith('\n\n') ? '' : s.endsWith('\n') ? '\n' : '\n\n'
+    view.dispatch({
+      changes: { from: doc.length, insert: `${prefix}${text}\n` },
+      scrollIntoView: true,
+    })
+  }
+
+  /** SAMPLE -> WAVETABLE: FFT-resynthesize a sample's PCM into harmonic
+   *  partial frames and append the wavedef line (or, in JS mode, the
+   *  defineWavetable call) to the doc. The analysis is ~10 ms for a few
+   *  seconds of PCM; the 20 ms delay lets the "analyzing" label paint. */
+  const toWavetable = (name: string): void => {
+    const pcm = audio.loadedSamples[name]
+    if (pcm === undefined) return
+    wtMsg.hidden = false
+    wtMsg.textContent = 'analyzing…'
+    setTimeout(() => {
+      const r = analyzePartials(pcm.data, pcm.sampleRate)
+      if (r.frames.length === 0) {
+        wtMsg.textContent = `${name}: too short to analyze`
+        return
+      }
+      const tname = wavetableNameFor(name)
+      const rondo = getLang?.() === 'rondo'
+      appendBlock(rondo ? toWavedefLine(tname, r) : toDefineWavetableCall(tname, r))
+      const hint = rondo ? `wavetable note pos table:${tname}` : `{ table: '${tname}' }`
+      // clarity is the honest pitch confidence: warn when the source was
+      // mostly aperiodic (the table is a drone-flavored caricature)
+      const shaky = r.clarity < 0.5 ? ' (weak pitch: rough guess)' : ''
+      wtMsg.textContent = `${tname} added at ${Math.round(r.f0)} Hz${shaky} · play it: ${hint}`
+    }, 20)
+  }
 
   let open = false
   let rec: MicRecording | null = null
@@ -195,6 +238,15 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, g
       row.append(name, el('span', 'samples-dur', fmtDur(s.frames, s.sampleRate)))
       row.addEventListener('click', () => insert(s.name))
       wrap.append(row)
+      const wt = el('button', 'samples-wt')
+      wt.type = 'button'
+      tooltip(wt, `resynthesize ${s.name} into a wavetable`)
+      wt.append(iconEl('waveform'))
+      wt.addEventListener('click', (e) => {
+        e.stopPropagation()
+        toWavetable(s.name)
+      })
+      wrap.append(wt)
       if (!s.builtIn) {
         const rm = el('button', 'samples-rm')
         rm.type = 'button'
@@ -215,6 +267,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, g
   const openPop = (): void => {
     render()
     resMsg.hidden = true // stale bounce results don't outlive a close
+    wtMsg.hidden = true // same for stale resynthesis results
     syncResample()
     pop.classList.remove('hidden') // must be visible for anchorPopover to measure it
     position()

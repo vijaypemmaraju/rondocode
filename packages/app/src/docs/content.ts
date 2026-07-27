@@ -77,13 +77,15 @@ p('seq', note('c4 [e4 g4] <b4 a4> c5*2').sound('pluck'))`,
 // "c4 held for 2, rest, a chord, then 3 quick c5s"
 p('seq', note('c4@2 ~ [e4,g4,b4] c5!3').sound('pluck'))`,
       ),
-      p("Speed changes and randomness keep a loop alive: `*n` fits n repeats INTO a step, `/n` stretches a step over n cycles, `?` drops a step at random, and `a | b` picks one alternative each cycle. All randomness is seeded per cycle, so a loop is different bar to bar but identical every time you replay it."),
+      p("Speed changes and randomness keep a loop alive: `*n` fits n repeats INTO a step, `/n` stretches a step over n cycles, `?` drops a step at random, and `a | b` picks one alternative each cycle. Note what `/n` implies: a stretched step only SOUNDS on the cycle its onset lands in; the other n-1 cycles hold the note's tail, so that slot is silent there. That silence is deterministic, not random. All true randomness is seeded per cycle, so a loop is different bar to bar but identical every time you replay it."),
       code(
         '*n / /n speed, ? maybe, | random choice.',
         `const pluck = synth(({ note, gate, adsr, tri }) =>
   tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.12, s: 0, r: 0.1 })))
 
-p('seq', note('c4*2 e4? <g4 a4>/2 [c5 b4 | e5 d5]').scale('c major').sound('pluck'))`,
+// g4/2 sounds every OTHER cycle (its off-cycles are the stretched tail);
+// <g4 a4> alternates every cycle. Combining them compounds both rules.
+p('seq', note('c4*2 e4? g4/2 [c5 b4 | e5 d5]').scale('c major').sound('pluck'))`,
       ),
       p("Write a Euclidean rhythm inline with (pulses, steps): it spreads the pulses as evenly as it can, so (3,8) is the tresillo. And `{a b c, d e}%n` is polymeter, several voices running at n steps per cycle so they drift against each other."),
       code(

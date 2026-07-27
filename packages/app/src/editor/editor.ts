@@ -942,6 +942,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       return () => docListeners.delete(fn)
     },
     isSingSound: (snd) => singSoundNames.has(snd),
+    getLang: () => lang,
   })
 
   const dispose = (): void => {

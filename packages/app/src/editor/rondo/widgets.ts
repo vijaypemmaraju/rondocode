@@ -13,8 +13,7 @@
  * rebuilds mid-drag (mapping through our own edits instead) so the dial DOM —
  * and its pointer capture — survive. */
 
-import { RangeSetBuilder } from '@codemirror/state'
-import type { Extension } from '@codemirror/state'
+import type { Extension, Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
@@ -23,6 +22,8 @@ import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
 import { WavedefWidget, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls } from './wavetable'
+import { cycleEnumEdit, scanEnumSpans } from './enums'
+import { FilterCurveWidget, scanFilters } from './filtercurve'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -1370,32 +1371,36 @@ function envWidth(view: EditorView): number {
   return Math.max(200, Math.min(640, view.contentDOM.clientWidth - 48))
 }
 
+/** The enum tap-cycler's mark (see enums.ts — a tap on the word cycles it). */
+const enumMark = Decoration.mark({ class: 'cm-rondo-enum' })
+
 /** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
 function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
-  const items: { pos: number; deco: Decoration }[] = []
+  const items: Range<Decoration>[] = []
   // Docs are tiny (<10 KB); scan the whole thing so widgets past the viewport
   // (and the line-oriented play scan) work without slicing bookkeeping.
   const text = view.state.doc.toString()
-  for (const k of scanKnobs(text)) {
-    items.push({ pos: k.defTo, deco: Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag), side: 1 }) })
+  const knobs = scanKnobs(text)
+  for (const k of knobs) {
+    items.push(Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag), side: 1 }).range(k.defTo))
   }
   const envW = envWidth(view)
   for (const e of scanEnvs(text)) {
-    items.push({ pos: e.to, deco: Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag), side: 1 }) })
+    items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag), side: 1 }).range(e.to))
   }
   for (const p of scanPlays(text)) {
-    items.push({ pos: p.to, deco: Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }) })
+    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
     const data = richRollCells(rp.content)
     if (data !== null) {
-      items.push({ pos: rp.to, deco: Decoration.widget({ widget: new QueryRollWidget(rp.content, rp.from, data, hooks, drag), side: 1 }) })
+      items.push(Decoration.widget({ widget: new QueryRollWidget(rp.content, rp.from, data, hooks, drag), side: 1 }).range(rp.to))
     }
   }
   for (const b of scanBeats(text)) {
     // one sequencer per block, hanging off the LAST qualifying row's line
     const pos = b.rows[b.rows.length - 1]!.to
-    items.push({ pos, deco: Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }) })
+    items.push(Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }).range(pos))
   }
   // wavetable widgets: v2 EDITOR on wavedef lines, v1 RIBBON on synth-body
   // wavetable calls. The doc's own wavedefs feed both (fresh while typing);
@@ -1403,30 +1408,50 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   const wavedefs = scanWavedefs(text)
   const wdWidth = envWidth(view)
   for (const wd of wavedefs) {
-    items.push({ pos: wd.at, deco: Decoration.widget({ widget: new WavedefWidget(wd, wdWidth, hooks, drag), side: 1 }) })
+    items.push(Decoration.widget({ widget: new WavedefWidget(wd, wdWidth, hooks, drag), side: 1 }).range(wd.at))
   }
   for (const call of scanWavetableCalls(text)) {
     const frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
     if (frames === null) continue // unknown table: the eval diagnostic tells that story
     const def = wavedefs.find((d) => d.name === call.table)
     const framesKey = `${call.table}:${def !== undefined ? JSON.stringify(def.frames) : 'bank'}`
-    items.push({
-      pos: call.at,
-      deco: Decoration.widget({
+    items.push(
+      Decoration.widget({
         widget: new WavetableRibbonWidget(call.table, call.posLiteral, call.synth, framesKey, frames, hooks, drag),
         side: 1,
-      }),
-    })
+      }).range(call.at),
+    )
   }
-  items.sort((x, y) => x.pos - y.pos)
-  const b = new RangeSetBuilder<Decoration>()
-  for (const it of items) b.add(it.pos, it.pos, it.deco)
-  return b.finish()
+  // filter response curves under svf/ladder/dualsvf/eq lines (static values
+  // only — see filtercurve.ts's honesty rules)
+  const fcW = Math.min(envWidth(view), 420)
+  for (const fs of scanFilters(text, knobs)) {
+    items.push(
+      Decoration.widget({
+        widget: new FilterCurveWidget(fs, `${JSON.stringify(fs)}`, fcW, hooks, drag),
+        side: 1,
+      }).range(fs.at),
+    )
+  }
+  // enum words carry the tap-cycler mark (the tap handler lives on the plugin)
+  for (const s of scanEnumSpans(text)) items.push(enumMark.range(s.from, s.to))
+  return Decoration.set(items, true)
 }
 
-/** The rondo inline-widget extension (knob · envelope · piano-roll). */
+/** Movement slop that still counts as a TAP on an enum word (px²). */
+const ENUM_TAP_SLOP_SQ = 64
+
+/** The rondo inline-widget extension (knob · envelope · piano-roll ·
+ *  filter curve · enum tap-cycler). */
 export function rondoWidgets(hooks: Hooks): Extension {
   const drag: Drag = { active: false, ended: false }
+  // ENUM TAP-CYCLER state: a pointerdown on an enum word arms; a pointerup
+  // that hasn't traveled (a TAP, not a drag/selection) cycles the word to
+  // its next legal value. The edit is recomputed FROM THE CURRENT DOC at
+  // release (a rescan, the write-verify analog for taps), so a doc change
+  // between down and up can never splice a stale range. The down is NOT
+  // claimed — caret placement and drag-selection keep working normally.
+  let enumArm: { pointerId: number; x: number; y: number; pos: number } | null = null
   return ViewPlugin.fromClass(
     class {
       decos: DecorationSet
@@ -1450,6 +1475,45 @@ export function rondoWidgets(hooks: Hooks): Extension {
         if (u.docChanged || u.viewportChanged || widthChanged) this.decos = build(u.view, hooks, drag)
       }
     },
-    { decorations: (v) => v.decos },
+    {
+      decorations: (v) => v.decos,
+      eventHandlers: {
+        pointerdown(e: PointerEvent, view: EditorView): boolean {
+          try {
+            if (e.button !== 0 || drag.active) return false
+            const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
+            if (pos === null) return false
+            const span = scanEnumSpans(view.state.doc.toString()).find((s) => pos >= s.from && pos <= s.to)
+            if (span === undefined) { enumArm = null; return false }
+            enumArm = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, pos }
+          } catch {
+            enumArm = null // the cycler must never break pointer handling
+          }
+          return false
+        },
+        pointerup(e: PointerEvent, view: EditorView): boolean {
+          const a = enumArm
+          enumArm = null
+          if (a === null || e.pointerId !== a.pointerId || drag.active) return false
+          const dx = e.clientX - a.x
+          const dy = e.clientY - a.y
+          if (dx * dx + dy * dy > ENUM_TAP_SLOP_SQ) return false // traveled: not a tap
+          try {
+            const edit = cycleEnumEdit(view.state.doc.toString(), a.pos)
+            if (edit === null) return false
+            buzz()
+            view.dispatch({ changes: edit })
+            hooks.requestEval(false)
+            return true
+          } catch {
+            return false
+          }
+        },
+        pointercancel(): boolean {
+          enumArm = null
+          return false
+        },
+      },
+    },
   )
 }

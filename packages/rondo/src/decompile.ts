@@ -882,9 +882,15 @@ function decompileSing(stmt: Node): string | null {
   const o = objEntries(optsNode)
   if (o === undefined) return null
   let postLines: string[] | null = null
+  let cyclesLine: string | null = null
   for (const [k, vNode] of Object.entries(o)) {
     if (k === 'name') {
       if (strValue(vNode) !== pname) return null
+    } else if (k === 'cycles') {
+      // the multi-cycle phrase length reverses to its own modifier line
+      const cv = numValue(vNode)
+      if (cv === undefined || !Number.isInteger(cv) || cv < 1) return null
+      if (cv > 1) cyclesLine = `cycles: ${num(cv)}`
     } else if (k === 'post') {
       if (vNode.type !== 'ArrowFunctionExpression') return null
       postLines = decompileChainFn(vNode, '    ', true)
@@ -894,7 +900,7 @@ function decompileSing(stmt: Node): string | null {
   if (o['name'] === undefined) return null
   const header = `sing ${pname}${voice !== undefined && /^[a-zA-Z_]\w*$/.test(voice) ? ` voice:${voice}` : ''}`
   if (voice !== undefined && !/^[a-zA-Z_]\w*$/.test(voice)) return null
-  const out = [header, `  ${lyrics}`, `  ${notes}`, ...mods.map((l) => `  ${l}`)]
+  const out = [header, `  ${lyrics}`, `  ${notes}`, ...(cyclesLine !== null ? [`  ${cyclesLine}`] : []), ...mods.map((l) => `  ${l}`)]
   if (postLines !== null) out.push('  post', ...postLines)
   return out.join('\n')
 }

@@ -61,7 +61,7 @@ export function onSingError(cb: (msg: string) => void): void {
   onError = cb
 }
 
-const keyOf = (r: SingRequest, cps: number): string => `${r.voice}\n${r.lyrics}\n${r.notes}\n${cps}`
+const keyOf = (r: SingRequest, cps: number): string => `${r.voice}\n${r.lyrics}\n${r.notes}\n${cps}\n${r.cycles ?? 1}`
 
 /** True if any request isn't yet LOADED with its current key (a clip in flight
  *  counts as unloaded — it can't play until its render lands). */
@@ -71,7 +71,7 @@ export function hasUnloaded(sings: SingRequest[], cps: number): boolean {
 
 async function renderOne(r: SingRequest, cps: number, report: (p: SingProgress) => void): Promise<void> {
   const { renderNeural } = await import('./neural')
-  const { audio: pcm, sr } = await renderNeural(r.lyrics, r.notes, cps, r.voice, report)
+  const { audio: pcm, sr } = await renderNeural(r.lyrics, r.notes, cps, r.voice, report, r.cycles ?? 1)
   audio?.loadSamplePcm(r.sampleName, pcm, sr, false)
 }
 

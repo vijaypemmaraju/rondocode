@@ -530,6 +530,7 @@ setCps(0.3)`,
     title: 'Singing',
     blocks: [
       p("`sing(voice, lyrics, notes)` runs a neural voice entirely on your device: it sings your `lyrics` on your `notes`, both in mini-notation, one syllable per note (a hyphen splits a word, so \"twin-kle\" is two notes). The first play downloads the voice models once (a large one-time download, cached afterwards), so later plays are instant. You'll be asked before it starts."),
+      p('The melody is real mini-notation, so `@weights` give each note its own length: `a4@6 g4@2 a4@2` is a dotted lilt, not three equal notes. And a phrase longer than a bar sets `{ cycles: N }`: the melody unrolls over N cycles (write it as an alternation, one bar per arm), the baked clip runs N bars long, and the vocal retriggers every N bars instead of every one. That is how a whole verse fits in one block without slowing the tempo down.'),
       p("It returns an ordinary pattern, so the vocal is a first-class channel: wrap it in `p(...)` and it takes the same FX, `.late()`/`.early()` timing, and bus sends as any synth. `opts.post` adds a DSP chain on the voice itself (here a little reverb), and `opts.name` lets `bus()` / `sidechain()` target it by name. Timing is aligned to the beat automatically, so `.late()` is for feel, not fixing drift."),
       code(
         'A neural voice over a pad, one syllable per note. First play downloads the models.',
@@ -915,6 +916,7 @@ cps .45`,
     blocks: [
       p('A `sing NAME` block is a neural vocal, written like sheet music: each LYRIC line sits above its MELODY line, and the pairs join up. Hyphens split a word into syllables, one syllable per note. `voice:` goes on the header (`barbara`, `kizuna`, `rise`; omit it for the default). NAME is the channel, so buses and sidechain can target the vocal.'),
       p('Modifier lines work as in `play` (`gain: .95`), and a trailing `post` sub-block puts FX on the voice itself. Melodies are absolute note names, so `scale:` does not apply here. The first play downloads the voice models once (cached afterwards) and the vocal bakes in the background, looping in time when ready.'),
+      p('Melody lines take `@weights` like any mini notation (`a4@6 g4@2` is a dotted pair), and `cycles: N` makes the phrase span N bars: write the melody as an alternation with one bar per arm, and the vocal bakes as an N-bar clip that retriggers every N bars. A whole verse becomes one block at the tune\'s own tempo.'),
       rondo(
         'A verse in one block. First play downloads the voice.',
         `synth pad

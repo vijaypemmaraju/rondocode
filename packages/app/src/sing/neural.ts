@@ -119,6 +119,34 @@ async function pickBestTake(nextTake: () => Promise<Float32Array | null>, sr: nu
   return best ?? []
 }
 
+/** One segment per SLOT of a word: its real syllables, then its melisma
+ *  continuations. A melisma HOLDS a vowel across notes, so a continuation
+ *  must not re-articulate the syllable's consonants: repeating the whole
+ *  segment sang "call-ing _" as "call ling ling". The onset consonant is
+ *  dropped from every continuation, and the closing coda moves to the LAST
+ *  note of the hold so the word closes once, at the end. Pure. */
+export function melismaSegs(
+  w: { slots: number[]; syllableCount: number },
+  syllSegs: readonly Seg[],
+  silent: Seg,
+): Seg[] {
+  const empty = new Float32Array(0)
+  const out: Seg[] = []
+  const held = w.slots.length > w.syllableCount // this word is sung across extra notes
+  for (let s = 0; s < w.slots.length; s++) {
+    const base = syllSegs[Math.min(s, w.syllableCount - 1)] ?? silent
+    if (s < w.syllableCount) {
+      // the syllable that begins a hold keeps its onset but defers its coda
+      const startsHold = held && s === w.syllableCount - 1
+      out.push(startsHold ? { onset: base.onset, vowel: base.vowel, coda: empty } : base)
+      continue
+    }
+    // a continuation: vowel only, with the coda on the final note
+    out.push({ onset: empty, vowel: base.vowel, coda: s === w.slots.length - 1 ? base.coda : empty })
+  }
+  return out
+}
+
 export async function renderNeural(
   lyrics: string,
   notes: string,
@@ -137,14 +165,11 @@ export async function renderNeural(
   const empty = new Float32Array(0)
   const silent: Seg = { onset: empty, vowel: empty, coda: empty }
   const segs: Seg[] = new Array<Seg>(parsed.slots.length).fill(silent)
-  // map each word's syllable segments onto its slots (melisma slots repeat the
-  // last syllable so it holds across those notes; rests stay silent).
   const applySegs = (phrase: Phrase, ws: Seg[]): void => {
     let k = 0
     for (const w of phrase.words) {
-      for (let s = 0; s < w.slots.length; s++) {
-        segs[w.slots[s]!] = ws[k + Math.min(s, w.syllableCount - 1)] ?? silent
-      }
+      const wordSegs = melismaSegs(w, ws.slice(k, k + w.syllableCount), silent)
+      for (let s = 0; s < w.slots.length; s++) segs[w.slots[s]!] = wordSegs[s]!
       k += w.syllableCount
     }
   }

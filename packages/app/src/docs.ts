@@ -1,14 +1,14 @@
 import './docs/docs.css'
 import { applyPalette } from './ui/palette'
-import { HERO, SECTIONS, orderedSections } from './docs/content'
+import { HERO, blockText, orderedSections } from './docs/content'
 import type { Block, Section } from './docs/content'
+import { blockHtml } from './docs/blocks'
 import { docsOfKind } from './docs/dsl-docs'
 import type { DocEntry } from './docs/dsl-docs'
 import type { PreviewPlayer } from './docs/player'
 import type { createShaderRenderer } from './shaderviz/renderer'
 import { createDocEditor } from './docs/doceditor'
 import { compile as compileRondo } from '@rondocode/rondo'
-import { escapeHtml as esc } from './docs/highlight'
 import { iconEl } from './ui/icons'
 import { docsMarkdown } from './docs/markdown'
 import { FLASH_MS } from './editor/flash'
@@ -241,14 +241,19 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
   return card
 }
 
+/** Parse one element out of a trusted HTML string (docs/blocks.ts escapes
+ *  every author-supplied value before it gets here). */
+const fromHtml = (html: string): HTMLElement => {
+  const t = document.createElement('template')
+  t.innerHTML = html
+  return t.content.firstElementChild as HTMLElement
+}
+
 async function renderBlock(b: Block): Promise<HTMLElement> {
-  if (b.kind === 'p') {
-    const para = el('p')
-    // inline `code` spans in prose
-    para.innerHTML = esc(b.text).replace(/`([^`]+)`/g, '<code>$1</code>')
-    return para
-  }
-  return codeBlock(b.caption ?? '', b.text, b.lang)
+  // code blocks are live editors; every other kind is pure markup shared with
+  // the tests (docs/blocks.ts), so a new kind renders here for free.
+  if (b.kind === 'code') return codeBlock(b.caption ?? '', b.text, b.lang)
+  return fromHtml(blockHtml(b))
 }
 
 interface RenderedSection {
@@ -265,7 +270,8 @@ async function renderSection(s: Section): Promise<RenderedSection> {
   let firstCode: string | undefined
   for (const b of s.blocks) {
     sec.append(await renderBlock(b))
-    parts.push(b.kind === 'code' ? `${b.caption ?? ''} ${b.text}` : b.text)
+    // blockText knows every kind, so a table/list/note stays findable by search
+    parts.push(blockText(b))
     if (b.kind === 'code' && firstCode === undefined) firstCode = b.text
   }
   return { el: sec, text: parts.join(' ').toLowerCase(), firstCode }

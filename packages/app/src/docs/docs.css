@@ -208,6 +208,130 @@ a:hover {
   border-radius: 4px;
 }
 
+/* --- tables, lists, notes (docs/blocks.ts) --- */
+
+/* The table's OWN scroller. A reference table can be wider than a phone; what
+ * must never happen is the PAGE scrolling sideways, so the overflow is trapped
+ * here (min-width: 0 lets this shrink inside the grid column). */
+.doc-table-wrap {
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 0 var(--sp-6);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-surface);
+}
+.doc-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-ctrl);
+  line-height: 1.5;
+}
+.doc-table caption {
+  caption-side: top;
+  text-align: left;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bar);
+}
+.doc-table th,
+.doc-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-raised);
+}
+.doc-table thead th {
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-faint);
+  white-space: nowrap;
+  background: var(--c-bar);
+}
+.doc-table tbody td {
+  color: var(--c-dim);
+}
+/* the first column is the thing being named: keep it on one line and lit */
+.doc-table tbody td:first-child {
+  color: var(--c-text);
+  white-space: nowrap;
+}
+.doc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.doc-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--c-raised) 35%, transparent);
+}
+/* numeric columns line up digit for digit */
+.doc-table .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.doc-table code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  color: var(--c-accent);
+  background: var(--c-surface);
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.doc-table tbody tr:nth-child(even) code {
+  background: var(--c-bg);
+}
+
+.doc-list {
+  color: var(--c-dim);
+  max-width: 64ch;
+  margin: 0 0 var(--sp-4);
+  padding-left: 1.35em;
+}
+.doc-list li {
+  margin-bottom: var(--sp-2);
+}
+.doc-list li::marker {
+  color: var(--c-faint);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+}
+.doc-list code,
+.doc-note code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--c-accent);
+  background: var(--c-surface);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* A callout, not a billboard: a left rule and a whisper of tint. */
+.doc-note {
+  display: block;
+  max-width: 64ch;
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--c-dim);
+  font-size: var(--fs-ctrl);
+  border-left: 2px solid var(--c-accent-alt);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: color-mix(in srgb, var(--c-accent-alt) 8%, transparent);
+}
+.doc-note-warn {
+  border-left-color: var(--c-warn);
+  background: color-mix(in srgb, var(--c-warn) 10%, transparent);
+}
+.doc-note-warn code {
+  color: var(--c-warn);
+}
+
 /* --- code block card --- */
 
 .doc-code {

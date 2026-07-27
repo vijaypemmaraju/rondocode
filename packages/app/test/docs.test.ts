@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { GROUP_ORDER, orderedSections, SECTIONS } from '../src/docs/content'
+import { GROUP_ORDER, blockText, orderedSections, SECTIONS } from '../src/docs/content'
+import type { Block } from '../src/docs/content'
+import { blockHtml, inlineHtml } from '../src/docs/blocks'
 import { Pattern } from '@rondocode/pattern'
 import { synth } from '@rondocode/engine'
 import type { PostCtx, Sig, SynthCtx } from '@rondocode/engine'
@@ -136,9 +138,10 @@ describe('docs style rules', () => {
     expect(HERO.blurb.includes('—')).toBe(false)
     expect(HERO.tagline.includes('—')).toBe(false)
     for (const s of SECTIONS) {
+      // blockText, not b.text: it reads EVERY prose field of every kind, so
+      // table headers/cells, list items and note bodies are swept too.
       for (const b of s.blocks) {
-        const text = b.kind === 'p' ? b.text : `${b.caption}\n${b.text}`
-        expect(text.includes('—'), `em dash in section '${s.id}'`).toBe(false)
+        expect(blockText(b).includes('—'), `em dash in section '${s.id}'`).toBe(false)
       }
     }
     for (const e of DSL_DOCS) {
@@ -177,8 +180,140 @@ describe('guide grouping', () => {
   })
 })
 
+/* ------------------------------------------------------------------------- *
+ * Rich blocks: tables, lists and notes. Three separate contracts, and every
+ * one of them fails SILENTLY if it breaks — a malformed table just loses a
+ * column, a block the search cannot read just stops being findable. So each
+ * is pinned here.
+ * ------------------------------------------------------------------------- */
+
+const allBlocks: { id: string; b: Block }[] = SECTIONS.flatMap((s) => s.blocks.map((b) => ({ id: s.id, b })))
+const blocksOf = <K extends Block['kind']>(kind: K): Extract<Block, { kind: K }>[] =>
+  allBlocks.map((x) => x.b).filter((b): b is Extract<Block, { kind: K }> => b.kind === kind)
+
+describe('guide table data', () => {
+  it('the guide actually uses the rich kinds (otherwise these tests pin nothing)', () => {
+    expect(blocksOf('table').length).toBeGreaterThanOrEqual(8)
+    expect(blocksOf('list').length).toBeGreaterThanOrEqual(1)
+    expect(blocksOf('note').length).toBeGreaterThanOrEqual(3)
+    // and the warn tone is in use, not just declared
+    expect(blocksOf('note').some((n) => n.tone === 'warn')).toBe(true)
+  })
+
+  it('every row has exactly one cell per header, and no table is empty', () => {
+    for (const { id, b } of allBlocks) {
+      if (b.kind !== 'table') continue
+      expect(b.headers.length, `table in '${id}' has no headers`).toBeGreaterThanOrEqual(2)
+      expect(b.rows.length, `table in '${id}' has no rows`).toBeGreaterThanOrEqual(2)
+      for (const [i, row] of b.rows.entries()) {
+        expect(row.length, `table in '${id}', row ${i}: cell count`).toBe(b.headers.length)
+        for (const cell of row) expect(cell.trim().length, `table in '${id}', row ${i}: empty cell`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('every list has items, and every note has a legal tone', () => {
+    for (const { id, b } of allBlocks) {
+      if (b.kind === 'list') expect(b.items.length, `list in '${id}'`).toBeGreaterThanOrEqual(2)
+      if (b.kind === 'note') {
+        expect(b.text.length, `note in '${id}'`).toBeGreaterThan(10)
+        expect(['info', 'warn', undefined]).toContain(b.tone)
+      }
+    }
+  })
+
+  it('backticks in cells and items are balanced (an odd one renders as a stray tick)', () => {
+    for (const { id, b } of allBlocks) {
+      const fields = b.kind === 'table' ? [...b.headers, ...b.rows.flat()] : b.kind === 'list' ? b.items : []
+      for (const f of fields) {
+        expect((f.match(/`/g) ?? []).length % 2, `unbalanced backtick in '${id}': ${f}`).toBe(0)
+      }
+    }
+  })
+})
+
+describe('blockText (the search index)', () => {
+  it('reports every prose field of every kind', () => {
+    expect(blockText({ kind: 'p', text: 'para' })).toContain('para')
+    expect(blockText({ kind: 'note', text: 'careful' })).toContain('careful')
+    expect(blockText({ kind: 'code', caption: 'cap', text: 'src' })).toContain('cap')
+    expect(blockText({ kind: 'code', caption: 'cap', text: 'src' })).toContain('src')
+    expect(blockText({ kind: 'list', items: ['one', 'two'] })).toContain('two')
+    const t = blockText({ kind: 'table', caption: 'cap', headers: ['h1', 'h2'], rows: [['r1', 'r2']] })
+    for (const word of ['cap', 'h1', 'h2', 'r1', 'r2']) expect(t).toContain(word)
+  })
+
+  it('makes the converted passages findable by the words that were in the prose', () => {
+    // the docs-page search lowercases the joined blockText of a section
+    const indexOf = (id: string): string =>
+      SECTIONS.filter((s) => s.id === id)
+        .flatMap((s) => s.blocks.map(blockText))
+        .join(' ')
+        .toLowerCase()
+    expect(indexOf('rondo-mini')).toContain('polymeter') // table cell
+    expect(indexOf('rondo-widgets')).toContain('step sequencer') // table cell
+    expect(indexOf('samples')).toContain('resample row') // list item
+    expect(indexOf('live-mic')).toContain('headphones') // note text
+    expect(indexOf('effects')).toContain('dotted eighth') // table cell
+  })
+})
+
+describe('block markup (docs page rendering)', () => {
+  it('inline `code` spans work the same in every kind, through one formatter', () => {
+    const span = inlineHtml('use `svf` here')
+    expect(span).toBe('use <code>svf</code> here')
+    expect(blockHtml({ kind: 'p', text: 'use `svf` here' })).toContain('<code>svf</code>')
+    expect(blockHtml({ kind: 'note', text: 'use `svf` here' })).toContain('<code>svf</code>')
+    expect(blockHtml({ kind: 'list', items: ['use `svf` here'] })).toContain('<code>svf</code>')
+    expect(blockHtml({ kind: 'table', headers: ['a'], rows: [['use `svf` here']] })).toContain('<code>svf</code>')
+  })
+
+  it('escapes markup before it can reach the page', () => {
+    const html = blockHtml({ kind: 'table', headers: ['<b>'], rows: [['<img src=x>']] })
+    expect(html).not.toContain('<b>')
+    expect(html).not.toContain('<img')
+    expect(html).toContain('&lt;img src=x&gt;')
+  })
+
+  it('renders a table inside its own horizontal scroller (the PAGE must never scroll)', () => {
+    const html = blockHtml({ kind: 'table', caption: 'cap', headers: ['a', 'b'], rows: [['1', 'x']] })
+    expect(html.startsWith('<div class="doc-table-wrap">')).toBe(true)
+    expect(html).toContain('<caption>cap</caption>')
+    expect(html).toContain('<th scope="col"')
+    expect(html).toContain('<td')
+  })
+
+  it('gives an all-numeric column tabular figures, and a mixed one none', () => {
+    const html = blockHtml({
+      kind: 'table',
+      headers: ['cycles', 'name'],
+      rows: [['1', 'a bar'], ['0.25', 'a quarter']],
+    })
+    // column 0 is numeric: header + both cells carry the class
+    expect((html.match(/class="num"/g) ?? []).length).toBe(3)
+    expect(html).toContain('<td class="num">0.25</td>')
+    expect(html).toContain('<td>a quarter</td>')
+  })
+
+  it('renders ordered vs bulleted lists, and the warn tone of a note', () => {
+    expect(blockHtml({ kind: 'list', items: ['a', 'b'], ordered: true })).toContain('<ol class="doc-list">')
+    expect(blockHtml({ kind: 'list', items: ['a', 'b'] })).toContain('<ul class="doc-list">')
+    expect(blockHtml({ kind: 'note', text: 'careful' })).toBe('<aside class="doc-note">careful</aside>')
+    expect(blockHtml({ kind: 'note', text: 'careful', tone: 'warn' })).toContain('doc-note-warn')
+  })
+
+  it('renders EVERY block in the real guide to non-empty markup', () => {
+    for (const { id, b } of allBlocks) {
+      if (b.kind === 'code') continue // code blocks are live editors, built by docs.ts
+      const html = blockHtml(b)
+      expect(html.startsWith('<'), `block in '${id}' produced no element`).toBe(true)
+      expect(html).not.toContain('undefined')
+    }
+  })
+})
+
 describe('the guide covers the editor, not just the language', () => {
-  const text = SECTIONS.flatMap((s) => s.blocks.map((b) => ('text' in b ? b.text : ''))).join(' ').toLowerCase()
+  const text = SECTIONS.flatMap((s) => s.blocks.map(blockText)).join(' ').toLowerCase()
 
   it('teaches the touch scrub, its lens and its speed tiers', () => {
     expect(text).toContain('lens')

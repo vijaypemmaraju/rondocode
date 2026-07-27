@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { F, Pattern, TimeSpan } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
+import { getCustomWavetables } from '@rondocode/engine'
 import { evalCode, synthsUseMic } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
 
@@ -605,6 +606,67 @@ describe('evalCode: custom-scale registry lifecycle', () => {
     const r2 = run(BELL_SRC)
     expect(r2.ok).toBe(true)
     expect(r2.diagnostics).toEqual([])
+  })
+})
+
+describe('evalCode: custom-wavetable registry lifecycle (mirrors defineScale)', () => {
+  // defineWavetable BEFORE the synth: synth() eager-compiles and resolves the
+  // table name at construction (the rondo codegen hoists wavedef for this).
+  const WT_SRC = [
+    `defineWavetable('bellwt', [[1, 0.3], [0.4, 1, 0.6]])`,
+    `const k = synth(({ wavetable, note, gate }) => wavetable(note.freq, 0.5, { table: 'bellwt' }).mul(gate))`,
+    `p('a', n('0 1').sound('k'))`,
+  ].join('\n')
+
+  it('defineWavetable + wavetable({ table }) resolve within one eval', () => {
+    const r = run(WT_SRC)
+    expect(r.ok, JSON.stringify(r.diagnostics)).toBe(true)
+    expect(r.synths.has('k')).toBe(true)
+    expect(getCustomWavetables().has('bellwt')).toBe(true)
+  })
+
+  it('a REMOVED defineWavetable call does not leak into the next eval', () => {
+    expect(run(WT_SRC).ok).toBe(true)
+    // next eval has no defineWavetable('bellwt') — the synth build must throw
+    // the unknown-table error, not silently resolve through the old registry
+    const r = run(
+      `const k = synth(({ wavetable, note, gate }) => wavetable(note.freq, 0.5, { table: 'bellwt' }).mul(gate))\np('a', n('0').sound('k'))`,
+    )
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toMatch(/unknown wavetable 'bellwt'/)
+  })
+
+  it('a FAILED eval restores the previous registry (tables are not yanked from last-good)', () => {
+    expect(run(WT_SRC).ok).toBe(true)
+    const bad = run(`defineWavetable('otherwt', [[1]])\nthrow new Error('boom')`)
+    expect(bad.ok).toBe(false)
+    // last-good's table survives for the still-playing program...
+    expect(getCustomWavetables().has('bellwt')).toBe(true)
+    // ...and the failed eval's own table rolled back with it
+    expect(getCustomWavetables().has('otherwt')).toBe(false)
+  })
+
+  it('an eval failing STAGING VALIDATION rolls the registry back too', () => {
+    expect(run(WT_SRC).ok).toBe(true)
+    const bad = run(
+      `defineWavetable('stuckwt', [[1]])\nconst k = ${SYNTH_SRC}\np('a', n('0').sound('k').ctrl('nope', 1))`,
+    )
+    expect(bad.ok).toBe(false)
+    expect(getCustomWavetables().has('stuckwt')).toBe(false)
+    expect(getCustomWavetables().has('bellwt')).toBe(true) // last APPLIED eval restored
+  })
+
+  it('redefining the same table across evals is silent (idempotent re-runs)', () => {
+    expect(run(WT_SRC).ok).toBe(true)
+    const r2 = run(WT_SRC)
+    expect(r2.ok).toBe(true)
+    expect(r2.diagnostics).toEqual([])
+  })
+
+  it('shadowing a built-in table is a positioned eval error', () => {
+    const r = run(`defineWavetable('pwm', [[1]])`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toMatch(/shadows a built-in/)
   })
 })
 

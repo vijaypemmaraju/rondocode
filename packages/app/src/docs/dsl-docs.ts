@@ -194,6 +194,12 @@ const GLOBALS: DocEntry[] = [
     "defineScale('pelog', { cents: [0, 120, 270, 540, 670, 785, 950] })",
   ),
   g(
+    'defineWavetable',
+    'defineWavetable(name: string, frames: number[][])',
+    "Register a custom wavetable for wavetable(freq, pos, { table: name }): each frame is a list of harmonic partial amplitudes (frames[f][i] = harmonic i+1, up to 32 partials), and pos morphs between the frames. The engine synthesizes band-limited single-cycle waves from the partials, so custom tables stay as clean up high as the built-ins. Call it BEFORE the synth that uses the table; the numbers are the sound, so editing an amplitude is sound design.",
+    "defineWavetable('vox', [[1, 0.25], [0.4, 1, 0.5], [0.3, 0.8, 1, 0.7]])",
+  ),
+  g(
     'setCps',
     'setCps(cps: number)',
     'Set the tempo in cycles per second (0.5 cps with 4 beats per cycle is 120 bpm).',
@@ -448,8 +454,8 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'wavetable',
-    "wavetable(freq: Sig | number, pos?: Sig | number, opts?: { table: 'basic' | 'harmonic' | 'pwm' })",
-    'A morphing wavetable oscillator: pos (0..1) scans through a bank of single-cycle waves for an evolving, sweepable timbre, anti-aliased, so it stays clean up high. Tables: basic (sine→saw→square), harmonic (moving formant), pwm (widening pulses).',
+    "wavetable(freq: Sig | number, pos?: Sig | number, opts?: { table?: string })",
+    'A morphing wavetable oscillator: pos (0..1) scans through a bank of single-cycle waves for an evolving, sweepable timbre, anti-aliased, so it stays clean up high. Built-in tables: basic (sine→saw→square), harmonic (moving formant), pwm (widening pulses), or name your own table registered with defineWavetable.',
     "wavetable(note.freq, lfo(0.25).range(0, 1), { table: 'basic' })",
   ),
   sc('noise', "noise(color?: 'white' | 'pink' | 'brown')", 'Noise, the raw material of hats, claps, wind and breath. white (default) is flat and bright; pink (−3 dB/oct) is warmer and more natural; brown (−6 dB/oct) is deep and rumbly.', "svf(noise('pink'), 8000, { mode: 'hp' })"),

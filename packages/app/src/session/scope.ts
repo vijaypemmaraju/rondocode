@@ -1,4 +1,4 @@
-import { synth } from '@rondocode/engine'
+import { synth, defineWavetable } from '@rondocode/engine'
 import {
   Pattern,
   reify,
@@ -92,6 +92,11 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   // the registry lives in the pattern package; evalCode snapshots/clears/
   // restores it around each run so it mirrors the last successful eval.
   defineScale,
+  // custom wavetables: register a table for wavetable(..., { table }). Same
+  // lifecycle as defineScale (registry in the engine package; evalCode
+  // snapshots/clears/restores it). Must run BEFORE the synth() that uses the
+  // table — synth() eager-compiles and resolves table names at construction.
+  defineWavetable,
   // continuous signals
   sine,
   sine2,

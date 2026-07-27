@@ -1,6 +1,6 @@
 import { Scheduler } from '@rondocode/pattern'
 import type { SchedulerEvent } from '@rondocode/pattern'
-import { diffGraphConstants } from '@rondocode/engine'
+import { diffGraphConstants, getCustomWavetables } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -160,6 +160,9 @@ export class Session {
   private liveMasterComp: string | undefined
   /** Live send buses: name → JSON.stringify(BusDef), the diffing fingerprint. */
   private readonly liveBuses = new Map<string, string>()
+  /** Live custom wavetables: name → JSON.stringify(frames), the diffing
+   *  fingerprint (the specs are small partial lists — cheap to fingerprint). */
+  private readonly liveWavetables = new Map<string, string>()
   /** Live per-synth sends: `${synth} ${bus}` → amount, the diff base so an
    *  unchanged send isn't resent and a dropped one resets to 0. */
   private liveSends = new Map<string, number>()
@@ -256,6 +259,28 @@ export class Session {
         for (const [id, span] of Object.entries(locs)) targets.push({ synth, node: Number(id), from: span[0], to: span[1] })
       }
       this.onProbes(targets)
+    }
+
+    // Custom wavetables FIRST: the staged eval already wrote the registry
+    // (it mirrors the last successful eval), so diff it onto the wire —
+    // loadWavetable for new/CHANGED specs, clearWavetable for vanished ones.
+    // Must precede the synth diff: a new synth's kernels resolve their table
+    // at construction, so the bank has to exist engine-side by then. A
+    // changed spec alone needs NO synth rebuild — kernels re-resolve their
+    // bank per block, which is what makes dragging a wavedef partial bar
+    // audible mid-gesture.
+    const tables = getCustomWavetables()
+    for (const [name, frames] of tables) {
+      const json = JSON.stringify(frames)
+      if (this.liveWavetables.get(name) === json) continue
+      this.audio.send({ kind: 'loadWavetable', name, frames })
+      this.liveWavetables.set(name, json)
+    }
+    for (const name of [...this.liveWavetables.keys()]) {
+      if (!tables.has(name)) {
+        this.audio.send({ kind: 'clearWavetable', name })
+        this.liveWavetables.delete(name)
+      }
     }
 
     // Synths: hot-patch when only input constants changed (live sweep, no
@@ -538,6 +563,7 @@ export class Session {
     this.liveScAmounts.clear()
     this.liveMasterComp = undefined
     this.liveBuses.clear()
+    this.liveWavetables.clear()
     this.liveSends = new Map()
     this.pendingSlide.clear()
     for (const name of this.scheduler.patterns()) this.scheduler.removePattern(name)

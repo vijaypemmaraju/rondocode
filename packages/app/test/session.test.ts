@@ -249,6 +249,52 @@ describe('Session.evalCode: bus & send diff', () => {
   })
 })
 
+describe('Session.evalCode: custom wavetable diff', () => {
+  const wtSrc = (frames = '[[1, 0.3], [0.4, 1]]') =>
+    [
+      `defineWavetable('voxwt', ${frames})`,
+      `const a = synth(({ wavetable, note, gate }) => wavetable(note.freq, 0.5, { table: 'voxwt' }).mul(gate))`,
+      `p('pat', note('60').sound('a'))`,
+    ].join('\n')
+
+  it('sends loadWavetable BEFORE defineSynth (kernels resolve tables at construction)', () => {
+    const { session, sent, ofKind } = rig()
+    session.evalCode(wtSrc())
+    const loads = ofKind('loadWavetable')
+    expect(loads).toHaveLength(1)
+    expect(loads[0]).toMatchObject({ name: 'voxwt', frames: [[1, 0.3], [0.4, 1]] })
+    const loadIdx = sent.findIndex((m) => m.kind === 'loadWavetable')
+    const defIdx = sent.findIndex((m) => m.kind === 'defineSynth')
+    expect(loadIdx).toBeGreaterThanOrEqual(0)
+    expect(loadIdx).toBeLessThan(defIdx)
+  })
+
+  it('does not resend an unchanged table; a changed spec resends WITHOUT a synth rebuild', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(wtSrc())
+    session.evalCode(wtSrc())
+    expect(ofKind('loadWavetable')).toHaveLength(1)
+    expect(ofKind('defineSynth')).toHaveLength(1)
+    session.evalCode(wtSrc('[[1, 0.9], [0.4, 1]]')) // partials edited (a widget drag)
+    expect(ofKind('loadWavetable')).toHaveLength(2)
+    // the synth graph is unchanged — kernels re-resolve per block instead
+    expect(ofKind('defineSynth')).toHaveLength(1)
+  })
+
+  it('clearWavetable when the table vanishes from the program', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(wtSrc())
+    session.evalCode(`const a = ${SYNTH_SRC}\np('pat', note('60').sound('a'))`)
+    expect(ofKind('clearWavetable').map((m) => m.name)).toEqual(['voxwt'])
+  })
+
+  it('a failed eval sends no wavetable message', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(`defineWavetable('voxwt', [[1]])\nthrow new Error('x')`)
+    expect(ofKind('loadWavetable')).toHaveLength(0)
+  })
+})
+
 describe('Session.transport', () => {
   it('play starts a 25ms tick interval; stop clears it and panics notes', () => {
     const { session, intervals, ofKind } = rig()

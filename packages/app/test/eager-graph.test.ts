@@ -119,6 +119,15 @@ describe('eager import graph (code-splitting boundaries)', () => {
     for (const mod of NEURAL_STACK) expect(has(main, mod), `${mod} leaked into main's eager graph`).toBe(false)
   })
 
+  it('prettier loads only on the first JS format (never eagerly, either page)', () => {
+    // sanity: the formatter seam itself IS eager (it holds the dynamic import)
+    expect(has(main, 'editor/format.ts')).toBe(true)
+    for (const mod of ['pkg:prettier/standalone', 'pkg:prettier/plugins/babel', 'pkg:prettier/plugins/estree']) {
+      expect(has(main, mod), `${mod} leaked into main's eager graph`).toBe(false)
+      expect(has(docs, mod), `${mod} leaked into docs' eager graph`).toBe(false)
+    }
+  })
+
   it('docs page never eagerly reaches the neural sing stack', () => {
     for (const mod of NEURAL_STACK) expect(has(docs, mod), `${mod} leaked into docs' eager graph`).toBe(false)
   })

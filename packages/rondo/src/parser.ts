@@ -342,7 +342,7 @@ function parseSynth(lines: Line[], i: number, errors: RondoError[]): { block: Sy
 
 /** Function-taking pattern combinators usable as `NAME [pre…]: <comb>` lines.
  *  `pre` = leading numeric args before the colon; `js` = the JS method name. */
-const FN_COMBS: Record<string, { pre: number; js: string }> = {
+export const FN_COMBS: Record<string, { pre: number; js: string }> = {
   every: { pre: 1, js: 'every' },
   off: { pre: 1, js: 'off' },
   chunk: { pre: 1, js: 'chunk' },
@@ -437,7 +437,7 @@ const COMB_WORDS = new Set([
 
 /** Is this play-body line a modifier (`name: value`, `every 4: rev`, bare
  *  combinator) as opposed to another stacked notation voice? */
-function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolean {
+export function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolean {
   const nv = /^([a-zA-Z_]\w*)[ \t]*:/.exec(ln.raw)
   if (nv !== null) {
     // BEAT ambiguity: `kick:.6 ~ kick ~` is a velocity ROW whose first step

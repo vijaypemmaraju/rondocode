@@ -7,6 +7,7 @@
  */
 
 export { compile } from './compile'
+export { formatRondo, formatRondoLine } from './format'
 export { expandScale, splitBeatVelocities } from './codegen'
 export { decompile } from './decompile'
 export { BUILTINS } from './builtins'

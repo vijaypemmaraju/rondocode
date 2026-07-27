@@ -294,6 +294,9 @@ export interface PaletteHooks {
   /** sound one note now (the play-to-write preview; the tap is the unlock gesture). */
   previewNote?: (synth: string, midi: number) => void
   isPlaying?: () => boolean
+  /** format the whole document (the host owns language dispatch: rondo rules
+   *  or prettier). Renders a chip in BOTH languages, like undo/redo. */
+  format?: () => void
 }
 
 export function mountRondoPalette(bar: HTMLElement, view: EditorView, hooks: PaletteHooks = {}): PaletteHandle {
@@ -358,6 +361,11 @@ export function mountRondoPalette(bar: HTMLElement, view: EditorView, hooks: Pal
       // comment toggle: the mobile spelling of Mod-/ (works on the current
       // line or the whole selection, either language)
       histChip('#', 'toggle comment', () => toggleComment(view), () => 1),
+      // auto-format: the mobile spelling of Mod-Shift-F (whole doc, either
+      // language; the host decides rondo rules vs prettier)
+      ...(hooks.format !== undefined
+        ? [histChip('{ }', 'format code', () => hooks.format!(), () => 1)]
+        : []),
       ...chips.map((c) => {
         const b = document.createElement('button')
         b.type = 'button'

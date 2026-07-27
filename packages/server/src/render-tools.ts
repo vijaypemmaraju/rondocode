@@ -130,6 +130,9 @@ const renderProgram = (
   const tables = getCustomWavetables()
   const mix = renderMix(staged.synths, events, durationSec, {
     maxVoices: 12,
+    // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
+    // themselves off it, so an omitted cps would bounce at the wrong speed.
+    cps,
     // Forward buses/sends/masterComp too, so the offline render an agent "hears"
     // matches the live signal path (renderMix supports all three; omitting them
     // silently dropped bus FX and the glue compressor from the render).
@@ -230,6 +233,9 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
           { time: dur * 0.6, type: 'noteOff', note: midi },
         ],
         total,
+        // The code's own setCps, so a `sync` lfo/delay in the patch auditions
+        // at the tempo it was written for (renderOffline defaults to 0.5).
+        staged.cps !== undefined ? { cps: staged.cps } : undefined,
       )
       const analysis = analyze(rendered)
       const wav = encodeWav16(rendered.left, rendered.right, rendered.sampleRate)

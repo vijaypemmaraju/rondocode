@@ -14,6 +14,17 @@ export interface SampleBankRO {
 
 export interface DspContext {
   sampleRate: number
+  /** TRANSPORT TEMPO in cycles per second, the ONE number tempo-synced kernels
+   *  read. Absent = DEFAULT_CPS (0.5, i.e. 120 bpm at four beats per cycle), so
+   *  a plain `{ sampleRate }` ctx (tests, older hosts) still syncs sanely.
+   *
+   *  MUTABLE AND SHARED: the RealtimeEngine owns one ctx object that every
+   *  compiled kernel holds a reference to, and a `setCps` message writes this
+   *  field in place. Synced kernels therefore re-read it EVERY BLOCK and
+   *  re-rate themselves live — a tempo change never recompiles a graph and
+   *  never restarts a voice. Read it through `cpsOf(ctx)` so the default and
+   *  the positive-finite guard stay in one place. */
+  cps?: number
   /** LIVE MIC block: when present, every compiled graph's `mic` node ALIASES
    *  this buffer, so the host writes one block per quantum and all graphs see
    *  it with zero copying. Absent (offline render, tests) a mic node reads a

@@ -78,6 +78,16 @@ export type EngineMessage = (
   | { kind: 'setChannel'; synth: string; gain?: number; pan?: number; sidechain?: number }
   /** Master gain (default 0.8), ramped over one block. */
   | { kind: 'setMaster'; gain: number }
+  /** TRANSPORT TEMPO in cycles per second (default 0.5 = 120 bpm at four beats
+   *  to the cycle), clamped to [0.001, 100]. This is the ONE number every
+   *  tempo-synced kernel reads: a `sync` lfo takes its rate in cycles, a
+   *  `sync` delay its time in cycles, and both re-rate on the NEXT BLOCK after
+   *  this message — no recompile, no voice restart, no click (the LFO keeps
+   *  its phase and only changes increment; the delay glides its read head).
+   *  Hosts send it from wherever they set the scheduler's cps: on eval, on
+   *  transport changes, and on any live tempo edit. Unsynced lfo/delay nodes
+   *  (Hz and seconds) ignore it entirely. */
+  | { kind: 'setCps'; cps: number }
   /** SIDECHAIN DUCK: every noteOn to `source` snaps a duck envelope down to
    *  `1 - depth` (instant attack) which then recovers toward 1 via a one-pole
    *  release; the envelope multiplies every channel EXCEPT `source` (the kick

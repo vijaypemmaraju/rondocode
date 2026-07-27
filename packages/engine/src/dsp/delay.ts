@@ -1,10 +1,20 @@
 import type { DspContext, Kernel } from './types'
-import { clamp } from './util'
+import { clamp, cpsOf } from './util'
 
 export interface DelayConfig {
   /** Maximum delay time in seconds (sets the buffer size). Default 2. */
   maxTime?: number
+  /** TEMPO SYNC: read 'time' as a length in transport CYCLES rather than
+   *  seconds (see the class doc). Default false. */
+  sync?: boolean
 }
+
+/** Tempo-glide time constant, in seconds, for the synced delay's internal cps
+ *  follower. A tempo change moves the read head; jumping it would click and
+ *  the interpolated tap would tear, so the effective tempo eases over ~60 ms —
+ *  short enough to feel immediate, long enough that the pitch smear it causes
+ *  reads as the familiar tape-delay slur rather than a glitch. */
+const CPS_GLIDE_SEC = 0.06
 
 /** Feedback delay line. Inputs 'in', 'time' (seconds, audio-rate, clamped to
  *  [0, maxTime]; effective minimum is 1 sample — a true zero-sample feedback
@@ -35,14 +45,33 @@ export interface DelayConfig {
  *  interpolation smears it across neighboring taps, so in practice it spreads
  *  toward the write head and gets caught at a subsequent block end. Until
  *  that happens (up to roughly one delay round trip) the NaN persists — an
- *  accepted window in exchange for a per-sample-free hot loop. */
+ *  accepted window in exchange for a per-sample-free hot loop.
+ *
+ *  TEMPO SYNC (`sync`): with sync on, 'time' is a length in transport CYCLES
+ *  rather than seconds — 0.25 is a quarter note at four beats to the cycle,
+ *  0.1875 the dotted eighth every dub echo wants — and the kernel converts it
+ *  per sample as seconds = time / cps, reading ctx.cps live so a tempo change
+ *  re-times the echo without a recompile. The buffer is still sized by
+ *  maxTime SECONDS, so the musical time is clamped to it: at a slow enough
+ *  tempo a long synced time saturates at maxTime and stops tracking the
+ *  transport. Raise maxTime for slow tempi or long musical delays.
+ *
+ *  A tempo change is glided, not jumped (CPS_GLIDE_SEC): the read head would
+ *  otherwise leap by tens of milliseconds in one sample and click. Modulating
+ *  the 'time' INPUT is untouched by this — it stays audio-rate and instant, so
+ *  flanger/chorus-style time modulation behaves exactly as before. */
 export class DelayKernel implements Kernel {
   private readonly maxTime: number
+  private readonly sync: boolean
   private buf: Float32Array | null = null
   private writeIdx = 0
+  /** Glided tempo follower (synced only); -1 = "not yet seen a block", which
+   *  snaps to the first tempo instead of sweeping up from nothing. */
+  private curCps = -1
 
   constructor(config: DelayConfig = {}, ctx?: DspContext) {
     this.maxTime = clamp(config.maxTime ?? 2, 0.001, 60)
+    this.sync = config.sync === true
     if (ctx) this.buf = new Float32Array(Math.ceil(this.maxTime * ctx.sampleRate) + 2)
   }
 
@@ -57,8 +86,20 @@ export class DelayKernel implements Kernel {
     const len = buf.length
     const maxDelay = len - 2
     let w = this.writeIdx
+    // Synced: glide the tempo used for the seconds conversion (one-pole toward
+    // the block's cps) so a transport change sweeps the read head instead of
+    // teleporting it. Unsynced delays skip all of this entirely.
+    const target = this.sync ? cpsOf(ctx) : 0
+    if (this.sync && this.curCps < 0) this.curCps = target
+    const glide = this.sync ? 1 - Math.exp(-1 / (CPS_GLIDE_SEC * sr)) : 0
+    let cps = this.curCps
     for (let i = 0; i < n; i++) {
-      let d = clamp(time[i]!, 0, this.maxTime) * sr
+      let t = time[i]!
+      if (this.sync) {
+        cps += (target - cps) * glide
+        t = t / cps
+      }
+      let d = clamp(t, 0, this.maxTime) * sr
       if (!(d >= 1)) d = 1 // min 1 sample; also catches NaN time
       else if (d > maxDelay) d = maxDelay
       const di = Math.floor(d)
@@ -80,10 +121,12 @@ export class DelayKernel implements Kernel {
     const last = buf[w === 0 ? len - 1 : w - 1]!
     if (!Number.isFinite(last)) buf.fill(0)
     this.writeIdx = w
+    if (this.sync) this.curCps = Number.isFinite(cps) && cps > 0 ? cps : target
   }
 
   reset(): void {
     this.writeIdx = 0
+    this.curCps = -1
     this.buf?.fill(0)
   }
 }

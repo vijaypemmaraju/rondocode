@@ -52,7 +52,9 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   supersaw: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { detune: 'sig', mix: 'sig' } },
   noise: { kind: 'osc', pos: ['enum'] },
   lfsr: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { mode: 'enum' } },
-  lfo: { kind: 'osc', pos: ['sig', 'enum'] },
+  // `sync:1` re-reads the rate as a length in transport CYCLES (1 = one sweep
+  // per cycle, .25 = a quarter note) instead of Hz — it follows the tempo
+  lfo: { kind: 'osc', pos: ['sig', 'enum'], named: { sync: 'bool' } },
   // the LIVE microphone as a source (silence offline / when unconnected)
   mic: { kind: 'osc', pos: [] },
 
@@ -75,7 +77,9 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   // (`dualsvf 400 4000 mode:parallel a:lp b:hp res:.3`)
   dualsvf: { kind: 'proc', pos: ['sig', 'sig'], named: { res: 'sig', mode: 'enum', a: 'enum', b: 'enum' } },
   onepole: { kind: 'proc', pos: ['sig'] },
-  delay: { kind: 'proc', pos: ['sig', 'sig'], named: { maxtime: 'num' }, alias: { maxtime: 'maxTime' } },
+  // `sync:1` re-reads the time as transport CYCLES (.1875 = a dotted eighth)
+  // instead of seconds; maxtime still sizes the buffer in SECONDS
+  delay: { kind: 'proc', pos: ['sig', 'sig'], named: { maxtime: 'num', sync: 'bool' }, alias: { maxtime: 'maxTime' } },
   comb: { kind: 'proc', pos: ['sig', 'sig'], named: { damp: 'num' } },
   shape: { kind: 'proc', pos: ['sig'], named: { type: 'enum' } },
   formant: { kind: 'proc', pos: ['sig'] },

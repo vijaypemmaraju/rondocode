@@ -174,6 +174,33 @@ describe('Session.evalCode: sidechain diff & send', () => {
     expect(ofKind('clearMasterComp')).toHaveLength(1)
   })
 
+  it('sends setCps when the tempo moves, so synced lfo/delay follow the transport', () => {
+    const { session, ofKind } = rig()
+    // The engine boots at the scheduler's default tempo: nothing to say yet.
+    session.evalCode(GOOD_SRC)
+    expect(ofKind('setCps')).toHaveLength(0)
+    session.evalCode(`setCps(0.75)\n${GOOD_SRC}`)
+    expect(ofKind('setCps')).toEqual([{ kind: 'setCps', cps: 0.75 }])
+    session.evalCode(`setCps(0.75)\n${GOOD_SRC}`) // unchanged: no resend
+    expect(ofKind('setCps')).toHaveLength(1)
+    session.evalCode(`setCps(0.25)\n${GOOD_SRC}`)
+    expect(ofKind('setCps')).toHaveLength(2)
+    expect(ofKind('setCps')[1]).toEqual({ kind: 'setCps', cps: 0.25 })
+    // and the value the engine gets is the CLAMPED one the scheduler runs on
+    session.transport('play', { cps: 99 })
+    expect(ofKind('setCps')[2]).toEqual({ kind: 'setCps', cps: 4 })
+    expect(session.getState().cps).toBe(4)
+  })
+
+  it('a failed eval never moves the engine tempo', () => {
+    const { session, ofKind } = rig()
+    session.evalCode(`setCps(0.75)\n${GOOD_SRC}`)
+    expect(ofKind('setCps')).toHaveLength(1)
+    session.evalCode(`setCps(0.2)\n${GOOD_SRC}\nthrow new Error('x')`)
+    expect(ofKind('setCps')).toHaveLength(1)
+    expect(session.getState().cps).toBe(0.75)
+  })
+
   it('sends setChannel(sidechain: amount) for each duck-map entry', () => {
     const { session, ofKind } = rig()
     session.evalCode(`sidechain('a', { duck: { a: 0.5 } })\n${GOOD_SRC}`)

@@ -5,6 +5,7 @@ import { PostChain } from './post'
 import { SampleBank } from './samples'
 import { WavetableBank } from './dsp/wavetable'
 import type { DspContext } from './dsp/types'
+import { DEFAULT_CPS } from './dsp/util'
 
 /* ------------------------------------------------------------------------- *
  * Offline renderer: turn a SynthDef plus a timed event list into stereo
@@ -46,6 +47,10 @@ export interface RenderResult {
 export interface RenderOptions {
   /** Default 48000. */
   sampleRate?: number
+  /** TRANSPORT TEMPO in cycles per second (default 0.5). Only `sync` lfo/delay
+   *  nodes read it, and they must: pass the SAME cps the events were scheduled
+   *  at or a bounce will not match what the live engine played. */
+  cps?: number
   /** Polyphony of the temporary VoicePool. Default 8. */
   maxVoices?: number
   /** Audio samples available to sample('name') nodes, keyed by name. Each is
@@ -129,6 +134,9 @@ export function renderOffline(
   if (!Number.isInteger(maxVoices) || maxVoices < 1) {
     throw new RangeError(`renderOffline: maxVoices must be an integer >= 1, got ${maxVoices}`)
   }
+  if (opts?.cps !== undefined && (!Number.isFinite(opts.cps) || opts.cps <= 0)) {
+    throw new RangeError(`renderOffline: cps must be > 0, got ${opts.cps}`)
+  }
   events.forEach(validateEvent)
 
   const totalSamples = Math.round(duration * sampleRate)
@@ -136,7 +144,7 @@ export function renderOffline(
   const right = new Float32Array(totalSamples)
   // voiceOpts (mono/glide/unison/...) flow straight through — offline renders
   // exactly what the live VoicePool would, since both use this same class.
-  const ctx: DspContext = { sampleRate }
+  const ctx: DspContext = { sampleRate, cps: opts?.cps ?? DEFAULT_CPS }
   if (opts?.samples !== undefined) {
     const bank = new SampleBank()
     for (const [name, s] of Object.entries(opts.samples)) bank.set(name, s.data, s.sampleRate)

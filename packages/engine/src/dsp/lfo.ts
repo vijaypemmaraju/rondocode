@@ -1,12 +1,12 @@
 import type { DspContext, Kernel } from './types'
-import { flush } from './util'
+import { cpsOf, flush } from './util'
 
 const TWO_PI = 2 * Math.PI
 
 export type LfoShape = 'sine' | 'tri' | 'square' | 'saw' | 'rand'
 
-/** Low-frequency oscillator. Input 'freq' (Hz, audio-rate, phase increment
- *  clamped to ±0.5); output UNIPOLAR [0, 1]:
+/** Low-frequency oscillator. Input 'freq' (Hz by default, audio-rate, phase
+ *  increment clamped to ±0.5); output UNIPOLAR [0, 1]:
  *    sine   0.5 + 0.5*sin(2*pi*p)   (starts at 0.5, rising)
  *    tri    1 - |2p - 1|            (starts at 0, peak at mid-cycle)
  *    square p < 0.5 ? 1 : 0         (high half-cycle first)
@@ -22,7 +22,17 @@ export type LfoShape = 'sine' | 'tri' | 'square' | 'saw' | 'rand'
  *  by this kernel's own phase, one draw per LFO cycle — NOT time-locked like the
  *  pattern-side `rand` (whose value is a function of the cycle position). Two
  *  voices with the same seed and freq step through the same levels; give each a
- *  distinct seed for independent random movement. */
+ *  distinct seed for independent random movement.
+ *
+ *  TEMPO SYNC (`sync`): with sync on, 'freq' is no longer Hz but a length in
+ *  CYCLES of the transport — rate 1 is one LFO period per cycle, 0.25 a
+ *  quarter-note wobble at four beats to the cycle, 0.0625 a sixteenth. The
+ *  kernel reads ctx.cps EVERY BLOCK and converts (Hz = cps / rate), so a
+ *  tempo change re-rates the LFO live without a recompile. Only the phase
+ *  INCREMENT changes — the phase itself is never touched — so the output is
+ *  continuous across a tempo change: no jump, no click. Rate 0 (or a
+ *  non-finite rate) parks the LFO instead of dividing by zero: the phase
+ *  freezes and the output holds its current level. */
 export class LfoKernel implements Kernel {
   private phase = 0
   private readonly seed: number
@@ -33,6 +43,8 @@ export class LfoKernel implements Kernel {
   constructor(
     private readonly shape: LfoShape = 'sine',
     seed = 0x2545f491,
+    /** 'freq' is a length in transport CYCLES rather than Hz (see class doc). */
+    private readonly sync = false,
   ) {
     // xorshift32 needs a nonzero state
     this.seed = (seed >>> 0) || 1
@@ -55,6 +67,9 @@ export class LfoKernel implements Kernel {
     const freq = inputs['freq']!
     const shape = this.shape
     const sr = ctx.sampleRate
+    // Synced: 'freq' is a period length in cycles, so Hz = cps / rate. Read
+    // once per block — one tempo per block is the engine's control cadence.
+    const cps = this.sync ? cpsOf(ctx) : 0
     let phase = this.phase
     for (let i = 0; i < n; i++) {
       out[i] =
@@ -69,7 +84,11 @@ export class LfoKernel implements Kernel {
               : shape === 'rand'
                 ? this.held
                 : phase
-      let dt = freq[i]! / sr
+      // rate 0 (or non-finite) would be an infinite/NaN Hz — park the phase
+      // instead, so the LFO holds its level rather than poisoning it.
+      const rate = freq[i]!
+      const hz = this.sync ? (rate === 0 || !Number.isFinite(rate) ? 0 : cps / rate) : rate
+      let dt = hz / sr
       if (dt > 0.5) dt = 0.5
       else if (dt < -0.5) dt = -0.5
       phase += dt

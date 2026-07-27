@@ -41,6 +41,30 @@ describe('decompile round-trips', () => {
     expect(second.code).toBe(first.code)
   })
 
+  it('tempo-synced lfo/delay survive the round trip', () => {
+    const src = [
+      'synth wob mono glide:.05',
+      '  supersaw detune:.5 mix:.85',
+      '  ladder cut res:.8',
+      '  delay 0.1875 0.25 maxtime:1 sync:1',
+      '  * e',
+      '  cut = lfo 0.125 tri sync:1 -> 150..3200',
+      '  e = adsr 0.005 0.1 0.9 0.06',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    const rondo2 = decompile(first.code)
+    // sync survives as the bool named arg, not as a dropped opt or a js{ } bail
+    expect(rondo2).toContain('sync:1')
+    expect(rondo2).not.toContain('js{')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   it('beat blocks and irand notation survive the round trip', () => {
     const src = [
       'synth kick',

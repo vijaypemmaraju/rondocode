@@ -7,7 +7,7 @@ import type { DspContext } from './dsp/types'
 import { SampleBank } from './samples'
 import { WavetableBank } from './dsp/wavetable'
 import { gainReductionDb, smoothCoeff } from './dsp/compress'
-import { clamp, softClipTanh } from './dsp/util'
+import { clamp, DEFAULT_CPS, softClipTanh } from './dsp/util'
 import type { EngineEvent, EngineMessage } from './protocol'
 
 /* ------------------------------------------------------------------------- *
@@ -65,6 +65,11 @@ const DEFAULT_PAN = 0.5
 const DEFAULT_MASTER_GAIN = 0.8
 const MAX_GAIN = 2
 const MAX_RAMP_MS = 10000
+/** setCps rails: wide enough for any real transport (0.001 cps is one cycle
+ *  every ~17 minutes, 100 cps is absurdly fast) and narrow enough that no
+ *  synced kernel ever divides by something pathological. */
+const MIN_CPS = 0.001
+const MAX_CPS = 100
 const HALF_PI = Math.PI / 2
 /** Same-frame ordering: noteOff fires before noteOn (retrigger idiom — see
  *  render.ts's rank comment for the full rationale). */
@@ -266,6 +271,9 @@ export class RealtimeEngine {
     // per quantum and zero per-graph work. Stays zeroed until fed.
     this.micBlock = ctx.mic ?? new Float32Array(BLOCK)
     ctx.mic = this.micBlock
+    // TEMPO: publish a concrete tempo onto the shared ctx so it is never
+    // absent for a synced kernel; setCps rewrites this same field in place.
+    ctx.cps = ctx.cps ?? DEFAULT_CPS
     this.ctx = ctx
     this.maxSynths = Math.floor(clamp(opts?.maxSynths ?? DEFAULT_MAX_SYNTHS, 1, MAX_SYNTHS_LIMIT))
     this.scReleaseCoeff = duckReleaseCoeff(DEFAULT_DUCK_RELEASE_MS, ctx.sampleRate)
@@ -688,6 +696,8 @@ export class RealtimeEngine {
         return this.msgSetChannel(m)
       case 'setMaster':
         return this.msgSetMaster(m)
+      case 'setCps':
+        return this.msgSetCps(m)
       case 'setSidechain':
         return this.msgSetSidechain(m)
       case 'clearSidechain':
@@ -1039,6 +1049,14 @@ export class RealtimeEngine {
   private msgSetMaster(m: Record<string, unknown>): void {
     if (!fin(m['gain'])) return this.error(`'gain' must be a finite number`, 'setMaster')
     this.masterGain = clamp(m['gain'], 0, MAX_GAIN)
+  }
+
+  /** Tempo, written straight into the SHARED ctx every compiled kernel holds —
+   *  that is the whole plumbing: synced lfo/delay kernels re-read ctx.cps on
+   *  their next block, so the change is live without touching the graph. */
+  private msgSetCps(m: Record<string, unknown>): void {
+    if (!fin(m['cps'])) return this.error(`'cps' must be a finite number`, 'setCps')
+    this.ctx.cps = clamp(m['cps'], MIN_CPS, MAX_CPS)
   }
 
   private msgSetSidechain(m: Record<string, unknown>): void {

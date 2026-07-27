@@ -41,6 +41,23 @@ const RESERVED_PARAM_NAMES = new Set(['note', 'n', 'sound', 'gain', 'pan', 'dur'
 
 export type SigIn = Sig | number
 
+export type LfoShapeName = 'sine' | 'tri' | 'square' | 'saw' | 'rand'
+
+/** TEMPO SYNC opts, shared by lfo() and delay(): `sync: true` re-reads the
+ *  builtin's rate/time argument as a length in transport CYCLES instead of
+ *  Hz/seconds, and the kernel follows the tempo live. */
+export interface LfoOpts {
+  sync?: boolean
+}
+
+export interface DelayOpts {
+  /** Ring-buffer length in SECONDS (default 0.5). Also the ceiling a synced
+   *  time is clamped to. */
+  maxTime?: number
+  /** Read `time` as transport cycles rather than seconds. */
+  sync?: boolean
+}
+
 /** Handle to a node's output inside a synth() build. Immutable: every method
  *  creates a new node and returns a new Sig. */
 export interface Sig {
@@ -154,8 +171,16 @@ export interface SynthCtx {
    *  (def 0) shapes every segment: > 0 fast-then-slow, < 0 slow-then-fast.
    *  Levels are not clamped, so it drives amplitude, pitch or any modulation. */
   env(gate: SigIn, points: [number, number][], opts?: { release?: number; curve?: number; loop?: boolean }): Sig
-  lfo(freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig
-  delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig
+  /** Slow oscillator, output 0..1. `freq` is Hz unless `sync` is set, and then
+   *  it is a period length in transport CYCLES: 1 = one sweep per cycle,
+   *  0.25 = a quarter note at four beats to the cycle, 0.0625 = a sixteenth.
+   *  A synced LFO re-rates itself when the tempo changes, phase-continuously. */
+  lfo(freq: SigIn, shape?: LfoShapeName | LfoOpts, opts?: LfoOpts): Sig
+  /** Feedback delay. `time` is seconds unless `sync` is set, and then it is a
+   *  length in transport CYCLES (0.1875 = a dotted eighth at four beats to the
+   *  cycle) that follows the tempo live. The buffer is sized by `maxTime`
+   *  SECONDS either way, so a synced time is clamped to it at slow tempi. */
+  delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig
   /** Freeverb-style algorithmic reverb. Output is WET only — mix it back with
    *  the dry signal (e.g. `tone.mix(reverb(tone), 0.3)`). roomSize/damp are
    *  0..1 and are fixed at build time (not per-sample). */
@@ -225,8 +250,8 @@ export interface PostCtx {
    *  B, default) cascades them; 'parallel' sums them (lp + hp leaves a hole
    *  between the cutoffs). */
   dualsvf(inp: SigIn, cutoff: SigIn, cutoff2: SigIn, opts?: { res?: SigIn; mode?: 'serial' | 'parallel'; a?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'; b?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
-  lfo(freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig
-  delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig
+  lfo(freq: SigIn, shape?: LfoShapeName | LfoOpts, opts?: LfoOpts): Sig
+  delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
   chorus(inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
@@ -540,15 +565,27 @@ const makeShared = (b: Builder) => {
       if (opts?.res !== undefined) inputs['res'] = src(opts.res, 'dualsvf res')
       return b.node('dualsvf', inputs, definedConfig({ mode: opts?.mode, a: opts?.a, b: opts?.b }))
     },
-    lfo: (freq: SigIn, shape?: 'sine' | 'tri' | 'square' | 'saw' | 'rand'): Sig =>
-      b.node('lfo', { freq: src(freq, 'lfo freq') }, definedConfig({ shape })),
-    delay: (inp: SigIn, time: SigIn, feedback?: SigIn, opts?: { maxTime?: number }): Sig => {
+    // shape is positional but optional, so `lfo(2, { sync: true })` (the shape
+    // omitted, opts in its slot) has to be accepted — that is exactly what
+    // rondo's `lfo 2 sync:1` emits.
+    lfo: (freq: SigIn, shape?: LfoShapeName | LfoOpts, opts?: LfoOpts): Sig => {
+      const shapeName = typeof shape === 'string' ? shape : undefined
+      const o = typeof shape === 'object' && shape !== null ? shape : opts
+      return b.node(
+        'lfo',
+        { freq: src(freq, 'lfo freq') },
+        definedConfig({ shape: shapeName, sync: o?.sync === true ? true : undefined }),
+      )
+    },
+    delay: (inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig => {
       const inputs: Record<string, InputSource> = {
         in: src(inp, 'delay in'),
         time: src(time, 'delay time'),
       }
       if (feedback !== undefined) inputs['feedback'] = src(feedback, 'delay feedback')
-      return b.node('delay', inputs, { maxTime: opts?.maxTime ?? 0.5 })
+      const config: Record<string, unknown> = { maxTime: opts?.maxTime ?? 0.5 }
+      if (opts?.sync === true) config['sync'] = true
+      return b.node('delay', inputs, config)
     },
     reverb: (inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig =>
       b.node(

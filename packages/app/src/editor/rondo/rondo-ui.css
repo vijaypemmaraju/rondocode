@@ -176,9 +176,18 @@
 }
 .rp-chip.rp-hist:disabled { opacity: 0.35; pointer-events: none; }
 
-/* read-only query roll: cycle 1 of a rich pattern (euclid / polymeter / …)
- * on a time-proportional lane. No pointer affordance — the text (and the
- * number scrub on its integers) is the write surface. */
+/* read-only query roll: ONE cycle of a rich single-cycle pattern (euclid /
+ * polymeter / …) on a time-proportional lane. No pointer affordance on the
+ * lane itself — the text (and the number scrub on its integers) is the write
+ * surface; the left grab strip is the whole-roll transpose handle. */
+.rondo-qwrap {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 3px;
+  vertical-align: text-bottom;
+  margin: 0 0 0 8px;
+}
+.rondo-qwrap .rondo-qroll { margin: 0; }
 .rondo-qroll {
   position: relative;
   display: inline-block;
@@ -197,16 +206,25 @@
   cursor: ns-resize;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent, #6ea8fe) 25%, transparent);
 }
-.rondo-qroll .qr-cell {
+/* the cell layer: a transpose drag previews by sliding every row at once */
+.rondo-qroll .qr-layer,
+.rondo-rollov .qr-layer {
+  position: absolute;
+  inset: 0;
+}
+.rondo-qroll .qr-cell,
+.rondo-rollov .qr-cell {
   position: absolute;
   border-radius: 2px;
   background: color-mix(in srgb, var(--c-accent, #6ea8fe) 55%, transparent);
 }
-.rondo-qroll .qr-cell.on {
+.rondo-qroll .qr-cell.on,
+.rondo-rollov .qr-cell.on {
   background: var(--c-accent-alt, #6ea8fe);
   box-shadow: 0 0 8px -2px var(--c-accent-alt, #6ea8fe);
 }
-.rondo-qroll .qr-head {
+.rondo-qroll .qr-head,
+.rondo-rollov .qr-head {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -214,6 +232,71 @@
   background: color-mix(in srgb, var(--c-accent, #6ea8fe) 70%, transparent);
   opacity: 0;
   transition: opacity 0.2s;
+}
+
+/* whole-roll TRANSPOSE grab strip (both roll forms): a narrow left-edge
+ * handle — vertical drag rewrites the play block's `add N` (one roll row per
+ * degree step). The ::after bleed grows the hit area to a ~44px touch target
+ * without widening the visual strip. */
+.qr-grab {
+  position: relative;
+  z-index: 1; /* wins the overlap with an editable roll's euclid surface */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  border-radius: 5px;
+  color: var(--c-dim, #8b93a3);
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 42%, transparent);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: ns-resize;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.qr-grab::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: -10px;
+  right: -16px;
+}
+.qr-grab.active {
+  color: var(--c-accent, #6ea8fe);
+  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 18%, transparent);
+}
+
+/* full-width MULTI-CYCLE clip overview: a BLOCK widget below the notation
+ * line (never inline — an inline strip floats mid-wrap on a soft-wrapped
+ * mega-line). All bars of the repeating period side by side, subtle bar
+ * separators, rows = degrees. Width is set inline by the widget. */
+.rondo-rollov {
+  display: flex;
+  box-sizing: border-box;
+  align-items: stretch;
+  gap: 3px;
+  margin: 4px 0 6px 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 26%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rondo-rollov .ro-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 28%, transparent);
+}
+.rondo-rollov .ro-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--c-dim, #8b93a3) 30%, transparent);
 }
 
 /* ---- wavetable ribbon (v1: visualize the morph) ---------------------------- */

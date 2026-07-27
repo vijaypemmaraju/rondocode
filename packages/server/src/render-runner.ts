@@ -241,6 +241,12 @@ export interface MixOpts {
    *  at its own sampleRate). Threaded into every stem's render so offline
    *  playback matches the live engine's loaded samples. */
   samples?: Record<string, { data: Float32Array; sampleRate: number }>
+  /** Custom wavetables (name -> partial-amplitude frames) for
+   *  wavetable(..., { table }) nodes, threaded into every stem's render.
+   *  When omitted, the kernels fall back to THIS realm's defineWavetable
+   *  registry — which stageCode just populated — so custom tables render
+   *  either way; passing them keeps isolated renders explicit. */
+  wavetables?: Record<string, number[][]>
   /** Master-bus glue compressor (dB / ratio / ms), applied stereo-linked over
    *  the summed mix before normalization — mirrors the live engine's master
    *  compressor (which runs after master gain, before the limiter). */
@@ -350,7 +356,12 @@ export function renderMix(
     // renderOffline now runs the per-synth POST chain inline (so time-varying
     // post params from setParam events take effect), returning the post-FX stem
     // — pre-duck, mirroring the live signal path. No separate post pass here.
-    const stem = renderOffline(def, evs, durationSec, { sampleRate, maxVoices: def.maxVoices ?? maxVoices, samples: opts?.samples })
+    const stem = renderOffline(def, evs, durationSec, {
+      sampleRate,
+      maxVoices: def.maxVoices ?? maxVoices,
+      samples: opts?.samples,
+      wavetables: opts?.wavetables,
+    })
     // Send tap: pre-duck (raw post-FX), so a reverb send does not pump.
     const stemSends = sendsBySynth.get(name)
     if (stemSends !== undefined) {

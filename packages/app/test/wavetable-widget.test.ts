@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { clearCustomWavetables, defineWavetable, getWavetable } from '@rondocode/engine'
+import { WAVETABLE_MAX_PARTIALS, clearCustomWavetables, defineWavetable, getWavetable, getWavetableBank } from '@rondocode/engine'
 import {
+  MAX_PARTIALS,
   appendPartialEdit,
   barLayout,
   barValue,
@@ -176,18 +177,25 @@ describe('waveform math', () => {
 describe('previewFrames source resolution', () => {
   afterEach(() => clearCustomWavetables())
 
-  it('doc wavedefs win (fresh while typing), then the engine bank, then null', () => {
+  it('the widget partial cap mirrors the engine constant (deliberate duplicate)', () => {
+    // duplicated so the widget module never statically imports the engine
+    // (docs eager-graph boundary) — this pin is what keeps the two in step
+    expect(MAX_PARTIALS).toBe(WAVETABLE_MAX_PARTIALS)
+  })
+
+  it('doc wavedefs win (fresh while typing), then the injected bank, then null', () => {
     const doc = scanWavedefs('wavedef fresh 1 / 0 1\n')
-    const fromDoc = previewFrames('fresh', doc)
+    const fromDoc = previewFrames('fresh', doc, getWavetableBank)
     expect(fromDoc).not.toBeNull()
     expect(fromDoc!).toHaveLength(2)
-    // built-in bank
-    const basic = previewFrames('basic', [])
+    // built-in bank through the injected lookup
+    const basic = previewFrames('basic', [], getWavetableBank)
     expect(basic!.length).toBe(getWavetable('basic').length)
     // registry custom (last successful eval)
     defineWavetable('evaled', [[1], [0, 1], [0, 0, 1]])
-    expect(previewFrames('evaled', [])!).toHaveLength(3)
-    // nowhere
-    expect(previewFrames('ghost', [])).toBeNull()
+    expect(previewFrames('evaled', [], getWavetableBank)!).toHaveLength(3)
+    // nowhere / no injected bank (the docs page before the engine loads)
+    expect(previewFrames('ghost', [], getWavetableBank)).toBeNull()
+    expect(previewFrames('basic', [])).toBeNull()
   })
 })

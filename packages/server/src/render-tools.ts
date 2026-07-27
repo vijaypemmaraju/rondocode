@@ -27,7 +27,7 @@ import { z } from 'zod'
 import { renderMix, runPatterns, stageCode } from './render-runner'
 import type { MixResult, StageResult } from './render-runner'
 // Deep read-only imports from sibling package source (see mcp.ts header).
-import { analyze, encodeWav16, renderOffline } from '../../engine/src/index'
+import { analyze, encodeWav16, getCustomWavetables, renderOffline } from '../../engine/src/index'
 import type { Analysis } from '../../engine/src/index'
 import { clampCps } from '../../app/src/session/evalCode'
 
@@ -127,6 +127,7 @@ const renderProgram = (
   }
   const durationSec = musicSec + TAIL_SEC
   const events = runPatterns(staged.patterns, { cycles, cps })
+  const tables = getCustomWavetables()
   const mix = renderMix(staged.synths, events, durationSec, {
     maxVoices: 12,
     // Forward buses/sends/masterComp too, so the offline render an agent "hears"
@@ -135,6 +136,9 @@ const renderProgram = (
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
+    // Custom wavetables the program just registered (defineWavetable/wavedef):
+    // explicit, though the kernels would also find this realm's registry.
+    ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
   })
   const analysis = analyze({ left: mix.left, right: mix.right, sampleRate: mix.sampleRate })
   const unknownSounds = [...events.keys()].filter((s) => !staged.synths.has(s))

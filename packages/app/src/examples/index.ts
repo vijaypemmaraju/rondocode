@@ -2941,20 +2941,25 @@ cps .45
 `
 
 
-/** WAVETABLE LEAD: the harmonic table's moving formant, scanned by the
+/** WAVETABLE LEAD: a hand-drawn custom table (wavedef), scanned by the
  *  envelope - the most sweepable sound in the engine, showcased. */
-const waveleadRondo = `# WAVETABLE LEAD. the harmonic
-# table is a MOVING FORMANT; the
-# envelope scans it every note, so
-# each note blooms like a vowel.
-# ott is the modern sheen. grab
-# detune, glide, or the scan top.
+const waveleadRondo = `# WAVETABLE LEAD. the wavedef line
+# below is a CUSTOM table: three
+# frames of harmonic partials, the
+# formant climbing h1 > h2 > h3.
+# tap a frame, drag the bars - the
+# numbers ARE the sound. the env
+# scans it, so notes bloom like a
+# vowel. ott is the modern sheen.
+
+wavedef vowel 1 .25 / .4 1 .6 .3 / .2 .5 .9 1 .7
 
 synth lead mono glide:.045
-  wavetable note scan table:harmonic
-  mix wide .45
+  wavetable note scan table:vowel
+  mix wide .55
   * env
   ott depth:.8
+  exciter freq:2400 amount:.7
   eq hp 180 peak 2800 2.5 1
   * .95
   env = adsr .004 .12 .75 .2

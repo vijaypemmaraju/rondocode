@@ -62,6 +62,11 @@ export interface Hooks {
   /** current tempo (cycles/sec) — lets the read-only query roll map an
    *  event's absolute time to its phase within the cycle. */
   cps?: () => number
+  /** wavetable bank lookup (engine getWavetableBank), INJECTED because this
+   *  module sits in the docs page's eager graph and must not statically pull
+   *  the audio engine — see wavetable.ts's module doc. Absent, the ribbon
+   *  still draws tables defined by the doc's own wavedef lines. */
+  wavetableBank?: (name: string) => Float32Array[][] | undefined
 }
 
 /** A tiny haptic tick on widget interactions (Android; a silent no-op where
@@ -1401,7 +1406,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push({ pos: wd.at, deco: Decoration.widget({ widget: new WavedefWidget(wd, wdWidth, hooks, drag), side: 1 }) })
   }
   for (const call of scanWavetableCalls(text)) {
-    const frames = previewFrames(call.table, wavedefs)
+    const frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
     if (frames === null) continue // unknown table: the eval diagnostic tells that story
     const def = wavedefs.find((d) => d.name === call.table)
     const framesKey = `${call.table}:${def !== undefined ? JSON.stringify(def.frames) : 'bank'}`

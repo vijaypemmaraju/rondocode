@@ -151,7 +151,8 @@ setCps(0.35)`,
     blocks: [
       p('Inside the synth function you build a signal graph out of oscillators (sine, saw, square, tri, pulse, wavetable, noise), filters (svf, ladder, onepole, dualsvf), and envelopes (adsr, lfo). Signals combine with .mul, .add, .mix, and .range.'),
       p('dualsvf is the Serum-style dual filter: two svf stages with their own cutoffs and types (a/b), run serial (hp into lp carves a steep band) or parallel (lp + hp leaves a hole between the cutoffs). And unison stacks can be SHAPED from the synth opts: curve (>1 pulls the inner voices toward the note), blend (edge-voice gain 0..1) and octaves (every Nth voice plays +12) turn a flat detune spread into a sculpted supersaw.'),
-      p("The wavetable oscillator is the most sweepable sound in the engine: `wavetable(freq, pos, { table })` scans `pos` (0..1) through a bank of single-cycle waves. Tables: `basic` (sine to saw to square), `harmonic` (a MOVING FORMANT, the vowel-like bloom under a lot of modern leads), `pwm` (widening pulses). Drive `pos` with an envelope so every note opens through the table. The 'wavetable lead' example is the full recipe: formant scan, supersaw width, mono glide, ott sheen."),
+      p("The wavetable oscillator is the most sweepable sound in the engine: `wavetable(freq, pos, { table })` scans `pos` (0..1) through a bank of single-cycle waves. Built-in tables: `basic` (sine to saw to square), `harmonic` (a MOVING FORMANT, the vowel-like bloom under a lot of modern leads), `pwm` (widening pulses). Drive `pos` with an envelope so every note opens through the table. The 'wavetable lead' example is the full recipe: formant scan, supersaw width, mono glide, ott sheen."),
+      p("You can also DESIGN a table: `defineWavetable('vox', [[1, 0.25], [0.4, 1, 0.5], [0.3, 0.8, 1, 0.7]])` registers a custom bank where each frame is a list of harmonic partial amplitudes (harmonic 1, 2, 3, ...) and `pos` morphs between the frames. The engine synthesizes band-limited waves from the partials, so a custom table stays as clean up high as the built-ins, and because the table is just numbers in your code, editing an amplitude IS sound design. Call defineWavetable before the synth that names the table."),
       p('This is an acid bass: a sawtooth through a ladder filter, with the envelope opening the cutoff on each note. param() declares a knob you can automate later.'),
       code(
         'A ladder bass with a resonant filter sweep, and a dual-filtered, shaped-unison stab over it.',
@@ -717,6 +718,23 @@ play growl
   dur: .9
 
 cps .55`,
+      ),
+      p("`wavedef NAME …` designs a custom wavetable for the `wavetable` oscillator: each `/`-separated frame is a list of harmonic partial amplitudes (harmonic 1, 2, 3, …), and the oscillator's `pos` argument morphs between the frames. Reference it with `table:NAME` anywhere in the file; the line renders as a touch editor (tap a frame, drag the partial bars, `+` adds a harmonic) and every drag rewrites the numbers, so the text stays the whole truth. The synth line below it shows the morph live, sweeping with each note."),
+      rondo(
+        'A custom vowel-ish table, scanned by the envelope.',
+        `wavedef vowel 1 .25 / .4 1 .5 / .3 .8 1
+
+synth ooh
+  wavetable note scan table:vowel
+  * env
+  env = adsr .005 .12 .8 .15
+  scan = env -> .1...9
+
+play ooh
+  0 3 5 7  scale:a-min
+  dur: .85
+
+cps .5`,
       ),
     ],
   },

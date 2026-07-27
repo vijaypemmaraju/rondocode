@@ -1,3 +1,4 @@
+import { getCustomWavetables } from '@rondocode/engine'
 import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
 import type { AudioSession } from '../audio/AudioSession'
 import { normalize, toMono } from './micrec'
@@ -55,12 +56,15 @@ export function renderStagedMix(
   const cps = staged.cps ?? 0.5
   const durationSec = cycles / cps
   const events = runPatterns(staged.patterns, { cycles, cps })
+  const tables = getCustomWavetables()
   const mix = renderMix(staged.synths, events, durationSec, {
     sampleRate: 48000,
     ...(samples ? { samples } : {}),
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
+    // custom wavetables the staged program registered (defineWavetable/wavedef)
+    ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
   })
   return { left: mix.left, right: mix.right, sampleRate: mix.sampleRate, cps }
 }

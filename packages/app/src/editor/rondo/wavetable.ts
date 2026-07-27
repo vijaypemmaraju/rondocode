@@ -23,7 +23,6 @@
  */
 
 import { EditorView, WidgetType } from '@codemirror/view'
-import { getWavetableBank, WAVETABLE_MAX_PARTIALS } from '@rondocode/engine'
 import { formatNumber } from '../widgets/rewrite'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
@@ -31,6 +30,14 @@ import { buzz } from './widgets'
 import type { Hooks } from './widgets'
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v)
+
+/** Partial cap per frame. MUST equal the engine's WAVETABLE_MAX_PARTIALS —
+ *  pinned by a test — but duplicated here because this module must not
+ *  STATICALLY import @rondocode/engine: widgets.ts is in the docs page's
+ *  eager graph, and the audio engine only loads there on the first play
+ *  (the code-splitting boundary in eager-graph.test.ts). Engine-backed bank
+ *  lookups arrive via the injectable Hooks.wavetableBank instead. */
+export const MAX_PARTIALS = 32
 
 /* ------------------------------- scanning --------------------------------- */
 
@@ -79,7 +86,7 @@ export function scanWavedefs(text: string): WavedefScan[] {
         const isNum = NUM_RE.test(t[0]) && NUM_RE.lastIndex === t[0].length
         const v = Number(t[0])
         if (!isNum || !Number.isFinite(v)) { okLine = false; break }
-        if (frames[frames.length - 1]!.length >= WAVETABLE_MAX_PARTIALS) { okLine = false; break }
+        if (frames[frames.length - 1]!.length >= MAX_PARTIALS) { okLine = false; break }
         frames[frames.length - 1]!.push(v)
         ranges[ranges.length - 1]!.push({ from: bodyOff + t.index, to: bodyOff + t.index + t[0].length })
       }
@@ -164,7 +171,7 @@ export function barValue(y: number, top: number, height: number): number {
  *  the frame is already at the partial cap). Pure. */
 export function appendPartialEdit(scan: WavedefScan, f: number): { from: number; to: number; insert: string } | null {
   const frame = scan.ranges[f]
-  if (frame === undefined || frame.length >= WAVETABLE_MAX_PARTIALS) return null
+  if (frame === undefined || frame.length >= MAX_PARTIALS) return null
   const last = frame[frame.length - 1]!
   return { from: last.to, to: last.to, insert: ' 0' }
 }
@@ -222,13 +229,19 @@ export function morphWave(frames: readonly Float32Array[], t: number): Float32Ar
 }
 
 /** Preview waveforms for `table`: the doc's own wavedef lines FIRST (fresh
- *  while typing, before any eval), then the engine bank (built-ins + the
- *  last successful eval's registry). Null when the name resolves nowhere. */
-export function previewFrames(table: string, docDefs: readonly WavedefScan[], points = 96): Float32Array[] | null {
+ *  while typing, before any eval), then `bank` — the injected engine lookup
+ *  (built-ins + the last successful eval's registry; see Hooks.wavetableBank).
+ *  Null when the name resolves nowhere. */
+export function previewFrames(
+  table: string,
+  docDefs: readonly WavedefScan[],
+  bank?: (name: string) => Float32Array[][] | undefined,
+  points = 96,
+): Float32Array[] | null {
   const def = docDefs.find((d) => d.name === table)
   if (def !== undefined) return def.frames.map((f) => partialWave(f, points))
-  const bank = getWavetableBank(table)
-  if (bank !== undefined) return bank.map((mips) => downsampleWave(mips[0]!, points))
+  const mips = bank?.(table)
+  if (mips !== undefined) return mips.map((m) => downsampleWave(m[0]!, points))
   return null
 }
 

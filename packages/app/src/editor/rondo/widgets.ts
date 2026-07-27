@@ -429,6 +429,181 @@ export function richRollCells(notation: string): { cells: RichCell[]; rows: numb
   }
 }
 
+/** Probe cap for the whole-period overview: an alternation with more arms
+ *  than this never repeats within the probe, and rendering a PARTIAL view
+ *  would lie — the widget renders nothing instead. */
+export const MAX_OVERVIEW_BARS = 8
+/** Cell budget across the WHOLE overview — past this the roll is soup, and a
+ *  soup view is worse than none (nothing renders). */
+export const MAX_OVERVIEW_CELLS = 256
+
+export interface RollOverviewData {
+  /** bars in the repeating period (1 = a true single-cycle figure). */
+  period: number
+  /** cells in WHOLE-PERIOD x units: bar b spans [b, b+1). */
+  cells: RichCell[]
+  rows: number
+}
+
+/** Query a rich notation cycle by cycle until it repeats (cap
+ *  MAX_OVERVIEW_BARS) and lay the whole period out as roll cells — bar b's
+ *  cells sit at x in [b, b+1). This is the HONESTY layer over richRollCells'
+ *  cycle-0-only view: a multi-cycle pattern (`<…>` alternation) reports its
+ *  real period so the widget can show every bar; a pattern that does NOT
+ *  repeat within the cap (`?` degrade, 9+ arms) or would exceed the cell
+ *  budget returns null — no widget, never a misleading partial. Pure. */
+export function rollOverviewData(
+  notation: string,
+  cap = MAX_OVERVIEW_BARS,
+  budget = MAX_OVERVIEW_CELLS,
+): RollOverviewData | null {
+  try {
+    const pattern = miniParse(notation).pattern
+    const perCycle: { x0: number; x1: number; deg: number }[][] = []
+    const keys: string[] = []
+    // probe TWO periods' worth of cycles: a candidate period p is only real
+    // when a full second period repeats it (probing exactly `cap` cycles
+    // would accept p = cap vacuously — a 9-arm alternation's first 8 bars
+    // look period-8 until cycle 8 arrives)
+    const probe = cap * 2
+    for (let k = 0; k < probe; k++) {
+      const haps = pattern.query(new TimeSpan(F(k), F(k + 1)))
+      const raw: { x0: number; x1: number; deg: number }[] = []
+      for (const h of haps) {
+        const whole = (h as { whole?: { begin: { n: number; d: number }; end: { n: number; d: number } } }).whole
+        if (whole === undefined) continue
+        const v = (h.value as { value?: unknown })?.value ?? h.value
+        const deg = typeof v === 'number' ? v : Number(v)
+        if (!Number.isFinite(deg)) continue
+        const x0 = whole.begin.n / whole.begin.d - k
+        const x1 = whole.end.n / whole.end.d - k
+        // onsets in THIS cycle only (the cycle-0 filter, generalized)
+        if (!(x1 > x0) || x0 < -1e-9 || x0 >= 1 - 1e-9) continue
+        raw.push({ x0: Math.max(x0, 0), x1: Math.min(x1, 1), deg })
+      }
+      raw.sort((a, b) => a.x0 - b.x0 || a.deg - b.deg)
+      perCycle.push(raw)
+      keys.push(raw.map((c) => `${c.x0.toFixed(6)},${c.x1.toFixed(6)},${c.deg}`).join('|'))
+    }
+    // smallest period P where every probed cycle equals cycle (k mod P)
+    let period = 0
+    for (let p = 1; p <= cap; p++) {
+      let ok = true
+      for (let k = p; k < probe; k++) {
+        if (keys[k] !== keys[k % p]) { ok = false; break }
+      }
+      if (ok) { period = p; break }
+    }
+    if (period === 0) return null // never repeats within the cap: no honest view
+    const bars = perCycle.slice(0, period)
+    const total = bars.reduce((n, b) => n + b.length, 0)
+    if (total === 0 || total > budget) return null
+    const degs = [...new Set(bars.flat().map((c) => c.deg))].sort((a, b) => a - b)
+    const rowOf = new Map(degs.map((d, i) => [d, i]))
+    const cells: RichCell[] = []
+    for (let b = 0; b < period; b++) {
+      for (const c of bars[b]!) cells.push({ x0: b + c.x0, x1: b + c.x1, row: rowOf.get(c.deg)!, deg: c.deg })
+    }
+    return { period, cells, rows: degs.length }
+  } catch {
+    return null
+  }
+}
+
+/** One roll row = one degree step: quantize a vertical drag (px up from the
+ *  gesture start) to whole transpose steps. Pure. */
+export function transposeSteps(dyUp: number, rowH: number): number {
+  return Math.round(dyUp / Math.max(rowH, 1))
+}
+
+/** The cell layer's y offset while previewing a transpose of `steps` degrees
+ *  (up is negative y — pitch climbs the screen). Pure. */
+export function transposePreviewShift(steps: number, rowH: number): number {
+  return steps === 0 ? 0 : -steps * rowH
+}
+
+export interface AddTarget {
+  /** the block's current `add N` (0 when the line does not exist yet). */
+  base: number
+  /** an EXISTING add line: the N literal's absolute range (update in place). */
+  numFrom?: number
+  numTo?: number
+  /** a MISSING add line: insert `insertPrefix + N` at this offset. */
+  insertAt?: number
+  insertPrefix?: string
+}
+
+/** Locate the `add N` modifier line of the play block whose notation starts
+ *  at `notationFrom` — the whole-roll transpose handle's write target. Null
+ *  when the enclosing block isn't a play block or its add line is too rich
+ *  for the handle to own (`add .5`, `add <0 7>`). When the line is missing,
+ *  reports the insertion point after the block's LAST notation line (the
+ *  established modifier position). Pure. */
+export function findAddTarget(text: string, notationFrom: number): AddTarget | null {
+  const lines = text.split('\n')
+  const offs: number[] = []
+  let o = 0
+  for (const l of lines) { offs.push(o); o += l.length + 1 }
+  let li = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (notationFrom >= offs[i]! && notationFrom <= offs[i]! + lines[i]!.length) { li = i; break }
+  }
+  if (li < 0) return null
+  const stripCm = (raw: string): string => {
+    const cm = /(^|\s)#/.exec(raw)
+    return cm ? raw.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : raw
+  }
+  const indent = /^[ \t]*/.exec(lines[li]!)![0]
+  // the enclosing header: nearest code line above with LESS indent — must be
+  // a play header, else the handle has no `add` idiom to write
+  let head = -1
+  let headIndent = -1
+  for (let i = li - 1; i >= 0; i--) {
+    const ln = lines[i]!
+    if (/^[ \t]*$/.test(ln) || /^[ \t]*#/.test(ln)) continue
+    const ind = /^[ \t]*/.exec(ln)![0].length
+    if (ind >= indent.length) continue
+    if (!/^[ \t]*play\b/.test(stripCm(ln))) return null
+    head = i
+    headIndent = ind
+    break
+  }
+  if (head < 0) return null
+  // walk the block body (deeper-indented lines; blanks/comments don't end it)
+  let lastNotation = li
+  for (let j = head + 1; j < lines.length; j++) {
+    const raw = lines[j]!
+    if (/^[ \t]*$/.test(raw) || /^[ \t]*#/.test(raw)) continue
+    const ind = /^[ \t]*/.exec(raw)![0].length
+    if (ind <= headIndent) break // dedent — the block ended
+    const code = stripCm(raw)
+    const body = code.slice(ind).replace(/[ \t]+$/, '')
+    const am = /^(add[ \t]+)(-?\d+)$/.exec(body)
+    if (am) {
+      const numFrom = offs[j]! + ind + am[1]!.length
+      return { base: Number(am[2]!), numFrom, numTo: numFrom + am[2]!.length }
+    }
+    if (/^add\b/.test(body)) return null // an add line the handle can't own
+    // a degree-notation line (the charset scanRichPlays/scanPlays accept,
+    // scale suffix aside) — the insert point trails the last of these
+    const noScale = body.replace(/\bscale:[a-gA-G][a-zA-Z0-9#_-]*/, '').replace(/[ \t]+$/, '')
+    if (j > li && /^[0-9~\s<>[\]{}%*/!@?,.()-]+$/.test(noScale) && noScale.length > 0) lastNotation = j
+  }
+  return { base: 0, insertAt: offs[lastNotation]! + lines[lastNotation]!.length, insertPrefix: `\n${indent}add ` }
+}
+
+/** The doc edit setting the block's transpose to `n` — an in-place literal
+ *  update, or a whole-line insert when the block has no add line yet. Null
+ *  when nothing would change (n equals the current value). Pure. */
+export function addLineEdit(t: AddTarget, n: number): { from: number; to: number; insert: string } | null {
+  if (n === t.base) return null
+  if (t.numFrom !== undefined && t.numTo !== undefined) {
+    return { from: t.numFrom, to: t.numTo, insert: String(n) }
+  }
+  if (t.insertAt === undefined) return null
+  return { from: t.insertAt, to: t.insertAt, insert: `${t.insertPrefix ?? '\nadd '}${n}` }
+}
+
 export interface RichPlay {
   /** the notation text — a play event's `loc.src` equals this. */
   content: string
@@ -487,6 +662,106 @@ export function euclidText(p: number, s: number, r: number): string {
   return r !== 0 ? `(${p},${s},${r})` : `(${p},${s})`
 }
 
+/** The whole-roll TRANSPOSE grab strip: a narrow left-edge handle (44px
+ *  touch target via its CSS bleed) drawn as a subtle double chevron. */
+function makeGrabStrip(): HTMLElement {
+  const grab = document.createElement('span')
+  grab.className = 'qr-grab'
+  grab.title = 'drag up/down: transpose the whole pattern (add N)'
+  grab.setAttribute('role', 'slider')
+  grab.setAttribute('aria-label', 'transpose the whole pattern')
+  grab.innerHTML =
+    '<svg width="10" height="18" viewBox="0 0 10 18">' +
+    '<path d="M1.5 6.5 L5 3 L8.5 6.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="M1.5 11.5 L5 15 L8.5 11.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '</svg>'
+  return grab
+}
+
+/** Wire a roll's grab strip: a vertical drag transposes the whole pattern by
+ *  rewriting the play block's `add N` modifier (scale-aware — degrees resolve
+ *  through the scale downstream), one roll row per step. An EXISTING add
+ *  line is live-rewritten per move (LiveWriter, write-verify): the edit is on
+ *  a DIFFERENT line than the widget's anchor, so neither roll form shifts
+ *  under the pointer. A MISSING line is inserted after the notation lines at
+ *  gesture end only (a line-count-changing write defers per the widget
+ *  rules). `preview` shifts the cell layer so the transpose is visible while
+ *  dragging; the sounding preview comes free on the next eval. */
+function attachTransposeGesture(
+  grab: HTMLElement,
+  view: EditorView,
+  drag: Drag,
+  hooks: Hooks,
+  opts: { srcFrom: number; content: string; rowH: number; preview: (steps: number) => void },
+): void {
+  attachGesture(grab, drag, 'window', (e) => {
+    // gesture-time verify: the notation must still sit where the widget
+    // believes (any external edit rebuilds widgets, but never trust a race)
+    const doc = view.state.doc.toString()
+    if (doc.slice(opts.srcFrom, opts.srcFrom + opts.content.length) !== opts.content) return null
+    const target = findAddTarget(doc, opts.srcFrom)
+    if (target === null) return null
+    buzz()
+    grab.classList.add('active')
+    const y0 = e.clientY
+    let steps = 0
+    let wrote = false
+    const writer = target.numFrom !== undefined && target.numTo !== undefined
+      ? new LiveWriter(view, target.numFrom, target.numTo)
+      : null
+    return {
+      onMove: (ev) => {
+        const s = transposeSteps(y0 - ev.clientY, opts.rowH)
+        if (s === steps) return
+        steps = s
+        buzz()
+        if (writer !== null) {
+          if (!writer.write(String(target.base + steps))) return // aborted: go quiet
+          wrote = true
+          hooks.requestEval(false)
+        }
+        opts.preview(steps)
+      },
+      onEnd: () => {
+        grab.classList.remove('active')
+        opts.preview(0)
+        if (writer !== null) {
+          if (!wrote) return // never moved a step — nothing to resync
+          drag.ended = true
+          view.dispatch({}) // empty transaction → ONE rebuild (fresh ranges)
+          hooks.requestEval(false)
+          return
+        }
+        if (steps === 0) return
+        // deferred INSERT: derive the edit from the doc AS IT IS NOW, then
+        // write-verify (an insert's expected slice is the empty string)
+        const now = view.state.doc.toString()
+        if (now.slice(opts.srcFrom, opts.srcFrom + opts.content.length) !== opts.content) {
+          view.dispatch({}) // edited under the gesture — resync, no write
+          return
+        }
+        const t2 = findAddTarget(now, opts.srcFrom)
+        const edit = t2 === null ? null : addLineEdit(t2, t2.base + steps)
+        if (edit === null) {
+          view.dispatch({})
+          return
+        }
+        drag.ended = true
+        const ok = verifiedChanges(view, [{
+          from: edit.from, to: edit.to,
+          expected: now.slice(edit.from, edit.to),
+          insert: edit.insert,
+        }])
+        if (!ok) {
+          view.dispatch({})
+          return
+        }
+        hooks.requestEval(false)
+      },
+    }
+  })
+}
+
 /** READ-ONLY roll for rich notation: cycle 0's events on a time-proportional
  *  lane (row = degree), a sweeping playhead line, and cells that bloom as
  *  their notes sound. No editing — the text stays the only write surface. */
@@ -510,12 +785,22 @@ class QueryRollWidget extends WidgetType {
 
   toDOM(view: EditorView): HTMLElement {
     const { cells, rows } = this.cellData
+    const outer = document.createElement('span')
+    outer.className = 'rondo-qwrap'
+    const grab = makeGrabStrip()
+    outer.appendChild(grab)
     const wrap = document.createElement('span')
     wrap.className = 'rondo-qroll'
     wrap.setAttribute('role', 'img')
     wrap.setAttribute('aria-label', 'pattern preview (cycle 1)')
+    outer.appendChild(wrap)
     const rowH = rows > 4 ? 8 : 12
     wrap.style.height = `${Math.max(rows * rowH + 6, 22)}px`
+    // cells live on their own layer so a transpose drag can shift every row
+    // at once (translateY preview) without touching the playhead
+    const layer = document.createElement('span')
+    layer.className = 'qr-layer'
+    wrap.appendChild(layer)
     let cellEls: { el: HTMLElement; c: RichCell }[] = []
     const renderCells = (cs: RichCell[]): void => {
       for (const { el } of cellEls) el.remove()
@@ -528,13 +813,23 @@ class QueryRollWidget extends WidgetType {
         el.style.bottom = `${3 + c.row * rowH}px`
         el.style.height = `${rowH - 2}px`
         cellEls.push({ el, c })
-        wrap.appendChild(el)
+        layer.appendChild(el)
       }
     }
     renderCells(cells)
     const head = document.createElement('span')
     head.className = 'qr-head'
     wrap.appendChild(head)
+
+    // WHOLE-ROLL TRANSPOSE: the left grab strip writes the block's `add N`
+    attachTransposeGesture(grab, view, this.drag, this.hooks, {
+      srcFrom: this.srcFrom,
+      content: this.content,
+      rowH,
+      preview: (steps) => {
+        layer.style.transform = steps === 0 ? '' : `translateY(${transposePreviewShift(steps, rowH)}px)`
+      },
+    })
 
     // playhead: an event on THIS notation reveals the current cycle phase
     // (phase = timeSec·cps mod 1); a rAF sweep rides from there until the
@@ -624,7 +919,7 @@ class QueryRollWidget extends WidgetType {
         }
       })
     }
-    return wrap
+    return outer
   }
 
   destroy(): void {
@@ -634,6 +929,178 @@ class QueryRollWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean { return true }
+}
+
+/** FULL-WIDTH clip overview for a MULTI-CYCLE rich notation: the whole
+ *  repeating period (a top-level `<…>` alternation's bars) side by side
+ *  below the line — bar separators, rows = degrees, time-proportional cells,
+ *  a playhead that traverses the correct BAR as the alternation advances,
+ *  and the left transpose strip. A DAW-style clip view; read-only otherwise.
+ *  Served as a BLOCK decoration by blockWidgetField (the #107 wavedef
+ *  lifecycle: map while drag.active, rebuild once on drag.ended) — an inline
+ *  widget after a soft-wrapped mega-line floats at a weird mid-wrap position,
+ *  which was the shipped complaint. */
+export class RollOverviewWidget extends WidgetType {
+  private unsub?: () => void
+  private raf = 0
+  private readonly timers = new Timers()
+
+  constructor(
+    readonly content: string,
+    /** notation start in the source (the transpose gesture's block anchor). */
+    readonly srcFrom: number,
+    readonly data: RollOverviewData,
+    /** measured content width — part of eq() (resize swaps in fresh DOM). */
+    readonly width: number,
+    readonly hooks: Hooks,
+    readonly drag: Drag,
+  ) { super() }
+
+  eq(o: RollOverviewWidget): boolean {
+    // cells/rows derive from content, so content + srcFrom + width identify
+    // the DOM (srcFrom keeps captured offsets fresh across edits above)
+    return o.content === this.content && o.srcFrom === this.srcFrom && o.width === this.width
+  }
+
+  private get rowH(): number {
+    return this.data.rows > 8 ? 6 : this.data.rows > 4 ? 8 : 12
+  }
+
+  private get bodyH(): number {
+    return Math.max(this.data.rows * this.rowH + 6, 30)
+  }
+
+  get estimatedHeight(): number {
+    return this.bodyH + 10 // + the wrap's padding (see rondo-ui.css)
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const { period, cells, rows } = this.data
+    const rowH = this.rowH
+    const outer = document.createElement('div')
+    outer.className = 'rondo-rollov'
+    outer.style.width = `${this.width}px`
+    outer.setAttribute('role', 'img')
+    outer.setAttribute('aria-label', `pattern overview (${period} bars)`)
+    const grab = makeGrabStrip()
+    outer.appendChild(grab)
+    const body = document.createElement('div')
+    body.className = 'ro-body'
+    body.style.height = `${this.bodyH}px`
+    outer.appendChild(body)
+    // subtle bar separators between the period's bars
+    for (let b = 1; b < period; b++) {
+      const sep = document.createElement('span')
+      sep.className = 'ro-bar'
+      sep.style.left = `${((b / period) * 100).toFixed(3)}%`
+      body.appendChild(sep)
+    }
+    const layer = document.createElement('span')
+    layer.className = 'qr-layer'
+    body.appendChild(layer)
+    const cellEls: { el: HTMLElement; c: RichCell }[] = []
+    for (const c of cells) {
+      const el = document.createElement('span')
+      el.className = 'qr-cell'
+      el.style.left = `${((c.x0 / period) * 100).toFixed(3)}%`
+      el.style.width = `calc(${(((c.x1 - c.x0) / period) * 100).toFixed(3)}% - 1px)`
+      el.style.bottom = `${3 + c.row * rowH}px`
+      el.style.height = `${rowH - 2}px`
+      cellEls.push({ el, c })
+      layer.appendChild(el)
+    }
+    const head = document.createElement('span')
+    head.className = 'qr-head'
+    body.appendChild(head)
+
+    // PLAYHEAD across the WHOLE period: an event on this notation anchors the
+    // absolute cycle position (timeSec·cps mod period — the inline roll's
+    // phase anchor, generalized), so the sweep rides through the correct bar
+    // as the alternation advances, blooming cells as it crosses their onsets.
+    if (this.hooks.onNoteEvents && this.hooks.now && this.hooks.cps) {
+      const now = this.hooks.now
+      const cps = this.hooks.cps
+      let anchor: { t: number; pos: number } | null = null
+      let lastEv = 0
+      const frame = (): void => {
+        if (anchor === null) { this.raf = 0; return }
+        const tNow = now()
+        if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) {
+          // feed quiet for ~2 cycles: hide the head, stop sweeping
+          head.style.opacity = '0'
+          for (const { el } of cellEls) el.classList.remove('on')
+          anchor = null
+          this.raf = 0
+          return
+        }
+        const pos = (anchor.pos + (tNow - anchor.t) * cps()) % period
+        head.style.opacity = '1'
+        head.style.left = `${((pos / period) * 100).toFixed(2)}%`
+        for (const { el, c } of cellEls) {
+          el.classList.toggle('on', pos >= c.x0 && pos < c.x1)
+        }
+        this.raf = requestAnimationFrame(frame)
+      }
+      this.unsub = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (ev.src !== this.content) continue
+          this.timers.at((ev.timeSec - now()) * 1000, () => {
+            anchor = { t: ev.timeSec, pos: (ev.timeSec * cps()) % period }
+            lastEv = now()
+            if (this.raf === 0) this.raf = requestAnimationFrame(frame)
+          })
+        }
+      })
+    }
+
+    // WHOLE-ROLL TRANSPOSE: the left grab strip writes the block's `add N`
+    attachTransposeGesture(grab, view, this.drag, this.hooks, {
+      srcFrom: this.srcFrom,
+      content: this.content,
+      rowH,
+      preview: (steps) => {
+        layer.style.transform = steps === 0 ? '' : `translateY(${transposePreviewShift(steps, rowH)}px)`
+      },
+    })
+    return outer
+  }
+
+  destroy(): void {
+    this.unsub?.()
+    this.timers.clear()
+    cancelAnimationFrame(this.raf)
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
+/** BLOCK decorations for every MULTI-CYCLE rich play line: the overview
+ *  renders below the notation line (side 1 at the line end, like the wavedef
+ *  editor) so it can never float mid-wrap in a soft-wrapped mega-line.
+ *  Single-cycle figures stay with the compact inline roll (build()); a
+ *  pattern with no honest overview (never repeats within the cap, or over
+ *  the cell budget) gets NOTHING here AND nothing inline — the cycle-0-only
+ *  thumbnail must never appear for a multi-cycle pattern. Exported for
+ *  blockWidgetField and the contract tests. */
+export function rollOverviewBlockDecos(
+  text: string,
+  width: number,
+  hooks: Hooks,
+  drag: Drag,
+): Range<Decoration>[] {
+  const out: Range<Decoration>[] = []
+  for (const rp of scanRichPlays(text)) {
+    const data = rollOverviewData(rp.content)
+    if (data === null || data.period < 2) continue
+    const nl = text.indexOf('\n', rp.to)
+    const lineEnd = nl === -1 ? text.length : nl
+    out.push(Decoration.widget({
+      widget: new RollOverviewWidget(rp.content, rp.from, data, width, hooks, drag),
+      side: 1,
+      block: true,
+    }).range(lineEnd))
+  }
+  return out
 }
 
 class KnobWidget extends WidgetType {
@@ -1439,10 +1906,18 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
-    const data = richRollCells(rp.content)
-    if (data !== null) {
-      items.push(Decoration.widget({ widget: new QueryRollWidget(rp.content, rp.from, data, hooks, drag), side: 1 }).range(rp.to))
-    }
+    // HONESTY: only a TRUE single-cycle figure earns the compact inline roll.
+    // Multi-cycle patterns get the full-width block overview instead (served
+    // by blockWidgetField); patterns with no honest view at all — never
+    // repeating within the probe cap, or over the cell budget — get NOTHING.
+    // The old cycle-0-only thumbnail must never appear for a multi-cycle
+    // pattern in any fallback path.
+    const data = rollOverviewData(rp.content)
+    if (data === null || data.period !== 1) continue
+    items.push(Decoration.widget({
+      widget: new QueryRollWidget(rp.content, rp.from, { cells: data.cells, rows: data.rows }, hooks, drag),
+      side: 1,
+    }).range(rp.to))
   }
   for (const b of scanBeats(text)) {
     // one sequencer per block, hanging off the LAST qualifying row's line
@@ -1450,7 +1925,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     items.push(Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }).range(pos))
   }
   // wavetable widgets: v1 RIBBON on synth-body wavetable calls (the v2
-  // wavedef EDITOR is a BLOCK widget — served by wavedefField below, since
+  // wavedef EDITOR is a BLOCK widget — served by blockWidgetField below, since
   // block decorations may not come from a view plugin). The doc's own
   // wavedefs feed the ribbon fresh while typing; built-ins and last-eval
   // registry tables fill in the rest.
@@ -1497,35 +1972,43 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
 /** Movement slop that still counts as a TAP on an enum word (px²). */
 const ENUM_TAP_SLOP_SQ = 64
 
-/** Width refresh for the wavedef block widgets (resize/rotation). */
-const setWavedefWidth = StateEffect.define<number>()
+/** Width refresh for the block widgets (resize/rotation). */
+const setBlockWidth = StateEffect.define<number>()
 
-/** The wavedef EDITOR as a StateField of BLOCK decorations. CodeMirror
- *  forbids layout-affecting (block) decorations from view plugins, so the
- *  editor cannot ride the main plugin — and it must NOT be inline: an inline
- *  widget after the line's text shifts with every live rewrite that changes
- *  a number's length, which is exactly the shipped drag/position bug.
+/** The BLOCK widgets — the wavedef editor and the multi-cycle roll overview
+ *  — as a StateField of block decorations. CodeMirror forbids
+ *  layout-affecting (block) decorations from view plugins, so they cannot
+ *  ride the main plugin — and they must NOT be inline: an inline widget
+ *  after the line's text shifts with every live rewrite that changes the
+ *  line's length (the shipped wavedef drag bug), and it floats mid-wrap on a
+ *  soft-wrapped mega-line (the shipped query-roll complaint).
  *
  *  The field follows the same drag lifecycle as the plugin: map (never
  *  rebuild) while a gesture is live so the dragged DOM survives, rebuild
  *  ONCE on the gesture's end dispatch, rebuild on any other doc change, and
  *  rebuild when the measured width actually changes (the companion watcher
- *  plugin dispatches setWavedefWidth outside the update cycle).
+ *  plugin dispatches setBlockWidth outside the update cycle).
  *
- *  Exported for the contract tests (wavetable-widget.test.ts pins the
- *  map-mid-drag / rebuild-once-at-end lifecycle headlessly). */
-export function wavedefField(hooks: Hooks, drag: Drag): Extension {
+ *  Exported for the contract tests (wavetable-widget.test.ts and
+ *  roll-overview.test.ts pin the map-mid-drag / rebuild-once-at-end
+ *  lifecycle headlessly). */
+export function blockWidgetField(hooks: Hooks, drag: Drag): Extension {
   // measured content width; a sane pre-measure default, corrected by the
   // watcher's first dispatch (eq() includes width, so the correction swaps
   // in fresh DOM once)
   let width = 360
-  const build = (state: EditorState): DecorationSet =>
-    Decoration.set(wavedefBlockDecos(state.doc.toString(), width, hooks, drag), true)
+  const build = (state: EditorState): DecorationSet => {
+    const text = state.doc.toString()
+    return Decoration.set([
+      ...wavedefBlockDecos(text, width, hooks, drag),
+      ...rollOverviewBlockDecos(text, width, hooks, drag),
+    ], true)
+  }
   const field = StateField.define<DecorationSet>({
     create: (state) => build(state),
     update: (decos, tr) => {
       let w: number | null = null
-      for (const e of tr.effects) if (e.is(setWavedefWidth)) w = e.value
+      for (const e of tr.effects) if (e.is(setBlockWidth)) w = e.value
       if (w !== null && w !== width) { width = w; return build(tr.state) }
       // a live gesture: map our own edits through — rebuilding would destroy
       // the dragged element (and its pointer stream) mid-gesture
@@ -1553,7 +2036,7 @@ export function wavedefField(hooks: Hooks, drag: Drag): Extension {
           this.pending = false
           if (this.dead) return // dispatch on a destroyed view throws
           const now = envWidth(view)
-          if (now !== width) view.dispatch({ effects: setWavedefWidth.of(now) })
+          if (now !== width) view.dispatch({ effects: setBlockWidth.of(now) })
         }, 0)
       }
     },
@@ -1636,5 +2119,5 @@ export function rondoWidgets(hooks: Hooks): Extension {
       },
     },
   )
-  return [plugin, wavedefField(hooks, drag)]
+  return [plugin, blockWidgetField(hooks, drag)]
 }

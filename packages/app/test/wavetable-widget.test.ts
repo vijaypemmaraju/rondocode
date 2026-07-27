@@ -21,7 +21,7 @@ import {
   scanWavetableCalls,
   wavedefBlockDecos,
 } from '../src/editor/rondo/wavetable'
-import { wavedefField } from '../src/editor/rondo/widgets'
+import { blockWidgetField } from '../src/editor/rondo/widgets'
 import type { Hooks } from '../src/editor/rondo/widgets'
 import { LiveWriter } from '../src/editor/rondo/gesture'
 import type { Drag } from '../src/editor/rondo/gesture'
@@ -331,7 +331,7 @@ describe('bar drag write path (LIVE per-move rewrites + single-step undo)', () =
   })
 })
 
-describe('wavedefField rebuild lifecycle (map mid-drag, rebuild ONCE at end)', () => {
+describe('blockWidgetField rebuild lifecycle (map mid-drag, rebuild ONCE at end)', () => {
   /* Pins verification (c) headlessly: while drag.active the field MAPS its
    * decorations (the dragged DOM and its pointer capture survive every live
    * write); the gesture-end dispatch (drag.ended) rebuilds exactly once with
@@ -353,7 +353,7 @@ describe('wavedefField rebuild lifecycle (map mid-drag, rebuild ONCE at end)', (
     const d: Drag = { active: false, ended: false }
     let state = EditorState.create({
       doc: 'wavedef vox 1 .3 / .5 1\n',
-      extensions: [wavedefField(hooks, d)],
+      extensions: [blockWidgetField(hooks, d)],
     })
     const [w0] = widgetsIn(state)
     expect(w0).toBeDefined()
@@ -382,7 +382,7 @@ describe('wavedefField rebuild lifecycle (map mid-drag, rebuild ONCE at end)', (
     const d: Drag = { active: false, ended: false }
     let state = EditorState.create({
       doc: 'wavedef vox 1 .3 / .5 1\n',
-      extensions: [wavedefField(hooks, d)],
+      extensions: [blockWidgetField(hooks, d)],
     })
     const [w0] = widgetsIn(state)
     state = state.update({ changes: { from: 0, to: 0, insert: 'cps .5\n' } }).state

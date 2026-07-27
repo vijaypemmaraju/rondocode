@@ -17,11 +17,13 @@ describe('parseSingCalls', () => {
     expect(call!.notes.map((r) => at(src, r))).toEqual(['c4', 'c4', 'g4'])
   })
 
-  it('normalizes phase boundaries from note @-weights', () => {
-    // 3 notes, the middle one held x2 → weights 1,2,1 (total 4)
+  it('normalizes phase spans from note @-weights', () => {
+    // 3 notes, the middle one held x2 → weights 1,2,1 (total 4). Spans now
+    // come from the real mini parser (see karaoke-mini.test.ts), so they are
+    // per-note [start,end) rather than cumulative boundaries.
     const src = "sing('v', 'a b c', 'c4 d4@2 e4')"
     const [call] = parseSingCalls(src)
-    expect(call!.bounds).toEqual([0, 0.25, 0.75, 1])
+    expect(call!.spans.map((s) => [s.start, s.end])).toEqual([[0, 0.25], [0.25, 0.75], [0.75, 1]])
   })
 
   it('handles a multi-line no-substitution template literal', () => {

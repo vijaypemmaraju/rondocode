@@ -8,6 +8,14 @@
  * Parsing mirrors flash.ts: find each sing(voice, lyrics, notes) call via acorn,
  * take the lyrics + notes string literals (quoted OR backtick, escape-free so
  * offset math is exact), and tokenize each into per-slot document ranges.
+ * RONDO documents are scanned separately (sing blocks, lyric/melody line
+ * pairs) into the same shape, so the highlight works in both languages.
+ *
+ * The MELODY is read by the REAL mini parser, not a whitespace split: a
+ * melody carries brackets, rests, alternations and @weights, and only the
+ * parser knows which tokens are notes and how long each one is. Its locs give
+ * the exact document ranges, and its hap times give the phase boundaries, so
+ * multi-cycle phrases (`cycles: N`) line up too.
  * ------------------------------------------------------------------------- */
 import './karaoke.css'
 import { StateEffect, StateField } from '@codemirror/state'
@@ -15,6 +23,8 @@ import type { Extension } from '@codemirror/state'
 import { Decoration, EditorView } from '@codemirror/view'
 import type { DecorationSet } from '@codemirror/view'
 import { parse } from 'acorn'
+import { stripComment } from '@rondocode/rondo'
+import { note, TimeSpan, F, hasOnset } from '@rondocode/pattern'
 import type { SchedulerEvent } from '@rondocode/pattern'
 
 interface Range {
@@ -24,7 +34,8 @@ interface Range {
 interface SingCall {
   lyr: Range[]
   notes: Range[]
-  bounds: number[] // normalized cumulative note-duration boundaries, length n+1 (0..1)
+  /** normalized [start,end) of each note within the whole phrase (0..1). */
+  spans: { start: number; end: number }[]
 }
 
 /** A string literal argument's document content-start + text, for Literal or a
@@ -74,21 +85,54 @@ function lyricSlots(text: string, docStart: number): Range[] {
   return out
 }
 
-/** Per-note [from,to) doc ranges + weights for a notes string (whitespace-split;
- *  `@N` is a length multiplier). */
-function noteSlots(text: string, docStart: number): { range: Range; weight: number }[] {
-  const out: { range: Range; weight: number }[] = []
-  let i = 0
-  while (i < text.length) {
-    if (/\s/.test(text[i]!)) { i++; continue }
-    let j = i
-    while (j < text.length && !/\s/.test(text[j]!)) j++
-    const tok = text.slice(i, j)
-    const m = tok.match(/@(\d+(?:\.\d+)?)/)
-    out.push({ range: { from: docStart + i, to: docStart + j }, weight: m ? parseFloat(m[1]!) : 1 })
-    i = j
+/** Sounding notes of a melody, in order, via the REAL mini parser: each one's
+ *  document range (from its loc) and its normalized start/end within the whole
+ *  `cycles`-cycle phrase. A whitespace split cannot do this - `[`, `~`, `<>`
+ *  and `@` all change which tokens sound and for how long.
+ *  `offsetOf` maps a position in the (possibly joined) mini text to a document
+ *  offset; rondo joins several melody LINES into one mini string. */
+function melodyNotes(
+  text: string,
+  cycles: number,
+  offsetOf: (pos: number) => number | null,
+): { range: Range; start: number; end: number }[] {
+  let haps
+  try {
+    haps = note(text).query(new TimeSpan(F(0), F(cycles))).filter(hasOnset)
+  } catch {
+    return [] // an unparseable melody simply gets no highlight
   }
+  const out: { range: Range; start: number; end: number }[] = []
+  for (const h of haps) {
+    const loc = (h as unknown as { loc?: { start: number; end: number } }).loc
+      ?? (h.value as unknown as { loc?: { start: number; end: number } }).loc
+    if (loc === undefined) continue
+    const from = offsetOf(loc.start)
+    const to = offsetOf(loc.end)
+    if (from === null || to === null) continue
+    const w = h.whole!
+    out.push({
+      range: { from, to },
+      start: w.begin.valueOf() / cycles,
+      end: (w.begin.valueOf() + w.length.valueOf()) / cycles,
+    })
+  }
+  out.sort((a, b) => a.start - b.start)
   return out
+}
+
+/** `{ cycles: N }` from a sing()'s opts object literal (default 1). */
+function optsCycles(node: { type?: string; properties?: unknown[] } | null | undefined): number {
+  if (!node || node.type !== 'ObjectExpression' || !Array.isArray(node.properties)) return 1
+  for (const raw of node.properties) {
+    const prop = raw as { type?: string; key?: { name?: string; value?: unknown }; value?: { type?: string; value?: unknown } }
+    if (prop.type !== 'Property') continue
+    const key = prop.key?.name ?? prop.key?.value
+    if (key !== 'cycles') continue
+    const v = prop.value
+    if (v?.type === 'Literal' && typeof v.value === 'number' && Number.isInteger(v.value) && v.value >= 1) return v.value
+  }
+  return 1
 }
 
 /** Every sing() call's syllable + note ranges (aligned, with phase boundaries).
@@ -107,18 +151,18 @@ export function parseSingCalls(source: string): SingCall[] {
     if (n.type === 'CallExpression') {
       const callee = n['callee'] as { type?: string; name?: string } | undefined
       const args = n['arguments'] as ({ type: string; [k: string]: unknown } | null)[] | undefined
-      if (callee?.type === 'Identifier' && callee.name === 'sing' && args && args.length >= 3) {
-        const lyr = litContent(args[1] ?? null, source)
-        const nt = litContent(args[2] ?? null, source)
+      if (callee?.type === 'Identifier' && callee.name === 'sing' && args && args.length >= 2) {
+        // sing(voice, lyrics, notes, opts?) | sing(lyrics, notes, opts?)
+        const threeStr = litContent(args[2] ?? null, source) !== null
+        const lyr = litContent(args[threeStr ? 1 : 0] ?? null, source)
+        const nt = litContent(args[threeStr ? 2 : 1] ?? null, source)
+        const optsNode = args[threeStr ? 3 : 2] as { type?: string; properties?: unknown[] } | null | undefined
         if (lyr && nt) {
+          const cycles = optsCycles(optsNode)
           const slots = lyricSlots(lyr.text, lyr.docStart)
-          const notes = noteSlots(nt.text, nt.docStart)
+          const notes = melodyNotes(nt.text, cycles, (pos) => nt.docStart + pos)
           if (slots.length === notes.length && slots.length > 0) {
-            const total = notes.reduce((a, b) => a + b.weight, 0)
-            const bounds = [0]
-            let acc = 0
-            for (const nn of notes) { acc += nn.weight; bounds.push(acc / total) }
-            out.push({ lyr: slots, notes: notes.map((x) => x.range), bounds })
+            out.push({ lyr: slots, notes: notes.map((x) => x.range), spans: notes.map((x) => ({ start: x.start, end: x.end })) })
           }
         }
       }
@@ -133,10 +177,71 @@ export function parseSingCalls(source: string): SingCall[] {
   return out
 }
 
-/** Note index active at normalized phase p (0..1), or -1. */
+/** RONDO sing blocks → the same aligned shape. A `sing NAME` block body is
+ *  alternating LYRIC / MELODY lines (the compiler joins each family with
+ *  spaces), then modifier lines. Melody locs index the JOINED string, so the
+ *  offset map walks the pieces back to their own line. */
+export function parseSingBlocksRondo(source: string): SingCall[] {
+  const out: SingCall[] = []
+  const lines = source.split('\n')
+  const starts: number[] = []
+  let off = 0
+  for (const ln of lines) { starts.push(off); off += ln.length + 1 }
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^sing[ \t]+[A-Za-z_]\w*/.test(lines[i]!)) continue
+    const body: { text: string; start: number }[] = []
+    let cycles = 1
+    let j = i + 1
+    for (; j < lines.length; j++) {
+      const ln = lines[j]!
+      if (ln.trim() === '') continue
+      if (/^\S/.test(ln)) break // dedent: block over
+      if (/^[ \t]+post[ \t]*$/.test(ln)) break // post sub-block: no lyrics past here
+      // the COMPILER's comment rule: '#' only starts a comment at line start
+      // or after whitespace, so a sharp (`a#4`) survives
+      const body_ = stripComment(ln)
+      const trimmed = body_.trim()
+      if (trimmed === '') continue
+      const cyc = /^cycles:[ \t]*(\d+)$/.exec(trimmed)
+      if (cyc !== null) { cycles = Math.max(1, parseInt(cyc[1]!, 10)); continue }
+      if (/^[A-Za-z_]\w*[ \t]*:/.test(trimmed) || /^(every|jux|off|sometimes|fast|slow|rev)\b/.test(trimmed)) continue // other modifiers
+      body.push({ text: trimmed, start: starts[j]! + body_.indexOf(trimmed) })
+    }
+    // pairs: lyric line, melody line, lyric line, melody line...
+    const lyricLines = body.filter((_, k) => k % 2 === 0)
+    const melodyLines = body.filter((_, k) => k % 2 === 1)
+    if (lyricLines.length === 0 || melodyLines.length === 0) continue
+    const slots: Range[] = []
+    for (const l of lyricLines) slots.push(...lyricSlots(l.text, l.start))
+    // joined melody text + a map from joined offset back to the doc
+    const joined = melodyLines.map((m) => m.text).join(' ')
+    const pieces: { from: number; to: number; docStart: number }[] = []
+    let acc = 0
+    for (const m of melodyLines) {
+      pieces.push({ from: acc, to: acc + m.text.length, docStart: m.start })
+      acc += m.text.length + 1 // the joining space
+    }
+    const offsetOf = (pos: number): number | null => {
+      for (const pc of pieces) if (pos >= pc.from && pos <= pc.to) return pc.docStart + (pos - pc.from)
+      return null
+    }
+    const notes = melodyNotes(joined, cycles, offsetOf)
+    if (slots.length === notes.length && slots.length > 0) {
+      out.push({ lyr: slots, notes: notes.map((x) => x.range), spans: notes.map((x) => ({ start: x.start, end: x.end })) })
+    }
+    i = j - 1
+  }
+  return out
+}
+
+/** Note index active at normalized phase p (0..1), or -1. Spans come from the
+ *  parser, so a REST between notes correctly highlights nothing. */
 function indexAt(call: SingCall, p: number): number {
-  const b = call.bounds
-  for (let i = 0; i < b.length - 1; i++) if (p >= b[i]! && p < b[i + 1]!) return i
+  for (let i = 0; i < call.spans.length; i++) {
+    const sp = call.spans[i]!
+    if (p >= sp.start && p < sp.end) return i
+  }
   return -1
 }
 
@@ -178,6 +283,9 @@ export function mountKaraoke(
      *  `singv…` hash prefix; the editor supplies the real name set so a
      *  sing(..., { name }) override is still tracked. */
     isSingSound?: (sound: string) => boolean
+    /** 'rondo' scans sing BLOCKS instead of sing() calls. Read per parse, so
+     *  toggling the language re-scans without a remount. */
+    getLang?: () => 'rondocode' | 'rondo'
   },
 ): () => void {
   const isSing = opts.isSingSound ?? ((s: string) => s.startsWith('singv'))
@@ -194,8 +302,10 @@ export function mountKaraoke(
       }
     }
   })
-  let calls = parseSingCalls(opts.getDoc())
-  const unsubDoc = opts.onDoc((code) => { calls = parseSingCalls(code) })
+  const scan = (code: string): SingCall[] =>
+    opts.getLang?.() === 'rondo' ? parseSingBlocksRondo(code) : parseSingCalls(code)
+  let calls = scan(opts.getDoc())
+  const unsubDoc = opts.onDoc((code) => { calls = scan(code) })
 
   let raf = 0
   let lastKey = ''

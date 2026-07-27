@@ -124,6 +124,7 @@ const OPTIONS: Completion[] = [
   c('dualsvf', 'function', 'dualsvf cutA cutB mode:… a:… b:…', 'Dual filter: two svf stages (a/b types, own cutoffs), serial or parallel.'),
   c('onepole', 'function', 'onepole cutoff', 'Gentle one-pole low-pass.'),
   c('supersaw', 'function', 'supersaw detune:… mix:…', 'Seven detuned saws — the wide trance/EDM lead.'),
+  c('wavetable', 'function', 'wavetable [freq] [pos] table:… warp:… warpamt:…', 'Morphing wavetable oscillator: pos (0..1) scans the table (built-in or wavedef). warp bends the cycle read — sync (hard-sync tear), bend (bowed tilt), mirror (palindrome) — warpamt (0..1, sig) drives it.'),
   c('fm', 'function', 'fm [freq] [mod] feedback:…', 'FM operator: a sine whose pitch the mod signal wobbles at audio rate.'),
   c('pulse', 'function', 'pulse [freq] [width]', 'Pulse oscillator with a settable duty width.'),
   c('noise', 'function', 'noise [white|pink|brown]', 'Noise source — pink/brown are warmer.'),

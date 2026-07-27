@@ -2951,6 +2951,8 @@ const waveleadRondo = `# WAVETABLE LEAD. the wavedef line
 # numbers ARE the sound. the env
 # scans it, so notes bloom like a
 # vowel. ott is the modern sheen.
+# want it to scream? add warp:sync
+# warpamt:.6 to the wavetable line.
 
 wavedef vowel 1 .25 / .4 1 .6 .3 / .2 .5 .9 1 .7
 

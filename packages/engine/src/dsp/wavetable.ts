@@ -46,6 +46,15 @@ const NUM_MIPMAPS = LOG2_MAX_HARMONICS + 1 // 11
 export const WAVETABLE_TABLES = ['basic', 'harmonic', 'pwm'] as const
 export type WavetableName = (typeof WAVETABLE_TABLES)[number]
 
+/* Custom-table limits (shared by defineWavetable, the wire message, and the
+ * rondo `wavedef` grammar): a table is 1..MAX_FRAMES frames, each frame
+ * 1..MAX_PARTIALS harmonic partial AMPLITUDES (finite, |a| <= AMP_LIMIT —
+ * negative amplitudes are legal phase flips, how a triangle gets its shape). */
+export const WAVETABLE_MAX_FRAMES = 64
+export const WAVETABLE_MAX_PARTIALS = 32
+export const WAVETABLE_AMP_LIMIT = 16
+const TABLE_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_]*$/
+
 /** frames[frame][mipmap] -> a single-cycle Float32Array of FRAME_SIZE samples.
  *  mipmap 0 holds all harmonics; mipmap m holds MAX_HARMONICS >> m of them. */
 type Bank = Float32Array[][]
@@ -84,20 +93,35 @@ const synthFrame = (amps: Float64Array, maxH: number): Float32Array => {
 
 /** Build every octave mipmap for one frame from its full harmonic spectrum,
  *  then normalise the whole frame so the peak magnitude across ALL its mipmaps
- *  is 1 (keeps morph output bounded and frames peak-matched). */
-const buildFrameMipmaps = (amps: Float64Array): Float32Array[] => {
+ *  is 1 (keeps morph output bounded and frames peak-matched).
+ *
+ *  `topH` is the highest harmonic the spectrum actually contains: every mipmap
+ *  whose harmonic budget is >= topH keeps ALL of it, so those slots ALIAS one
+ *  shared frame instead of re-running the iFFT. For a custom table (<= 32
+ *  partials) that cuts 11 syntheses per frame down to ~6 — cheap enough to
+ *  rebuild live while a widget drag rewrites the partials. */
+const buildFrameMipmaps = (amps: Float64Array, topH = MAX_HARMONICS): Float32Array[] => {
   const mips: Float32Array[] = []
+  const unique: Float32Array[] = []
+  let shared: Float32Array | undefined
   let peak = 0
   for (let m = 0; m < NUM_MIPMAPS; m++) {
-    const frame = synthFrame(amps, MAX_HARMONICS >> m)
+    const maxH = MAX_HARMONICS >> m
+    if (maxH >= topH && shared !== undefined) {
+      mips.push(shared)
+      continue
+    }
+    const frame = synthFrame(amps, maxH)
+    if (maxH >= topH) shared = frame
     for (let i = 0; i < frame.length; i++) {
       const a = Math.abs(frame[i]!)
       if (a > peak) peak = a
     }
     mips.push(frame)
+    unique.push(frame)
   }
   const scale = peak > 0 ? 1 / peak : 1
-  for (const frame of mips) {
+  for (const frame of unique) {
     for (let i = 0; i < frame.length; i++) frame[i] = frame[i]! * scale
   }
   return mips
@@ -208,22 +232,210 @@ const getBank = (name: WavetableName): Bank => {
  *  Float32Array of WAVETABLE_FRAME_SIZE samples. Exposed for analysis/tests. */
 export const getWavetable = (name: WavetableName): Bank => getBank(name)
 
+/* --------------------------- custom tables -------------------------------- *
+ * A custom table is pure data: FRAMES of harmonic partial amplitudes
+ * (frames[f][i] = amplitude of harmonic i+1). Synthesis reuses the exact
+ * band-limited machinery above, so custom tables get the same mipmapped
+ * anti-aliasing as the built-ins. Three legs, mirroring samples:
+ *   - WavetableBank: the store a REALTIME engine owns (adopt-or-publish on
+ *     ctx.wavetables), filled by loadWavetable wire messages.
+ *   - the module-global registry: defineWavetable(), living in the EVAL realm
+ *     (main thread / node). The eval layer owns its lifecycle exactly like
+ *     custom scales: snapshot -> clear -> run -> restore-on-failure, so it
+ *     mirrors the last successful eval.
+ *   - renderOffline's `wavetables` option threads specs into an offline ctx
+ *     (and the kernel additionally falls back to the registry, which shares
+ *     the offline render's realm).
+ * ------------------------------------------------------------------------- */
+
+/** Throw a TypeError unless `frames` is a valid partial-amplitude spec:
+ *  1..WAVETABLE_MAX_FRAMES frames, each 1..WAVETABLE_MAX_PARTIALS finite
+ *  numbers with |a| <= WAVETABLE_AMP_LIMIT. `what` prefixes messages. */
+export function validateWavetableFrames(what: string, frames: unknown): asserts frames is number[][] {
+  if (!Array.isArray(frames) || frames.length < 1 || frames.length > WAVETABLE_MAX_FRAMES) {
+    throw new TypeError(`${what}: frames must be 1..${WAVETABLE_MAX_FRAMES} arrays of partial amplitudes`)
+  }
+  for (const frame of frames as unknown[]) {
+    if (!Array.isArray(frame) || frame.length < 1 || frame.length > WAVETABLE_MAX_PARTIALS) {
+      throw new TypeError(`${what}: each frame is 1..${WAVETABLE_MAX_PARTIALS} partial amplitudes`)
+    }
+    for (const a of frame as unknown[]) {
+      if (typeof a !== 'number' || !Number.isFinite(a) || Math.abs(a) > WAVETABLE_AMP_LIMIT) {
+        throw new TypeError(
+          `${what}: partial amplitudes must be finite numbers with |a| <= ${WAVETABLE_AMP_LIMIT}, got ${String(a)}`,
+        )
+      }
+    }
+  }
+}
+
+/** Validate a custom-table NAME: a word that does not shadow a built-in. */
+const validateTableName = (what: string, name: unknown): string => {
+  if (typeof name !== 'string' || !TABLE_NAME_RE.test(name)) {
+    throw new TypeError(`${what}: name must be a word (letter, then letters/digits/_), got ${JSON.stringify(name)}`)
+  }
+  if (isName(name)) {
+    throw new RangeError(`${what}: '${name}' shadows a built-in wavetable (${WAVETABLE_TABLES.join(', ')}) — pick another name`)
+  }
+  return name
+}
+
+/** Bank builds keyed by the spec's JSON — re-evals redefine the same tables
+ *  every run (registry cleared each eval), so this keeps redefinition free.
+ *  Small bounded cache; oldest entry evicted. */
+const partialBankCache = new Map<string, Bank>()
+const PARTIAL_BANK_CACHE_MAX = 32
+
+/** Synthesize the mipmapped bank for a (validated) partial spec. */
+const buildBankFromPartials = (frames: readonly (readonly number[])[]): Bank => {
+  const key = JSON.stringify(frames)
+  const hit = partialBankCache.get(key)
+  if (hit !== undefined) return hit
+  const bank = frames.map((partials) => {
+    const amps = new Float64Array(MAX_HARMONICS + 1)
+    for (let h = 1; h <= partials.length; h++) amps[h] = partials[h - 1]!
+    return buildFrameMipmaps(amps, partials.length)
+  })
+  if (partialBankCache.size >= PARTIAL_BANK_CACHE_MAX) {
+    partialBankCache.delete(partialBankCache.keys().next().value as string)
+  }
+  partialBankCache.set(key, bank)
+  return bank
+}
+
+/** Read-only view a kernel resolves custom banks against (see DspContext). */
+export interface WavetableBankRO {
+  get(name: string): Bank | undefined
+}
+
+/** The realtime engine's custom-table store: name -> mipmapped bank, filled
+ *  by loadWavetable messages. set() validates + synthesizes (throws TypeError/
+ *  RangeError on a bad spec — the engine surfaces it as an error event). */
+export class WavetableBank implements WavetableBankRO {
+  private readonly map = new Map<string, Bank>()
+
+  set(name: string, frames: number[][]): void {
+    const n = validateTableName(`loadWavetable`, name)
+    validateWavetableFrames(`loadWavetable '${n}'`, frames)
+    this.map.set(n, buildBankFromPartials(frames))
+  }
+
+  get(name: string): Bank | undefined {
+    return this.map.get(name)
+  }
+
+  delete(name: string): void {
+    this.map.delete(name)
+  }
+
+  has(name: string): boolean {
+    return this.map.has(name)
+  }
+
+  names(): string[] {
+    return [...this.map.keys()]
+  }
+}
+
+interface CustomTable {
+  frames: number[][]
+  bank: Bank
+}
+
+/** A saved copy of the custom-table registry (opaque to callers). */
+export type CustomWavetableSnapshot = ReadonlyMap<string, CustomTable>
+
+/** Module-global custom-table registry for the EVAL realm. The eval layer
+ *  owns its lifecycle (snapshot -> clear -> run -> restore on failure), so it
+ *  always mirrors the LAST SUCCESSFUL eval — same contract as custom scales. */
+const customTables = new Map<string, CustomTable>()
+
+/**
+ * Register a custom wavetable under `name`: `frames` is an array of FRAMES,
+ * each an array of harmonic partial amplitudes (frames[f][i] = harmonic i+1).
+ * Band-limited single-cycle frames are synthesized from the partials, so the
+ * table anti-aliases exactly like the built-ins. Redefining a name silently
+ * replaces it (evals re-run whole programs — idempotence is required);
+ * shadowing a built-in table is an error. The numbers are the whole truth:
+ * editing an amplitude IS editing the sound.
+ */
+export function defineWavetable(name: string, frames: number[][]): void {
+  const n = validateTableName('defineWavetable()', name)
+  validateWavetableFrames(`defineWavetable('${n}')`, frames)
+  customTables.set(n, { frames: frames.map((f) => [...f]), bank: buildBankFromPartials(frames) })
+}
+
+/** Drop every registered custom table (the eval layer calls this at the start
+ *  of each run so removed defineWavetable calls do not linger). */
+export function clearCustomWavetables(): void {
+  customTables.clear()
+}
+
+/** Copy the registry, for restore-on-failed-eval (all-or-nothing staging). */
+export function snapshotCustomWavetables(): CustomWavetableSnapshot {
+  return new Map(customTables)
+}
+
+/** Replace the registry with a snapshot taken earlier. */
+export function restoreCustomWavetables(snap: CustomWavetableSnapshot): void {
+  customTables.clear()
+  for (const [k, v] of snap) customTables.set(k, v)
+}
+
+/** The registry's partial specs (name -> frames), for the Session's wire diff
+ *  and offline-render threading. Frames are the registry's own copies — read
+ *  only. */
+export function getCustomWavetables(): ReadonlyMap<string, number[][]> {
+  return new Map([...customTables].map(([k, v]) => [k, v.frames]))
+}
+
+/** True when `name` resolves to a table in this realm (built-in or registry) —
+ *  the eval layer's staging check uses this to catch typos before play. */
+export function hasWavetable(name: string): boolean {
+  return isName(name) || customTables.has(name)
+}
+
+/** The mipmapped bank for ANY table name known in this realm: built-in or
+ *  registry custom. The widget layer draws from this. */
+export function getWavetableBank(name: string): Bank | undefined {
+  if (isName(name)) return getBank(name)
+  return customTables.get(name)?.bank
+}
+
 /** Morphing, mipmapped wavetable oscillator. Inputs 'freq' (Hz, audio-rate,
  *  clamped to +/-Nyquist) and 'pos' (0..1, morph position, audio-rate, clamped);
  *  output the band-limited morphed waveform, ~[-1, 1]. Config { table } names a
- *  built-in table (default 'basic'); an unknown name throws at construction. */
+ *  built-in table (default 'basic') or a CUSTOM one (defineWavetable /
+ *  loadWavetable); an unknown name throws at construction. Custom banks
+ *  re-resolve by name PER BLOCK (like SampleKernel), so redefining a table's
+ *  partials is heard live without rebuilding the synth. */
 export class WavetableKernel implements Kernel {
   private phase = 0
-  private readonly bank: Bank
-  private readonly lastFrame: number
+  private bank: Bank
+  /** set for a custom table: the name to re-resolve each block. */
+  private readonly customName: string | undefined
+  /** where the custom name resolves: the engine's ctx bank when present
+   *  (worklet), else the module registry (offline render / eval realm). */
+  private readonly custom: WavetableBankRO | undefined
 
-  constructor(table?: string, _ctx?: DspContext) {
+  constructor(table?: string, ctx?: DspContext) {
     const name = table ?? 'basic'
-    if (!isName(name)) {
-      throw new Error(`unknown wavetable '${name}' (known: ${WAVETABLE_TABLES.join(', ')})`)
+    if (isName(name)) {
+      this.bank = getBank(name)
+      this.customName = undefined
+      this.custom = undefined
+      return
     }
-    this.bank = getBank(name)
-    this.lastFrame = this.bank.length - 1
+    const ro = ctx?.wavetables as WavetableBankRO | undefined
+    const bank = ro?.get(name) ?? customTables.get(name)?.bank
+    if (bank === undefined) {
+      const custom = [...new Set([...(ro instanceof WavetableBank ? ro.names() : []), ...customTables.keys()])]
+      const known = [...WAVETABLE_TABLES, ...custom].join(', ')
+      throw new Error(`unknown wavetable '${name}' (known: ${known})`)
+    }
+    this.bank = bank
+    this.customName = name
+    this.custom = ro
   }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
@@ -232,8 +444,15 @@ export class WavetableKernel implements Kernel {
     const size = WAVETABLE_FRAME_SIZE
     const mask = size - 1
     const nyquist = ctx.sampleRate * 0.5
+    // custom tables re-resolve per block so a live redefinition (a widget drag
+    // rewriting partials) is heard immediately; a table cleared mid-note keeps
+    // the last resolved bank (graceful, never silent mid-voice).
+    if (this.customName !== undefined) {
+      const fresh = this.custom?.get(this.customName) ?? customTables.get(this.customName)?.bank
+      if (fresh !== undefined) this.bank = fresh
+    }
     const bank = this.bank
-    const lastFrame = this.lastFrame
+    const lastFrame = bank.length - 1
 
     for (let i = 0; i < n; i++) {
       const f = freq[i]!

@@ -3,6 +3,7 @@ import type { SynthDef } from './builder'
 import { VoicePool } from './voice'
 import { PostChain } from './post'
 import { SampleBank } from './samples'
+import { WavetableBank } from './dsp/wavetable'
 import type { DspContext } from './dsp/types'
 
 /* ------------------------------------------------------------------------- *
@@ -50,6 +51,13 @@ export interface RenderOptions {
   /** Audio samples available to sample('name') nodes, keyed by name. Each is
    *  mono PCM at its own sampleRate (the kernel resamples to the render rate). */
   samples?: Record<string, { data: Float32Array; sampleRate: number }>
+  /** Custom wavetables available to wavetable(..., { table }) nodes, keyed by
+   *  name: partial-amplitude frames (frames[f][i] = harmonic i+1), synthesized
+   *  into band-limited banks exactly like loadWavetable does live. When
+   *  omitted, the kernel still falls back to the defineWavetable registry
+   *  (which shares this realm), so a render right after an eval sees the
+   *  eval's tables — pass this explicitly for isolated/deterministic renders. */
+  wavetables?: Record<string, number[][]>
 }
 
 /** Sort rank for events landing on the same SAMPLE (ordering happens in the
@@ -133,6 +141,11 @@ export function renderOffline(
     const bank = new SampleBank()
     for (const [name, s] of Object.entries(opts.samples)) bank.set(name, s.data, s.sampleRate)
     ctx.samples = bank
+  }
+  if (opts?.wavetables !== undefined) {
+    const wtBank = new WavetableBank()
+    for (const [name, frames] of Object.entries(opts.wavetables)) wtBank.set(name, frames)
+    ctx.wavetables = wtBank
   }
   const pool = new VoicePool(def.graph, ctx, maxVoices, def.voiceOpts)
   // Per-synth POST chain (reverb/eq/compress over the summed voices), run inline

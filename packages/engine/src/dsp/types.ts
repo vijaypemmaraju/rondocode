@@ -30,6 +30,13 @@ export interface DspContext {
    *  store: the engine populates it from loadSample messages, and already-
    *  compiled kernels see later loads (they resolve by name each block). */
   samples?: SampleBankRO
+  /** Custom wavetable banks (name -> frames[frame][mipmap] of single-cycle
+   *  Float32Arrays), resolved by name by WavetableKernel. Same shared-store
+   *  contract as samples: the engine fills it from loadWavetable messages and
+   *  kernels re-resolve per block, so a redefined table is heard without a
+   *  synth rebuild. Structural type (not WavetableBankRO) to keep this module
+   *  import-free of the wavetable module that imports it. */
+  wavetables?: { get(name: string): Float32Array[][] | undefined }
 }
 
 /** One processor instance = one node inside one voice.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { AdsrKernel } from '../src/dsp/env'
+import { WavetableBank, WavetableKernel } from '../src/dsp/wavetable'
 import { DualSvfKernel, SvfKernel } from '../src/dsp/filters'
 import { NoiseKernel } from '../src/dsp/osc'
 import { duckReleaseCoeff } from '../src/realtime'
@@ -92,6 +93,36 @@ describe('44.1 kHz: sidechain duck coefficient', () => {
     let level = 0.4
     for (let i = 0; i < Math.round(0.1 * SR); i++) level += (1 - level) * coeff
     expect(level).toBeCloseTo(1 - 0.6 * Math.exp(-1), 2)
+  })
+})
+
+describe('44.1 kHz: custom wavetable band-limiting', () => {
+  it('mipmap selection uses THIS rate: harmonics above 22.05k are dropped, in-band ones kept', () => {
+    const bank = new WavetableBank()
+    // 12th harmonic only. Mipmaps are octave-quantized: harmonic 12 needs a
+    // mipmap keeping >= 16 harmonics, which the kernel picks only while
+    // 16 <= Nyquist/freq. At 1450 Hz that ratio is 15.2 at 44.1k (drop -> the
+    // mipmap keeps <= 8, silence) but 16.55 at 48k (keep) — so a kernel that
+    // baked in 48k would SOUND here. At 1300 Hz the ratio is 16.96 at 44.1k:
+    // kept, and 12 x 1300 = 15.6 kHz is honestly in band.
+    bank.set('h12', [Array.from({ length: 12 }, (_, i) => (i === 11 ? 1 : 0))])
+    const wctx: DspContext = { sampleRate: SR, wavetables: bank }
+    const render = (freq: number): Float32Array => {
+      const n = SR
+      const out = new Float32Array(n)
+      new WavetableKernel('h12', wctx).process(
+        n,
+        { freq: new Float32Array(n).fill(freq), pos: new Float32Array(n) },
+        out,
+        wctx,
+      )
+      return out
+    }
+    const dropped = render(1450)
+    const kept = render(1300)
+    const rms = (x: Float32Array): number => Math.sqrt(x.reduce((s, v) => s + v * v, 0) / x.length)
+    expect(rms(dropped)).toBeLessThan(1e-6) // 44.1k selection drops it (48k would keep it)
+    expect(goertzel(kept, 12 * 1300, SR)).toBeGreaterThan(1e-3) // kept, on pitch
   })
 })
 

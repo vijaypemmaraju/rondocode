@@ -5,7 +5,7 @@ import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
 import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { javascript } from '@codemirror/lang-javascript'
-import { compile, decompile } from '@rondocode/rondo'
+import { compile, decompile, formatRondo } from '@rondocode/rondo'
 import type { NoteSpan } from '@rondocode/rondo'
 import { getWavetableBank } from '@rondocode/engine'
 import type { EngineEvent } from '@rondocode/engine'
@@ -27,6 +27,7 @@ import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
+import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
 import { mountRondoPalette } from './rondo/palette'
 import { toNoteEvs } from './rondo/widgets'
@@ -525,6 +526,33 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     return true
   }
 
+  // ---- auto-format (Mod-Shift-F, the palette's { } chip) ----
+  // Rondo formats synchronously (the pure @rondocode/rondo formatter); JS
+  // lazy-loads prettier on first use (its chunk stays out of the eager page
+  // graph — see test/eager-graph.test.ts). The result lands as MINIMAL
+  // per-line changes, so undo history, widgets/marks, and the cursor (mapped
+  // through the ChangeSet) all survive. Broken code comes back unchanged.
+  let formatBusy = false
+  const formatDoc = (): boolean => {
+    if (formatBusy || isLocked(view.state)) return true
+    const source = view.state.doc.toString()
+    const finish = (formatted: string | null): void => {
+      formatBusy = false
+      if (formatted === null || formatted === source) return
+      if (view.state.doc.toString() !== source) return // the doc moved on (async path)
+      view.dispatch({ changes: diffChanges(source, formatted), userEvent: 'format', scrollIntoView: true })
+    }
+    formatBusy = true
+    if (lang === 'rondo') {
+      finish(formatRondo(source))
+      return true
+    }
+    formatJsSource(source).then(finish, () => {
+      formatBusy = false
+    })
+    return true
+  }
+
   const view: EditorView = new EditorView({
     parent: host,
     state: EditorState.create({
@@ -536,6 +564,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
           keymap.of([
             { key: 'Mod-Enter', run },
             { key: 'Mod-.', run: stop },
+            // auto-format the whole doc (both languages; see formatDoc above)
+            { key: 'Mod-Shift-f', run: formatDoc, preventDefault: true },
           ]),
         ),
         // The shared rondocode editing stack — grammar, highlighting (incl.
@@ -550,6 +580,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // builds means the extension is simply never installed.
         import.meta.env.DEV ? ghostCompletion() : [],
         lockCompartment.of(lockExtension(false)), // performance lock (toggled by the header button)
+        // format-on-newline (opt-in setting): tidy the line Enter just left.
+        // Rondo only — see ui/settings.ts for why JS mode is a no-op in v1.
+        formatOnNewline(() => lang === 'rondo' && getSetting('formatOnNewline')),
         meters.extension, // per-synth meter gutter (audio-driven)
         karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
@@ -631,6 +664,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // play-to-write: degree chips preview through the engine while stopped
     previewNote: (synth, midi) => rondoWidgetHooks.previewNote?.(synth, midi),
     isPlaying: () => session.getState().playing,
+    // the { } chip — the thumb-reachable Mod-Shift-F (both languages)
+    format: () => {
+      formatDoc()
+    },
   })
   const reflectLang = (): void => {
     langLabel.textContent = lang === 'rondo' ? 'rondo' : 'js'

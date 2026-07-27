@@ -15,11 +15,17 @@ export interface Settings {
    *  typing settles (~0.7s) — no Run needed. Off by default: sound changing
    *  mid-thought should be a choice. */
   liveType: boolean
+  /** FORMAT ON NEWLINE: pressing Enter tidies the line the cursor just left
+   *  (rondo's line-local rules). Off by default; rondo mode only — prettier
+   *  has no reliable single-line mode, so JS newline formatting would mean
+   *  reflowing the whole doc on every Enter, which is not acceptable. */
+  formatOnNewline: boolean
 }
 
 export const DEFAULTS: Settings = {
   liveValues: false,
   liveType: false,
+  formatOnNewline: false,
 }
 
 /** Human-facing metadata for the Options panel — label + one-line help. */
@@ -31,6 +37,10 @@ export const SETTING_META: { [K in keyof Settings]: { label: string; help: strin
   liveType: {
     label: 'Live typing',
     help: 'While playing, apply edits automatically shortly after you stop typing — no Run needed. Broken edits change nothing.',
+  },
+  formatOnNewline: {
+    label: 'Format on new line',
+    help: 'When you press Enter, tidy the line you just left: indentation, spacing, modifier colons. Rondo only; use the format button or Cmd/Ctrl+Shift+F anytime in either language.',
   },
 }
 

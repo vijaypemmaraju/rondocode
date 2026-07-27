@@ -34,7 +34,7 @@ export interface Line {
   toks: Tok[]
 }
 
-const stripComment = (s: string): string => {
+export const stripComment = (s: string): string => {
   // A '#' at line start, or preceded by whitespace, begins a comment — but only
   // OUTSIDE quotes, so a js{ … } line like `s("bd # sn")` survives intact.
   // (`c#4` also survives: its '#' follows a letter.)
@@ -55,7 +55,7 @@ const stripComment = (s: string): string => {
 const OPS = new Set(['+', '-', '*', '/', '^'])
 
 /** Index of the `}` that closes the `{` at `open`, string/escape-aware, or -1. */
-function scanBalanced(text: string, open: number): number {
+export function scanBalanced(text: string, open: number): number {
   let depth = 0
   let str = '' // active string delimiter (' " `) or ''
   for (let k = open; k < text.length; k++) {

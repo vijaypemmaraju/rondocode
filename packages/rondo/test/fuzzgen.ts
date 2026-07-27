@@ -354,7 +354,11 @@ export function genProgram(seed: number): string {
       Array.from({ length: r.int(1, 8) }, () => r.pick(WAVEDEF_AMPS)).join(' '))
     blocks.push(`wavedef ${wname} ${frames.join(' / ')}`)
     if (r.chance(0.7)) {
-      blocks.push(`synth wavtx\n  wavetable note ${r.pick(SMALL)} table:${wname}\n  * ${r.pick(SMALL)}`)
+      // sometimes with real warp args (warp:enum + warpamt:sig round-trip)
+      const warp = r.chance(0.4)
+        ? ` warp:${r.pick(['sync', 'bend', 'mirror'])}${r.chance(0.6) ? ` warpamt:${r.pick(SMALL)}` : ''}`
+        : ''
+      blocks.push(`synth wavtx\n  wavetable note ${r.pick(SMALL)} table:${wname}${warp}\n  * ${r.pick(SMALL)}`)
       synths.push({ name: 'wavtx' })
     }
   }

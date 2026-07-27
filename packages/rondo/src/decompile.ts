@@ -110,7 +110,7 @@ const OP_INFO: Record<string, { op: string; prec: number }> = {
   pow: { op: '^', prec: 4 },
 }
 
-const ALIAS_INV: Record<string, string> = { roomSize: 'room', maxTime: 'maxtime' }
+const ALIAS_INV: Record<string, string> = { roomSize: 'room', maxTime: 'maxtime', warpAmt: 'warpamt' }
 
 function namedArgs(spec: (typeof BUILTINS)[string], opts: Node | undefined): string | null {
   if (opts === undefined) return ''

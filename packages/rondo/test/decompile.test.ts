@@ -222,6 +222,16 @@ describe('decompile round-trips (audit additions)', () => {
     expect(rondo2).toContain('table:vox')
   })
 
+  it('wavetable warp args round-trip (warp enum, warpAmt aliased back to warpamt)', () => {
+    const { rondo2 } = fixedPoint(
+      'synth s\n  wavetable note 0.3 warp:sync warpamt:0.8\n  e = adsr .01 .2 .5 .1\n\nplay s\n  0 1\n',
+    )
+    expect(rondo2).toContain('warp:sync warpamt:0.8')
+    // a signal-valued warpamt survives too
+    const r2 = fixedPoint('synth s\n  wavetable note 0 warp:mirror warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay s\n  0\n')
+    expect(r2.rondo2).toContain('warp:mirror warpamt:e')
+  })
+
   it('non-sugar defineWavetable forms bail to js blocks (totality)', () => {
     for (const stmt of [
       'defineWavetable(name, [[1], [0.5]])', // non-literal name

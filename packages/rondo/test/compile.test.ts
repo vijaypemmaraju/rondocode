@@ -94,6 +94,16 @@ describe('rondo → rondocode codegen', () => {
     expect(out.indexOf('defineWavetable(')).toBeLessThan(out.indexOf('const p ='))
   })
 
+  it('wavetable warp args: warp is an enum, warpamt a signal aliased to warpAmt', () => {
+    const out = ok(`synth p\n  wavetable note .3 table:vox warp:sync warpamt:.8\n\nwavedef vox 1 / .5 1\n\nplay p\n  0 1\n`)
+    expect(out).toContain("wavetable(note.freq, 0.3, { table: 'vox', warp: 'sync', warpAmt: 0.8 })")
+  })
+
+  it('wavetable warpamt takes a signal (an envelope sweeps the warp)', () => {
+    const out = ok(`synth p\n  wavetable note 0 warp:bend warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay p\n  0 1\n`)
+    expect(out).toContain("wavetable(note.freq, 0, { warp: 'bend', warpAmt: e })")
+  })
+
   it('wavedef accepts negative partials (phase flips) and floats', () => {
     expect(ok(`wavedef odd 1 -.5 / .25 1\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
       "defineWavetable('odd', [[1, -0.5], [0.25, 1]])",

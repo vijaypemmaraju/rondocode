@@ -13,7 +13,8 @@
  * rebuilds mid-drag (mapping through our own edits instead) so the dial DOM —
  * and its pointer capture — survive. */
 
-import type { Extension, Range } from '@codemirror/state'
+import { StateEffect, StateField } from '@codemirror/state'
+import type { EditorState, Extension, Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
@@ -21,7 +22,7 @@ import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
-import { WavedefWidget, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave } from './wavetable'
+import { WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
 import { cycleEnumEdit, scanEnumSpans } from './enums'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
@@ -1448,14 +1449,12 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     const pos = b.rows[b.rows.length - 1]!.to
     items.push(Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }).range(pos))
   }
-  // wavetable widgets: v2 EDITOR on wavedef lines, v1 RIBBON on synth-body
-  // wavetable calls. The doc's own wavedefs feed both (fresh while typing);
-  // built-ins and last-eval registry tables feed the ribbon.
+  // wavetable widgets: v1 RIBBON on synth-body wavetable calls (the v2
+  // wavedef EDITOR is a BLOCK widget — served by wavedefField below, since
+  // block decorations may not come from a view plugin). The doc's own
+  // wavedefs feed the ribbon fresh while typing; built-ins and last-eval
+  // registry tables fill in the rest.
   const wavedefs = scanWavedefs(text)
-  const wdWidth = envWidth(view)
-  for (const wd of wavedefs) {
-    items.push(Decoration.widget({ widget: new WavedefWidget(wd, wdWidth, hooks, drag), side: 1 }).range(wd.at))
-  }
   for (const call of scanWavetableCalls(text)) {
     let frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
     if (frames === null) continue // unknown table: the eval diagnostic tells that story
@@ -1498,6 +1497,70 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
 /** Movement slop that still counts as a TAP on an enum word (px²). */
 const ENUM_TAP_SLOP_SQ = 64
 
+/** Width refresh for the wavedef block widgets (resize/rotation). */
+const setWavedefWidth = StateEffect.define<number>()
+
+/** The wavedef EDITOR as a StateField of BLOCK decorations. CodeMirror
+ *  forbids layout-affecting (block) decorations from view plugins, so the
+ *  editor cannot ride the main plugin — and it must NOT be inline: an inline
+ *  widget after the line's text shifts with every live rewrite that changes
+ *  a number's length, which is exactly the shipped drag/position bug.
+ *
+ *  The field follows the same drag lifecycle as the plugin: map (never
+ *  rebuild) while a gesture is live so the dragged DOM survives, rebuild
+ *  ONCE on the gesture's end dispatch, rebuild on any other doc change, and
+ *  rebuild when the measured width actually changes (the companion watcher
+ *  plugin dispatches setWavedefWidth outside the update cycle).
+ *
+ *  Exported for the contract tests (wavetable-widget.test.ts pins the
+ *  map-mid-drag / rebuild-once-at-end lifecycle headlessly). */
+export function wavedefField(hooks: Hooks, drag: Drag): Extension {
+  // measured content width; a sane pre-measure default, corrected by the
+  // watcher's first dispatch (eq() includes width, so the correction swaps
+  // in fresh DOM once)
+  let width = 360
+  const build = (state: EditorState): DecorationSet =>
+    Decoration.set(wavedefBlockDecos(state.doc.toString(), width, hooks, drag), true)
+  const field = StateField.define<DecorationSet>({
+    create: (state) => build(state),
+    update: (decos, tr) => {
+      let w: number | null = null
+      for (const e of tr.effects) if (e.is(setWavedefWidth)) w = e.value
+      if (w !== null && w !== width) { width = w; return build(tr.state) }
+      // a live gesture: map our own edits through — rebuilding would destroy
+      // the dragged element (and its pointer stream) mid-gesture
+      if (drag.active) return tr.docChanged ? decos.map(tr.changes) : decos
+      // the gesture's end dispatch (possibly empty) or any real edit: rebuild
+      // with fresh scans. drag.ended is NOT consumed here — the plugin resets
+      // it after its own rebuild (fields update before plugins).
+      if (tr.docChanged || drag.ended) return build(tr.state)
+      return decos
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  })
+  const watcher = ViewPlugin.fromClass(
+    class {
+      pending = false
+      dead = false
+      constructor(readonly view: EditorView) { this.sync(view) }
+      update(u: ViewUpdate): void { if (u.geometryChanged) this.sync(u.view) }
+      destroy(): void { this.dead = true }
+      sync(view: EditorView): void {
+        const w = envWidth(view)
+        if (w === width || this.pending) return
+        this.pending = true // one in flight; re-measured on the next geometry change
+        setTimeout(() => {
+          this.pending = false
+          if (this.dead) return // dispatch on a destroyed view throws
+          const now = envWidth(view)
+          if (now !== width) view.dispatch({ effects: setWavedefWidth.of(now) })
+        }, 0)
+      }
+    },
+  )
+  return [field, watcher]
+}
+
 /** The rondo inline-widget extension (knob · envelope · piano-roll ·
  *  filter curve · enum tap-cycler). */
 export function rondoWidgets(hooks: Hooks): Extension {
@@ -1509,7 +1572,7 @@ export function rondoWidgets(hooks: Hooks): Extension {
   // between down and up can never splice a stale range. The down is NOT
   // claimed — caret placement and drag-selection keep working normally.
   let enumArm: { pointerId: number; x: number; y: number; pos: number } | null = null
-  return ViewPlugin.fromClass(
+  const plugin = ViewPlugin.fromClass(
     class {
       decos: DecorationSet
       lastEnvW: number
@@ -1573,4 +1636,5 @@ export function rondoWidgets(hooks: Hooks): Extension {
       },
     },
   )
+  return [plugin, wavedefField(hooks, drag)]
 }

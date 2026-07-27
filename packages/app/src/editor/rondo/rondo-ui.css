@@ -232,12 +232,15 @@
 .rondo-wt .wt-canvas { display: block; }
 
 /* ---- wavedef editor (v2: author the table by touch) ------------------------ */
+/* a BLOCK widget rendered below its wavedef line (never inline: live value
+   rewrites change the line's text length, and an inline widget would shift
+   under the pointer mid-drag). Width is set inline by the widget. */
 .rondo-wavedef {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
+  box-sizing: border-box;
   gap: 4px;
-  vertical-align: top;
-  margin: 4px 0 4px 8px;
+  margin: 4px 0 6px 2px;
   padding: 5px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--c-border, #2a2e37) 26%, transparent);
@@ -246,7 +249,8 @@
   -webkit-user-select: none;
 }
 .rondo-wavedef .wd-frames {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   gap: 5px;
 }
 .rondo-wavedef .wd-frame {

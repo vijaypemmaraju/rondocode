@@ -12,17 +12,28 @@
  *
  * v2 EDITOR (author): on a `wavedef NAME p p / p p` line the ribbon becomes
  * a touch editor — tap a frame to select it, the selected frame expands to
- * vertical partial bars (one per harmonic), dragging a bar REWRITES that
- * number in the source (LiveWriter, write-verify), [+] appends a 0 partial
- * and [x] removes the last one (line-length-changing writes are deferred to
- * gesture end per the widget rules). Every edit is a doc rewrite: the text
- * stays the whole truth, and undo/redo work for free.
+ * vertical partial bars (one per harmonic), dragging a bar LIVE-REWRITES that
+ * number in the source (LiveWriter, write-verify — audible mid-gesture), [+]
+ * appends a 0 partial and [x] removes the last one (line-length-changing
+ * writes are deferred to gesture end per the widget rules). Every edit is a
+ * doc rewrite: the text stays the whole truth, and undo/redo work for free.
+ *
+ * The editor is a BLOCK widget below its wavedef line (wavedefBlockDecos,
+ * served by a StateField in widgets.ts — CodeMirror forbids block decorations
+ * from view plugins). It used to be an inline widget after the line's text,
+ * and every live rewrite that changed a number's LENGTH ('.3' → '0.55')
+ * reflowed the line and shifted the editor under the pointer — the shipped
+ * "position keeps glitching / drags feel broken" bug. A block widget cannot
+ * move when its line's text reflows; belt-and-braces, the drag also
+ * re-measures the bar's rect per move and re-scans its source ranges at
+ * gesture start (rescanWavedef) instead of trusting build-time offsets.
  *
  * All scanning/geometry lives in PURE exported functions (unit tested); the
  * widget classes keep only DOM + gesture glue and obey ./gesture's protocol.
  */
 
-import { EditorView, WidgetType } from '@codemirror/view'
+import { Decoration, EditorView, WidgetType } from '@codemirror/view'
+import type { Range } from '@codemirror/state'
 import { formatNumber } from '../widgets/rewrite'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
@@ -201,6 +212,27 @@ export function removePartialEdit(scan: WavedefScan, f: number): { from: number;
   const prev = frame[frame.length - 2]!
   const last = frame[frame.length - 1]!
   return { from: prev.to, to: last.to, insert: '' }
+}
+
+/** Re-find this widget's wavedef in the CURRENT doc at gesture time. The
+ *  widget's DOM survives edits that don't change its name/values/width (see
+ *  WavedefWidget.eq), so build-time ranges can be stale — a gesture must
+ *  derive its write ranges from a fresh scan, never from the captured one.
+ *  Matched by name AND exact current values: a rename, a mid-flight value
+ *  edit, or a same-name doppelganger all return null (the gesture aborts
+ *  instead of writing through the wrong line). Pure. */
+export function rescanWavedef(
+  text: string,
+  name: string,
+  values: readonly (readonly number[])[],
+): WavedefScan | null {
+  for (const d of scanWavedefs(text)) {
+    if (d.name !== name) continue
+    const same = d.frames.length === values.length &&
+      d.frames.every((f, fi) => f.length === values[fi]!.length && f.every((v, i) => v === values[fi]![i]))
+    if (same) return d
+  }
+  return null
 }
 
 /* ------------------------------ waveform math ------------------------------ */
@@ -494,22 +526,34 @@ const THUMB = { w: 46, h: 30 }
 export class WavedefWidget extends WidgetType {
   constructor(
     readonly scan: WavedefScan,
-    /** available content width, measured by build() — part of eq(). */
+    /** available content width, measured by the width watcher — part of
+     *  eq(), so a resize/rotation produces a FRESH DOM with fresh geometry. */
     readonly width: number,
     readonly hooks: Hooks,
     readonly drag: Drag,
   ) { super() }
 
   override eq(o: WavedefWidget): boolean {
-    return o.width === this.width && o.scan.name === this.scan.name && o.scan.at === this.scan.at &&
-      JSON.stringify(o.scan.frames) === JSON.stringify(this.scan.frames) &&
-      JSON.stringify(o.scan.ranges) === JSON.stringify(this.scan.ranges)
+    // deliberately OFFSET-FREE: edits elsewhere in the doc shift scan.at and
+    // every range, but the editor's CONTENT is unchanged — keep the DOM (no
+    // flicker, no canvas redraws). Gestures never trust the captured ranges
+    // anyway: they re-scan the current doc when they begin (rescanWavedef).
+    return o.width === this.width && o.scan.name === this.scan.name &&
+      JSON.stringify(o.scan.frames) === JSON.stringify(this.scan.frames)
+  }
+
+  override get estimatedHeight(): number {
+    // padding + thumbnails row + gap + bars strip (see rondo-ui.css) — keeps
+    // the first layout pass close so the rebuild after a gesture cannot make
+    // the viewport jump
+    return 10 + (THUMB.h + 6) + 4 + 96
   }
 
   override toDOM(view: EditorView): HTMLElement {
     const scan = this.scan
-    const wrap = document.createElement('span')
+    const wrap = document.createElement('div')
     wrap.className = 'rondo-wavedef'
+    wrap.style.width = `${this.width}px`
     wrap.setAttribute('role', 'group')
     wrap.setAttribute('aria-label', `wavetable '${scan.name}' editor: tap a frame, drag the partial bars`)
 
@@ -562,7 +606,8 @@ export class WavedefWidget extends WidgetType {
     const renderBars = (): void => {
       bars.replaceChildren()
       const frame = values[sel]!
-      const layout = barLayout(frame.length + 1, this.width) // +1: the +/x rail
+      // +1: the +/x rail; -12: the wrap's padding/border (box-sizing border-box)
+      const layout = barLayout(frame.length + 1, this.width - 12)
       bars.style.setProperty('--wd-bar-w', `${layout.barW}px`)
       for (let i = 0; i < frame.length; i++) {
         const col = document.createElement('span')
@@ -618,20 +663,26 @@ export class WavedefWidget extends WidgetType {
       }
     })
 
-    // bar drags: LIVE rewrite of that one number (LiveWriter, write-verify).
-    // The value text's LENGTH may change mid-drag ('.5' → '0.55') — that is
-    // safe here exactly like the knob: only this number is written, the
-    // decoration plugin maps ranges through our own edits while drag.active,
-    // and ONE rebuild at gesture end refreshes every stale range.
+    // bar drags: LIVE rewrite of that one number (LiveWriter, write-verify),
+    // audible mid-gesture (per-block bank re-resolution picks the new value
+    // up on the next eval). The value text's LENGTH may change mid-drag
+    // ('.5' → '0.55') — safe now that the widget is a BLOCK below the line:
+    // the reflow cannot shift the bars under the pointer. Write ranges come
+    // from a FRESH scan at gesture start (the DOM may have outlived edits
+    // elsewhere — see eq()); the bar rect is re-measured per move so even a
+    // legitimate reflow (the line growing a wrap row) keeps the mapping true.
     attachGesture(bars, this.drag, 'window', (e) => {
       const target = e.target as HTMLElement
       const addEl = target.closest?.('.wd-add') as HTMLElement | null
       const delEl = target.closest?.('.wd-del') as HTMLElement | null
       if (addEl !== null || delEl !== null) {
-        // [+]/[x] change the LINE LENGTH → deferred to gesture end
+        // [+]/[x] change the LINE LENGTH structurally → deferred to gesture
+        // end (the beat-grid rule), and derived from the doc AS IT IS THEN
         return {
           onEnd: () => {
-            const edit = addEl !== null ? appendPartialEdit(scan, sel) : removePartialEdit(scan, sel)
+            const cur = rescanWavedef(view.state.doc.toString(), scan.name, values)
+            if (cur === null) return // renamed/edited under us: refuse quietly
+            const edit = addEl !== null ? appendPartialEdit(cur, sel) : removePartialEdit(cur, sel)
             if (edit === null) return
             buzz()
             this.drag.ended = true
@@ -648,18 +699,23 @@ export class WavedefWidget extends WidgetType {
       const col = target.closest?.('.wd-bar') as HTMLElement | null
       if (!col) return null
       const i = Number(col.dataset['i'])
-      const range = scan.ranges[sel]?.[i]
+      const cur = rescanWavedef(view.state.doc.toString(), scan.name, values)
+      const range = cur?.ranges[sel]?.[i]
       if (range === undefined) return null
       buzz()
       wrap.classList.add('active')
-      const rect = col.getBoundingClientRect()
       const writer = new LiveWriter(view, range.from, range.to)
       const fill = col.querySelector('.wd-fill') as HTMLElement
       const apply = (ev: PointerEvent): void => {
+        const rect = col.getBoundingClientRect() // fresh: reflow-proof mapping
         const v = barValue(ev.clientY, rect.top, rect.height)
         if (values[sel]![i] === v) return
-        values[sel]![i] = v
+        // write FIRST, sync the local copy only on success: an aborted writer
+        // (external edit) must not leave `values` disagreeing with the doc —
+        // rescanWavedef matches by values, and a drifted copy would quietly
+        // refuse every later gesture on this surviving DOM
         if (!writer.write(formatNumber(v, { step: 0.01, min: 0 }))) return
+        values[sel]![i] = v
         fill.style.height = `${v * 100}%`
         drawThumb(sel, values[sel]!)
         this.hooks.requestEval(false)
@@ -670,7 +726,7 @@ export class WavedefWidget extends WidgetType {
         onEnd: () => {
           this.drag.ended = true
           wrap.classList.remove('active')
-          view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
+          view.dispatch({}) // empty transaction → ONE rebuild (fresh ranges)
           this.hooks.requestEval(false)
         },
       }
@@ -679,4 +735,27 @@ export class WavedefWidget extends WidgetType {
   }
 
   override ignoreEvent(): boolean { return true }
+}
+
+/** BLOCK decorations for every editable wavedef line: the editor renders as
+ *  its own block BELOW the line (side 1 at the line end), so live rewrites
+ *  that change the line's text length can never shift it under the pointer.
+ *  Block decorations may not come from a view plugin (CodeMirror forbids
+ *  layout-affecting plugin decorations) — widgets.ts serves these from a
+ *  StateField. Exported for that field and for the contract tests. */
+export function wavedefBlockDecos(
+  text: string,
+  width: number,
+  hooks: Hooks,
+  drag: Drag,
+): Range<Decoration>[] {
+  return scanWavedefs(text).map((wd) => {
+    const nl = text.indexOf('\n', wd.at)
+    const lineEnd = nl === -1 ? text.length : nl
+    return Decoration.widget({
+      widget: new WavedefWidget(wd, width, hooks, drag),
+      side: 1,
+      block: true,
+    }).range(lineEnd)
+  })
 }

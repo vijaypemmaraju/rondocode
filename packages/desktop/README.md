@@ -60,3 +60,48 @@ Both keep the dependency list at tauri + serde + core-foundation.
 - Audio to the DAW still needs a loopback device (BlackHole, Loopback). Sending
   audio as well as MIDI would mean a real audio host, which is a much larger job
   than this shell.
+
+## Signed + notarized builds
+
+`cargo tauri build` signs automatically: the identity, hardened runtime and
+entitlements live in `tauri.conf.json`, so a plain build already produces a
+`.app` and `.dmg` signed by **Developer ID Application (VBU344XYXP)** with a
+full Apple chain.
+
+The entitlements are not boilerplate — each one is load-bearing:
+
+| entitlement | why the app dies without it |
+| --- | --- |
+| `cs.allow-jit` | WKWebView runs JavaScriptCore's JIT; the hardened runtime kills the web view rather than degrading |
+| `cs.allow-unsigned-executable-memory` | the DSP engine and the voice models are WebAssembly, which maps executable pages |
+| `device.audio-input` | `mic()` is a first-class signal |
+| `network.client` | `sing()` downloads its models once |
+
+`Info.plist` carries `NSMicrophoneUsageDescription` for the same reason: without
+a purpose string macOS **terminates** the app when `mic()` asks, instead of
+prompting.
+
+### Notarizing
+
+Signing is done; notarization needs App Store Connect credentials, which the
+build reads from the environment:
+
+```sh
+export APPLE_API_KEY=28923WS4P9                                  # key id
+export APPLE_API_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_28923WS4P9.p8
+export APPLE_API_ISSUER=<issuer uuid from App Store Connect>     # the missing piece
+cargo tauri build
+```
+
+The issuer UUID lives in App Store Connect under *Users and Access →
+Integrations → App Store Connect API*; it is not derivable from the key file.
+Without those three, `tauri build` prints "skipping app notarization" and still
+emits a correctly signed bundle — which Gatekeeper reports as
+`rejected / source=Unnotarized Developer ID` until stapled.
+
+Verify a finished build with:
+
+```sh
+codesign --verify --deep --strict --verbose=2 rondocode.app
+spctl -a -vvv -t install rondocode.app     # "accepted" once notarized
+```

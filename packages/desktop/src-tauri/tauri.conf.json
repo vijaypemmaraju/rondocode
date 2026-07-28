@@ -22,7 +22,8 @@
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": false
   },
   "bundle": {
     "active": true,
@@ -38,6 +39,13 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.png"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "Developer ID Application: Vijay Pemmaraju (VBU344XYXP)",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "10.15",
+      "files": {}
+    }
   }
 }

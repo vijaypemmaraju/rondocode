@@ -212,6 +212,24 @@ function rExpr(n: Node): R | null {
       if (l.openPrec !== undefined && info.prec >= l.openPrec) return null
       return { s: `${l.s} ${info.op} ${r.s}`, prec: info.prec, openPrec: r.openPrec, arityOpen: r.arityOpen }
     }
+    // Sig-method builtins in EXPRESSION position: `floor wob`, `min wob .2`.
+    // rondo takes the input as the FIRST positional here (same shape a proc
+    // has in expression position), so the input must render CLOSED — the
+    // op's own arguments follow it, and an open input would eat them.
+    const sig = BUILTINS[m.method]
+    if (sig?.kind === 'sigop' && m.args.length === sig.pos.length) {
+      const input = posArg(m.obj, m.args.length === 0)
+      if (input === null) return null
+      const parts = [input]
+      for (let i = 0; i < m.args.length; i++) {
+        const a = posArg(m.args[i]!, i === m.args.length - 1)
+        if (a === null) return null
+        parts.push(a)
+      }
+      // an open call: `floor x * 2` re-parses as floor(x * 2), so anything
+      // composing on top of this has to refuse (openPrec/arityOpen say so)
+      return { s: `${m.method} ${parts.join(' ')}`, prec: 5, openPrec: 2, arityOpen: true }
+    }
     // .range(lo, hi) → `x -> lo..hi`
     if (m.method === 'range' && m.args.length === 2) {
       const x = rExpr(m.obj)
@@ -356,9 +374,21 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
       lines.push(`${info.op} ${arg.s}`)
       return true
     }
-    if ((m.method === 'tanh' || m.method === 'fold') && m.args.length === 0) {
+    // Zero-arg sigops (tanh, fold, abs, floor, sqrt, …) render as the bare
+    // name. Driven off BUILTINS so a new row in that table needs nothing here.
+    const spec = BUILTINS[m.method]
+    if (spec?.kind === 'sigop' && spec.pos.length === 0 && m.args.length === 0) {
       if (!unfoldPipeline(m.obj, lines)) return false
       lines.push(m.method)
+      return true
+    }
+    // One-arg sigops (min, max, mod): the operand must render CLOSED, or it
+    // would swallow whatever follows it on the line.
+    if (spec?.kind === 'sigop' && spec.pos.length === 1 && m.args.length === 1) {
+      const arg = rExpr(m.args[0]!)
+      if (arg === null || arg.prec < 2 || arg.openPrec !== undefined || arg.arityOpen) return false
+      if (!unfoldPipeline(m.obj, lines)) return false
+      lines.push(`${m.method} ${arg.s}`)
       return true
     }
     if (m.method === 'clip' && m.args.length <= 2) {

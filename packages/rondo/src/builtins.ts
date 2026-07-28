@@ -122,6 +122,20 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   fold: { kind: 'sigop', pos: [] },
   clip: { kind: 'sigop', pos: ['sig', 'sig'] },
   mix: { kind: 'sigop', pos: ['sig', 'sig'] },
+  // ---- elementary math (Sig methods, same shape as tanh/fold) ----
+  abs: { kind: 'sigop', pos: [] },
+  floor: { kind: 'sigop', pos: [] },
+  ceil: { kind: 'sigop', pos: [] },
+  round: { kind: 'sigop', pos: [] },
+  sign: { kind: 'sigop', pos: [] },
+  sqrt: { kind: 'sigop', pos: [] },
+  exp: { kind: 'sigop', pos: [] },
+  log: { kind: 'sigop', pos: [] },
+  sin: { kind: 'sigop', pos: [] },
+  cos: { kind: 'sigop', pos: [] },
+  min: { kind: 'sigop', pos: ['sig'] },
+  max: { kind: 'sigop', pos: ['sig'] },
+  mod: { kind: 'sigop', pos: ['sig'] },
 }
 
 /** Names usable at the head of a spine transform line (input = the pipe). */

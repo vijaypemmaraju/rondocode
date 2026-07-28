@@ -99,7 +99,11 @@ function genSigArg(r: R, ctx: ExprCtx, depth: number): string {
 function genCall(r: R, ctx: ExprCtx, depth = 1): string {
   const names = Object.keys(BUILTINS).filter((n) => {
     const b = BUILTINS[n]!
-    if (b.kind === 'proc' || b.kind === 'sigop') return false // spine-line only
+    // procs stay spine-only, but a SIGOP has an expression form (`floor wob`,
+    // `min wob .2`) that the decompiler now renders, so it must be fuzzed:
+    // the input becomes the first positional and can absorb what follows it.
+    if (b.kind === 'proc') return false
+    if (b.kind === 'sigop') return !ctx.post
     if (n === 'env') return false // variadic pair syntax, binding-only
     if (n === 'lfo') return true
     return ctx.post ? b.kind === 'osc' : true
@@ -107,6 +111,14 @@ function genCall(r: R, ctx: ExprCtx, depth = 1): string {
   const name = r.pick(names)
   const spec = BUILTINS[name]!
   const parts: string[] = [name]
+  if (spec.kind === 'sigop') {
+    // Input first, then the op's own args. The input must be an actual SIGNAL:
+    // codegen rejects a constant there ('220.fold()' is not valid JS), so a
+    // number would only generate programs that never compile.
+    parts.push(r.chance(0.4) ? 'note' : genClosedCall(r))
+    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, depth))
+    return parts.join(' ')
+  }
   if (name === 'lfo') {
     parts.push(r.pick(['2', '4', '.5', '8']), r.pick(['tri', 'sine', 'saw', 'square']))
   } else if (spec.freqDefault && r.chance(0.5)) {

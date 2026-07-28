@@ -1,4 +1,6 @@
 import type { EditorHandle } from './editor'
+import { isDesktop, openVirtualMidi } from '../desktop/bridge'
+import type { MidiSink } from '../desktop/bridge'
 import type { AudioSession } from '../audio/AudioSession'
 import type { ParamTarget } from '../session/Session'
 import { ACTIVE_PROJECT_EVENT, getActiveProjectId } from './library'
@@ -267,7 +269,46 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   const outputs = (): MIDIOutput[] =>
     access ? Array.from((access.outputs as Map<string, MIDIOutput>).values()) : []
 
+  /* The desktop's VIRTUAL port, opened once on first use. On the web this
+   * stays null forever and every line below is a no-op.
+   *
+   * It is a second destination rather than a replacement: WebMIDI reaches
+   * hardware, the virtual port makes rondocode itself a device a DAW can arm a
+   * track against. Both get the same bytes from the same place, so they cannot
+   * disagree about the beat. */
+  let virt: MidiSink | null = null
+  let virtPending = false
+  const ensureVirtual = (): void => {
+    if (virt !== null || virtPending || !isDesktop()) return
+    virtPending = true
+    void openVirtualMidi().then((sink) => {
+      virt = sink
+      virtPending = false
+    })
+  }
+
+  /** Send one byte to the virtual port AT `at`.
+   *
+   * WebMIDI takes a timestamp and delivers on time; this crate's send is
+   * immediate, so a byte queued with lookahead would otherwise go out EARLY by
+   * the whole lookahead — a systematic tempo error in a DAW recording, which is
+   * worse than none. Deferring with a timer keeps the intended moment to within
+   * timer jitter. Passing the timestamp through to CoreMIDI's MIDITimeStamp
+   * (mach_absolute_time) would be exact and is the real fix. */
+  const emitVirtual = (byte: number, at?: number): void => {
+    const sink = virt
+    if (sink === null) return
+    const delay = at === undefined ? 0 : at - performance.now()
+    if (delay <= 1) {
+      sink.send([byte])
+      return
+    }
+    setTimeout(() => sink.send([byte]), delay)
+  }
+
   const emit = (byte: number, at?: number): void => {
+    ensureVirtual()
+    emitVirtual(byte, at)
     for (const out of outputs()) {
       try {
         out.send([byte], at)

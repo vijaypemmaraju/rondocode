@@ -31,6 +31,8 @@ import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
 import { codeWidgets } from './rondo/widgets'
+import { isDesktop, openVirtualMidi } from '../desktop/bridge'
+import { NoteOut } from '../desktop/midiout'
 import { JS_SCAN } from './widgets/jsscan'
 import { mountRondoPalette } from './rondo/palette'
 import { toNoteEvs } from './rondo/widgets'
@@ -489,6 +491,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
 
   const run = (): boolean => {
     flashRun()
+    ensureNoteOut() // first play publishes the port; a browser no-ops
     return applyDoc(true)
   }
 
@@ -524,8 +527,24 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // `const X = synth(...)` line, fed below from the engine-event fanout.
   const meters = synthMeters()
 
+  /* DESKTOP: notes out of the virtual MIDI port. Opened on the first play so a
+   * browser never touches it, and the port is not published until there is
+   * something to send. */
+  let noteOut: NoteOut | null = null
+  const ensureNoteOut = (): void => {
+    if (noteOut !== null || !isDesktop()) return
+    void openVirtualMidi().then((sink) => {
+      if (sink !== null) {
+        noteOut = new NoteOut(sink, { now: () => audio.currentTimeFrames / audio.sampleRate })
+      }
+    })
+  }
+
   const stop = (): boolean => {
     session.transport('stop')
+    // release anything the DAW is holding — the same stuck-note failure the
+    // engine had, one process further out
+    noteOut?.stop()
     flasher.clearPending() // events that will never sound must not light up
     return true
   }
@@ -874,6 +893,19 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     },
     onPatternEvents: (evs) => {
       flasher.onEvents(evs)
+      // DESKTOP: the same events go out of the virtual MIDI port, so a DAW can
+      // record what is playing. Scheduled against the audio clock rather than
+      // fired on arrival — events come with lookahead, and sending them now
+      // would run the whole recording early by it.
+      noteOut?.send(
+        evs.map((ev) => ({
+          note: typeof ev.controls['note'] === 'number' ? (ev.controls['note'] as number) : 60,
+          timeSec: ev.timeSec,
+          durSec: ev.durSec,
+          ...(typeof ev.controls['sound'] === 'string' ? { sound: ev.controls['sound'] as string } : {}),
+          ...(typeof ev.controls['gain'] === 'number' ? { velocity: ev.controls['gain'] as number } : {}),
+        })),
+      )
       for (const fn of patternListeners) {
         try {
           fn(evs)

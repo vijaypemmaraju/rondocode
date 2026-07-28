@@ -60,10 +60,11 @@ Both keep the dependency list at tauri + serde + core-foundation.
 - Windows and Linux. The file layer is `std::fs` and portable; the dialogs
   (`osascript`) and the MIDI port (CoreMIDI) are macOS-only and need a
   per-platform implementation behind the same commands.
-- The MIDI half of the UI. Open/save file buttons are wired into the library
-  sheet (desktop only, so a browser sees no dead chrome), but nothing routes
-  playback into the virtual port yet — `openVirtualMidi()` is typed, tested and
-  uncalled.
+- Timestamps on the virtual port. WebMIDI takes a delivery time and honours it;
+  the Rust `send` is immediate, so notes and clock are deferred with a timer to
+  the right moment instead — accurate to timer jitter rather than exact.
+  Threading the timestamp through to CoreMIDI's `MIDITimeStamp`
+  (`mach_absolute_time`) would be exact, and is the real fix.
 - Audio to the DAW still needs a loopback device (BlackHole, Loopback). Sending
   audio as well as MIDI would mean a real audio host, which is a much larger job
   than this shell.

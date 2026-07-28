@@ -2131,10 +2131,20 @@ export function codeWidgets(hooks: Hooks, scan: WidgetScan): Extension {
         // empty transaction): surviving instances hold stale ranges/values, and
         // a second drag seeded from them would rewrite the wrong chars.
         if (drag.ended) { drag.ended = false; this.decos = build(u.view, hooks, drag, scan); return }
-        // the full-width envelope tracks the editor width (rotation, resize)
-        const envW = envWidth(u.view)
-        const widthChanged = u.geometryChanged && envW !== this.lastEnvW
-        this.lastEnvW = envW
+        // The full-width envelope tracks the editor width (rotation, resize).
+        // Read the width ONLY when geometry actually changed: clientWidth
+        // forces a synchronous layout, and this update() runs on EVERY
+        // transaction -- including the one the flasher dispatches per note.
+        // Reading it unconditionally meant a forced reflow per note event,
+        // which stalls the main thread and makes the visualizer's rAF and the
+        // roll's playhead run visibly behind the audio (reported: "visuals and
+        // piano roll lagging behind realtime" while playing).
+        let widthChanged = false
+        if (u.geometryChanged) {
+          const envW = envWidth(u.view)
+          widthChanged = envW !== this.lastEnvW
+          this.lastEnvW = envW
+        }
         if (u.docChanged || u.viewportChanged || widthChanged) this.decos = build(u.view, hooks, drag, scan)
       }
     },

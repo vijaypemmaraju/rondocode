@@ -300,7 +300,11 @@ export class Scheduler {
    * stores the exact grid Fraction used, keeping windows half-open,
    * adjacent, and monotonic — every onset still fires exactly once.
    */
-  private cycleAt(timeSec: number): Fraction {
+  /** Seconds → transport cycle position, through the current anchor. PUBLIC
+   *  because a UI playhead must ride the TRANSPORT, not the wall clock: the
+   *  anchor moves every time play() restarts, so `timeSec * cps` lands on an
+   *  arbitrary phase after a stop/run rather than on 0. */
+  cycleAt(timeSec: number): Fraction {
     const c = this.anchorCycle.valueOf() + (timeSec - this.anchorTime) * this._cps
     return Fraction.of(Math.round(c * QUANT), QUANT)
   }

@@ -354,7 +354,7 @@ export class Session {
       if (!result.patterns.has(name)) this.scheduler.removePattern(name)
     }
 
-    if (result.cps !== undefined) this.scheduler.setCps(result.cps)
+    if (result.cps !== undefined) this.requestCps(result.cps)
     this.syncCps()
 
     // Sidechain: send setSidechain on new/changed config, clearSidechain when
@@ -452,6 +452,62 @@ export class Session {
   /** The last source handed to evalCode, good or not. */
   get lastAttempted(): string {
     return this.lastAttemptedSource
+  }
+
+  /** The tempo the DOCUMENT (or an explicit transport call) last asked for.
+   *  Kept even while an external clock overrides it, so switching back to the
+   *  internal clock restores what the tune says rather than freezing on
+   *  whatever the last master happened to be playing at. */
+  private docCps: number | undefined
+  /** Tempo imposed by an external master (MIDI clock). See setExternalCps. */
+  private externalCps: number | undefined
+
+  /** Apply a tempo asked for by the document or a transport call. PRECEDENCE:
+   *  an external clock outranks it. The request is always remembered. */
+  private requestCps(cps: number): void {
+    this.docCps = cps
+    if (this.externalCps === undefined) this.scheduler.setCps(cps)
+  }
+
+  /**
+   * Hand the tempo to an external master, or take it back.
+   *
+   * While an external cps is set it OWNS the transport rate: a `cps` line in
+   * the document is remembered but not applied. That is the rule that makes
+   * following usable, because live coding re-evaluates constantly and a tune
+   * that says `setCps(0.5)` would otherwise yank the tempo off the master on
+   * every keystroke. Passing undefined releases it and restores the document's
+   * own tempo immediately.
+   */
+  setExternalCps(cps: number | undefined): void {
+    if (cps !== undefined && (!Number.isFinite(cps) || cps <= 0)) return
+    const was = this.externalCps
+    const before = this.scheduler.cps
+    this.externalCps = cps
+    const next = cps ?? this.docCps
+    if (next !== undefined) this.scheduler.setCps(clampCps(next))
+    this.syncCps()
+    // A follower calls this a few times a beat; only a tempo that actually
+    // moved (or taking/releasing the clock) is worth a state render.
+    if ((was === undefined) !== (cps === undefined) || this.scheduler.cps !== before) {
+      this.onState?.(this.getState())
+    }
+  }
+
+  /** The tempo the document asks for, whether or not it is in force. */
+  get documentCps(): number | undefined {
+    return this.docCps
+  }
+
+  /** An external master owns the tempo right now. */
+  get followingExternalCps(): boolean {
+    return this.externalCps !== undefined
+  }
+
+  /** Transport position in cycles (0 while stopped) — what an external clock
+   *  measures its phase error against. */
+  get cycle(): number {
+    return this.scheduler.cycle
   }
 
   /** Push the scheduler's tempo to the ENGINE when it changed, so `sync` lfo
@@ -590,7 +646,7 @@ export class Session {
    *  stop: halt ticking and panic (allNotesOff). cps, when given, is
    *  clamped to [0.05, 4] like setCps. */
   transport(cmd: 'play' | 'stop', opts?: { cps?: number }): void {
-    if (opts?.cps !== undefined) this.scheduler.setCps(clampCps(opts.cps))
+    if (opts?.cps !== undefined) this.requestCps(clampCps(opts.cps))
     this.syncCps()
     if (cmd === 'play') {
       if (this.setIntervalImpl !== undefined && this.clearIntervalImpl !== undefined) {
@@ -612,9 +668,11 @@ export class Session {
    *  this when the document carries no tempo line to rewrite, so the change
    *  applies to this run only (the next eval of a doc with a tempo line takes
    *  it back). Clamped to [0.05, 4] like setCps, and pushed to the engine so
-   *  synced lfo/delay times follow. */
+   *  synced lfo/delay times follow. Like every other tempo request it defers
+   *  to an external clock while one is being followed (see setExternalCps),
+   *  and is remembered for when that clock is released. */
   setCps(cps: number): void {
-    this.scheduler.setCps(clampCps(cps))
+    this.requestCps(clampCps(cps))
     this.syncCps()
     this.onState?.(this.getState())
   }

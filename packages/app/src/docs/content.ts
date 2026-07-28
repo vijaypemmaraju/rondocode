@@ -953,6 +953,28 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'midi-clock',
+    group: 'voice & visuals',
+    title: 'Playing in time with other gear',
+    blocks: [
+      p('The clock selector in the midi panel decides where the tempo comes from. Internal is the tune, which is what you have been using. Follow takes it from a drum machine, a groovebox, a DAW or a DJ mixer over MIDI clock. Send makes that gear follow you instead.'),
+      table(
+        'What each mode does.',
+        ['mode', 'tempo', 'transport'],
+        [
+          ['internal', 'from the `bpm` or `setCps` line in the tune', 'your run and stop buttons'],
+          ['follow MIDI clock', 'measured from the incoming clock, and shown live in BPM', 'starts, stops and continues with the master'],
+          ['send MIDI clock', 'still from the tune', 'your run and stop are sent out, so the other gear starts with you'],
+        ],
+      ),
+      note('While you follow, the external clock owns the tempo: a `bpm` line in the tune, and the header BPM field, are both remembered but do not take over. That is deliberate. Live coding re-evaluates constantly, and without the rule every keystroke would yank the tempo off the master mid-set. Switch back to internal and your own tempo takes effect again straight away.'),
+      p('One cycle is one bar of 4/4, the same as in a MIDI export, so 120 BPM is cps 0.5. Following works the tempo out from the tick rate rather than being told it: MIDI clock sends 24 ticks a quarter note and no number. Those ticks jitter by around a millisecond, which on its own would be a 5 percent tempo wobble, so the tempo is fitted over the last two beats of them. It also watches where the master is in the bar and trims the rate by a fraction of a percent to stay there, which is what stops a set drifting apart over ten minutes.'),
+      p('Everything downstream of the tempo follows too, because the followed tempo is the session tempo: a `sync` LFO stays in bars, a `sync` delay stays in beats, and a `.ctrl` sweep keeps its shape.'),
+      note('Ableton Link cannot work from a browser. Link is a native protocol that speaks UDP multicast on the local network, and a web page has no way to open that kind of socket. Every browser project that claims Link is really a native helper app relaying over a WebSocket. MIDI clock is the sync a browser can genuinely do, and it is what most hardware speaks anyway.'),
+      p('One thing to know when following: rondocode loops rather than running along a timeline, so there is no song position to jump to. Start begins the loop from the top of the bar, continue picks a running loop back up rather than restarting it, and stop stops.'),
+    ],
+  },
+  {
     id: 'export',
     group: 'voice & visuals',
     title: 'Export: WAV, stems, loudness',

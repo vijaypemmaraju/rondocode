@@ -326,6 +326,47 @@ describe('Scheduler longevity (fraction growth stays bounded)', () => {
   })
 })
 
+describe('Scheduler.cycle (the position readout an external clock steers by)', () => {
+  it('is 0 while stopped, and tracks the clock at the current cps once playing', () => {
+    const { s, clock } = rig({ cps: 1 })
+    expect(s.cycle).toBe(0)
+    clock.now = 5
+    s.play()
+    expect(s.cycle).toBeCloseTo(0, 12)
+    clock.now = 5.5
+    expect(s.cycle).toBeCloseTo(0.5, 12)
+    clock.now = 8
+    expect(s.cycle).toBeCloseTo(3, 12)
+    s.stop()
+    expect(s.cycle).toBe(0)
+  })
+
+  it('honours startLead, so it reads negative before the first cycle begins', () => {
+    const { s, clock } = rig({ cps: 1, startLead: 0.1 })
+    s.play() // cycle 0 is anchored 0.1s from now
+    expect(s.cycle).toBeCloseTo(-0.1, 12)
+    clock.now = 0.1
+    expect(s.cycle).toBeCloseTo(0, 12)
+  })
+
+  it('runs at the new rate after a tempo change, stepping only by the lookahead', () => {
+    const { s, clock } = rig({ cps: 1, lookahead: 0.1 })
+    s.play()
+    clock.now = 2
+    s.tick() // advance the high-water mark, which is where a setCps pivots
+    const before = s.cycle
+    s.setCps(2)
+    // The pivot sits at the queried boundary, not at now (piecewise-linear
+    // time: already-fired events keep their old timing), so the readout steps
+    // back by the lookahead times the tempo delta. Bounded, and tiny for the
+    // fractional trims an external clock applies.
+    expect(Math.abs(s.cycle - before)).toBeLessThanOrEqual(0.1 * 1 + 1e-9)
+    const after = s.cycle
+    clock.now = 3
+    expect(s.cycle - after).toBeCloseTo(2, 9) // and twice as fast from there
+  })
+})
+
 describe('Scheduler transport', () => {
   it('stop() halts firing; play() restarts at cycle 0 anchored at now', () => {
     const { s, times, events, run, clock } = rig({ cps: 1 })

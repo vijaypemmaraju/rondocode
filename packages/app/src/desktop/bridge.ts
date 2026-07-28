@@ -110,3 +110,70 @@ export async function openVirtualMidi(name = 'rondocode'): Promise<MidiSink | nu
     },
   }
 }
+
+/* ---- the workspace: a directory IS the project list ---------------------- *
+ * The browser keeps projects in IndexedDB because it has nowhere else to put
+ * them. On the desktop that is a second source of truth beside the real one,
+ * so a folder of .rondo/.js files is the library instead: git works on it,
+ * other editors work on it, and there is nothing to import or export. */
+
+export interface WorkspaceEntry {
+  path: string
+  /** file stem — the project name the library shows. */
+  name: string
+  lang: 'rondo' | 'rondocode'
+  /** ms since epoch, for "most recent first". */
+  modified: number
+}
+
+/** Where the workspace lives. Kept in localStorage so it survives a restart;
+ *  null until the user picks one. */
+const WORKSPACE_KEY = 'rc.workspaceDir'
+
+export function workspaceDir(): string | null {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY)
+  } catch {
+    return null // private mode / storage denied: behave as "not chosen"
+  }
+}
+
+export function setWorkspaceDir(dir: string | null): void {
+  try {
+    if (dir === null) localStorage.removeItem(WORKSPACE_KEY)
+    else localStorage.setItem(WORKSPACE_KEY, dir)
+  } catch {
+    /* ignore storage failures — the picker still works for this session */
+  }
+}
+
+/** Pick a workspace folder and remember it. null when cancelled. */
+export async function pickWorkspace(): Promise<string | null> {
+  const dir = await chooseRenderFolder()
+  if (dir !== null) setWorkspaceDir(dir)
+  return dir
+}
+
+/** Project files in the workspace, newest first. Throws when the folder is
+ *  gone — a moved or unmounted workspace must not read as "no projects". */
+export const listWorkspace = (dir: string): Promise<WorkspaceEntry[]> =>
+  invoke<WorkspaceEntry[]>('list_workspace', { dir })
+
+/** Create a new project file. Refuses to clobber an existing one. */
+export const createInWorkspace = (
+  dir: string,
+  name: string,
+  lang: 'rondo' | 'rondocode',
+  code: string,
+): Promise<string> => invoke<string>('create_in_workspace', { dir, name, ext: extFor(lang), code })
+
+/** Rename in place, keeping the extension. Returns the new path. */
+export const renameInWorkspace = (path: string, newName: string): Promise<string> =>
+  invoke<string>('rename_in_workspace', { path, newName })
+
+/** Move a project to the Trash — recoverable in Finder, unlike an unlink. */
+export const trashFile = (path: string): Promise<void> => invoke<void>('trash_file', { path })
+
+/** True when the desktop shell is running AND a workspace has been chosen:
+ *  the condition for the library to read from disk instead of IndexedDB. */
+export const hasWorkspace = (): boolean => isDesktop() && workspaceDir() !== null

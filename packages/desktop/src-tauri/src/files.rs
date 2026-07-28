@@ -119,3 +119,217 @@ pub fn write_bytes(dir: String, name: String, bytes: Vec<u8>) -> Result<String, 
     std::fs::write(&p, bytes).map_err(|e| format!("{}: {e}", p.display()))?;
     Ok(p.display().to_string())
 }
+
+/* ---- workspace: a directory IS the project list -------------------------- *
+ * The browser keeps projects in IndexedDB because it has nowhere else to put
+ * them. On the desktop that would be a second source of truth sitting next to
+ * the real one, so instead a folder of .rondo/.js files IS the library: git
+ * works on it, other editors work on it, and there is nothing to import or
+ * export. */
+
+#[derive(serde::Serialize)]
+pub struct WorkspaceEntry {
+    pub path: String,
+    /// file stem — what the library shows as the project name.
+    pub name: String,
+    pub lang: String,
+    /// modified time, ms since epoch, for "most recent first".
+    pub modified: u64,
+}
+
+fn modified_ms(meta: &std::fs::Metadata) -> u64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Every project file directly inside `dir`, newest first.
+///
+/// Deliberately NOT recursive and not hidden-file-aware: a workspace is a flat
+/// folder of tunes, and silently walking into node_modules or .git would turn
+/// the library into noise.
+pub fn list_workspace(dir: String) -> Result<Vec<WorkspaceEntry>, String> {
+    let root = PathBuf::from(&dir);
+    let rd = std::fs::read_dir(&root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let mut out: Vec<WorkspaceEntry> = Vec::new();
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext, "rondo" | "js") {
+            continue;
+        }
+        let name = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(n) if !n.starts_with('.') => n.to_string(),
+            _ => continue, // dotfiles are editor droppings, not tunes
+        };
+        let modified = entry.metadata().map(|m| modified_ms(&m)).unwrap_or(0);
+        out.push(WorkspaceEntry {
+            path: path.display().to_string(),
+            name,
+            lang: lang_of(&path).to_string(),
+            modified,
+        });
+    }
+    out.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
+    Ok(out)
+}
+
+/// Create a new project file in `dir`, refusing to clobber an existing one.
+/// Returns the path written.
+pub fn create_in_workspace(dir: String, name: String, ext: String, code: String) -> Result<String, String> {
+    let base = sanitize_stem(&name)?;
+    let mut p = PathBuf::from(&dir);
+    std::fs::create_dir_all(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    p.push(format!("{base}{ext}"));
+    if p.exists() {
+        return Err(format!("{} already exists", p.display()));
+    }
+    std::fs::write(&p, code).map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(p.display().to_string())
+}
+
+/// A file name with no path separators and no leading dot: a project name comes
+/// from a text field, and must not be able to write outside the workspace.
+fn sanitize_stem(name: &str) -> Result<String, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Err("a project needs a name".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.starts_with('.') || trimmed == ".." {
+        return Err(format!("'{trimmed}' is not a usable file name"));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Rename a project in place, keeping its extension. Returns the new path.
+pub fn rename_in_workspace(path: String, new_name: String) -> Result<String, String> {
+    let from = PathBuf::from(&path);
+    let base = sanitize_stem(&new_name)?;
+    let ext = from.extension().and_then(|e| e.to_str()).unwrap_or("js").to_string();
+    let to = from.with_file_name(format!("{base}.{ext}"));
+    if to.exists() && to != from {
+        return Err(format!("{} already exists", to.display()));
+    }
+    std::fs::rename(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
+    Ok(to.display().to_string())
+}
+
+/// Move a project to the TRASH rather than unlinking it. A library delete
+/// should be undoable in Finder; std::fs::remove_file is not.
+pub fn trash_file(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    let script = format!(
+        "tell application \"Finder\" to delete POSIX file \"{}\"",
+        p.display().to_string().replace('"', "")
+    );
+    osascript(&script).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A scratch dir under the system temp, removed on drop.
+    struct Tmp(PathBuf);
+    impl Tmp {
+        fn new(tag: &str) -> Self {
+            let p = std::env::temp_dir().join(format!("rondocode-ws-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&p);
+            std::fs::create_dir_all(&p).unwrap();
+            Tmp(p)
+        }
+        fn s(&self) -> String {
+            self.0.display().to_string()
+        }
+    }
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn lists_only_project_files_and_reads_language_from_the_extension() {
+        let t = Tmp::new("list");
+        std::fs::write(t.0.join("acid.rondo"), "saw").unwrap();
+        std::fs::write(t.0.join("pad.js"), "//").unwrap();
+        // none of these are tunes and must not appear in the library
+        std::fs::write(t.0.join("notes.txt"), "x").unwrap();
+        std::fs::write(t.0.join(".hidden.rondo"), "x").unwrap();
+        std::fs::create_dir(t.0.join("subdir")).unwrap();
+        std::fs::write(t.0.join("subdir").join("deep.rondo"), "x").unwrap();
+
+        let mut got: Vec<(String, String)> =
+            list_workspace(t.s()).unwrap().into_iter().map(|e| (e.name, e.lang)).collect();
+        got.sort();
+        assert_eq!(got, vec![
+            ("acid".to_string(), "rondo".to_string()),
+            ("pad".to_string(), "rondocode".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn a_missing_workspace_is_an_error_not_an_empty_library() {
+        // silently showing "no projects" for a folder that was moved or
+        // unmounted would look like data loss
+        assert!(list_workspace("/nope/not/here".to_string()).is_err());
+    }
+
+    #[test]
+    fn create_refuses_to_clobber_and_refuses_to_escape() {
+        let t = Tmp::new("create");
+        let p = create_in_workspace(t.s(), "tune".into(), ".rondo".into(), "saw".into()).unwrap();
+        assert!(p.ends_with("tune.rondo"));
+        assert!(create_in_workspace(t.s(), "tune".into(), ".rondo".into(), "x".into()).is_err());
+        for bad in ["../escape", "a/b", ".dotfile", ""] {
+            assert!(
+                create_in_workspace(t.s(), bad.into(), ".rondo".into(), "x".into()).is_err(),
+                "should refuse {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rename_keeps_the_extension_and_the_contents() {
+        let t = Tmp::new("rename");
+        let p = create_in_workspace(t.s(), "before".into(), ".rondo".into(), "saw note".into()).unwrap();
+        let moved = rename_in_workspace(p, "after".into()).unwrap();
+        assert!(moved.ends_with("after.rondo"), "got {moved}");
+        assert_eq!(std::fs::read_to_string(&moved).unwrap(), "saw note");
+        // and the language it reads back as is unchanged
+        assert_eq!(open_path(moved).unwrap().lang, "rondo");
+    }
+
+    #[test]
+    fn rename_will_not_overwrite_another_project() {
+        let t = Tmp::new("clash");
+        let a = create_in_workspace(t.s(), "a".into(), ".js".into(), "1".into()).unwrap();
+        create_in_workspace(t.s(), "b".into(), ".js".into(), "2".into()).unwrap();
+        assert!(rename_in_workspace(a, "b".into()).is_err());
+    }
+
+    #[test]
+    fn save_then_open_round_trips_through_the_extension() {
+        let t = Tmp::new("round");
+        let js = t.0.join("x.js").display().to_string();
+        save_path(js.clone(), "const a = 1".into()).unwrap();
+        let f = open_path(js).unwrap();
+        assert_eq!(f.code, "const a = 1");
+        assert_eq!(f.lang, "rondocode");
+        assert_eq!(f.name, "x");
+    }
+
+    #[test]
+    fn write_bytes_cannot_escape_the_chosen_folder() {
+        let t = Tmp::new("bytes");
+        // a caller-supplied name is reduced to its basename
+        let p = write_bytes(t.s(), "../../evil.wav".into(), vec![1, 2, 3]).unwrap();
+        assert!(p.starts_with(&t.s()), "escaped the folder: {p}");
+        assert!(p.ends_with("evil.wav"));
+    }
+}

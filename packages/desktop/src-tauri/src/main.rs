@@ -6,7 +6,7 @@
 mod files;
 mod midi;
 
-use files::OpenedFile;
+use files::{OpenedFile, WorkspaceEntry};
 
 #[tauri::command]
 fn open_project_dialog() -> Result<Option<OpenedFile>, String> {
@@ -38,6 +38,27 @@ fn write_render(dir: String, name: String, bytes: Vec<u8>) -> Result<String, Str
     files::write_bytes(dir, name, bytes)
 }
 
+/// The project files in a workspace folder, newest first.
+#[tauri::command]
+fn list_workspace(dir: String) -> Result<Vec<WorkspaceEntry>, String> {
+    files::list_workspace(dir)
+}
+
+#[tauri::command]
+fn create_in_workspace(dir: String, name: String, ext: String, code: String) -> Result<String, String> {
+    files::create_in_workspace(dir, name, ext, code)
+}
+
+#[tauri::command]
+fn rename_in_workspace(path: String, new_name: String) -> Result<String, String> {
+    files::rename_in_workspace(path, new_name)
+}
+
+#[tauri::command]
+fn trash_file(path: String) -> Result<(), String> {
+    files::trash_file(path)
+}
+
 /// Publish the virtual MIDI source. Idempotent: calling twice keeps one port,
 /// so a DAW never sees a duplicate device.
 #[tauri::command]
@@ -65,6 +86,10 @@ fn main() {
             save_project,
             save_project_dialog,
             choose_render_folder,
+            list_workspace,
+            create_in_workspace,
+            rename_in_workspace,
+            trash_file,
             write_render,
             midi_open,
             midi_is_open,

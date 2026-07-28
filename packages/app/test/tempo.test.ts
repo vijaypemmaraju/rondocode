@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { bpmToCps } from '@rondocode/pattern'
 import { verifiedChanges } from '../src/editor/rondo/gesture'
@@ -130,5 +132,35 @@ describe('the BPM window matches the engine cps clamp', () => {
   it('is [12, 960] bpm, the [0.05, 4] cps window at 4 beats to the bar', () => {
     expect(MIN_BPM).toBeCloseTo(12, 10)
     expect(MAX_BPM).toBeCloseTo(960, 10)
+  })
+})
+
+describe('header chrome fits its content', () => {
+  const css = readFileSync(join(__dirname, '../src/style.css'), 'utf8')
+  const rule = (sel: string): string =>
+    new RegExp(`\\${sel}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? ''
+
+  it('the bpm field is wide enough for the widest value it can show', () => {
+    // showBpm rounds to one decimal, so the widest string is 5 chars ('127.9',
+    // '959.9'). At 4.5ch the tempo you were playing was clipped against 'bpm'.
+    const widest = Math.max(
+      ...[MIN_BPM, MAX_BPM, bpmToCps(127.9) * 240, 127.94, 959.94].map((b) => showBpm(b).length),
+    )
+    expect(widest).toBeLessThanOrEqual(5)
+    const w = /width:\s*([\d.]+)ch/.exec(rule('.tempo-input'))?.[1]
+    expect(w).toBeDefined()
+    expect(Number(w)).toBeGreaterThanOrEqual(widest)
+  })
+
+  it('tooltips wrap instead of running off the screen', () => {
+    // These tips are full sentences. white-space: nowrap made max-width
+    // meaningless: the line could not break, so it overflowed the viewport.
+    const t = rule('.tooltip')
+    expect(t).not.toMatch(/white-space:\s*nowrap/)
+    expect(t).toMatch(/max-width:/)
+  })
+
+  it('a tooltip can never be wider than the viewport', () => {
+    expect(rule('.tooltip')).toMatch(/max-width:\s*min\(/)
   })
 })

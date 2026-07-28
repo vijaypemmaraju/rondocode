@@ -60,11 +60,9 @@ Both keep the dependency list at tauri + serde + core-foundation.
 - Windows and Linux. The file layer is `std::fs` and portable; the dialogs
   (`osascript`) and the MIDI port (CoreMIDI) are macOS-only and need a
   per-platform implementation behind the same commands.
-- Timestamps on the virtual port. WebMIDI takes a delivery time and honours it;
-  the Rust `send` is immediate, so notes and clock are deferred with a timer to
-  the right moment instead — accurate to timer jitter rather than exact.
-  Threading the timestamp through to CoreMIDI's `MIDITimeStamp`
-  (`mach_absolute_time`) would be exact, and is the real fix.
+- Running inside a DAW as a plugin. The port makes rondocode a MIDI *device*;
+  a VST3/CLAP would make it an instrument the host renders. That needs the DSP
+  in native code — see "Why not a plugin" below.
 - Audio to the DAW still needs a loopback device (BlackHole, Loopback). Sending
   audio as well as MIDI would mean a real audio host, which is a much larger job
   than this shell.

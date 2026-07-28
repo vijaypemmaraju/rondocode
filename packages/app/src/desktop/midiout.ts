@@ -109,15 +109,15 @@ export class NoteOut {
       const vel = velocityByte(ev.velocity)
       const at = (ev.timeSec - this.opts.now()) * 1000
       const key = `${ch}:${note}`
-      this.at(at, () => {
-        this.held.add(key)
-        this.sink.send([NOTE_ON | ch, note, vel])
-      })
-      // duration is musical, so the note-off rides the same clock
-      this.at(at + Math.max(1, ev.durSec * 1000), () => {
-        this.held.delete(key)
-        this.sink.send([NOTE_OFF | ch, note, 0])
-      })
+      const off = at + Math.max(1, ev.durSec * 1000)
+      // CoreMIDI holds each packet until its timestamp, so the note lands on
+      // the grid rather than whenever a JS timer happened to fire. The timers
+      // below carry no bytes — they only track what is SOUNDING, so a stop can
+      // release it.
+      this.sink.sendAt([NOTE_ON | ch, note, vel], at)
+      this.sink.sendAt([NOTE_OFF | ch, note, 0], off)
+      this.at(at, () => this.held.add(key))
+      this.at(off, () => this.held.delete(key))
     }
   }
 

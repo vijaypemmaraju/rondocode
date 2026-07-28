@@ -86,11 +86,19 @@ export const midiIsOpen = (): Promise<boolean> => invoke<boolean>('midi_is_open'
 export const midiSend = (bytes: Uint8Array | number[]): Promise<void> =>
   invoke<void>('midi_send', { bytes: Array.from(bytes) })
 
+/** Schedule bytes to land `delayMs` from now, timestamped in CoreMIDI. */
+export const midiSendAt = (bytes: Uint8Array | number[], delayMs: number): Promise<void> =>
+  invoke<void>('midi_send_at', { bytes: Array.from(bytes), delayMs })
+
 /** A MIDI sink that writes to the virtual port, or null in a browser. Shaped
  *  like the WebMIDI output the app already drives, so the caller does not care
  *  which one it holds. */
 export interface MidiSink {
   send(bytes: Uint8Array | number[]): void
+  /** Send so the bytes LAND `delayMs` from now. CoreMIDI holds the packet until
+   *  its timestamp, so this is exact where a JS timer was only as good as timer
+   *  jitter. A delay <= 0 goes out immediately. */
+  sendAt(bytes: Uint8Array | number[], delayMs: number): void
 }
 
 /** Open the virtual port and return a sink for it. null off the desktop, or
@@ -104,9 +112,13 @@ export async function openVirtualMidi(name = 'rondocode'): Promise<MidiSink | nu
     console.warn('[desktop] virtual MIDI port unavailable', e)
     return null
   }
+  const warn = (e: unknown): void => console.warn('[desktop] midi send failed', e)
   return {
     send(bytes) {
-      void midiSend(bytes).catch((e: unknown) => console.warn('[desktop] midi send failed', e))
+      void midiSend(bytes).catch(warn)
+    },
+    sendAt(bytes, delayMs) {
+      void midiSendAt(bytes, delayMs).catch(warn)
     },
   }
 }

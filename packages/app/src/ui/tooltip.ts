@@ -23,12 +23,17 @@ function show(el: HTMLElement): void {
   const t = ensure()
   t.textContent = label
   t.classList.add('visible')
-  // place below, centered on the target, clamped to the viewport
+  // Place below, centered on the target, clamped to the viewport. Measure
+  // AFTER the text is set: these tips wrap, so height depends on the content.
   const r = el.getBoundingClientRect()
   const w = t.offsetWidth
+  const h = t.offsetHeight
   const left = Math.max(6, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 6))
+  // below by default; flip above when there is no room down there
+  const below = r.bottom + 6
+  const top = below + h > window.innerHeight - 6 ? Math.max(6, r.top - h - 6) : below
   t.style.left = `${Math.round(left)}px`
-  t.style.top = `${Math.round(r.bottom + 6)}px`
+  t.style.top = `${Math.round(top)}px`
 }
 
 function hide(): void {

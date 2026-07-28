@@ -2,12 +2,16 @@
  * sing() render dialog. A centered overlay that appears while a vocal clip is
  * baking (model download + neural render) and hides when idle. Driven purely by
  * singMgr.onSingProgress — no imperative show/hide from callers. Mounted once
- * from the editor. Non-blocking to the DOM: it never steals focus or captures
- * input; live edits keep flowing (background bakes are silent unless slow).
+ * from the editor. Non-blocking while baking: it never steals focus or captures
+ * input, so live edits keep flowing (background bakes are silent unless slow).
+ * The ERROR state is the one exception - it takes pointer events so its close
+ * button works, and the transition rules live in singDialogState.ts.
  * ------------------------------------------------------------------------- */
 import './singDialog.css'
 import { isIOSWebKit } from '../sing/config'
 import { onSingProgress, onSingError } from '../sing/singMgr'
+import { singDialogNext } from './singDialogState'
+import type { SingDialogEvent, SingDialogMode, SingDialogNext } from './singDialogState'
 import { takeCrashReport } from '../sing/bakephase'
 
 /** First-time consent: singing needs a large one-time model download, so ask
@@ -78,6 +82,7 @@ export function mountSingDialog(): void {
   el.className = 'sing-dialog hidden'
   el.innerHTML = `
     <div class="sing-card">
+      <button class="sing-close" type="button" title="dismiss" aria-label="dismiss">&times;</button>
       <div class="sing-title">baking vocals…</div>
       <div class="sing-label"></div>
       <div class="sing-bar"><div class="sing-fill"></div></div>
@@ -100,29 +105,52 @@ export function mountSingDialog(): void {
   }
 
   const title = el.querySelector<HTMLElement>('.sing-title')!
+  const closeBtn = el.querySelector<HTMLButtonElement>('.sing-close')!
   let errorTimer: ReturnType<typeof setTimeout> | undefined
+  let mode: SingDialogMode = 'hidden'
 
-  // A failed bake used to vanish silently; show it, then auto-dismiss.
+  /** Run one event through the transition table and paint the result. */
+  const send = (ev: SingDialogEvent): SingDialogNext => {
+    const next = singDialogNext(mode, ev)
+    mode = next.mode
+    if (next.clearTimer) {
+      clearTimeout(errorTimer)
+      errorTimer = undefined
+    }
+    if (next.armTimer > 0) errorTimer = setTimeout(() => send({ kind: 'timeout' }), next.armTimer)
+    el.classList.toggle('hidden', mode === 'hidden')
+    el.classList.toggle('sing-error', mode === 'error')
+    return next
+  }
+
+  // The dialog is a click-through overlay while a bake runs (you can keep
+  // editing), which is exactly why the error state needs its own way out: the
+  // card only accepts clicks in .sing-error (see the CSS), and this is it.
+  closeBtn.addEventListener('click', () => send({ kind: 'dismiss' }))
+  // Escape too — but only while an error shows; swallowing Escape during a
+  // bake would steal it from the editor.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return
+    if (send({ kind: 'escape' }).handled) e.preventDefault()
+  })
+
+  // A failed bake used to vanish silently. Now it stays put long enough to
+  // read the message and copy it, with an explicit close.
   onSingError((msg) => {
-    clearTimeout(errorTimer)
-    el.classList.remove('hidden')
-    el.classList.add('sing-error')
+    send({ kind: 'error' })
     title.textContent = 'singing failed'
     label.textContent = msg
     fill.style.width = '100%'
     fill.classList.remove('indeterminate')
-    errorTimer = setTimeout(() => el.classList.add('hidden'), 8000)
   })
 
   onSingProgress((p) => {
     if (!p) {
-      if (!el.classList.contains('sing-error')) el.classList.add('hidden')
+      send({ kind: 'idle' })
       return
     }
-    clearTimeout(errorTimer)
-    el.classList.remove('sing-error')
+    send({ kind: 'progress' })
     title.textContent = 'baking vocals…'
-    el.classList.remove('hidden')
     const pct = p.total > 0 ? Math.min(100, Math.round((p.done / p.total) * 100)) : 0
     const isDownload = p.phase === 'download'
     const mb = (n: number): string => (n / 1e6).toFixed(0)

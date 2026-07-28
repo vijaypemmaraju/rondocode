@@ -23,9 +23,12 @@ import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
-import { WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
+import { RONDO_WAVEDEF, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
+import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable'
 import { cycleEnumEdit, scanEnumSpans } from './enums'
+import type { EnumSpan } from './enums'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
+import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import type { UnisonScan } from './unison'
 
@@ -1094,9 +1097,10 @@ export function rollOverviewBlockDecos(
   width: number,
   hooks: Hooks,
   drag: Drag,
+  scan: WidgetScan = RONDO_SCAN,
 ): Range<Decoration>[] {
   const out: Range<Decoration>[] = []
-  for (const rp of scanRichPlays(text)) {
+  for (const rp of scan.richPlays(text)) {
     const data = rollOverviewData(rp.content)
     if (data === null || data.period < 2) continue
     const nl = text.indexOf('\n', rp.to)
@@ -1896,20 +1900,60 @@ function envWidth(view: EditorView): number {
 const enumMark = Decoration.mark({ class: 'cm-rondo-enum' })
 
 /** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
-function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
+/* ------------------------------------------------------------------------- *
+ * The scanner seam.
+ *
+ * Every widget below is language-agnostic: it is handed absolute source
+ * offsets and values, and (for the editable ones) writes back through
+ * LiveWriter at those offsets. The only rondo-specific part was ever the
+ * SCAN — turning source text into those descriptors. Parameterise that and
+ * the same widgets serve JavaScript, which has a real syntax tree and is if
+ * anything an easier thing to scan than rondo's line regexes.
+ * ------------------------------------------------------------------------- */
+export interface WidgetScan {
+  knobs(text: string): KnobMatch[]
+  envs(text: string): EnvMatch[]
+  plays(text: string): PlayRoll[]
+  richPlays(text: string): RichPlay[]
+  beats(text: string): BeatBlock[]
+  wavedefs(text: string): WavedefScan[]
+  /** how the wavedef bar editor WRITES in this language (separator + rescan). */
+  wavedefDialect: WavedefDialect
+  wavetableCalls(text: string): WavetableCallScan[]
+  unisonHeaders(text: string): UnisonScan[]
+  filters(text: string, knobs: KnobMatch[]): FilterScan[]
+  enumSpans(text: string): EnumSpan[]
+}
+
+/** The rondo scanners — the original set, unchanged. */
+export const RONDO_SCAN: WidgetScan = {
+  knobs: scanKnobs,
+  envs: scanEnvs,
+  plays: scanPlays,
+  richPlays: scanRichPlays,
+  beats: scanBeats,
+  wavedefs: scanWavedefs,
+  wavedefDialect: RONDO_WAVEDEF,
+  wavetableCalls: scanWavetableCalls,
+  unisonHeaders: scanUnisonHeaders,
+  filters: scanFilters,
+  enumSpans: scanEnumSpans,
+}
+
+function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): DecorationSet {
   const items: Range<Decoration>[] = []
   // Docs are tiny (<10 KB); scan the whole thing so widgets past the viewport
   // (and the line-oriented play scan) work without slicing bookkeeping.
   const text = view.state.doc.toString()
-  const knobs = scanKnobs(text)
+  const knobs = scan.knobs(text)
   for (const k of knobs) {
     items.push(Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag), side: 1 }).range(k.defTo))
   }
   const envW = envWidth(view)
-  for (const e of scanEnvs(text)) {
+  for (const e of scan.envs(text)) {
     items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag), side: 1 }).range(e.to))
   }
-  for (const p of scanPlays(text)) {
+  for (const p of scan.plays(text)) {
     items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
@@ -1926,7 +1970,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
       side: 1,
     }).range(rp.to))
   }
-  for (const b of scanBeats(text)) {
+  for (const b of scan.beats(text)) {
     // one sequencer per block, hanging off the LAST qualifying row's line
     const pos = b.rows[b.rows.length - 1]!.to
     items.push(Decoration.widget({ widget: new BeatBlockWidget(b.rows, hooks, drag), side: 1 }).range(pos))
@@ -1936,8 +1980,8 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
   // block decorations may not come from a view plugin). The doc's own
   // wavedefs feed the ribbon fresh while typing; built-ins and last-eval
   // registry tables fill in the rest.
-  const wavedefs = scanWavedefs(text)
-  for (const call of scanWavetableCalls(text)) {
+  const wavedefs = scan.wavedefs(text)
+  for (const call of scan.wavetableCalls(text)) {
     let frames = previewFrames(call.table, wavedefs, hooks.wavetableBank)
     if (frames === null) continue // unknown table: the eval diagnostic tells that story
     // a line carrying warp args renders every frame through the kernel's
@@ -1957,13 +2001,13 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     )
   }
   // unison fan glyphs on `synth … unison:N` headers (display-only)
-  for (const u of scanUnisonHeaders(text)) {
+  for (const u of scan.unisonHeaders(text)) {
     items.push(Decoration.widget({ widget: new UnisonFanWidget(u), side: 1 }).range(u.at))
   }
   // filter response curves under svf/ladder/dualsvf/eq lines (static values
   // only — see filtercurve.ts's honesty rules)
   const fcW = Math.min(envWidth(view), 420)
-  for (const fs of scanFilters(text, knobs)) {
+  for (const fs of scan.filters(text, knobs)) {
     items.push(
       Decoration.widget({
         widget: new FilterCurveWidget(fs, `${JSON.stringify(fs)}`, fcW, hooks, drag),
@@ -1972,7 +2016,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag): DecorationSet {
     )
   }
   // enum words carry the tap-cycler mark (the tap handler lives on the plugin)
-  for (const s of scanEnumSpans(text)) items.push(enumMark.range(s.from, s.to))
+  for (const sp of scan.enumSpans(text)) items.push(enumMark.range(sp.from, sp.to))
   return Decoration.set(items, true)
 }
 
@@ -1999,7 +2043,7 @@ const setBlockWidth = StateEffect.define<number>()
  *  Exported for the contract tests (wavetable-widget.test.ts and
  *  roll-overview.test.ts pin the map-mid-drag / rebuild-once-at-end
  *  lifecycle headlessly). */
-export function blockWidgetField(hooks: Hooks, drag: Drag): Extension {
+export function blockWidgetField(hooks: Hooks, drag: Drag, scan: WidgetScan = RONDO_SCAN): Extension {
   // measured content width; a sane pre-measure default, corrected by the
   // watcher's first dispatch (eq() includes width, so the correction swaps
   // in fresh DOM once)
@@ -2007,8 +2051,8 @@ export function blockWidgetField(hooks: Hooks, drag: Drag): Extension {
   const build = (state: EditorState): DecorationSet => {
     const text = state.doc.toString()
     return Decoration.set([
-      ...wavedefBlockDecos(text, width, hooks, drag),
-      ...rollOverviewBlockDecos(text, width, hooks, drag),
+      ...wavedefBlockDecos(text, width, hooks, drag, scan.wavedefDialect),
+      ...rollOverviewBlockDecos(text, width, hooks, drag, scan),
     ], true)
   }
   const field = StateField.define<DecorationSet>({
@@ -2051,9 +2095,18 @@ export function blockWidgetField(hooks: Hooks, drag: Drag): Extension {
   return [field, watcher]
 }
 
-/** The rondo inline-widget extension (knob · envelope · piano-roll ·
- *  filter curve · enum tap-cycler). */
+/** The rondo widget set — the original entry point. A hoisted DECLARATION on
+ *  purpose: as a `const` arrow at the end of the module it sat in the temporal
+ *  dead zone for anything that imported it through this file's cycle, and the
+ *  failure was silent (a scanner captured undefined and mis-classified) rather
+ *  than a crash. */
 export function rondoWidgets(hooks: Hooks): Extension {
+  return codeWidgets(hooks, RONDO_SCAN)
+}
+
+/** The inline-widget extension (knob · envelope · piano-roll · filter curve ·
+ *  enum tap-cycler), over whichever language the scanner set reads. */
+export function codeWidgets(hooks: Hooks, scan: WidgetScan): Extension {
   const drag: Drag = { active: false, ended: false }
   // ENUM TAP-CYCLER state: a pointerdown on an enum word arms; a pointerup
   // that hasn't traveled (a TAP, not a drag/selection) cycles the word to
@@ -2067,7 +2120,7 @@ export function rondoWidgets(hooks: Hooks): Extension {
       decos: DecorationSet
       lastEnvW: number
       constructor(view: EditorView) {
-        this.decos = build(view, hooks, drag)
+        this.decos = build(view, hooks, drag, scan)
         this.lastEnvW = envWidth(view)
       }
       update(u: ViewUpdate): void {
@@ -2077,12 +2130,12 @@ export function rondoWidgets(hooks: Hooks): Extension {
         // …then rebuild ONCE when the gesture ends (each end() dispatches an
         // empty transaction): surviving instances hold stale ranges/values, and
         // a second drag seeded from them would rewrite the wrong chars.
-        if (drag.ended) { drag.ended = false; this.decos = build(u.view, hooks, drag); return }
+        if (drag.ended) { drag.ended = false; this.decos = build(u.view, hooks, drag, scan); return }
         // the full-width envelope tracks the editor width (rotation, resize)
         const envW = envWidth(u.view)
         const widthChanged = u.geometryChanged && envW !== this.lastEnvW
         this.lastEnvW = envW
-        if (u.docChanged || u.viewportChanged || widthChanged) this.decos = build(u.view, hooks, drag)
+        if (u.docChanged || u.viewportChanged || widthChanged) this.decos = build(u.view, hooks, drag, scan)
       }
     },
     {
@@ -2093,7 +2146,7 @@ export function rondoWidgets(hooks: Hooks): Extension {
             if (e.button !== 0 || drag.active) return false
             const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
             if (pos === null) return false
-            const span = scanEnumSpans(view.state.doc.toString()).find((s) => pos >= s.from && pos <= s.to)
+            const span = scan.enumSpans(view.state.doc.toString()).find((sp) => pos >= sp.from && pos <= sp.to)
             if (span === undefined) { enumArm = null; return false }
             enumArm = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, pos }
           } catch {
@@ -2126,5 +2179,6 @@ export function rondoWidgets(hooks: Hooks): Extension {
       },
     },
   )
-  return [plugin, blockWidgetField(hooks, drag)]
+  return [plugin, blockWidgetField(hooks, drag, scan)]
 }
+

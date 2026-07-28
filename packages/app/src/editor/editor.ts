@@ -30,6 +30,8 @@ import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
+import { codeWidgets } from './rondo/widgets'
+import { JS_SCAN } from './widgets/jsscan'
 import { mountRondoPalette } from './rondo/palette'
 import { toNoteEvs } from './rondo/widgets'
 import type { RondoWidgetHooks } from './rondo'
@@ -678,7 +680,13 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const reconfigureLang = (): void => {
     view.dispatch({
       effects: [
-        langCompartment.reconfigure(lang === 'rondo' ? rondoLanguage(rondoWidgetHooks) : javascript()),
+        // The widget layer is no longer rondo-only: the same widgets run over
+        // JavaScript through JS_SCAN, so a param() is a knob in both languages.
+        langCompartment.reconfigure(
+          lang === 'rondo'
+            ? rondoLanguage(rondoWidgetHooks)
+            : [javascript(), codeWidgets(rondoWidgetHooks, JS_SCAN)],
+        ),
         completionCompartment.reconfigure(lang === 'rondo' ? rondoAutocomplete : rondocodeAutocomplete),
       ],
     })
@@ -695,7 +703,11 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     for (const fn of langListeners) fn(lang)
   }
   reflectLang()
-  if (lang === 'rondo') reconfigureLang() // compartments boot as rondocode
+  // ALWAYS reconfigure at boot, both languages. setup.ts seeds the compartment
+  // with a bare javascript(), which used to be the whole JS story; now that JS
+  // carries a widget layer too, "boot value == reconfigure value" has to hold
+  // or a JS doc opens with no widgets until the user toggles twice.
+  reconfigureLang()
   // The USER toggle attempts CONVERSION (programmatic setLang — project
   // switches, share links — never converts; the code is about to be replaced):
   //   rondo → js: the compiler's output IS the JS (only when it compiles —

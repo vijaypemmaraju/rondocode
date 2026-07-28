@@ -197,11 +197,29 @@ export function barValue(y: number, top: number, height: number): number {
 
 /** The doc edit appending a 0-amplitude partial to frame `f` (or null when
  *  the frame is already at the partial cap). Pure. */
-export function appendPartialEdit(scan: WavedefScan, f: number): { from: number; to: number; insert: string } | null {
+/** What separates two partials in the source. rondo writes them space-joined
+ *  (`1 .5 .3`), JavaScript as array elements (`[1, 0.5, 0.3]`). This is the
+ *  ONLY syntax the bar editor emits — removePartialEdit spans from the end of
+ *  the previous number to the end of the last, so it swallows either
+ *  separator without being told which. */
+export interface WavedefDialect {
+  /** inserted before a new partial's value. */
+  sep: string
+  /** re-find the table in the CURRENT doc (the language's own scanner). */
+  scan: (text: string) => WavedefScan[]
+}
+
+export const RONDO_WAVEDEF: WavedefDialect = { sep: ' ', scan: scanWavedefs }
+
+export function appendPartialEdit(
+  scan: WavedefScan,
+  f: number,
+  dialect: WavedefDialect = RONDO_WAVEDEF,
+): { from: number; to: number; insert: string } | null {
   const frame = scan.ranges[f]
   if (frame === undefined || frame.length >= MAX_PARTIALS) return null
   const last = frame[frame.length - 1]!
-  return { from: last.to, to: last.to, insert: ' 0' }
+  return { from: last.to, to: last.to, insert: `${dialect.sep}0` }
 }
 
 /** The doc edit removing frame `f`'s LAST partial (null when it is the only
@@ -225,8 +243,9 @@ export function rescanWavedef(
   text: string,
   name: string,
   values: readonly (readonly number[])[],
+  dialect: WavedefDialect = RONDO_WAVEDEF,
 ): WavedefScan | null {
-  for (const d of scanWavedefs(text)) {
+  for (const d of dialect.scan(text)) {
     if (d.name !== name) continue
     const same = d.frames.length === values.length &&
       d.frames.every((f, fi) => f.length === values[fi]!.length && f.every((v, i) => v === values[fi]![i]))
@@ -531,6 +550,10 @@ export class WavedefWidget extends WidgetType {
     readonly width: number,
     readonly hooks: Hooks,
     readonly drag: Drag,
+    /** the source dialect this table is written in (see WavedefDialect).
+     *  LAST and defaulted: the widget reads identically in both languages, so
+     *  only the write path needs telling. */
+    readonly dialect: WavedefDialect = RONDO_WAVEDEF,
   ) { super() }
 
   override eq(o: WavedefWidget): boolean {
@@ -680,9 +703,9 @@ export class WavedefWidget extends WidgetType {
         // end (the beat-grid rule), and derived from the doc AS IT IS THEN
         return {
           onEnd: () => {
-            const cur = rescanWavedef(view.state.doc.toString(), scan.name, values)
+            const cur = rescanWavedef(view.state.doc.toString(), scan.name, values, this.dialect)
             if (cur === null) return // renamed/edited under us: refuse quietly
-            const edit = addEl !== null ? appendPartialEdit(cur, sel) : removePartialEdit(cur, sel)
+            const edit = addEl !== null ? appendPartialEdit(cur, sel, this.dialect) : removePartialEdit(cur, sel)
             if (edit === null) return
             buzz()
             this.drag.ended = true
@@ -699,7 +722,7 @@ export class WavedefWidget extends WidgetType {
       const col = target.closest?.('.wd-bar') as HTMLElement | null
       if (!col) return null
       const i = Number(col.dataset['i'])
-      const cur = rescanWavedef(view.state.doc.toString(), scan.name, values)
+      const cur = rescanWavedef(view.state.doc.toString(), scan.name, values, this.dialect)
       const range = cur?.ranges[sel]?.[i]
       if (range === undefined) return null
       buzz()
@@ -748,12 +771,13 @@ export function wavedefBlockDecos(
   width: number,
   hooks: Hooks,
   drag: Drag,
+  dialect: WavedefDialect = RONDO_WAVEDEF,
 ): Range<Decoration>[] {
-  return scanWavedefs(text).map((wd) => {
+  return dialect.scan(text).map((wd) => {
     const nl = text.indexOf('\n', wd.at)
     const lineEnd = nl === -1 ? text.length : nl
     return Decoration.widget({
-      widget: new WavedefWidget(wd, width, hooks, drag),
+      widget: new WavedefWidget(wd, width, hooks, drag, dialect),
       side: 1,
       block: true,
     }).range(lineEnd)

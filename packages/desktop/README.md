@@ -4,9 +4,16 @@ The same app, in a native window, with the two things a browser will not give it
 
 ## Why it exists
 
-**Local files.** Open and save real `.rondo` / `.js` files through the system's own
-picker, and write renders straight into a folder you choose. In the browser a
-project lives in IndexedDB and leaves through a download.
+**Local files.** A WORKSPACE folder is the project list: every `.rondo` / `.js`
+file in it is a project. Git works on it, other editors work on it, and there is
+nothing to import or export. The browser keeps projects in IndexedDB because it
+has nowhere else to put them; carrying that model onto the desktop would mean a
+second source of truth sitting beside the real one.
+
+The listing is flat and skips dotfiles on purpose: a workspace is a folder of
+tunes, and walking into `node_modules` or `.git` would turn the library into
+noise. Delete moves a file to the Trash rather than unlinking it, so a mis-click
+is recoverable in Finder.
 
 **A virtual MIDI port.** This is the DAW integration. WebMIDI can only open ports
 that already exist, so in a browser rondocode can drive hardware but cannot *be*

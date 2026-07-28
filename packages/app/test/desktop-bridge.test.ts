@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { extFor, isDesktop, midiSend, openProjectDialog, openVirtualMidi, writeRender } from '../src/desktop/bridge'
 
 /* The bridge is the ONLY module that knows a native shell might exist. Its
@@ -125,5 +125,65 @@ describe('the library actually calls the bridge', () => {
     // both paths bail on null rather than writing an empty file or clobbering
     expect(lib).toMatch(/if \(f === null\) return/)
     expect(lib).toMatch(/if \(written === null\) return/)
+  })
+})
+
+describe('the workspace: a directory as the project list', () => {
+  // no DOM in this suite, and the bridge deliberately swallows storage
+  // failures — so without a stub every assertion here would pass vacuously
+  const store = new Map<string, string>()
+  beforeAll(() => {
+    ;(globalThis as Record<string, unknown>)['localStorage'] = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    }
+  })
+  afterAll(() => {
+    delete (globalThis as Record<string, unknown>)['localStorage']
+  })
+  afterEach(() => store.clear())
+
+  it('has no workspace until one is chosen, even on desktop', async () => {
+    const { hasWorkspace, setWorkspaceDir, workspaceDir } = await import('../src/desktop/bridge')
+    setShell(vi.fn())
+    setWorkspaceDir(null)
+    expect(workspaceDir()).toBeNull()
+    expect(hasWorkspace()).toBe(false)
+  })
+
+  it('remembers the folder, so it survives a restart', async () => {
+    const { hasWorkspace, setWorkspaceDir, workspaceDir } = await import('../src/desktop/bridge')
+    setShell(vi.fn())
+    setWorkspaceDir('/Users/x/Music/rondo')
+    expect(workspaceDir()).toBe('/Users/x/Music/rondo')
+    expect(hasWorkspace()).toBe(true)
+  })
+
+  it('never claims a workspace in the browser, whatever is stored', async () => {
+    const { hasWorkspace, setWorkspaceDir } = await import('../src/desktop/bridge')
+    setWorkspaceDir('/Users/x/Music/rondo') // stale value from a desktop run
+    expect(hasWorkspace()).toBe(false) // no shell → no filesystem
+  })
+
+  it('creates a file with the extension its language reads back as', async () => {
+    const invoke = vi.fn().mockResolvedValue('/w/tune.rondo')
+    setShell(invoke)
+    const { createInWorkspace } = await import('../src/desktop/bridge')
+    await createInWorkspace('/w', 'tune', 'rondo', 'saw note')
+    expect(invoke).toHaveBeenCalledWith('create_in_workspace', {
+      dir: '/w', name: 'tune', ext: '.rondo', code: 'saw note',
+    })
+  })
+
+  it('picking a workspace remembers it; cancelling leaves it unset', async () => {
+    const { pickWorkspace, workspaceDir } = await import('../src/desktop/bridge')
+    setShell(vi.fn().mockResolvedValue(null)) // cancelled
+    expect(await pickWorkspace()).toBeNull()
+    expect(workspaceDir()).toBeNull()
+
+    setShell(vi.fn().mockResolvedValue('/w'))
+    expect(await pickWorkspace()).toBe('/w')
+    expect(workspaceDir()).toBe('/w')
   })
 })

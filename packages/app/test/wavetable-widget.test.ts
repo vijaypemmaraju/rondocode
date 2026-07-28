@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import type { Transaction } from '@codemirror/state'
@@ -389,5 +391,43 @@ describe('blockWidgetField rebuild lifecycle (map mid-drag, rebuild ONCE at end)
     const [w1] = widgetsIn(state)
     expect(w1).not.toBe(w0) // rebuilt (fresh at/ranges)…
     expect(w1!.eq(w0!)).toBe(true) // …but eq() keeps the DOM: no flicker
+  })
+})
+
+describe('block widget spacing cannot be margin', () => {
+  /* CodeMirror measures every child of the content, block widgets included,
+   * with getBoundingClientRect().height (see @codemirror/view's
+   * measureVisibleLineHeights: `let childRect = child.dom.getBoundingClientRect(),
+   * { height } = childRect` … `result.push(height + spaceAbove)`). A rect
+   * excludes MARGINS, so margin on a block widget's root is space the height
+   * map never learns about: the editor thinks every line below it sits higher
+   * than it does, and clicks land on the wrong line -- worse the more widgets
+   * are above the click. Use transparent borders (inside the rect) instead. */
+  const css = readFileSync(join(__dirname, '../src/editor/rondo/rondo-ui.css'), 'utf8')
+  const rule = (sel: string): string => new RegExp(`\\${sel}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? ''
+
+  // the roots of the two BLOCK decorations (wavedefBlockDecos + the roll overview)
+  const BLOCK_ROOTS = ['.rondo-wavedef', '.rondo-rollov']
+
+  it.each(BLOCK_ROOTS)('%s declares no margin', (sel) => {
+    const body = rule(sel)
+    expect(body).not.toBe('')
+    expect(body).not.toMatch(/(^|[;{\s])margin(-top|-bottom)?\s*:/)
+  })
+
+  it.each(BLOCK_ROOTS)('%s spaces itself with transparent borders instead', (sel) => {
+    const body = rule(sel)
+    expect(body).toMatch(/border-top:\s*\d+px solid transparent/)
+    expect(body).toMatch(/border-bottom:\s*\d+px solid transparent/)
+  })
+
+  it.each(BLOCK_ROOTS)('%s clips its background so the border reads as empty space', (sel) => {
+    const body = rule(sel)
+    // must come AFTER the `background:` shorthand, which resets the longhand
+    const bg = body.lastIndexOf('background:')
+    const clip = body.lastIndexOf('background-clip:')
+    expect(clip).toBeGreaterThan(-1)
+    expect(clip).toBeGreaterThan(bg)
+    expect(body).toMatch(/background-clip:\s*padding-box/)
   })
 })

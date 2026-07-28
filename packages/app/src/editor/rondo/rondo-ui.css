@@ -276,10 +276,19 @@
   box-sizing: border-box;
   align-items: stretch;
   gap: 3px;
-  margin: 4px 0 6px 2px;
+  /* Spacing as transparent BORDER, never margin. CodeMirror measures a block
+   * widget from its element box, which excludes margins, so 10px of vertical
+   * margin here left the height map 10px short per widget -- and every click
+   * below one landed on the wrong line. background-clip keeps the fill inside
+   * the border so this looks exactly like the margin it replaces. */
+  border-top: 4px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 2px solid transparent;
   padding: 4px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--c-border, #2a2e37) 26%, transparent);
+  /* AFTER the background shorthand, which would reset it. */
+  background-clip: padding-box;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -323,10 +332,19 @@
   flex-direction: column;
   box-sizing: border-box;
   gap: 4px;
-  margin: 4px 0 6px 2px;
+  /* Spacing as transparent BORDER, never margin. CodeMirror measures a block
+   * widget from its element box, which excludes margins, so 10px of vertical
+   * margin here left the height map 10px short per widget -- and every click
+   * below one landed on the wrong line. background-clip keeps the fill inside
+   * the border so this looks exactly like the margin it replaces. */
+  border-top: 4px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 2px solid transparent;
   padding: 5px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--c-border, #2a2e37) 26%, transparent);
+  /* AFTER the background shorthand, which would reset it. */
+  background-clip: padding-box;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;

@@ -1,0 +1,20 @@
+[package]
+name = "rondocode-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "rondocode desktop shell: local files + a virtual MIDI port for DAWs"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# CFString only — CoreMIDI itself is bound directly in src/midi.rs
+core-foundation = "0.10"
+
+[features]
+# by convention for tauri; nothing custom yet
+default = []

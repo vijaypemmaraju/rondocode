@@ -42,6 +42,14 @@ export const SCALES: Record<string, readonly number[]> = {
   pentatonic: [0, 2, 4, 7, 9],
   minorPentatonic: [0, 3, 5, 7, 10],
   chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  // ionian/harmonicMinor round out the diatonic mode names: someone who reaches
+  // for `ionian` by name means major, and hitting "unknown scale" for it is a
+  // needless dead end when the other six modes are all spelled out above.
+  ionian: [0, 2, 4, 5, 7, 9, 11],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+  melodicMinor: [0, 2, 3, 5, 7, 9, 11],
+  wholeTone: [0, 2, 4, 6, 8, 10],
+  blues: [0, 3, 5, 6, 7, 10],
 }
 
 /** Mode lookup keyed by lowercased name ('minorpentatonic' → minorPentatonic). */

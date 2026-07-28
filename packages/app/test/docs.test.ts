@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GROUP_ORDER, blockText, orderedSections, SECTIONS } from '../src/docs/content'
+import { GROUP_ORDER, SECTIONS, blockText, orderedSections } from '../src/docs/content'
 import type { Block } from '../src/docs/content'
 import { blockHtml, inlineHtml } from '../src/docs/blocks'
 import { Pattern } from '@rondocode/pattern'
@@ -329,5 +329,21 @@ describe('the guide covers the editor, not just the language', () => {
 
   it('says what the formatter will never do (the promise that makes it safe)', () => {
     expect(text).toMatch(/never change what your code compiles to/)
+  })
+})
+
+describe('copy accuracy (claims must match the code)', () => {
+  const text = SECTIONS.flatMap((s) => s.blocks.map((b) => blockText(b))).join(' ')
+
+  it('the export section documents the 0.89 peak scale that renderMix applies', () => {
+    // renderMix peak-normalizes a mix above 0.89 DOWN to it. The guide said
+    // "nothing is normalized for you on the way out", which was false and
+    // would mislead anyone reading the LUFS number.
+    expect(text).toContain('0.89')
+    expect(text).toMatch(/scaled DOWN|scaled down/)
+  })
+
+  it('does not claim an export is identical to what you heard', () => {
+    expect(text).not.toMatch(/identical to what you (just )?heard/i)
   })
 })

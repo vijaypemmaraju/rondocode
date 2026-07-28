@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { diffGraphConstants } from '../src/patch'
 import { VoicePool } from '../src/voice'
-import { BLOCK } from '../src/compile'
+import { BLOCK, compileGraph } from '../src/compile'
 import type { DspContext } from '../src/dsp/types'
 import type { GraphSpec, InputSource, NodeSpec, NodeType } from '../src/graph'
 
@@ -39,9 +39,25 @@ describe('diffGraphConstants', () => {
   })
 
   it('returns null when kernel CONFIG changed (rebuild needed)', () => {
-    const a = g([node(1, 'adsr', { gate: 1 }, { d: 0.2 }), node(3, 'out', { in: { node: 1 } })], 3)
-    const b = g([node(1, 'adsr', { gate: 1 }, { d: 0.5 }), node(3, 'out', { in: { node: 1 } })], 3)
+    // svf's `mode` is genuinely build-time: the kernel picks a response curve
+    // once, so there is nothing to re-point.
+    const a = g([node(1, 'svf', { in: 0, cutoff: 800 }, { mode: 'lp' }), node(3, 'out', { in: { node: 1 } })], 3)
+    const b = g([node(1, 'svf', { in: 0, cutoff: 800 }, { mode: 'hp' }), node(3, 'out', { in: { node: 1 } })], 3)
     expect(diffGraphConstants(a, b)).toBeNull()
+  })
+
+  it('an envelope time is a PATCHABLE constant, not a rebuild', () => {
+    // a/d/s/r are input ports, so dragging the envelope widget re-points a
+    // constant on the ringing voice instead of rebuilding it mid-note.
+    const a = g([node(1, 'adsr', { gate: 1, d: 0.2 }), node(3, 'out', { in: { node: 1 } })], 3)
+    const b = g([node(1, 'adsr', { gate: 1, d: 0.5 }), node(3, 'out', { in: { node: 1 } })], 3)
+    expect(diffGraphConstants(a, b)).toEqual([{ node: 1, port: 'd', value: 0.5 }])
+  })
+
+  it('refuses a spec that still puts a/d/s/r in adsr config', () => {
+    // silently falling back to the port defaults would just sound wrong
+    const stale = g([node(1, 'adsr', { gate: 1 }, { d: 0.5 }), node(3, 'out', { in: { node: 1 } })], 3)
+    expect(() => compileGraph(stale, { sampleRate: 48000 })).toThrow(/input port, not config/)
   })
 
   it('returns null on a structural (edge) change', () => {

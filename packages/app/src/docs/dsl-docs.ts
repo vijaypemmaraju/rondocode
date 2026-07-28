@@ -518,8 +518,8 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'adsr',
     'adsr(gate, opts?: { a, d, s, r })',
-    'An attack/decay/sustain/release envelope 0..1 driven by the gate, shape loudness, brightness, pitch.',
-    'adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })',
+    'An attack/decay/sustain/release envelope 0..1 driven by the gate, shape loudness, brightness, pitch. Every stage takes a signal as well as a number, so a knob or an LFO can move the envelope itself while it runs.',
+    "adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: param('rel', 0.2, { min: 0.02, max: 2 }) })",
   ),
   sc(
     'env',

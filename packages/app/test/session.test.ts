@@ -660,8 +660,12 @@ describe('Session: engine events and params', () => {
 describe('Session.evalCode: live constant patch vs rebuild', () => {
   const GAIN = (g: number) =>
     `const a = synth(({ sine, note }) => sine(note.freq).mul(${g}))\np('p', note('60').sound('a'))`
+  // A genuinely build-time number: reverb's roomSize sizes the comb buffers at
+  // construction, so scrubbing it cannot be patched and must rebuild. (adsr's
+  // times used to play this role and are now input ports -- see the hot-patch
+  // test below, which is the whole point of the change.)
   const CFG = (d: number) =>
-    `const a = synth(({ sine, note, gate, adsr }) => sine(note.freq).mul(adsr(gate, { a: 0.01, d: ${d}, s: 0.3, r: 0.1 })))\np('p', note('60').sound('a'))`
+    `const a = synth(({ sine, note, reverb }) => reverb(sine(note.freq), { roomSize: ${d} }))\np('p', note('60').sound('a'))`
 
   it('hot-patches a live constant-only change (no rebuild)', () => {
     const { session, ofKind } = rig()
@@ -673,6 +677,19 @@ describe('Session.evalCode: live constant patch vs rebuild', () => {
     expect(patches).toHaveLength(1)
     expect(patches[0]!.name).toBe('a')
     expect(patches[0]!.patches.some((p) => p.value === 0.9)).toBe(true)
+  })
+
+  it('scrubbing an envelope time hot-patches the ringing voice, no rebuild', () => {
+    const ENV = (d: number) =>
+      `const a = synth(({ sine, note, gate, adsr }) => sine(note.freq).mul(adsr(gate, { a: 0.01, d: ${d}, s: 0.3, r: 0.1 })))\np('p', note('60').sound('a'))`
+    const { session, ofKind } = rig()
+    session.evalCode(ENV(0.2))
+    expect(ofKind('defineSynth')).toHaveLength(1)
+    session.evalCode(ENV(0.5), { live: true })
+    expect(ofKind('defineSynth')).toHaveLength(1) // NOT rebuilt mid-note
+    const patches = ofKind('patchConstants')
+    expect(patches).toHaveLength(1)
+    expect(patches[0]!.patches.some((p) => p.value === 0.5)).toBe(true)
   })
 
   it('debounces a live rebuild (config change) instead of glitch-spamming', () => {

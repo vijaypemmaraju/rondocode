@@ -11,7 +11,6 @@ import { SvfKernel, LadderKernel, OnePoleKernel, DualSvfKernel } from './dsp/fil
 import type { SvfMode, DualSvfConfig } from './dsp/filters'
 import { AdsrKernel, EnvKernel } from './dsp/env'
 import type { EnvConfig } from './dsp/env'
-import type { AdsrConfig } from './dsp/env'
 import { LfoKernel } from './dsp/lfo'
 import type { LfoShape } from './dsp/lfo'
 import {
@@ -160,7 +159,16 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   ladder: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   onepole: [{ name: 'in' }, { name: 'cutoff' }],
   dualsvf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'cutoff2' }, { name: 'res', def: 0 }],
-  adsr: [{ name: 'gate' }],
+  // a/d/s/r are ports, not config: any of them can be a knob or an LFO. The
+  // defaults match AdsrKernel's old constructor defaults, and a plain number
+  // resolves to a constant buffer (line ~590) so nothing pays for the freedom.
+  adsr: [
+    { name: 'gate' },
+    { name: 'a', def: 0.01 },
+    { name: 'd', def: 0.1 },
+    { name: 's', def: 0.7 },
+    { name: 'r', def: 0.2 },
+  ],
   env: [{ name: 'gate' }],
   lfo: [{ name: 'freq' }],
   mul: [{ name: 'a' }, { name: 'b' }],
@@ -233,7 +241,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   ladder: () => new LadderKernel(),
   onepole: () => new OnePoleKernel(),
   dualsvf: (c) => new DualSvfKernel(dualsvfCfg(c)),
-  adsr: (c) => new AdsrKernel(c as AdsrConfig),
+  adsr: () => new AdsrKernel(),
   env: (c) => new EnvKernel(c as unknown as EnvConfig),
   // sync flips 'freq' from Hz to transport cycles; the kernel reads ctx.cps
   lfo: (c) => new LfoKernel((c['shape'] as LfoShape | undefined) ?? 'sine', undefined, c['sync'] === true),
@@ -449,6 +457,18 @@ function assemble(spec: GraphSpec, ctx: DspContext): CompiledCore {
     }
     if (n.type === 'out' && n.id !== spec.out) {
       throw new GraphError(`node ${n.id} (out): must be the graph output node`)
+    }
+    // a/d/s/r used to be config and are now ports. A spec that still puts them
+    // in config would silently get the port DEFAULTS instead of what it asked
+    // for (a wrong-sounding envelope, not an error), so refuse it outright.
+    if (n.type === 'adsr' && n.config) {
+      const stale = ['a', 'd', 's', 'r'].filter((k) => n.config![k] !== undefined)
+      if (stale.length > 0) {
+        throw new GraphError(
+          `node ${n.id} (adsr): ${stale.join('/')} is an input port, not config — ` +
+            `pass it in inputs (a plain number is fine, and a signal now works too)`,
+        )
+      }
     }
     if (n.type === 'const' && typeof n.config?.['value'] !== 'number') {
       throw new GraphError(`node ${n.id} (const): requires numeric config.value`)

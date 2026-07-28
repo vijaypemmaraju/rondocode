@@ -288,3 +288,85 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     expect(Math.sqrt(sum / r.left.length)).toBeGreaterThan(0.01)
   })
 })
+
+describe('knobs in adsr stages', () => {
+  /** RMS of a rendered note. */
+  const rms = (def: Parameters<typeof renderOffline>[0], sec = 0.5): number => {
+    const r = renderOffline(def, [
+      { time: 0, type: 'noteOn', note: 57 },
+      { time: sec * 0.6, type: 'noteOff', note: 57 },
+    ], sec)
+    let sum = 0
+    for (let i = 0; i < r.left.length; i++) sum += r.left[i]! * r.left[i]!
+    return Math.sqrt(sum / r.left.length)
+  }
+  const build = (src: string): Parameters<typeof renderOffline>[0] => {
+    const c = compile(src)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) throw new Error('compile failed')
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    return result.synths.get('t')!
+  }
+
+  it('a knob drives an envelope stage and the synth still sounds', () => {
+    // This used to compile, eval and render TOTAL SILENCE: a/d/s/r were baked
+    // into the kernel at construction, so a Sig in a number slot went NaN.
+    const def = build(`synth t
+  saw note
+  * env
+  env = adsr atk .2 .3 .1
+  atk = knob .01 .001..1
+
+play t
+  c4`)
+    expect(rms(def)).toBeGreaterThan(0.01)
+  })
+
+  it('one knob drives two targets at different ratios', () => {
+    const c = compile(`synth pad
+  saw note
+  ladder k * 3800 + 200 res:.3
+  * env * amp
+  env = adsr .01 .2 .6 .3
+  amp = k * .5 + .5
+  k = knob .5 0..1
+
+play pad
+  c4`)
+    expect(c.ok).toBe(true)
+    if (!c.ok) return
+    // ONE param declaration, scaled independently at each use site
+    expect(c.code.match(/param\('k'/g)).toHaveLength(1)
+    expect(c.code).toContain('k.mul(3800).add(200)')
+    expect(c.code).toContain('k.mul(0.5).add(0.5)')
+  })
+
+  it('a trailing operator after adsr binds to the CALL, not the last argument', () => {
+    // The absorption trap, pinned because it is silent: dividing the envelope
+    // by 12300 leaves a synth that runs and makes almost nothing.
+    const swallowed = compile(`synth t
+  saw note
+  * env
+  bright = knob 2050 500..12300 log
+  env = adsr .002 .079 .21 bright/12300
+
+play t
+  c4`)
+    expect(swallowed.ok).toBe(true)
+    if (!swallowed.ok) return
+    expect(swallowed.code).toContain('r: bright }).div(12300)')
+
+    // binding the expression first is the fix, and it is audibly different
+    const bound = build(`synth t
+  saw note
+  * env
+  bright = knob 2050 500..12300 log
+  rel = bright / 12300
+  env = adsr .002 .079 .21 rel
+
+play t
+  c4`)
+    expect(rms(bound)).toBeGreaterThan(0.01)
+  })
+})

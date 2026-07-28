@@ -1,16 +1,13 @@
 import type { DspContext, Kernel } from './types'
 import { clamp } from './util'
 
-export interface AdsrConfig {
-  /** Attack time in seconds (linear ramp to 1). Default 0.01. */
-  a?: number
-  /** Decay time constant in seconds (one-pole toward sustain). Default 0.1. */
-  d?: number
-  /** Sustain level, 0..1. Default 0.7. */
-  s?: number
-  /** Release time constant in seconds (one-pole toward 0). Default 0.2. */
-  r?: number
-}
+/* util.ts's clamp PROPAGATES NaN (`v < lo` and `v > hi` are both false for it),
+ * which is fine for a value read once at construction and fatal for one read per
+ * sample: a single NaN would poison `level` for the life of the voice, which is
+ * exactly how a knob wired into a stage used to silence a synth. These test
+ * `>= lo` first, so NaN falls to the floor instead of spreading. */
+const clampTime = (v: number): number => (v >= 0.0005 ? (v <= 30 ? v : 30) : 0.0005)
+const clampLevel = (v: number): number => (v >= 0 ? (v <= 1 ? v : 1) : 0)
 
 const IDLE = 0
 const ATTACK = 1
@@ -25,31 +22,38 @@ const RELEASE = 4
  *  (~63% of the remaining distance per constant), not reach-times. Gate-off in
  *  ANY stage releases from the current level; below 1e-4 the release snaps to
  *  exactly 0 and goes idle. Times are clamped to [0.0005, 30] s and the
- *  sustain level to [0, 1] at construction. */
+ *  sustain level to [0, 1].
+ *
+ *  a/d/s/r are INPUT PORTS, not config, so each one can be a knob, an LFO or
+ *  another envelope and is read per sample: turning the attack knob mid-attack
+ *  changes the current ramp rate immediately, exactly like an analog envelope.
+ *  A plain number costs nothing extra — compile resolves it to a shared
+ *  constant buffer rather than a kernel step (see compile.ts). The one-pole
+ *  coefficients need an exp() per distinct value, so they are cached and only
+ *  recomputed when their input actually moves: a fixed (or held) time pays one
+ *  exp per block, and only a moving knob pays per sample. */
 export class AdsrKernel implements Kernel {
-  private readonly a: number
-  private readonly d: number
-  private readonly s: number
-  private readonly r: number
   private level = 0
   private stage = IDLE
-
-  constructor(config: AdsrConfig = {}) {
-    this.a = clamp(config.a ?? 0.01, 0.0005, 30)
-    this.d = clamp(config.d ?? 0.1, 0.0005, 30)
-    this.s = clamp(config.s ?? 0.7, 0, 1)
-    this.r = clamp(config.r ?? 0.2, 0.0005, 30)
-  }
+  // cached one-pole coefficients + the input value each was computed from
+  private lastD = NaN
+  private gD = 0
+  private lastR = NaN
+  private gR = 0
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
     const gate = inputs['gate']!
+    const aIn = inputs['a']!
+    const dIn = inputs['d']!
+    const sIn = inputs['s']!
+    const rIn = inputs['r']!
     const sr = ctx.sampleRate
-    const s = this.s
-    const aStep = 1 / (this.a * sr) // linear attack increment per sample
-    const gD = 1 - Math.exp(-1 / (this.d * sr))
-    const gR = 1 - Math.exp(-1 / (this.r * sr))
     let level = this.level
     let stage = this.stage
+    let lastD = this.lastD
+    let gD = this.gD
+    let lastR = this.lastR
+    let gR = this.gR
     for (let i = 0; i < n; i++) {
       if (gate[i]! > 0.5) {
         if (stage === IDLE || stage === RELEASE) stage = ATTACK
@@ -57,29 +61,49 @@ export class AdsrKernel implements Kernel {
         stage = RELEASE
       }
       if (stage === ATTACK) {
-        level += aStep
+        level += 1 / (clampTime(aIn[i]!) * sr)
         if (level >= 1) {
           level = 1
           stage = DECAY
         }
       } else if (stage === DECAY) {
+        const d = clampTime(dIn[i]!)
+        if (d !== lastD) {
+          lastD = d
+          gD = 1 - Math.exp(-1 / (d * sr))
+        }
+        const s = clampLevel(sIn[i]!)
         level += gD * (s - level)
         if (Math.abs(level - s) < 1e-4) {
           level = s
           stage = SUSTAIN
         }
       } else if (stage === RELEASE) {
+        const r = clampTime(rIn[i]!)
+        if (r !== lastR) {
+          lastR = r
+          gR = 1 - Math.exp(-1 / (r * sr))
+        }
         level -= gR * level
         if (level < 1e-4) {
           level = 0
           stage = IDLE
         }
+      } else if (stage === SUSTAIN) {
+        // A moving sustain must actually move: glide to it at the decay rate
+        // rather than freezing at whatever level the decay stage handed over.
+        const s = clampLevel(sIn[i]!)
+        if (s !== level) level += gD * (s - level)
       }
-      // SUSTAIN holds s (level already there); IDLE holds 0.
+      // IDLE holds 0.
       out[i] = level
     }
     this.level = level
     this.stage = stage
+    this.lastD = lastD
+    this.gD = gD
+    this.lastR = lastR
+    this.gR = gR
   }
 
   reset(): void {

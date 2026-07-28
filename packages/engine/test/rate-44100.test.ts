@@ -25,10 +25,12 @@ const ctx: DspContext = { sampleRate: SR }
 
 describe('44.1 kHz: envelope timing', () => {
   it('adsr attack completes in a*sampleRate SAMPLES (10 ms = 441 samples at 44.1k)', () => {
-    const k = new AdsrKernel({ a: 0.01, d: 0.1, s: 0.5, r: 0.1 })
+    const k = new AdsrKernel()
     const n = SR
     const out = new Float32Array(n)
-    k.process(n, { gate: new Float32Array(n).fill(1) }, out, ctx)
+    const at = (v: number): Float32Array => new Float32Array(n).fill(v)
+    // a/d/s/r are input ports now, so the stage times arrive as buffers
+    k.process(n, { gate: at(1), a: at(0.01), d: at(0.1), s: at(0.5), r: at(0.1) }, out, ctx)
     // halfway up the linear attack at a/2 seconds
     expect(out[Math.round(0.005 * SR)]!).toBeGreaterThan(0.45)
     expect(out[Math.round(0.005 * SR)]!).toBeLessThan(0.55)

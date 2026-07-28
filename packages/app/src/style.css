@@ -1734,6 +1734,15 @@ body.shaderviz-on .cm-content {
   color: var(--c-dim);
   text-decoration: line-through;
 }
+/* clock sync: the source selector and its tempo readout */
+.midi-sync {
+  min-height: var(--h-ctrl); /* touch target */
+}
+.midi-tempo {
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  font-variant-numeric: tabular-nums;
+}
 .midi-map-unmap {
   flex: 0 0 auto;
   width: var(--h-ctrl);

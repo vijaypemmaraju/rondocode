@@ -4,6 +4,9 @@ import type { ParamTarget } from '../session/Session'
 import { ACTIVE_PROJECT_EVENT, getActiveProjectId } from './library'
 import { CcRouter, loadMappings, parseCc, saveMappings } from '../midi/cc'
 import type { ParamRange } from '../midi/cc'
+import { CLOCK_BYTE, MidiClockFollower, MidiClockSender, parseClock } from '../midi/clock'
+import type { ClockMessage } from '../midi/clock'
+import { cpsToBpm } from '@rondocode/pattern'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
@@ -26,7 +29,12 @@ import { anchorPopover } from '../ui/viewport'
  * a finger behave identically as far as the sequencer is concerned (both
  * suppress a `.ctrl` sweep on that param), and the value is simply whoever
  * moved last. The difference is the ending: a finger releases when it lifts, a
- * knob keeps its param until it is unmapped or MIDI is switched off. */
+ * knob keeps its param until it is unmapped or MIDI is switched off.
+ *
+ * Clock sync is the same shape: midi/clock.ts owns the tempo estimation, the
+ * phase trim and the send schedule, and this file only carries the bytes. The
+ * follower is fed whenever MIDI is on, so the popover can show an external
+ * tempo before you commit to following it; only the SELECTED mode acts on it. */
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] => {
   const n = document.createElement(tag)
@@ -36,6 +44,22 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 const targetKey = (t: { synth: string; param: string }): string => `${t.synth}.${t.param}`
+
+/** Where the tempo comes from. */
+type SyncMode = 'internal' | 'follow' | 'send'
+
+/** How often the clock loop runs: the send lookahead and the tempo readout
+ *  both ride on it, so it must be shorter than that lookahead. */
+const CLOCK_POLL_MS = 100
+/** Ticks between tempo pushes while following: twice a beat is a fast enough
+ *  control loop for a clock that drifts by a fraction of a percent, and keeps
+ *  the scheduler from re-anchoring 48 times a second. */
+const APPLY_EVERY_TICKS = 12
+/** Tempo moves smaller than this are not worth re-anchoring the scheduler for
+ *  (0.05% is 0.06 BPM at 120). */
+const CPS_DEADBAND = 0.0005
+
+const showBpm = (bpm: number): string => bpm.toFixed(1)
 
 /** Wire the MIDI button + popover into the header. Returns a disposer. */
 export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void {
@@ -73,6 +97,26 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     'pick a param, tap learn, then move a knob. A mapped knob owns that param until you unmap it, so a patterned sweep on it steps aside.',
   )
 
+  // ---- clock sync ------------------------------------------------------
+  const syncHead = el('div', 'export-head', 'clock')
+  const syncPick = el('select', 'midi-pick midi-sync') as HTMLSelectElement
+  syncPick.setAttribute('aria-label', 'tempo clock')
+  for (const [value, label] of [
+    ['internal', 'internal clock'],
+    ['follow', 'follow MIDI clock'],
+    ['send', 'send MIDI clock'],
+  ] as const) {
+    const o = el('option', undefined, label)
+    o.value = value
+    syncPick.append(o)
+  }
+  const tempoLine = el('div', 'midi-tempo', 'internal')
+  const syncHint = el(
+    'div',
+    'export-hint',
+    'follow takes the tempo from a drum machine, a DAW or a mixer, and starts and stops with it. While you follow, a setCps line in the tune is remembered but does not take over. Send makes other gear follow you instead.',
+  )
+
   /** Live param surface, rebuilt on every eval — the learn menu's options and
    *  the router's liveness test both read it. */
   let paramTargets: ParamTarget[] = []
@@ -105,6 +149,10 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     learnRow,
     rowList,
     mapHint,
+    syncHead,
+    syncPick,
+    tempoLine,
+    syncHint,
   )
   document.body.append(pop)
 
@@ -205,9 +253,150 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   window.addEventListener(ACTIVE_PROJECT_EVENT, onActiveProject)
   loadRig(projectId)
 
+  // ---- clock ------------------------------------------------------------
+  let sync: SyncMode = 'internal'
+  const follower = new MidiClockFollower()
+  const sender = new MidiClockSender()
+  let clockTimer: ReturnType<typeof setInterval> | undefined
+  /** Ticks since the last tempo push, and the value pushed, for the deadband. */
+  let sinceApply = 0
+  let pushedCps = 0
+  /** What the sender last told the world about our transport. */
+  let sentPlaying = false
+
+  const outputs = (): MIDIOutput[] =>
+    access ? Array.from((access.outputs as Map<string, MIDIOutput>).values()) : []
+
+  const emit = (byte: number, at?: number): void => {
+    for (const out of outputs()) {
+      try {
+        out.send([byte], at)
+      } catch {
+        // a port that vanished mid-set is not worth breaking the loop for
+      }
+    }
+  }
+
+  const refreshTempo = (): void => {
+    const bpm = follower.bpm
+    if (sync === 'follow') {
+      tempoLine.textContent =
+        bpm === undefined
+          ? 'waiting for a clock'
+          : `following ${showBpm(bpm)} BPM${follower.running ? '' : ' (master stopped)'}`
+    } else if (sync === 'send') {
+      const outs = outputs().length
+      tempoLine.textContent =
+        outs === 0 ? 'no outputs to send to' : `sending ${showBpm(cpsToBpm(session.getState().cps))} BPM`
+    } else {
+      const own = `internal ${showBpm(cpsToBpm(session.getState().cps))} BPM`
+      tempoLine.textContent = bpm === undefined ? own : `${own}, clock in at ${showBpm(bpm)}`
+    }
+  }
+
+  /** Push the followed tempo, rate-limited and dead-banded. */
+  const applyFollow = (): void => {
+    if (++sinceApply < APPLY_EVERY_TICKS) return
+    sinceApply = 0
+    const target = follower.targetCps(session.cycle)
+    if (target === undefined) return
+    if (pushedCps !== 0 && Math.abs(target - pushedCps) / pushedCps < CPS_DEADBAND) return
+    pushedCps = target
+    session.setExternalCps(target)
+  }
+
+  const onClock = (msg: ClockMessage, timeMs: number): void => {
+    if (msg === 'tick') {
+      follower.tick(timeMs)
+      if (sync === 'follow') applyFollow()
+      return
+    }
+    if (msg === 'start') follower.start()
+    else if (msg === 'continue') follower.resume()
+    else follower.stop()
+    if (sync !== 'follow') return
+    if (msg === 'stop') {
+      session.transport('stop')
+      return
+    }
+    // The master says go. Selecting follow was the audio-unlock gesture; this
+    // resume is the one that matters, since the start arrives later.
+    void audio.resume()
+    // 0xFA restarts from the top; 0xFB resumes, so a loop already running is
+    // left alone rather than snapped back to cycle 0.
+    if (msg === 'start' || !session.getState().playing) session.transport('play')
+  }
+
+  /** The one repeating job: schedule outgoing ticks and keep the readout
+   *  honest. Runs only while MIDI is on. */
+  const clockPoll = (): void => {
+    if (sync === 'send') {
+      const now = performance.now()
+      const playing = session.getState().playing
+      if (playing !== sentPlaying) {
+        sentPlaying = playing
+        if (playing) {
+          sender.start(now)
+          emit(CLOCK_BYTE.start, now)
+        } else {
+          sender.stop()
+          emit(CLOCK_BYTE.stop, now)
+        }
+      }
+      for (const at of sender.due(now, session.getState().cps)) emit(CLOCK_BYTE.tick, at)
+    }
+    refreshTempo()
+  }
+
+  const startClockPoll = (): void => {
+    if (clockTimer === undefined) clockTimer = setInterval(clockPoll, CLOCK_POLL_MS)
+  }
+  const stopClockPoll = (): void => {
+    if (clockTimer !== undefined) clearInterval(clockTimer)
+    clockTimer = undefined
+  }
+
+  /** Leave whatever the current mode was holding: hand the tempo back, stop
+   *  sending, tell the world we stopped. */
+  const leaveMode = (): void => {
+    if (sync === 'follow') {
+      session.setExternalCps(undefined)
+      follower.reset()
+      pushedCps = 0
+      sinceApply = 0
+    } else if (sync === 'send') {
+      if (sentPlaying) emit(CLOCK_BYTE.stop, performance.now())
+      sentPlaying = false
+      sender.stop()
+    }
+  }
+
+  const setSync = (mode: SyncMode): void => {
+    if (mode === sync) return
+    leaveMode()
+    sync = mode
+    syncPick.value = mode
+    if (mode === 'follow') {
+      void audio.resume()
+      // Take the tempo now, at whatever we are playing, so an eval cannot grab
+      // it back in the gap before the clock locks.
+      pushedCps = follower.cps ?? session.getState().cps
+      session.setExternalCps(pushedCps)
+    }
+    if (mode !== 'internal' && !enabled) void enable()
+    refreshTempo()
+  }
+  syncPick.addEventListener('change', () => setSync(syncPick.value as SyncMode))
+
   const onMidi = (e: MIDIMessageEvent): void => {
     const data = e.data
     if (!data) return
+    // Clock first: it is by far the most frequent thing on the wire.
+    const clock = parseClock(data)
+    if (clock !== undefined) {
+      onClock(clock, e.timeStamp)
+      return
+    }
     const cc = parseCc(data)
     if (cc !== undefined) {
       router.handle(cc)
@@ -244,6 +433,8 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
       enabled = true
       toggle.textContent = 'disable MIDI'
       toggle.classList.add('armed')
+      startClockPoll()
+      refreshTempo()
     } catch {
       status.textContent = 'permission denied'
     }
@@ -253,6 +444,11 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     audio.send({ kind: 'allNotesOff' })
     router.cancelLearn()
     router.releaseHeld() // the knobs let go of their params; the mappings stay
+    // MIDI off means no clock either: the tempo comes home.
+    leaveMode()
+    sync = 'internal'
+    syncPick.value = 'internal'
+    stopClockPoll()
     enabled = false
     toggle.textContent = 'enable MIDI'
     toggle.classList.remove('armed')
@@ -273,6 +469,7 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     refreshPick()
     refreshParamPick()
     renderMappings()
+    refreshTempo()
     pop.classList.remove('hidden') // visible first so anchorPopover can measure it
     anchorPopover(pop, anchor)
     open = true
@@ -294,6 +491,7 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   return () => {
     offState()
     if (enabled) disable()
+    stopClockPoll()
     router.releaseHeld()
     window.removeEventListener(ACTIVE_PROJECT_EVENT, onActiveProject)
     document.removeEventListener('click', onDocClick)

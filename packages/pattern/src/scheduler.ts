@@ -158,6 +158,15 @@ export class Scheduler {
     return this._cps
   }
 
+  /** Where the transport is now, in cycles, on the CURRENT anchor (0 while
+   *  stopped). Read-only and float: it is a readout, not a seek — the window
+   *  machinery still works entirely in exact Fractions. An external clock uses
+   *  it to see how far its bar position has drifted from ours. */
+  get cycle(): number {
+    if (!this.playing) return 0
+    return this.anchorCycle.valueOf() + (this.getTime() - this.anchorTime) * this._cps
+  }
+
   /**
    * Change tempo (cycles per second, default 0.5). Takes effect at the
    * NEXT QUERY BOUNDARY: the anchor pivots to the current high-water mark

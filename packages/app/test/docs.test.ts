@@ -33,10 +33,10 @@ const assertBidirectional = (docNames: string[], liveNames: string[], what: stri
 
 describe('docs coverage: globals', () => {
   it('covers every baseScope key plus the per-eval staging names, bidirectionally', () => {
-    // p / defineSynth / setCps are injected per-eval by evalCode() (see
+    // p / defineSynth / setCps / setBpm are injected per-eval by evalCode() (see
     // STAGING_NAMES in src/session/evalCode.ts) — part of the vocabulary
     // even though they are not baseScope keys.
-    const live = [...Object.keys(baseScope), 'p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'bus']
+    const live = [...Object.keys(baseScope), 'p', 'defineSynth', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'bus']
     assertBidirectional(namesOfKind('global'), live, 'globals')
   })
 })

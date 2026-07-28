@@ -533,10 +533,22 @@ p('hats', note('c5*8').sound('hat'))`,
     group: 'patterns & form',
     title: 'Layering & tempo',
     blocks: [
-      p("You can register several patterns at once, and each p() plays alongside the others. stack() combines patterns into one. note('c1*4').sound('kick') triggers a synth by name. setCps sets the tempo in cycles per second."),
+      p("You can register several patterns at once, and each p() plays alongside the others. stack() combines patterns into one. note('c1*4').sound('kick') triggers a synth by name."),
+      p('Tempo comes in two spellings of one number. `setBpm(120)` is the unit you count in; `setCps(0.5)` is the engine unit, cycles per second. One cycle is one BAR of 4 beats everywhere in rondocode, so a bar at 120 bpm lasts 2 seconds and the cycle rate is 0.5 per second: multiply cps by 240 to get bpm. Write whichever you think in, the last call in a run wins, and the header shows both. MIDI import and export use the same convention, so an imported file keeps its tempo and one cycle stays one bar.'),
+      table(
+        'Tempos you already know, in both units.',
+        ['bpm', 'cps', 'where it lives'],
+        [
+          ['`setBpm(90)`', '`setCps(0.375)`', 'hip hop, downtempo'],
+          ['`setBpm(120)`', '`setCps(0.5)`', 'the round number'],
+          ['`setBpm(128)`', '`setCps(0.5333)`', 'house, techno'],
+          ['`setBpm(140)`', '`setCps(0.5833)`', 'dubstep at half time'],
+          ['`setBpm(174)`', '`setCps(0.725)`', 'drum and bass'],
+        ],
+      ),
       code(
-        'A short beat: kick and hats, layered.',
-        `setCps(0.5)
+        'A short beat: kick and hats, layered. 120 bpm is the same tempo as setCps(0.5).',
+        `setBpm(120)
 
 const kick = synth(({ gate, adsr, sine }) => {
   const pitch = adsr(gate, { a: 0.001, d: 0.09, s: 0, r: 0.05 })
@@ -1347,7 +1359,19 @@ cps .5`,
     group: 'the rondo language',
     blocks: [
       p('Full tracks: a `section NAME LEN` holds `play` and `beat` blocks, LEN in cycles; `song intro drop drop intro` sequences the sections (omit `song` to play them in definition order). Note-flash and grids keep working inside sections.'),
-      p('`sidechain kick depth:.8 release:.12 sub:.95` is the pump: every kick ducks the other channels, and extra `name:amount` pairs set per-channel duck depth. `master threshold:-6 ratio:2 makeup:1` is the glue compressor on the mix bus. `cps N` sets the tempo in cycles per second.'),
+      p('`sidechain kick depth:.8 release:.12 sub:.95` is the pump: every kick ducks the other channels, and extra `name:amount` pairs set per-channel duck depth. `master threshold:-6 ratio:2 makeup:1` is the glue compressor on the mix bus.'),
+      p('Tempo is one line, in either unit: `bpm 128` is the unit you count in, `cps .5333` the engine unit. One cycle is one BAR of 4 beats, so multiplying cps by 240 gives bpm, and the two lines above are the same tempo. The unit you write is the unit that stays: switching a track to JavaScript and back keeps `bpm 128` as `bpm 128`. MIDI import and export share the convention, so an imported file keeps its tempo and one cycle stays one bar.'),
+      table(
+        'Tempos you already know, in both units.',
+        ['bpm', 'cps', 'where it lives'],
+        [
+          ['`bpm 90`', '`cps .375`', 'hip hop, downtempo'],
+          ['`bpm 120`', '`cps .5`', 'the round number'],
+          ['`bpm 128`', '`cps .5333`', 'house, techno'],
+          ['`bpm 140`', '`cps .5833`', 'dubstep at half time'],
+          ['`bpm 174`', '`cps .725`', 'drum and bass'],
+        ],
+      ),
       p('A `visual` block holds a WGSL fragment shader, verbatim, the same contract as the JS `visual(...)`: audio-reactive uniforms (`level`, `bass`, `spectrum(x)`, per-synth `hit_*`) drive a shader behind the code.'),
       rondo(
         'A miniature arrangement: intro, drop, out.',
@@ -1386,7 +1410,7 @@ sidechain kick depth:.8 release:.15 stab:.6
 
 master threshold:-6 ratio:2 makeup:1
 
-cps .55`,
+bpm 132`,
       ),
     ],
   },
@@ -1472,7 +1496,7 @@ cps .5`,
           ['`wavedef NAME …`', 'a custom wavetable, as frames of harmonic amplitudes'],
           ['`visual`', 'a WGSL fragment shader behind the code'],
           ['`js{ … }` and `js`', 'the escape hatch: a raw JavaScript expression, or raw statements'],
-          ['`cps N`', 'the tempo, in cycles per second'],
+          ['`cps N` and `bpm N`', 'the tempo: cycles per second, or beats per minute (one cycle is one 4-beat bar)'],
           ['`# …`', 'a comment'],
         ],
       ),

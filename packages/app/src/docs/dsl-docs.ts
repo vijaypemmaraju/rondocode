@@ -202,8 +202,14 @@ const GLOBALS: DocEntry[] = [
   g(
     'setCps',
     'setCps(cps: number)',
-    'Set the tempo in cycles per second (0.5 cps with 4 beats per cycle is 120 bpm).',
+    'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so 0.5 cps is a two-second bar, which at 4 beats to the bar is 120 bpm. setBpm is the same tempo in the unit you count in.',
     'setCps(0.6)',
+  ),
+  g(
+    'setBpm',
+    'setBpm(bpm: number)',
+    'Set the tempo in beats per minute, 4 beats to the bar (one cycle is one bar, so 128 bpm is 0.5333 cps). Same tempo slot as setCps, the same convention MIDI import and export use, and the last call in a run wins.',
+    'setBpm(128)',
   ),
   g(
     'sidechain',

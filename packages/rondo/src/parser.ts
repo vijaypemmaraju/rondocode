@@ -625,11 +625,15 @@ function parseSing(lines: Line[], i: number, errors: RondoError[]): { block: Sin
   return { block, next }
 }
 
-function parseCps(lines: Line[], i: number, errors: RondoError[]): { block: CpsItem; next: number } {
+/** `cps .6` and `bpm 128` are one statement in two units: same line shape, the
+ *  unit rides along on the item (see CpsItem). */
+function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 'bpm'): { block: CpsItem; next: number } {
   const header = lines[i]!
   const v = header.toks[1]
-  if (!v || v.k !== 'num') errors.push({ message: 'cps needs a number (`cps .6`)', line: header.line, col: header.rawCol })
-  return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : 0.5, pos: header.toks[0]!.pos }, next: i + 1 }
+  const example = unit === 'bpm' ? '`bpm 128`' : '`cps .6`'
+  if (!v || v.k !== 'num') errors.push({ message: `${unit} needs a number (${example})`, line: header.line, col: header.rawCol })
+  const fallback = unit === 'bpm' ? 120 : 0.5
+  return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : fallback, unit, pos: header.toks[0]!.pos }, next: i + 1 }
 }
 
 export function parse(src: string): { program: Program; errors: RondoError[]; jsRegions: { from: number; to: number }[] } {
@@ -642,12 +646,15 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     const head = ln.toks[0]
     // escape hatch, one-liner: `js{ … }` alone on a top-level line → raw statement
     if (head && head.k === 'jsexpr') { items.push({ t: 'raw', code: head.v, pos: head.pos }); i++; continue }
-    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, `cps`, or `js`', line: ln.line, col: ln.rawCol }); i++; continue }
+    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, `cps`/`bpm`, or `js`', line: ln.line, col: ln.rawCol }); i++; continue }
     if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
     // `beat [NAME]` — notation words are SYNTH NAMES (the JS s('kick hat'))
     else if (head.v === 'beat') { const r = parsePlay(lines, i, errors, 'beat'); items.push(r.block); i = r.next }
-    else if (head.v === 'cps') { const r = parseCps(lines, i, errors); items.push(r.block); i = r.next }
+    else if (head.v === 'cps') { const r = parseCps(lines, i, errors, 'cps'); items.push(r.block); i = r.next }
+    // `bpm 128` — the same tempo line in the unit every producer thinks in
+    // (one cycle is one bar of 4/4, so 128 bpm is 0.5333 cps)
+    else if (head.v === 'bpm') { const r = parseCps(lines, i, errors, 'bpm'); items.push(r.block); i = r.next }
     // `sing NAME [voice:WORD]` — a neural vocal block
     else if (head.v === 'sing') { const r = parseSing(lines, i, errors); items.push(r.block); i = r.next }
     // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
@@ -841,7 +848,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bus / sidechain / master / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

@@ -202,12 +202,26 @@ export function ticksPerBar(ppq: number, timeSig: { num: number; den: number }):
   return (ppq * 4 * timeSig.num) / timeSig.den
 }
 
+/** BPM → cps, the ONE tempo conversion in the codebase. A cycle is a BAR, so
+ *  the only question is how many beats that bar holds: `beatsPerBar` (4 by
+ *  default, plain 4/4). barSeconds = beatsPerBar·(60/bpm), and cps is its
+ *  reciprocal. {@link midiCps} is this function with the beat count read off a
+ *  time signature, so MIDI import/export and `setBpm`/`bpm` cannot drift. */
+export function bpmToCps(bpm: number, beatsPerBar = 4): number {
+  return bpm / 60 / beatsPerBar
+}
+
+/** cps → BPM, the exact inverse of {@link bpmToCps} (0.5333 cps → 128 bpm). */
+export function cpsToBpm(cps: number, beatsPerBar = 4): number {
+  return cps * 60 * beatsPerBar
+}
+
 /** cps such that 1 cycle == 1 bar at the file's tempo. SMF tempo counts
  *  QUARTER notes (µs per quarter), so a bar is num·(4/den) quarters — the same
  *  contract as {@link ticksPerBar}: barSeconds = num·(4/den)·(60/bpm). */
 export function midiCps(tempoBpm: number, timeSig: { num: number; den: number }): number {
   const quartersPerBar = (timeSig.num * 4) / timeSig.den
-  return tempoBpm / 60 / quartersPerBar
+  return bpmToCps(tempoBpm, quartersPerBar)
 }
 
 // ---- LOSSLESS: notes → runtime Pattern<ControlMap> ----

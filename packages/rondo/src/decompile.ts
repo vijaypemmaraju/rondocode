@@ -912,9 +912,12 @@ function decompileStaging(stmt: Node): string | null {
   if (!isCall(call)) return null
   const name = calleeName(call)
   const args = call['arguments'] as Node[]
-  if (name === 'setCps' && args.length === 1) {
+  // tempo, in the unit the JS states: setCps → `cps`, setBpm → `bpm`. The
+  // round trip is unit-preserving in BOTH directions — `bpm 128` converted to
+  // JS and back is `bpm 128`, never a silently rewritten `cps .5333`.
+  if ((name === 'setCps' || name === 'setBpm') && args.length === 1) {
     const v = numValue(args[0]!)
-    return v !== undefined ? `cps ${num(v)}` : null
+    return v !== undefined ? `${name === 'setBpm' ? 'bpm' : 'cps'} ${num(v)}` : null
   }
   if (name === 'defineScale' && args.length === 2) {
     // only the literal-offsets-array form has sugar (`scaledef NAME v v …`,

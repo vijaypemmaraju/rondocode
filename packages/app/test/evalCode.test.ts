@@ -216,6 +216,34 @@ describe('evalCode: setCps staging', () => {
   })
 })
 
+describe('evalCode: setBpm staging', () => {
+  it('stages BPM as cps, 4 beats to the bar (one cycle = one bar)', () => {
+    expect(run('setBpm(120)').cps).toBeCloseTo(0.5, 10)
+    // the arithmetic producers were doing by hand: 128 bpm is the 0.5333 cps
+    expect(run('setBpm(128)').cps).toBeCloseTo(0.5333, 4)
+    expect(run('setBpm(174)').cps).toBeCloseTo(0.725, 10)
+  })
+
+  it('shares the tempo slot with setCps: last call in an eval wins', () => {
+    expect(run('setCps(0.5)\nsetBpm(174)').cps).toBeCloseTo(0.725, 10)
+    expect(run('setBpm(174)\nsetCps(0.5)').cps).toBe(0.5)
+  })
+
+  it('clamps to the same [0.05, 4] cps window', () => {
+    expect(run('setBpm(9999)').cps).toBe(4)
+    expect(run('setBpm(1)').cps).toBe(0.05)
+  })
+
+  it('rejects non-finite / non-number', () => {
+    expect(run(`setBpm('fast')`).ok).toBe(false)
+    expect(run('setBpm(NaN)').ok).toBe(false)
+  })
+
+  it('is absent when never called', () => {
+    expect(run('const z = 1').cps).toBeUndefined()
+  })
+})
+
 describe('evalCode: sidechain staging', () => {
   it('stages a config, converting release seconds to releaseMs', () => {
     const r = runD("sidechain('kick', { depth: 0.7 })")

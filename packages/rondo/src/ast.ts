@@ -95,9 +95,15 @@ export interface PlayBlock {
   pos: Pos
 }
 
+/** The tempo line, in either spelling: `cps .5333` or `bpm 128`. The UNIT is
+ *  part of the program — it survives codegen (`setCps` / `setBpm`) and comes
+ *  back through the decompiler, so converting a doc to JS and back never
+ *  silently swaps the number a musician typed for the other one. */
 export interface CpsItem {
   t: 'cps'
+  /** the number as written, in `unit` (NOT normalized to cps). */
   value: number
+  unit: 'cps' | 'bpm'
   pos: Pos
 }
 

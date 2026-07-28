@@ -113,7 +113,7 @@ p('hats',
 // backbeat clap on 2 and 4
 p('clap', note('~ c4 ~ c4').sound('clap'))
 
-setCps(0.5) // 4 beats per cycle at 0.5 cps = 120 bpm
+setBpm(120) // 4 beats to the bar, so this is setCps(0.5)
 `
 
 const fmKeys = `// fm keys, audio-rate frequency modulation, two operators.
@@ -1234,7 +1234,7 @@ sidechain kick depth:.8 release:.15 sub:.95 stab:.6
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
-cps .55
+bpm 132
 `
 
 /** A drum machine in pure rondo: `beat` blocks route words straight to
@@ -1622,7 +1622,9 @@ play hat
 play clap
   ~ c4 ~ c4
 
-cps .5
+# the tempo, in the unit you count in
+# (4 beats to the bar, so this is cps .5)
+bpm 120
 `
 
 const chiptuneRondo = `# chiptune. two pulse voices, a

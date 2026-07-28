@@ -7,7 +7,7 @@ export const escapeHtml = (s: string): string =>
 
 const KEYWORDS = new Set([
   'synth', 'const', 'return', 'p', 'note', 'n', 'chord', 'sound', 's', 'stack', 'cat',
-  'fastcat', 'timecat', 'setCps', 'mini', 'm', 'arrange', 'silence',
+  'fastcat', 'timecat', 'setCps', 'setBpm', 'mini', 'm', 'arrange', 'silence',
 ])
 
 export const highlightDsl = (src: string): string => {

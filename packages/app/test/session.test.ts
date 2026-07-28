@@ -343,6 +343,20 @@ describe('Session.transport', () => {
     session.transport('play', { cps: 99 })
     expect(session.getState().cps).toBe(4)
   })
+
+  it('setCps moves the tempo WITHOUT starting or stopping the transport', () => {
+    // what the header's BPM field uses when the document has no tempo line
+    const { session, ofKind } = rig()
+    session.setCps(0.725) // 174 bpm
+    expect(session.getState().cps).toBe(0.725)
+    expect(session.getState().playing).toBe(false) // still stopped
+    expect(ofKind('setCps')).toEqual([{ kind: 'setCps', cps: 0.725 }]) // synced lfo/delay follow
+    session.transport('play')
+    session.setCps(0.5)
+    expect(session.getState()).toMatchObject({ cps: 0.5, playing: true }) // still playing
+    session.setCps(99)
+    expect(session.getState().cps).toBe(4) // clamped like setCps
+  })
 })
 
 describe('Session: scheduler events → engine messages', () => {

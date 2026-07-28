@@ -1,7 +1,7 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note, TimeSpan, F, hasOnset, clearCustomScales, snapshotCustomScales, restoreCustomScales } from '@rondocode/pattern'
+import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
 import { busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
@@ -115,7 +115,7 @@ export interface EvalResult {
   buses: Map<string, BusDef>
   /** Staged per-synth sends into buses — populated only when ok. */
   sends: SendSpec[]
-  /** Present iff the code called setCps(x); clamped to [0.05, 4]. */
+  /** Present iff the code called setCps(x) or setBpm(x); clamped to [0.05, 4]. */
   cps?: number
   /** Present iff the code called sidechain(source, opts). `release` in the
    *  DSL is SECONDS; it is stored here as releaseMs. depth/releaseMs are
@@ -142,7 +142,7 @@ export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object. */
-const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
+const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -559,6 +559,18 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     cps = clampCps(x)
   }
 
+  /** The same tempo staging, in the unit producers count in. One cycle is one
+   *  BAR of 4/4, so 128 bpm is 0.5333 cps — the identical convention MIDI
+   *  import and export use (bpmToCps is the one conversion, in @rondocode/pattern).
+   *  setCps and setBpm are the same slot: the last call in an eval wins. */
+  const setBpm = (x: unknown): void => {
+    assertOpen('setBpm')
+    if (typeof x !== 'number' || !Number.isFinite(x)) {
+      throw new TypeError(`setBpm(): expected a finite number, got ${String(x)}`)
+    }
+    cps = clampCps(bpmToCps(x))
+  }
+
   /** Arm the sidechain duck: `source` synth's notes duck every other channel.
    *  `opts.depth` 0..1 (default 0.6), `opts.release` in SECONDS (default 0.18),
    *  stored as releaseMs. `opts.duck` is an optional per-synth map of duck
@@ -789,8 +801,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
-  values.push(p, defineSynth, setCps, sidechain, masterCompress, visual, bus, sing, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, sidechain, masterCompress, visual, bus, sing, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to

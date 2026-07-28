@@ -95,7 +95,7 @@ body {
   color: var(--c-accent);
 }
 
-/* right-side control cluster (sample · viz · cps · stop · run). At squeezed
+/* right-side control cluster (tempo · sample · viz · stop · run). At squeezed
  * in-between widths the cluster can outgrow the bar — scroll it rather than
  * push run/stop off-screen (an unreachable transport is a dead instrument). */
 .hdr-controls {
@@ -112,6 +112,57 @@ body {
 }
 .hdr-controls > * {
   flex: none;
+}
+
+/* Tempo: BPM is the face, cps the truth. The field edits BPM (16px so iOS
+ * never zoom-jumps on focus); the cps under it stays dimmed and unclickable,
+ * there to teach the mapping rather than to be operated. The whole pill is a
+ * 44px target, and it keeps the button chrome so it reads as one cluster. */
+.tempo {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 3px;
+  min-height: var(--h-ctrl);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-surface);
+  align-content: center;
+}
+.tempo-input {
+  width: 4.5ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-text);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-input);
+  font-weight: 600;
+  text-align: right;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.tempo-input:focus {
+  outline: none;
+  color: var(--c-accent);
+}
+.tempo:focus-within {
+  border-color: var(--c-accent);
+}
+.tempo-unit {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.tempo-cps {
+  grid-column: 1 / -1;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  line-height: 1.1;
+  color: var(--c-dim);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* "+ sample" loader button */
@@ -1574,6 +1625,11 @@ body.shaderviz-on .cm-content {
 }
 .more-pop .btn-label {
   display: inline; /* labels show in the menu (the bar hides them) */
+}
+/* the tempo pill spans the menu like the buttons do, value left-aligned */
+.more-pop .tempo {
+  width: 100%;
+  justify-content: start;
 }
 @media (max-width: 560px) {
   .more-btn {

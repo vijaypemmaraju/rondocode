@@ -28,6 +28,7 @@ import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
+import { mountTempo } from './tempo'
 import { rondoLanguage, rondoAutocomplete } from './rondo'
 import { mountRondoPalette } from './rondo/palette'
 import { toNoteEvs } from './rondo/widgets'
@@ -891,6 +892,24 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   })
 
   // ---- controls ------------------------------------------------------
+  // Tempo, in the unit producers count in. The field edits BPM; the engine's
+  // cps sits dimmed under it so the mapping stays learnable. Typing rewrites
+  // the doc's tempo line (write-verified, then re-eval) — or, when the doc has
+  // no tempo line, applies to this run only and says so. Placed at the head of
+  // the controls cluster so it reads as transport, not as another tool.
+  const tempo = mountTempo({
+    view,
+    getLang: () => lang,
+    requestEval,
+    setSessionCps: (cps) => session.setCps(cps),
+    getSessionCps: () => session.getState().cps,
+  })
+  controls.insertBefore(tempo.el, controls.firstChild)
+  subscribeState(() => tempo.refresh())
+  docListeners.add(() => tempo.refresh())
+  langListeners.add(() => tempo.refresh()) // the tempo line reads differently per language
+  tempo.refresh()
+
   runBtn.addEventListener('click', () => run())
   stopBtn.addEventListener('click', () => stop())
 

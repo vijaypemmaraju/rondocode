@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { extFor, isDesktop, midiSend, openProjectDialog, openVirtualMidi, writeRender } from '../src/desktop/bridge'
 
@@ -87,5 +89,41 @@ describe('extensions follow the language', () => {
     // must agree or a saved file reopens in the wrong grammar
     expect(extFor('rondo')).toBe('.rondo')
     expect(extFor('rondocode')).toBe('.js')
+  })
+})
+
+describe('the library actually calls the bridge', () => {
+  /* Same standard applied to the MIDI importer: a capability that exists and
+   * cannot be reached is not a capability. These pin the wiring. */
+  const lib = readFileSync(join(__dirname, '../src/editor/library.ts'), 'utf8')
+
+  it('shows the file buttons ONLY on desktop, not as dead chrome in a browser', () => {
+    expect(lib).toContain('isDesktop()')
+    const guard = lib.indexOf('if (isDesktop())')
+    expect(guard).toBeGreaterThan(-1)
+    expect(lib.indexOf("'open file'")).toBeGreaterThan(guard)
+    expect(lib.indexOf("'save file'")).toBeGreaterThan(guard)
+  })
+
+  it('opens through the native dialog and creates the project in the file’s language', () => {
+    expect(lib).toContain('openProjectDialog()')
+    // f.lang comes from the extension, so a .rondo must not land under JS
+    expect(lib).toMatch(/createProject\(f\.name, f\.code, f\.lang\)/)
+  })
+
+  it('remembers the path so Save does not re-prompt every time', () => {
+    expect(lib).toMatch(/filePath !== null/)
+    expect(lib).toContain('saveProject(filePath, code)')
+    expect(lib).toContain('saveProjectDialog(suggested, code)')
+  })
+
+  it('suggests a name with the extension the current language reads back as', () => {
+    expect(lib).toMatch(/extFor\(editor\.getLang\(\)\)/)
+  })
+
+  it('a cancelled dialog leaves the project untouched', () => {
+    // both paths bail on null rather than writing an empty file or clobbering
+    expect(lib).toMatch(/if \(f === null\) return/)
+    expect(lib).toMatch(/if \(written === null\) return/)
   })
 })

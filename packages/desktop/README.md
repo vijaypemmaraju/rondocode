@@ -53,8 +53,10 @@ Both keep the dependency list at tauri + serde + core-foundation.
 - Windows and Linux. The file layer is `std::fs` and portable; the dialogs
   (`osascript`) and the MIDI port (CoreMIDI) are macOS-only and need a
   per-platform implementation behind the same commands.
-- Wiring the app's own UI to these commands (a File menu, a "record to DAW"
-  toggle). The bridge is in place and typed; nothing calls it yet.
+- The MIDI half of the UI. Open/save file buttons are wired into the library
+  sheet (desktop only, so a browser sees no dead chrome), but nothing routes
+  playback into the virtual port yet — `openVirtualMidi()` is typed, tested and
+  uncalled.
 - Audio to the DAW still needs a loopback device (BlackHole, Loopback). Sending
   audio as well as MIDI would mean a real audio host, which is a much larger job
   than this shell.

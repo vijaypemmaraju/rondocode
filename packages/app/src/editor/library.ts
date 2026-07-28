@@ -21,6 +21,7 @@ import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../session/share'
+import { extFor, isDesktop, openProjectDialog, saveProject, saveProjectDialog } from '../desktop/bridge'
 import { compile as compileRondo } from '@rondocode/rondo'
 
 const ACTIVE_KEY = 'rondocode-active-project'
@@ -457,6 +458,62 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       })()
     })
     ioRow.append(shareBtn, exportBtn, importBtn, importInput)
+
+    // DESKTOP ONLY: real files. In the browser a project lives in IndexedDB and
+    // leaves as a download; in the shell it can have a home on disk, so these
+    // appear only where they can actually work rather than as dead chrome.
+    if (isDesktop()) {
+      /** Remembered so Save can write without asking again. */
+      let filePath: string | null = null
+      const flashOn = (b: HTMLButtonElement, label: string, msg: string): void => {
+        b.textContent = msg
+        setTimeout(() => (b.textContent = label), 1800)
+      }
+
+      const openFileBtn = el('button', 'lib-mini', 'open file')
+      openFileBtn.type = 'button'
+      openFileBtn.addEventListener('click', () => {
+        void (async () => {
+          try {
+            const f = await openProjectDialog()
+            if (f === null) return // cancelled
+            const p = await store.createProject(f.name, f.code, f.lang)
+            filePath = f.path
+            await switchTo(p)
+            await render()
+          } catch (e) {
+            console.warn('[library] open file failed', e)
+            flashOn(openFileBtn, 'open file', 'open failed')
+          }
+        })()
+      })
+
+      const saveFileBtn = el('button', 'lib-mini', 'save file')
+      saveFileBtn.type = 'button'
+      saveFileBtn.addEventListener('click', () => {
+        void (async () => {
+          try {
+            const code = editor.getDoc()
+            if (filePath !== null) {
+              await saveProject(filePath, code)
+              flashOn(saveFileBtn, 'save file', 'saved')
+              return
+            }
+            // no home yet: ask once, then remember it for later saves
+            const suggested = `${current.name}${extFor(editor.getLang())}`
+            const written = await saveProjectDialog(suggested, code)
+            if (written === null) return // cancelled
+            filePath = written
+            flashOn(saveFileBtn, 'save file', 'saved')
+          } catch (e) {
+            console.warn('[library] save file failed', e)
+            flashOn(saveFileBtn, 'save file', 'save failed')
+          }
+        })()
+      })
+
+      ioRow.append(openFileBtn, saveFileBtn)
+    }
     sheet.append(ioRow)
 
     // project list

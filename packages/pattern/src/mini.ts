@@ -448,8 +448,12 @@ class Parser {
   }
 
   /**
-   * '<' term+ '>' — slowcat, one term per cycle. `!n` repetition adds
-   * copies to the rotation; `@` weights are meaningless here and ignored.
+   * '<' term+ '>' — slowcat, one term per cycle. `!n` repetition adds copies
+   * to the rotation, and `@n` HOLDS a term for n cycles: `<0@3 4>` is three
+   * cycles of 0 then one of 4. (Weights used to be parsed and then silently
+   * dropped here, so `<0@3 4@1>` played exactly like `<0 4>` with nothing to
+   * see; inside a sequence the same `@` divides one cycle, which is what makes
+   * the silence confusing rather than merely limited.)
    */
   private parseAlternation(): Pattern<MiniValue> {
     const open = this.next()! // '<'
@@ -458,8 +462,14 @@ class Parser {
     for (;;) {
       const t = this.peek()
       if (t === undefined || !this.isTermStart(t)) break
-      const { pat, reps } = this.parseTerm()
-      for (let k = 0; k < reps; k++) pats.push(pat)
+      const at = t.start
+      const { pat, weight, reps } = this.parseTerm()
+      // A cycle is the unit here, so a fractional hold has no meaning — say so
+      // rather than rounding to something the source does not read like.
+      if (!Number.isInteger(weight) || weight < 1) {
+        this.err(`'@${weight}' inside '<…>' must be a whole number of cycles`, at)
+      }
+      for (let k = 0; k < reps * weight; k++) pats.push(pat)
     }
     if (pats.length === 0) this.errUnexpected()
     if (this.peek() === undefined) this.err(`unclosed '<'`, open.start)

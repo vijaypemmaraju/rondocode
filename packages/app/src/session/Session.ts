@@ -677,6 +677,13 @@ export class Session {
     this.onState?.(this.getState())
   }
 
+  /** Seconds (audio clock) → transport cycle position. The roll playhead uses
+   *  this so it restarts at 0 with the transport instead of riding absolute
+   *  wall-clock phase. */
+  cycleAt(timeSec: number): number {
+    return this.scheduler.cycleAt(timeSec).valueOf()
+  }
+
   getState(): SessionState {
     const s: SessionState = {
       playing: this.playing,

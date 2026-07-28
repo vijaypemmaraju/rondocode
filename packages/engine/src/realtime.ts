@@ -978,7 +978,17 @@ export class RealtimeEngine {
   private msgSilenceAll(): void {
     this.queue.length = 0
     this.qHead = 0
-    for (const ch of this.list) ch.pool.silenceAll()
+    for (const ch of this.list) {
+      ch.pool.silenceAll()
+      // The post chain is NOT a voice: its reverb/delay state is shared across
+      // the synth's voices, so silencing every voice still left the tail
+      // ringing — forever for a high-feedback delay, since nothing else ever
+      // resets it and a re-eval reuses the channel. Reported as "notes that
+      // never got released play forever, only reload gets rid of them".
+      ch.post?.reset()
+    }
+    // same for the shared send buses, which are post chains by another name
+    for (const bus of this.busList) bus.post.reset()
   }
 
   private msgSetParam(m: Record<string, unknown>): void {

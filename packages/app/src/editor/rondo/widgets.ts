@@ -54,6 +54,10 @@ export interface Hooks {
   requestEval: (immediate: boolean) => void
   /** audio-clock "now" in seconds — the clock NoteEv.timeSec lives on. */
   now?: () => number
+  /** audio time → TRANSPORT cycle position. The playhead anchors with this
+   *  rather than `timeSec * cps`, which is wall-clock phase and lands
+   *  wherever the clock happens to be after a stop/run. */
+  cycleAt?: (timeSec: number) => number
   /** subscribe to note events; returns unsubscribe. When present, widgets go
    *  LIVE: the piano-roll lights with the playhead, the envelope fires its
    *  marker per note, and a pattern-driven knob's dial follows the drive. */
@@ -878,7 +882,8 @@ class QueryRollWidget extends WidgetType {
         for (const ev of evs) {
           if (ev.src !== this.content) continue
           this.timers.at((ev.timeSec - now()) * 1000, () => {
-            anchor = { t: ev.timeSec, phase: (ev.timeSec * cps()) % 1 }
+            const at = this.hooks.cycleAt?.(ev.timeSec) ?? ev.timeSec * cps()
+            anchor = { t: ev.timeSec, phase: at % 1 }
             lastEv = now()
             if (this.raf === 0) this.raf = requestAnimationFrame(frame)
           })
@@ -1064,7 +1069,8 @@ export class RollOverviewWidget extends WidgetType {
         for (const ev of evs) {
           if (ev.src !== this.content) continue
           this.timers.at((ev.timeSec - now()) * 1000, () => {
-            anchor = { t: ev.timeSec, pos: (ev.timeSec * cps()) % period }
+            const at = this.hooks.cycleAt?.(ev.timeSec) ?? ev.timeSec * cps()
+            anchor = { t: ev.timeSec, pos: at % period }
             lastEv = now()
             if (this.raf === 0) this.raf = requestAnimationFrame(frame)
           })

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { BLOCK, compileGraph } from '../src/compile'
+import { PostChain } from '../src/post'
 import { Voice, VoicePool } from '../src/voice'
 import { GraphSpec } from '../src/graph'
 import type { DspContext } from '../src/dsp/types'
@@ -434,5 +435,59 @@ describe('VoicePool', () => {
     pool.allNotesOff()
     render(pool, Math.floor(0.3 * SR)) // > release + 8-block hysteresis
     expect(pool.voices.every((v) => !v.active)).toBe(true)
+  })
+})
+
+describe('silenceAll clears FX tails, not just voices', () => {
+  /* A post chain is not a voice: its delay/reverb state is shared across the
+   * synth's voices. Silencing every voice used to leave the tail ringing, and
+   * since nothing else resets it and a re-eval reuses the channel, a
+   * high-feedback delay rang until the page was reloaded. */
+  it('a delay tail goes quiet after silenceAll, not just the notes', () => {
+    const spec: GraphSpec = {
+      nodes: [
+        node(0, 'gate'),
+        node(1, 'saw', { freq: 220 }),
+        node(2, 'adsr', { gate: { node: 0 }, a: 0.001, d: 0.05, s: 0.8, r: 0.01 }),
+        node(3, 'mul', { a: { node: 1 }, b: { node: 2 } }),
+        node(4, 'out', { in: { node: 3 } }),
+      ],
+      out: 4,
+      params: [],
+    }
+    const post = new PostChain(
+      {
+        nodes: [
+          node(0, 'businput'),
+          node(1, 'delay', { in: { node: 0 }, time: 0.01, feedback: 0.97 }),
+          node(2, 'out', { in: { node: 1 } }),
+        ],
+        out: 2,
+        params: [],
+      } as GraphSpec,
+      ctx,
+    )
+    const pool = new VoicePool(spec, ctx, 2)
+    const L = new Float32Array(BLOCK)
+    const R = new Float32Array(BLOCK)
+    const runBlock = (): number => {
+      L.fill(0); R.fill(0)
+      pool.process(L, R, BLOCK)
+      post.processStereo(L, R, BLOCK)
+      return rms(L)
+    }
+    pool.noteOn(45, 1)
+    for (let i = 0; i < 10; i++) runBlock()
+    expect(runBlock()).toBeGreaterThan(1e-3) // it is sounding
+
+    pool.silenceAll()
+    // voices are gone, but the delay still holds energy...
+    const beforeReset = runBlock()
+    post.reset()
+    // ...and after the reset the chain is empty
+    let after = 0
+    for (let i = 0; i < 3; i++) after = runBlock()
+    expect(after).toBeLessThan(1e-6)
+    expect(beforeReset).toBeGreaterThan(after)
   })
 })

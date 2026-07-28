@@ -397,7 +397,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     importBtn.type = 'button'
     const importInput = el('input') as HTMLInputElement
     importInput.type = 'file'
-    importInput.accept = 'application/json,.json'
+    // one button, whatever you hand it: a project .json or a MIDI file
+    importInput.accept = 'application/json,.json,audio/midi,.mid,.midi'
     importInput.hidden = true
     importBtn.addEventListener('click', () => importInput.click())
     importInput.addEventListener('change', () => {
@@ -406,10 +407,24 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       if (!f) return
       void (async () => {
         try {
+          const stem = f.name.replace(/\.[^.]+$/, '') || 'imported'
+          if (/\.midi?$/i.test(f.name)) {
+            // MIDI: the importer already exists and is tested; it was simply
+            // never reachable from the app. It emits JavaScript, so the project
+            // is created in that language whatever the editor is currently in.
+            const { midiToRondocode } = await import('../midi/import')
+            const { code, bpm, bars } = midiToRondocode(await f.arrayBuffer(), { name: stem })
+            const p = await store.createProject(stem, code, 'rondocode')
+            await switchTo(p)
+            await render()
+            importBtn.textContent = `${bars} bars @ ${Math.round(bpm)}`
+            setTimeout(() => (importBtn.textContent = 'import'), 2400)
+            return
+          }
           const data = JSON.parse(await f.text()) as { name?: unknown; code?: unknown }
           if (typeof data.code !== 'string') throw new Error('file has no code')
           const p = await store.createProject(
-            typeof data.name === 'string' ? data.name : 'imported',
+            typeof data.name === 'string' ? data.name : stem,
             data.code,
           )
           await switchTo(p)

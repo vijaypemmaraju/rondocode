@@ -2,8 +2,8 @@ import type { EditorHandle, EditorLang } from '../editor/editor'
 import type { LibraryHandle } from '../editor/library'
 import { readShareHash } from '../session/share'
 import { anchorPopover } from './viewport'
-import { createTourMachine, shouldShowTour, TOUR_DONE_KEY } from './tour-machine'
-import type { TourMachine, TourStep, TourStepId, TourStorage } from './tour-machine'
+import { bestScrubIndex, createTourMachine, shouldShowTour, TOUR_DONE_KEY } from './tour-machine'
+import type { DragTarget, TourMachine, TourStep, TourStepId, TourStorage } from './tour-machine'
 import {
   SURVEY_OPTIONS,
   SURVEY_SKIP_LABEL,
@@ -71,14 +71,38 @@ const anchorFor = (id: TourStepId): HTMLElement | null => {
     case 'play':
       return q('.topbar .btn.run')
     case 'widget':
-      // the welcome track defines a knob; fallbacks cover a user-edited doc
-      return q('.rondo-knob') ?? q('.cm-scrub') ?? q('.cm-content')
+      // The two languages render DIFFERENT widget layers: rondo draws
+      // .rondo-knob for the welcome track's `knob …`, while JavaScript only
+      // makes widgets (.cm-w) for explicit slider()/toggle()/pick()/xy()
+      // calls — which the welcome track has none of. So in JS this lands on a
+      // scrubbable number (.cm-scrub), and the copy says so. Ringing
+      // .cm-content, the old last resort, highlighted the whole editor and
+      // pointed "drag this control" at nothing in particular (reported).
+      return q('.rondo-knob') ?? q('.cm-w') ?? bestScrub() ?? q('.cm-content')
     case 'chips':
       return q('.rondo-palette')
     case 'docs':
       // on phones the docs button lives inside the "…" menu; point at that
       return q('.docs-btn') ?? q('.more-btn')
   }
+}
+
+/** The scrubbable number worth demonstrating (see bestScrubIndex): the first
+ *  one is typically an envelope time, where a drag is inaudible. */
+const bestScrub = (): HTMLElement | null => {
+  const marks = Array.from(document.querySelectorAll('.cm-scrub')).filter(visible)
+  const i = bestScrubIndex(marks.map((m) => m.textContent ?? ''))
+  return i === -1 ? null : marks[i]!
+}
+
+/** Which drag affordance step 2 is about to point at. Asked at flow start,
+ *  once the welcome track is loaded, so it reflects what is really on screen:
+ *  a knob widget if one rendered, otherwise a number — and a number needs ALT
+ *  on a mouse but not on touch (see widgets/scrub.ts). */
+const dragTarget = (): DragTarget => {
+  if (visible(document.querySelector('.rondo-knob')) || visible(document.querySelector('.cm-w'))) return 'knob'
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+  return coarse ? 'number-touch' : 'number-mouse'
 }
 
 export function mountTour(
@@ -203,6 +227,7 @@ export function mountTour(
   const begin = (): void => {
     machine = createTourMachine({
       chips: editor.getLang() === 'rondo',
+      drag: dragTarget(),
       storage: safeStorage,
     })
     machine.onChange(render)

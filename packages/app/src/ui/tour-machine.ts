@@ -31,6 +31,22 @@ export interface TourStep {
   editGapMs?: number
 }
 
+/** Which scrubbable number the drag step should point at, given their texts in
+ *  document order (returns an index, or -1 when there are none).
+ *
+ *  The first number in a track is usually an envelope time — the JS welcome
+ *  track's is `0.01`, the attack — and dragging that is very nearly inaudible,
+ *  which is a poor thing to ask someone to do in the one step that has to prove
+ *  "the code is the instrument". Prefer the first number big enough to be a
+ *  frequency or a cutoff (>= 100), where a drag is unmistakable. */
+export function bestScrubIndex(values: readonly string[]): number {
+  const big = values.findIndex((v) => {
+    const n = Math.abs(Number.parseFloat(v))
+    return Number.isFinite(n) && n >= 100
+  })
+  return big !== -1 ? big : values.length > 0 ? 0 : -1
+}
+
 /** localStorage key set once the tour is finished or skipped. */
 export const TOUR_DONE_KEY = 'rc.tourDone'
 
@@ -43,9 +59,28 @@ export interface TourStorage {
   setItem(key: string, value: string): void
 }
 
+/** What the drag step can actually point at, which differs by language AND
+ *  by input device:
+ *    'knob'        rondo renders a knob widget for `knob …` — grab and drag it.
+ *    'number-touch' no widget, but touch scrubs a number the moment you slide.
+ *    'number-mouse' no widget, and a mouse must hold ALT to scrub (scrub.ts) —
+ *                   plain dragging selects text, so saying "drag" is a lie.
+ *  JavaScript mode only renders widgets for explicit slider()/toggle()/pick()/
+ *  xy() calls, and the welcome track has none, so a JS user gets a number. */
+export type DragTarget = 'knob' | 'number-touch' | 'number-mouse'
+
+const DRAG_COPY: Record<DragTarget, string> = {
+  knob: 'Drag this knob while it plays. The code follows your finger.',
+  'number-touch': 'Drag this number sideways while it plays. The code follows your finger.',
+  'number-mouse': 'Alt-drag this number while it plays. The code follows your cursor.',
+}
+
 /** The ordered steps. `chips` = the rondo tap palette is on screen (rondo
- *  mode); without it the chips step is dropped, not shown pointing at air. */
-export function tourSteps(opts: { chips: boolean }): TourStep[] {
+ *  mode); without it the chips step is dropped, not shown pointing at air.
+ *  `drag` picks the wording for step 2 the same way — a user who was told to
+ *  "drag this control" in JavaScript mode on a desktop was pointed at an
+ *  envelope number that does nothing without Alt (reported). */
+export function tourSteps(opts: { chips: boolean; drag?: DragTarget }): TourStep[] {
   const steps: TourStep[] = [
     {
       id: 'play',
@@ -54,7 +89,7 @@ export function tourSteps(opts: { chips: boolean }): TourStep[] {
     },
     {
       id: 'widget',
-      copy: 'Drag this control while it plays. The code follows your finger.',
+      copy: DRAG_COPY[opts.drag ?? 'knob'],
       advance: 'edited',
     },
   ]
@@ -117,10 +152,11 @@ export interface TourMachine {
 
 export function createTourMachine(opts: {
   chips: boolean
+  drag?: DragTarget
   storage: TourStorage
   now?: () => number
 }): TourMachine {
-  const steps = tourSteps({ chips: opts.chips })
+  const steps = tourSteps({ chips: opts.chips, ...(opts.drag !== undefined ? { drag: opts.drag } : {}) })
   const now = opts.now ?? Date.now
   let index = -1
   let isDone = false

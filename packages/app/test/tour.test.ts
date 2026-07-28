@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  EDIT_GAP_MS,
-  TOUR_DONE_KEY,
-  createTourMachine,
-  shouldShowTour,
-  tourSteps,
-} from '../src/ui/tour-machine'
+import { EDIT_GAP_MS, TOUR_DONE_KEY, bestScrubIndex, createTourMachine, shouldShowTour, tourSteps } from '../src/ui/tour-machine'
+import type { DragTarget } from '../src/ui/tour-machine'
 import type { TourStorage } from '../src/ui/tour-machine'
 
 /* The first-run tour's brain. Pinned: the step order, that steps advance on
@@ -206,5 +201,79 @@ describe('shouldShowTour', () => {
       setItem: () => {},
     }
     expect(shouldShowTour({ ...base, storage: broken })).toBe(false)
+  })
+})
+
+describe('the drag step describes the control that is actually there', () => {
+  /* Reported: choosing "I write JavaScript" gave a second card that read
+   * "Drag this control while it plays" but pointed at something only rondo
+   * has. Two things were wrong at once — JavaScript mode renders no widget for
+   * the welcome track (widgets exist only for explicit slider/toggle/pick/xy
+   * calls), and a mouse cannot scrub a number at all without ALT (scrub.ts),
+   * so "drag" was not even true for the thing it landed on. */
+  const copyFor = (drag: DragTarget): string =>
+    tourSteps({ chips: false, drag }).find((s) => s.id === 'widget')!.copy
+
+  it('says knob only when a knob widget is on screen', () => {
+    expect(copyFor('knob')).toMatch(/knob/i)
+    expect(copyFor('knob')).not.toMatch(/alt/i)
+  })
+
+  it('tells a mouse user to hold Alt, because plain dragging selects text', () => {
+    const copy = copyFor('number-mouse')
+    expect(copy).toMatch(/alt-drag/i)
+    expect(copy).toMatch(/number/i)
+    expect(copy).not.toMatch(/finger/i) // there is no finger on a desktop
+  })
+
+  it('tells a touch user to just drag, since touch scrubs immediately', () => {
+    const copy = copyFor('number-touch')
+    expect(copy).toMatch(/number/i)
+    expect(copy).not.toMatch(/alt/i)
+  })
+
+  it('never calls a scrubbable number a "control"', () => {
+    // the word that made the card ambiguous in the first place
+    for (const t of ['number-mouse', 'number-touch'] as DragTarget[]) {
+      expect(copyFor(t)).not.toMatch(/\bcontrol\b/i)
+    }
+  })
+
+  it('defaults to the knob wording when no target is given', () => {
+    expect(tourSteps({ chips: true }).find((s) => s.id === 'widget')!.copy).toBe(copyFor('knob'))
+  })
+
+  it('every drag target still advances on an edit', () => {
+    for (const t of ['knob', 'number-mouse', 'number-touch'] as DragTarget[]) {
+      expect(tourSteps({ chips: false, drag: t }).find((s) => s.id === 'widget')!.advance).toBe('edited')
+    }
+  })
+})
+
+describe('the drag step points at a number you can HEAR', () => {
+  it('skips leading envelope times for the first big number', () => {
+    // the JS welcome track's numbers, in document order: a=0.01, d=0.15,
+    // s=0.5, r=0.2, then the cutoff 1200. Dragging 0.01 is inaudible.
+    expect(bestScrubIndex(['0.01', '0.15', '0.5', '0.2', '1200'])).toBe(4)
+  })
+
+  it('takes a big number immediately when one leads', () => {
+    expect(bestScrubIndex(['6000', '0.001'])).toBe(0)
+  })
+
+  it('falls back to the first number when everything is small', () => {
+    expect(bestScrubIndex(['0.5', '0.2'])).toBe(0)
+  })
+
+  it('is -1 with nothing to point at', () => {
+    expect(bestScrubIndex([])).toBe(-1)
+  })
+
+  it('ignores junk text rather than picking it', () => {
+    expect(bestScrubIndex(['abc', '880'])).toBe(1)
+  })
+
+  it('treats a big negative the same (it is still audible to drag)', () => {
+    expect(bestScrubIndex(['0.1', '-400'])).toBe(1)
   })
 })

@@ -4,7 +4,18 @@ import { docsMarkdown } from './src/docs/markdown'
 
 const entry = (name: string): string => fileURLToPath(new URL(name, import.meta.url))
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  // PRIVATE EXAMPLES MUST NOT SHIP. src/examples/local/ is gitignored, but the
+  // loader's `import.meta.glob(..., { eager: true })` becomes STATIC IMPORTS at
+  // build time, so every local example was bundled into production even though
+  // nothing in the UI listed it (a runtime DEV guard cannot fix that — the code
+  // is already in the file). Swapping the module out at resolve time is the
+  // only way the sources are never read at all.
+  resolve: {
+    alias: mode === 'production'
+      ? [{ find: /^\.\/local-loader$/, replacement: entry('./src/examples/local-loader.prod.ts') }]
+      : [],
+  },
   // Emit the docs as Markdown at /llms.txt (the LLM-consumable convention),
   // generated from the same guide + reference data the docs page renders.
   plugins: [
@@ -34,4 +45,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

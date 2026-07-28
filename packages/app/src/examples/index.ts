@@ -5,6 +5,7 @@
  * self-documenting tutorial. */
 
 import { compile } from '@rondocode/rondo'
+import { loadLocalExamples } from './local-loader'
 
 export interface Example {
   name: string
@@ -1091,29 +1092,9 @@ p('vox', sing('barbara',
 `
 
 /** Locally-added examples from the gitignored `./local/` directory — each file
- *  default-exports an Example (or Example[]). Loaded via Vite's import.meta.glob
- *  in the app + tests; a NO-OP under plain node (the tsx render tools, where
- *  glob is undefined) — render those with scripts/render-local.ts instead.
- *  Lets you keep private/WIP examples without committing them. */
-const loadLocalExamples = (): Example[] => {
-  let mods: Record<string, unknown> = {}
-  try {
-    // MUST be a direct literal call — Vite rewrites `import.meta.glob('…')` at
-    // build time (reading it into a variable first defeats that and loads
-    // nothing). Under plain node (the tsx render tools) import.meta.glob is
-    // undefined, so the call throws and we fall back to no local examples.
-    // @ts-ignore import.meta.glob is a Vite-only macro, untyped outside the app tsconfig
-    mods = import.meta.glob('./local/*.{ts,js}', { eager: true }) as Record<string, unknown>
-  } catch {
-    return []
-  }
-  return Object.values(mods).flatMap((m) => {
-    const v = (m as { default?: unknown }).default
-    if (Array.isArray(v)) return v as Example[]
-    if (v !== null && typeof v === 'object' && 'code' in (v as object)) return [v as Example]
-    return []
-  })
-}
+ *  default-exports an Example (or Example[]). See examples/local-loader.ts —
+ *  it is a separate module because a PRODUCTION build aliases it away, which
+ *  is the only way to keep private examples out of the shipped bundle. */
 
 /* Rondo-language example sources. MOBILE-FORMATTED on purpose: rondo is the
  * phone-first surface, so lines stay under ~44 chars and comments sit on

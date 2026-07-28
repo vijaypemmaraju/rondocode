@@ -77,6 +77,24 @@ export interface ProbeTarget {
   to: number
 }
 
+/** Who is holding a param away from the pattern: a finger on a widget, or a
+ *  mapped hardware control. See heldParams for why they are distinguished. */
+export type ParamOwner = 'touch' | 'midi'
+
+/** One declared, settable param of a live synth: what a control surface binds
+ *  to and the range/curve it has to scale onto. */
+export interface ParamTarget {
+  synth: string
+  param: string
+  default: number
+  min: number
+  max: number
+  curve: 'lin' | 'log'
+  /** true when the param lives in the synth's POST chain (shared per synth,
+   *  and NOT reachable from a pattern's `.ctrl`). */
+  post?: boolean
+}
+
 type SetIntervalImpl = (fn: () => void, ms: number) => unknown
 type ClearIntervalImpl = (handle: unknown) => void
 
@@ -472,24 +490,59 @@ export class Session {
     }, REBUILD_DEBOUNCE_MS)
   }
 
-  /** Touch-to-override: params currently held by a hand ("synth.param" →
-   *  value). While held, pattern-driven setParams for that param are
-   *  SUPPRESSED in dispatchEvents — the performer outranks the sequencer —
-   *  and the drive resumes on its next event after release. */
-  private readonly heldParams = new Map<string, number>()
+  /** Touch-to-override: params currently held by a performer ("synth.param" →
+   *  the set of owners holding it). While held, pattern-driven setParams for
+   *  that param are SUPPRESSED in dispatchEvents — the performer outranks the
+   *  sequencer — and the drive resumes on its next event once the LAST owner
+   *  releases.
+   *
+   *  Two owners exist because they behave differently: 'touch' is a gesture
+   *  that ends when the finger lifts, 'midi' is a knob that keeps its param
+   *  until it is unmapped. Scoping the holds means a finger drag over a
+   *  knob-owned param hands the param back to the KNOB on release, not to the
+   *  pattern. The value itself is simply whoever moved last. */
+  private readonly heldParams = new Map<string, Set<ParamOwner>>()
 
-  /** Hold a param at `value` (a hand is on the knob). Applies immediately and
-   *  suppresses the pattern drive for this param until releaseParam. Unknown
-   *  synths are forgiven like setChannel — holds race live evals. */
-  holdParam(synth: string, name: string, value: number): void {
-    this.heldParams.set(`${synth}.${name}`, value)
+  /** Hold a param at `value` (a hand or a mapped CC is on the knob). Applies
+   *  immediately and suppresses the pattern drive for this param until every
+   *  owner has released it. Unknown synths are forgiven like setChannel —
+   *  holds race live evals. */
+  holdParam(synth: string, name: string, value: number, owner: ParamOwner = 'touch'): void {
+    const key = `${synth}.${name}`
+    const owners = this.heldParams.get(key)
+    if (owners === undefined) this.heldParams.set(key, new Set([owner]))
+    else owners.add(owner)
     this.audio.send({ kind: 'setParam', synth, name, value })
   }
 
-  /** Release a held param — the pattern drive takes back over on its next
-   *  event (or the param simply keeps the held value if nothing drives it). */
-  releaseParam(synth: string, name: string): void {
-    this.heldParams.delete(`${synth}.${name}`)
+  /** Release one owner's hold on a param. The pattern drive takes back over on
+   *  its next event once NO owner holds it (or the param simply keeps the held
+   *  value if nothing drives it). */
+  releaseParam(synth: string, name: string, owner: ParamOwner = 'touch'): void {
+    const key = `${synth}.${name}`
+    const owners = this.heldParams.get(key)
+    if (owners === undefined) return
+    owners.delete(owner)
+    if (owners.size === 0) this.heldParams.delete(key)
+  }
+
+  /** Every param the live synths declare, with the range and curve a control
+   *  surface needs to scale onto it — the voice graph's params plus the
+   *  per-synth post chain's (both reach setParam). This is the list a MIDI
+   *  learn or a mixer picks from; it is empty until an eval succeeds, and it
+   *  shrinks the moment a synth is renamed or deleted, which is what makes a
+   *  saved mapping show up as stale. */
+  paramTargets(): ParamTarget[] {
+    const out: ParamTarget[] = []
+    for (const [synth, def] of this.liveDefs) {
+      for (const p of def.graph.params) {
+        out.push({ synth, param: p.name, default: p.default, min: p.min, max: p.max, curve: p.curve ?? 'lin' })
+      }
+      for (const p of def.post?.params ?? []) {
+        out.push({ synth, param: p.name, default: p.default, min: p.min, max: p.max, curve: p.curve ?? 'lin', post: true })
+      }
+    }
+    return out
   }
 
   /** Set a live synth param. `addr` is "synthName.paramName" (split at the

@@ -911,6 +911,36 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'midi-hardware',
+    group: 'voice & visuals',
+    title: 'Playing from hardware',
+    blocks: [
+      p('The midi button in the header opens the input panel. Enable MIDI, pick which synth the keys play, and a connected controller plays it live: note on and note off go straight to the engine, velocity included.'),
+      p('The knobs and faders on that controller can drive your params. Every `param()` you declare, in the voice or in the post chain, shows up in the map list, and so does every rondo `knob`. Pick one, tap learn, then move the control you want it on. That control is now bound to that param.'),
+      code(
+        'A param with a range and a curve is exactly what a knob wants. Map cutoff, then sweep it by hand while the pattern runs.',
+        `const bass = synth(({ note, gate, adsr, saw, svf, param }) =>
+  svf(saw(note.freq), param('cutoff', 900, { min: 80, max: 8000, curve: 'log' }), { res: 0.3 })
+    .mul(adsr(gate, { a: 0.004, d: 0.2, s: 0.6, r: 0.1 })).mul(0.5))
+
+p('line', note('c2 c2 g2 a#2').sound('bass').ctrl('cutoff', '<600 2400>'))
+setCps(0.5)`,
+      ),
+      table(
+        'How a control change becomes a param value.',
+        ['the param says', 'the knob does', 'why'],
+        [
+          ['`{ min: 0, max: 1 }`', 'sweeps the range evenly, 0 at the bottom and 1 at the top', 'a linear param reads the same way a linear knob turns'],
+          ['`{ min: 80, max: 8000, curve: "log" }`', 'multiplies by a fixed ratio per step, so halfway is 800 Hz and not 4040 Hz', 'a log param is heard in octaves, so equal turns should be equal intervals'],
+          ['nothing at all', 'the row shows as stale and the knob does nothing', 'the param is not in the tune right now'],
+        ],
+      ),
+      p('Control changes carry 7 bits, so a knob has 128 positions across the whole range. On a log cutoff from 80 Hz to 8 kHz that is about 62 cents a step, which is fine to perform with. Controllers that send high resolution do it as a pair of messages, and the pair is used when it arrives, giving 16384 positions instead.'),
+      note('A mapped knob OWNS its param. While the mapping stands, a `.ctrl` sweep on that param stands down, exactly as it does while your finger is on an inline knob. Unmap the control to give the param back to the pattern. A finger and a knob are peers: whichever moved last sets the value, and lifting the finger hands the param back to the knob rather than to the sequencer.'),
+      p('Mappings are saved per project on this device, so your rig is still there after a reload. They are not part of the tune: a share link or an exported project carries the music, not your controller layout. A mapping whose param you have since renamed or deleted is kept and shown as stale, and it starts working again the moment that param comes back.'),
+    ],
+  },
+  {
     id: 'midi-import',
     group: 'voice & visuals',
     title: 'MIDI import & export',

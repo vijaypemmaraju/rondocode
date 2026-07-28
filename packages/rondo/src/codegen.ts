@@ -563,7 +563,10 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'section') return cgSection(item)
     if (item.t === 'song') return '' // assembled below, after all sections exist
-    return `setCps(${num(item.value)})` // cps
+    // the tempo line, in the unit it was written in: `bpm 128` → setBpm(128),
+    // `cps .5333` → setCps(0.5333). Keeping the unit in the JS is what lets
+    // the decompiler hand the same spelling back (see decompile.ts).
+    return item.unit === 'bpm' ? `setBpm(${num(item.value)})` : `setCps(${num(item.value)})`
   })
   // sections → ONE arranged 'song' pattern, in `song` order (or definition
   // order without a song line)

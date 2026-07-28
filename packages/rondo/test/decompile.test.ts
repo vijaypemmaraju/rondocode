@@ -372,6 +372,25 @@ describe('decompile cosmetics', () => {
   })
 })
 
+describe('decompile: the tempo unit round-trips', () => {
+  // THE RULE: the unit is part of the program. `bpm` ↔ setBpm and `cps` ↔
+  // setCps, in both directions — a doc that says 128 bpm never comes back as
+  // `cps .5333`, and a doc that says cps never grows a bpm line.
+  it('setBpm decompiles to `bpm`, setCps to `cps`', () => {
+    expect(decompile('setBpm(128)\n')).toContain('bpm 128')
+    expect(decompile('setCps(0.5333)\n')).toContain('cps 0.5333')
+  })
+
+  it('rondo → JS → rondo keeps the spelling the author typed', () => {
+    for (const src of ['bpm 128\n', 'cps 0.5333\n']) {
+      const c = compile(src)
+      expect(c.ok).toBe(true)
+      if (!c.ok) return
+      expect(decompile(c.code)).toBe(src)
+    }
+  })
+})
+
 describe('decompile totality', () => {
   it('wraps unrecognized statements verbatim in js blocks', () => {
     const js = `const weird = [1, 2, 3].map((x) => x * 2)\nconsole.log(weird)\n\nsetCps(0.5)\n`

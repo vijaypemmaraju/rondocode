@@ -68,6 +68,7 @@ function topChips(doc: string): Chip[] {
     chip('＋ wavedef', `wavedef wt 1 .25 / .5 1 .5 / .3 .8 1\n\nsynth ${next}\n  wavetable note scan table:wt\n  * env\n  env = adsr .01 .15 .6 .2\n  scan = env -> .1...9\n`, 'kw'),
     chip('sidechain', `sidechain kick depth:.7 release:.12\n`, 'kw'),
     chip('master', `master threshold:-6 ratio:2\n`, 'kw'),
+    chip('bpm', 'bpm 120\n', 'kw'),
     chip('cps', 'cps .5\n', 'kw'),
   ]
 }

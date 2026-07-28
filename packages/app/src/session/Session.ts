@@ -608,6 +608,17 @@ export class Session {
     this.onState?.(this.getState())
   }
 
+  /** Set the tempo WITHOUT touching play/stop — the header's BPM field uses
+   *  this when the document carries no tempo line to rewrite, so the change
+   *  applies to this run only (the next eval of a doc with a tempo line takes
+   *  it back). Clamped to [0.05, 4] like setCps, and pushed to the engine so
+   *  synced lfo/delay times follow. */
+  setCps(cps: number): void {
+    this.scheduler.setCps(clampCps(cps))
+    this.syncCps()
+    this.onState?.(this.getState())
+  }
+
   getState(): SessionState {
     const s: SessionState = {
       playing: this.playing,

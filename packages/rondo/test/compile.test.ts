@@ -39,6 +39,17 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('setCps(0.5)')
   })
 
+  it('`bpm 128` is the tempo in the unit producers count in (one cycle = one 4/4 bar)', () => {
+    // 128 / 60 / 4 beats per bar = 0.53333… cps; the conversion happens in the
+    // JS layer (setBpm), so the rondo source keeps the number that was typed
+    expect(ok('bpm 128\n')).toContain('setBpm(128)')
+    expect(ok('bpm 120\n')).toContain('setBpm(120)')
+    // both spellings are legal in one program; last one wins at eval time
+    const both = ok('cps .5\n\nbpm 128\n')
+    expect(both).toContain('setCps(0.5)')
+    expect(both).toContain('setBpm(128)')
+  })
+
   it('threads the audio spine: source, filter (running signal first), VCA', () => {
     const out = ok(`synth acid\n  saw + square note/2\n  ladder cutoff * env^2 res:.85\n  * env\n  env    = adsr .003 .2 .3 .1\n  cutoff = knob 800 80..8000 log\n`)
     // oscillator blend
@@ -719,6 +730,8 @@ describe('positioned diagnostics', () => {
     failsAt('play\n  0 3\n', 'play needs a synth name (`play lead`)', 1, 1)
     failsAt('cps\n', 'cps needs a number (`cps .6`)', 1, 1)
     failsAt('cps fast\n', 'cps needs a number (`cps .6`)', 1, 1)
+    failsAt('bpm\n', 'bpm needs a number (`bpm 128`)', 1, 1)
+    failsAt('bpm fast\n', 'bpm needs a number (`bpm 128`)', 1, 1)
     failsAt('bus\n  reverb room:.5\n', 'bus needs a name (`bus space`)', 1, 1)
     failsAt('sing\n  la\n  c4\n', 'sing needs a channel name (`sing vox`)', 1, 1)
     failsAt('section\n  play s\n    0\n', 'section needs a name and a length in cycles', 1, 1)

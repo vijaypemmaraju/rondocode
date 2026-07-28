@@ -49,6 +49,8 @@ export {
   midiToName,
   ticksPerBar,
   midiCps,
+  bpmToCps,
+  cpsToBpm,
   midiNotesToPattern,
   midiNotesToVoices,
 } from './midi'

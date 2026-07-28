@@ -19,7 +19,7 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
 /** Block keywords. */
-const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'post', 'bus', 'send', 'sidechain', 'master', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song'])
+const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'bpm', 'post', 'bus', 'send', 'sidechain', 'master', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song'])
 /** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
  *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([
@@ -107,7 +107,8 @@ const OPTIONS: Completion[] = [
   c('sing', 'keyword', 'sing NAME voice:barbara', 'A neural vocal: LYRIC lines above MELODY lines (pairs), one syllable per note.'),
   c('irand', 'keyword', 'irand N seg:M', 'Random scale degrees 0..N−1, M steps per cycle — a deterministic improviser.'),
   c('post', 'keyword', 'post', 'A post FX chain over the summed voices (reverb/eq/…), folded from `input`.'),
-  c('cps', 'keyword', 'cps N', 'Set tempo in cycles per second.'),
+  c('bpm', 'keyword', 'bpm 128', 'Set the tempo in beats per minute, 4 beats to the bar.'),
+  c('cps', 'keyword', 'cps N', 'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so .5333 cps is 128 bpm.'),
   c('sidechain', 'keyword', 'sidechain kick depth:.7 lead:.5', 'The pump: every kick ducks the other channels. Extra name:amount pairs are per-channel duck.'),
   c('master', 'keyword', 'master threshold:-6 ratio:2', 'Master-bus glue compressor.'),
   c('scaledef', 'keyword', 'scaledef pelog 0 1.2 2.7 5.4 6.7', 'Define a custom tuning: step offsets in semitones from the root (floats welcome), then `scale: c-pelog`. `Nedo` scales (`scale: c-19edo`) need no scaledef.'),

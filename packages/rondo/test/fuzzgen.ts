@@ -414,7 +414,12 @@ export function genProgram(seed: number): string {
   // toggle's documented comment tradeoff); byte-identity here would fail
   // on that, not on a bug. Verbatim-with-comments is pinned in decompile.test.
   if (r.chance(0.1)) blocks.push(`js\n  setCps(0.52)`)
-  if (r.chance(0.7)) blocks.push(`cps ${r.pick(['.3', '.45', '.6'])}`)
+  // the tempo line, in EITHER unit — the round trip must preserve which one
+  if (r.chance(0.7)) {
+    blocks.push(r.chance(0.4)
+      ? `bpm ${r.pick(['90', '120', '128', '174'])}`
+      : `cps ${r.pick(['.3', '.45', '.6'])}`)
+  }
 
   return blocks.join('\n\n') + '\n'
 }

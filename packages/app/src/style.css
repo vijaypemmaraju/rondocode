@@ -1977,3 +1977,63 @@ body.shaderviz-on .cm-content {
       0 0 4px var(--c-accent);
   }
 }
+
+/* ---- workspace (desktop): the folder that IS the project list ------------ */
+.lib-ws {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl);
+  padding: var(--sp-1) var(--sp-2);
+  margin-bottom: var(--sp-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-surface);
+}
+.lib-ws-label {
+  flex: none;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* the path is the one thing that can be arbitrarily long here: let it take the
+ * slack and ellipsize from the LEFT, so the folder name stays readable */
+.lib-ws-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-text);
+}
+.lib-ws-new {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.lib-ws-new .lib-snap-name { flex: 1 1 auto; min-width: 0; }
+/* a workspace row is a container of buttons, not itself a button */
+.lib-row-open {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.lib-empty {
+  padding: var(--sp-2);
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}

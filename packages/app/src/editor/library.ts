@@ -21,7 +21,12 @@ import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../session/share'
-import { extFor, isDesktop, openProjectDialog, saveProject, saveProjectDialog } from '../desktop/bridge'
+import {
+  createInWorkspace, extFor, hasWorkspace, isDesktop, listWorkspace, openProjectDialog,
+  openProjectPath, pickWorkspace, renameInWorkspace, saveProject, saveProjectDialog,
+  setWorkspaceDir, trashFile, workspaceDir,
+} from '../desktop/bridge'
+import type { WorkspaceEntry } from '../desktop/bridge'
 import { compile as compileRondo } from '@rondocode/rondo'
 
 const ACTIVE_KEY = 'rondocode-active-project'
@@ -178,6 +183,15 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     saveTimer = undefined
     if (pendingSave !== undefined) {
       void store.saveCode(pendingSave.id, pendingSave.code)
+      // With a workspace, the FILE is the project — the same debounce that
+      // saves the database row writes the file, so an edit is never only in
+      // one of the two places. IndexedDB stays written as a crash cushion.
+      if (openPath !== null) {
+        const path = openPath
+        void saveProject(path, pendingSave.code).catch((e: unknown) =>
+          console.warn('[library] writing', path, 'failed', e),
+        )
+      }
       pendingSave = undefined
     }
   }
@@ -250,6 +264,116 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   }
 
   // ---- rendering -------------------------------------------------------------
+  /** The workspace list: one row per project FILE, newest first. Open, rename
+   *  and trash act on the file itself — there is no database copy to drift. */
+  const renderWorkspaceList = async (sheet: HTMLElement, now: number): Promise<void> => {
+    const dir = workspaceDir()
+    if (dir === null) return
+    let entries: WorkspaceEntry[]
+    try {
+      entries = await listWorkspace(dir)
+    } catch (e) {
+      // a moved or unmounted folder must NOT read as "no projects"
+      console.warn('[library] workspace unreadable', e)
+      const err = el('div', 'lib-empty', `cannot read ${dir} — was it moved?`)
+      sheet.append(err)
+      return
+    }
+
+    const openFile = async (path: string): Promise<void> => {
+      const f = await openProjectPath(path)
+      openPath = f.path
+      editor.setLang(f.lang)
+      editor.loadCode(f.code)
+      setLabel(f.name)
+      await render()
+    }
+
+    const newRow = el('div', 'lib-ws-new')
+    const newName = el('input', 'lib-snap-name') as HTMLInputElement
+    newName.placeholder = 'new project name…'
+    newName.setAttribute('aria-label', 'new project name')
+    const newBtn = el('button', 'lib-mini', 'new file')
+    newBtn.type = 'button'
+    const doNew = async (): Promise<void> => {
+      const name = newName.value.trim()
+      if (name === '') return
+      try {
+        const lang = newProjectLang()
+        const path = await createInWorkspace(dir, name, lang, blankStarter(lang))
+        newName.value = ''
+        await openFile(path)
+      } catch (e) {
+        console.warn('[library] create failed', e)
+        newBtn.textContent = String(e).includes('exists') ? 'name taken' : 'create failed'
+        setTimeout(() => (newBtn.textContent = 'new file'), 1800)
+      }
+    }
+    newName.addEventListener('keydown', (e) => { if (e.key === 'Enter') void doNew() })
+    newBtn.addEventListener('click', () => void doNew())
+    newRow.append(newName, newBtn)
+    sheet.append(newRow)
+
+    if (entries.length === 0) {
+      sheet.append(el('div', 'lib-empty', 'no .rondo or .js files here yet'))
+      return
+    }
+
+    const list = el('div', 'lib-list')
+    for (const entry of entries) {
+      const row = el('div', 'lib-row' + (entry.path === openPath ? ' active' : ''))
+      const open = el('button', 'lib-row-open')
+      open.type = 'button'
+      const rowName = el('span', 'lib-row-name', entry.name)
+      tooltip(rowName, entry.path)
+      open.append(rowName, el('span', 'lib-row-time', ago(entry.modified, now)))
+      open.addEventListener('click', () => {
+        void (async () => {
+          try { await openFile(entry.path) } catch (e) { console.warn('[library] open failed', e) }
+        })()
+      })
+
+      const ren = el('button', 'lib-mini', 'rename')
+      ren.type = 'button'
+      ren.addEventListener('click', () => {
+        void (async () => {
+          const next = prompt('rename project', entry.name)
+          if (next === null || next.trim() === '' || next === entry.name) return
+          try {
+            const moved = await renameInWorkspace(entry.path, next.trim())
+            if (openPath === entry.path) openPath = moved
+            await render()
+          } catch (e) {
+            console.warn('[library] rename failed', e)
+          }
+        })()
+      })
+
+      const del = el('button', 'lib-mini lib-danger', 'delete')
+      del.type = 'button'
+      del.title = 'move to the Trash'
+      del.addEventListener('click', () => {
+        void (async () => {
+          try {
+            await trashFile(entry.path)
+            if (openPath === entry.path) openPath = null
+            await render()
+          } catch (e) {
+            console.warn('[library] delete failed', e)
+          }
+        })()
+      })
+
+      row.append(open, ren, del)
+      list.append(row)
+    }
+    sheet.append(list)
+  }
+
+  /** Path of the workspace file currently open, or null. The single piece of
+   *  state the file-backed library needs: everything else lives on disk. */
+  let openPath: string | null = null
+
   const render = async (): Promise<void> => {
     projects = await store.listProjects()
     const current = (await store.getProject(activeId)) ?? projects[0]
@@ -517,6 +641,50 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     sheet.append(ioRow)
 
     // project list
+    /* ---- workspace bar (desktop) --------------------------------------- *
+     * The folder IS the library here, so it needs to be visible and
+     * changeable, not hidden in a setting. Shown on desktop whether or not one
+     * is chosen: with none, this is the call to action. */
+    if (isDesktop()) {
+      const wsRow = el('div', 'lib-ws')
+      const dir = workspaceDir()
+      const label = el('span', 'lib-ws-path', dir ?? 'no folder yet — projects live in the app')
+      if (dir !== null) tooltip(label, dir) // the row ellipsizes a long path
+      const pick = el('button', 'lib-mini', dir === null ? 'choose folder' : 'change')
+      pick.type = 'button'
+      pick.addEventListener('click', () => {
+        void (async () => {
+          try {
+            const chosen = await pickWorkspace()
+            if (chosen === null) return // cancelled
+            await render()
+          } catch (e) {
+            console.warn('[library] choosing a workspace failed', e)
+          }
+        })()
+      })
+      wsRow.append(el('span', 'lib-ws-label', 'folder'), label, pick)
+      if (dir !== null) {
+        const forget = el('button', 'lib-mini', 'use app storage')
+        forget.type = 'button'
+        forget.title = 'stop using the folder; projects go back to living in the app'
+        forget.addEventListener('click', () => {
+          void (async () => { setWorkspaceDir(null); await render() })()
+        })
+        wsRow.append(forget)
+      }
+      sheet.append(wsRow)
+    }
+
+    // With a workspace, the FILES are the list — the IndexedDB rows below are
+    // not consulted at all, so there is exactly one source of truth on screen.
+    if (hasWorkspace()) {
+      await renderWorkspaceList(sheet, now)
+      // no snapshot history here on purpose: those are IndexedDB versions of
+      // IndexedDB projects. A file's history is whatever you version it with.
+      return
+    }
+
     const list = el('div', 'lib-list')
     for (const p of projects) {
       const row = el('button', 'lib-row' + (p.id === current.id ? ' active' : ''))

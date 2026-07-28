@@ -78,6 +78,13 @@ fn midi_send(bytes: Vec<u8>) -> Result<(), String> {
     midi::send(&bytes)
 }
 
+/// Send so the bytes LAND `delay_ms` from now. CoreMIDI holds the packet until
+/// its timestamp, which is what makes a DAW recording land on the grid.
+#[tauri::command]
+fn midi_send_at(bytes: Vec<u8>, delay_ms: f64) -> Result<(), String> {
+    midi::send_after(&bytes, delay_ms)
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -94,6 +101,7 @@ fn main() {
             midi_open,
             midi_is_open,
             midi_send,
+            midi_send_at,
         ])
         .run(tauri::generate_context!())
         .expect("error while running rondocode desktop");

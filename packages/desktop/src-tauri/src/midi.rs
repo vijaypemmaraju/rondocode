@@ -43,6 +43,8 @@ extern "C" {
     ) -> OSStatus;
     fn MIDIReceived(src: MIDIEndpointRef, pktlist: *const u8) -> OSStatus;
     fn MIDIPacketListInit(pktlist: *mut u8) -> *mut u8;
+    fn mach_absolute_time() -> u64;
+    fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
     fn MIDIPacketListAdd(
         pktlist: *mut u8,
         list_size: ByteCount,
@@ -51,6 +53,45 @@ extern "C" {
         n_data: ByteCount,
         data: *const u8,
     ) -> *mut u8;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct MachTimebaseInfo {
+    numer: u32,
+    denom: u32,
+}
+
+/// mach ticks per nanosecond, as the numer/denom rational the kernel reports.
+/// Constant for the life of the process, so it is read once.
+fn timebase() -> (u32, u32) {
+    use std::sync::OnceLock;
+    static TB: OnceLock<(u32, u32)> = OnceLock::new();
+    *TB.get_or_init(|| {
+        let mut info = MachTimebaseInfo::default();
+        let ok = unsafe { mach_timebase_info(&mut info) } == 0;
+        if ok && info.numer != 0 && info.denom != 0 {
+            (info.numer, info.denom)
+        } else {
+            (1, 1) // Apple silicon and x86 both report 1/1 today; a safe identity
+        }
+    })
+}
+
+/// A CoreMIDI host timestamp `delay_ms` in the future.
+///
+/// MIDITimeStamp is mach_absolute_time UNITS, not nanoseconds — on some
+/// hardware those differ, which is what the timebase rational corrects.
+/// ticks = ns * denom / numer.
+fn host_time_after(delay_ms: f64) -> MIDITimeStamp {
+    let now = unsafe { mach_absolute_time() };
+    if !(delay_ms > 0.0) {
+        return 0; // 0 means "as soon as possible" to CoreMIDI
+    }
+    let (numer, denom) = timebase();
+    let ns = delay_ms * 1_000_000.0;
+    let ticks = ns * f64::from(denom) / f64::from(numer);
+    now.saturating_add(ticks as u64)
 }
 
 /// One published virtual source. Kept alive for the process lifetime: CoreMIDI
@@ -107,6 +148,16 @@ pub fn is_open() -> bool {
 /// Send raw MIDI bytes out of the virtual source, NOW (timestamp 0 means
 /// "as soon as possible" to CoreMIDI). `bytes` may hold several messages.
 pub fn send(bytes: &[u8]) -> Result<(), String> {
+    send_after(bytes, 0.0)
+}
+
+/// Send `bytes` so they LAND `delay_ms` from now.
+///
+/// This is the difference between a recording that is in time and one that is
+/// systematically early: CoreMIDI will hold a packet until its timestamp, so
+/// scheduling here is sample-accurate where deferring with a JS timer was only
+/// accurate to timer jitter.
+pub fn send_after(bytes: &[u8], delay_ms: f64) -> Result<(), String> {
     if bytes.is_empty() {
         return Ok(());
     }
@@ -121,7 +172,8 @@ pub fn send(bytes: &[u8]) -> Result<(), String> {
     let mut buf = [0u8; 1024];
     unsafe {
         let pkt = MIDIPacketListInit(buf.as_mut_ptr());
-        let pkt = MIDIPacketListAdd(buf.as_mut_ptr(), buf.len(), pkt, 0, bytes.len(), bytes.as_ptr());
+        let when = host_time_after(delay_ms);
+        let pkt = MIDIPacketListAdd(buf.as_mut_ptr(), buf.len(), pkt, when, bytes.len(), bytes.as_ptr());
         if pkt.is_null() {
             return Err("MIDIPacketListAdd rejected the payload".to_string());
         }
@@ -171,6 +223,44 @@ mod tests {
         let big = vec![0x90u8; 300];
         let err = send(&big).expect_err("should refuse");
         assert!(err.contains("too large"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn a_future_timestamp_is_ahead_of_now_and_scales_with_the_delay() {
+        // the whole point: CoreMIDI holds the packet until this instant, so it
+        // must be genuinely in the future and proportional to the delay asked
+        let now = unsafe { mach_absolute_time() };
+        let t10 = host_time_after(10.0);
+        let t100 = host_time_after(100.0);
+        assert!(t10 > now, "10ms must be in the future");
+        let d10 = (t10 - now) as f64;
+        let d100 = (t100 - now) as f64;
+        // ~10x apart, generously toleranced for the time between the two reads
+        assert!(d100 / d10 > 5.0 && d100 / d10 < 20.0, "ratio was {}", d100 / d10);
+    }
+
+    #[test]
+    fn a_zero_or_past_delay_means_as_soon_as_possible() {
+        // 0 is CoreMIDI's "now"; a negative delay is a late event, which must
+        // go out immediately rather than wrapping into the far future
+        assert_eq!(host_time_after(0.0), 0);
+        assert_eq!(host_time_after(-5.0), 0);
+    }
+
+    #[test]
+    fn ten_milliseconds_is_about_ten_milliseconds_in_nanoseconds() {
+        let (numer, denom) = timebase();
+        let ticks = host_time_after(10.0) - unsafe { mach_absolute_time() };
+        let ns = ticks as f64 * f64::from(numer) / f64::from(denom);
+        // within a millisecond of 10ms, allowing for the two clock reads
+        assert!((ns - 10_000_000.0).abs() < 1_000_000.0, "got {ns} ns");
+    }
+
+    #[test]
+    fn a_scheduled_send_reaches_coremidi() {
+        open("rondocode test").expect("open");
+        send_after(&[0x90, 60, 100], 25.0).expect("scheduled note should be accepted");
+        send_after(&[0x80, 60, 0], 50.0).expect("scheduled note-off should be accepted");
     }
 
     #[test]

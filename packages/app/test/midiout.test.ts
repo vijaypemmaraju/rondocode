@@ -6,9 +6,20 @@ import type { OutEvent } from '../src/desktop/midiout'
  * a note that records early, a velocity that lands as a note-off, a held note
  * left down after stop — so each gets its own test. */
 
-const sinkSpy = (): { sent: number[][]; send: (b: Uint8Array | number[]) => void } => {
+/** Records what was sent AND when it was asked to land, since the delay is now
+ *  the timing mechanism rather than a JS timer. */
+const sinkSpy = () => {
   const sent: number[][] = []
-  return { sent, send: (b) => void sent.push([...b]) }
+  const at: { bytes: number[]; delayMs: number }[] = []
+  return {
+    sent,
+    at,
+    send: (b: Uint8Array | number[]) => void sent.push([...b]),
+    sendAt: (b: Uint8Array | number[], delayMs: number) => {
+      sent.push([...b])
+      at.push({ bytes: [...b], delayMs })
+    },
+  }
 }
 
 /** A NoteOut over a controllable clock and timer queue. */
@@ -64,27 +75,26 @@ describe('channel per synth', () => {
 })
 
 describe('scheduling', () => {
-  it('times notes against the audio clock, not on arrival', () => {
-    const { out, sink, queue } = rig(10)
+  it('hands CoreMIDI the delay, rather than holding the bytes in a JS timer', () => {
+    const { out, sink } = rig(10)
     const ev: OutEvent = { note: 60, timeSec: 10.5, durSec: 0.25, sound: 'lead', velocity: 1 }
     out.send([ev])
-    // nothing yet: the note is half a second away
-    expect(sink.sent).toEqual([])
-    expect(queue[0]!.at).toBeCloseTo(500, 0) // note on at +500ms
-    expect(queue[1]!.at).toBeCloseTo(750, 0) // off at +500+250
+    // both packets go out NOW, timestamped for when they should land
+    expect(sink.at[0]!.delayMs).toBeCloseTo(500, 0) // note on at +500ms
+    expect(sink.at[1]!.delayMs).toBeCloseTo(750, 0) // off at +500+250
+    expect(sink.at[0]!.bytes).toEqual([0x90, 60, 127])
   })
 
-  it('fires immediately for an event already due', () => {
+  it('asks for a non-positive delay on an event already due', () => {
     const { out, sink } = rig(10)
     out.send([{ note: 64, timeSec: 9.9, durSec: 0.1, sound: 'x' }])
-    expect(sink.sent[0]).toEqual([0x90, 64, 127])
+    expect(sink.at[0]!.delayMs).toBeLessThanOrEqual(0) // CoreMIDI: as soon as possible
   })
 
   it('emits note-on then note-off on the sound’s channel', () => {
-    const { out, sink, runAll } = rig(0)
+    const { out, sink } = rig(0)
     out.send([{ note: 60, timeSec: 1, durSec: 0.5, sound: 'a', velocity: 0.5 }])
     out.send([{ note: 67, timeSec: 1, durSec: 0.5, sound: 'b', velocity: 1 }])
-    runAll()
     expect(sink.sent).toContainEqual([0x90, 60, 64]) // channel 0
     expect(sink.sent).toContainEqual([0x80, 60, 0])
     expect(sink.sent).toContainEqual([0x91, 67, 127]) // channel 1
@@ -99,7 +109,7 @@ describe('stop', () => {
     sink.sent.length = 0
     out.stop()
     expect(sink.sent).toContainEqual([0x80, 60, 0]) // the release
-    expect(queue.length).toBe(0) // and the pending note-off was cancelled
+    expect(queue.length).toBe(0) // and the held-note bookkeeping was cleared
   })
 
   it('sends all-notes-off on every channel as a backstop', () => {
@@ -109,13 +119,15 @@ describe('stop', () => {
     expect(cc123).toHaveLength(16)
   })
 
-  it('drops queued notes that have not sounded yet', () => {
+  it('clears its held-note bookkeeping so a later stop sends nothing stale', () => {
     const { out, sink, queue, runAll } = rig(0)
     out.send([{ note: 60, timeSec: 5, durSec: 1, sound: 'a' }])
     out.stop()
-    sink.sent.length = 0
-    runAll() // nothing left to run
+    runAll()
     expect(queue).toHaveLength(0)
-    expect(sink.sent).toEqual([])
+    sink.sent.length = 0
+    out.stop()
+    // only the per-channel all-notes-off backstop, no phantom note-offs
+    expect(sink.sent.every((m) => (m[0]! & 0xf0) === 0xb0)).toBe(true)
   })
 })

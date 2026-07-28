@@ -289,21 +289,14 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
 
   /** Send one byte to the virtual port AT `at`.
    *
-   * WebMIDI takes a timestamp and delivers on time; this crate's send is
-   * immediate, so a byte queued with lookahead would otherwise go out EARLY by
-   * the whole lookahead — a systematic tempo error in a DAW recording, which is
-   * worse than none. Deferring with a timer keeps the intended moment to within
-   * timer jitter. Passing the timestamp through to CoreMIDI's MIDITimeStamp
-   * (mach_absolute_time) would be exact and is the real fix. */
+   * Both sides are timestamped now: WebMIDI takes the delivery time directly,
+   * and the virtual port converts the delay to a CoreMIDI host time through
+   * mach_absolute_time, so neither runs early by the lookahead. */
   const emitVirtual = (byte: number, at?: number): void => {
     const sink = virt
     if (sink === null) return
-    const delay = at === undefined ? 0 : at - performance.now()
-    if (delay <= 1) {
-      sink.send([byte])
-      return
-    }
-    setTimeout(() => sink.send([byte]), delay)
+    // timestamped in CoreMIDI, which holds the packet until the moment asked
+    sink.sendAt([byte], at === undefined ? 0 : at - performance.now())
   }
 
   const emit = (byte: number, at?: number): void => {

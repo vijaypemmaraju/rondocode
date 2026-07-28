@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
 import { midiToRondocode } from '../src/midi/import'
@@ -154,5 +156,33 @@ describe('midiToRondocode → evalCode round-trip', () => {
     expect(code).not.toContain('masterCompress(')
     const r = evalsClean(code)
     expect(r.masterComp).toBeUndefined()
+  })
+})
+
+describe('the app can actually reach the importer', () => {
+  /* The importer was complete and tested for a long time while being callable
+   * from nothing but this test file — a feature that exists and cannot be
+   * used. These pin the wiring, not the conversion. */
+  const lib = readFileSync(join(__dirname, '../src/editor/library.ts'), 'utf8')
+
+  it('the import file input accepts MIDI, not just project JSON', () => {
+    const accept = /importInput\.accept = '([^']*)'/.exec(lib)?.[1] ?? ''
+    expect(accept).toMatch(/\.mid/)
+    expect(accept).toMatch(/\.json/)
+  })
+
+  it('a .mid file routes to midiToRondocode', () => {
+    expect(lib).toMatch(/\\\.midi\?\$\/i\.test\(f\.name\)/)
+    expect(lib).toContain('midiToRondocode')
+  })
+
+  it('the imported project is created as JavaScript, since that is what it emits', () => {
+    // switchTo() applies project.lang, so importing while in rondo must not
+    // leave JS source under the rondo grammar
+    expect(lib).toMatch(/createProject\(stem, code, 'rondocode'\)/)
+  })
+
+  it('the importer is lazy-loaded so it stays out of the eager bundle', () => {
+    expect(lib).toMatch(/await import\('\.\.\/midi\/import'\)/)
   })
 })

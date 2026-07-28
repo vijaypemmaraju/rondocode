@@ -622,3 +622,40 @@ describe('MiniError', () => {
     })
   }
 })
+
+describe("'@' inside an alternation holds for whole CYCLES", () => {
+  /* `<0@3 4@1>` used to play exactly like `<0 4>`: the weights parsed fine and
+   * were then dropped, so nothing in the source hinted that the numbers did
+   * nothing. Inside a SEQUENCE the same `@` divides one cycle, which is what
+   * made the silence confusing rather than merely a missing feature. */
+  const cycle = (src: string, c: number): unknown[] => q(mini(src), c, c + 1).map((t) => t[2])
+
+  it('holds each term for its weight in cycles', () => {
+    const src = '<0@3 4@1>'
+    expect([0, 1, 2, 3].map((c) => cycle(src, c))).toEqual([[0], [0], [0], [4]])
+  })
+
+  it('wraps around the whole weighted rotation', () => {
+    const src = '<0@3 4@1>' // period is 3 + 1 = 4 cycles
+    expect(cycle(src, 4)).toEqual([0])
+    expect(cycle(src, 7)).toEqual([4])
+  })
+
+  it('is unchanged when every weight is 1', () => {
+    expect([0, 1].map((c) => cycle('<0@1 4@1>', c))).toEqual([[0], [4]])
+    expect([0, 1].map((c) => cycle('<0 4>', c))).toEqual([[0], [4]])
+  })
+
+  it('still divides ONE cycle inside a sequence, not several', () => {
+    expect(q(mini('0@3 4@1'), 0, 1).map((t) => t[1])).toEqual([0.75, 1])
+  })
+
+  it('composes with ! repetition', () => {
+    // two copies of a 2-cycle hold, then one of 4
+    expect([0, 1, 2, 3, 4].map((c) => cycle('<0@2!2 4>', c))).toEqual([[0], [0], [0], [0], [4]])
+  })
+
+  it('rejects a fractional hold rather than rounding it', () => {
+    expect(() => mini('<0@1.5 4>')).toThrow(/whole number of cycles/)
+  })
+})

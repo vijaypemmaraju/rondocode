@@ -681,7 +681,7 @@ const MINI_SYNTAX: DocEntry[] = [
   ms('mini:~', '~', 'A rest: this step is silent.', "note('~ c4 ~ c4')"),
   ms('mini:_', 'a _', 'Elongate: the previous step holds for one more slot ("a _ b" gives a twice the length of b).', "n('0 _ 3 5')"),
   ms('mini:[]', '[a b]', 'A subgroup: everything inside fits into one step, subdividing it; a comma inside stacks voices.', "note('c2 [e2 g2] c2 [e2, g2]')"),
-  ms('mini:<>', '<a b c>', 'Alternation: one entry per cycle, cycling through them, slow harmonic movement in one step.', "note('<e2 e2 d2 g2>')"),
+  ms('mini:<>', '<a b c>', 'Alternation: one entry per cycle, cycling through them, slow harmonic movement in one step. `@n` HOLDS an entry for n cycles, so `<0@3 4>` is three bars of 0 then one of 4 (inside a sequence the same `@` divides a single cycle instead).', "note('<e2 e2 d2 g2>')"),
   ms('mini:{}', '{a b c, d e}%n', 'Polymeter: voices of different lengths run at n steps per cycle, drifting against each other.', "note('{c2 e2 g2, c4 g4}%4')"),
   ms('mini:*', 'a*n', 'Repeat the step n times faster within its slot, "c5*8" is eight hits in the step.', "note('c5*8').sound('hat')"),
   ms('mini:/', 'a/n', 'Slow the step down by n: it takes n cycles to play once.', "note('c2/2')"),

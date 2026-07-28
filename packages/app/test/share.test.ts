@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { deflateRaw } from 'pako'
-import { decodeShare, encodeShare, readShareHash, shareUrl } from '../src/session/share'
+import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../src/session/share'
 
 const toB64Url = (bytes: Uint8Array): string => {
   let s = ''
@@ -59,5 +61,61 @@ describe('share links', () => {
     expect(readShareHash('#nothing')).toBeNull()
     expect(readShareHash('')).toBeNull()
     expect(shareUrl('https://rondocode.pages.dev', '/', 'dABC')).toBe('https://rondocode.pages.dev/#s=dABC')
+  })
+})
+
+describe('the shared LANGUAGE survives the link', () => {
+  /* `lang` is optional and omitting it is silently valid, so a call site that
+   * forgot it produced a link opening a rondo tune in JavaScript mode — where
+   * it is not even syntactically legal. The decode side was always right, so
+   * nothing failed loudly. sharePayloadFor() is the one place that decides. */
+
+  it('marks rondo and leaves JavaScript implicit', () => {
+    expect(sharePayloadFor('t', 'saw note', 'rondo')).toEqual({ name: 't', code: 'saw note', lang: 'rondo' })
+    // 'rondocode' is the editor's name for the JS language: no field
+    expect(sharePayloadFor('t', 'x', 'rondocode')).toEqual({ name: 't', code: 'x' })
+    expect(sharePayloadFor('t', 'x', undefined)).toEqual({ name: 't', code: 'x' })
+  })
+
+  it('round-trips a rondo tune through encode and decode', async () => {
+    const src = 'synth t\n  saw note\n  * env\n  env = adsr .01 .1 .5 .2\n\nplay t\n  c4 e4'
+    const decoded = await decodeShare(await encodeShare(sharePayloadFor('tune', src, 'rondo')))
+    expect(decoded).not.toBeNull()
+    expect(decoded!.code).toBe(src)
+    expect(decoded!.lang).toBe('rondo')
+  })
+
+  it('a JavaScript tune decodes with no lang, so it opens in JS', async () => {
+    const src = "const a = synth(({ saw, note }) => saw(note.freq))\np('a', note('c4').sound('a'))"
+    const decoded = await decodeShare(await encodeShare(sharePayloadFor('tune', src, 'rondocode')))
+    expect(decoded!.lang).toBeUndefined()
+  })
+
+  it('survives a full URL round trip, not just the payload', async () => {
+    const src = 'synth t\n  saw note'
+    const url = shareUrl('https://rondocode.com', '/', await encodeShare(sharePayloadFor('t', src, 'rondo')))
+    const payload = readShareHash(new URL(url).hash)
+    expect(payload).not.toBeNull()
+    const decoded = await decodeShare(payload!)
+    expect(decoded!.lang).toBe('rondo')
+    expect(decoded!.code).toBe(src)
+  })
+})
+
+describe('every share link is built through the helper', () => {
+  /* Two of the three call sites hand-assembled `{ name, code }` and silently
+   * dropped the language. Since the field is optional, nothing failed loudly —
+   * the link just opened a rondo tune in JavaScript mode. Assert the shape of
+   * the call, not just the helper, because the helper was never the problem. */
+  const SRC = ['../src/editor/library.ts', '../src/docs.ts']
+
+  it.each(SRC)('%s passes a built payload, never an object literal', (rel) => {
+    const src = readFileSync(join(__dirname, rel), 'utf8')
+    const calls = [...src.matchAll(/encodeShare\(([^)]*)/g)].map((m) => m[1]!)
+    expect(calls.length).toBeGreaterThan(0)
+    for (const arg of calls) {
+      expect(arg.trim().startsWith('{'), `hand-built payload: encodeShare(${arg}`).toBe(false)
+      expect(arg).toContain('sharePayloadFor')
+    }
   })
 })

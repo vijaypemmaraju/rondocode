@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- WKWebView runs JavaScriptCore's JIT; without this the hardened runtime
+       kills the web view on launch rather than degrading. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- The DSP engine and the neural voice models are WebAssembly, which maps
+       executable pages the hardened runtime would otherwise refuse. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- mic() is a first-class signal: the live microphone as an input. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- sing() downloads its voice models once, then caches them. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

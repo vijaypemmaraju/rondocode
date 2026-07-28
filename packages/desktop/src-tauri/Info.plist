@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Required, not optional: without a purpose string macOS TERMINATES the
+       app the moment mic() asks for input, instead of showing a prompt. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>rondocode uses the microphone as a live signal you can vocode, filter and granulate from your code.</string>
+</dict>
+</plist>

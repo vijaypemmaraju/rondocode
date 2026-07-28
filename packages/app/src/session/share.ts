@@ -22,6 +22,19 @@ export interface SharePayload {
   lang?: 'rondo'
 }
 
+/** Build a payload from a tune and the language it is written in.
+ *
+ *  This exists because `lang` is OPTIONAL and omitting it is silently valid:
+ *  every call site that forgot it produced a link that opened a rondo tune in
+ *  JavaScript mode, where it is not even syntactically legal. The decode side
+ *  always handled the field correctly, so nothing failed loudly. Route every
+ *  link through here instead of assembling the object by hand. */
+export const sharePayloadFor = (name: string, code: string, lang: string | undefined): SharePayload => ({
+  name,
+  code,
+  ...(lang === 'rondo' ? { lang: 'rondo' as const } : {}),
+})
+
 /* The preset dictionary: common rondocode source fragments, ordered with the
  * MOST frequent toward the END (deflate back-references recent dictionary bytes
  * most cheaply). Fragments are intra-line (no newlines) so they match the

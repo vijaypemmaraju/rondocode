@@ -12,7 +12,7 @@ import { compile as compileRondo } from '@rondocode/rondo'
 import { iconEl } from './ui/icons'
 import { docsMarkdown } from './docs/markdown'
 import { FLASH_MS } from './editor/flash'
-import { encodeShare, shareUrl } from './session/share'
+import { encodeShare, sharePayloadFor, shareUrl } from './session/share'
 
 /* A compact, pleasant loop for the hero: the first thing a visitor can play. */
 const HERO_DEMO = `const keys = synth(({ note, gate, adsr, saw, svf }) =>
@@ -136,7 +136,7 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
   edit.target = '_blank'
   edit.rel = 'noopener'
   const refreshEditLink = async (code: string): Promise<void> => {
-    const payload = await encodeShare({ name: caption, code, ...(lang !== undefined ? { lang } : {}) })
+    const payload = await encodeShare(sharePayloadFor(caption, code, lang))
     edit.href = shareUrl(location.origin, '/', payload)
   }
 
@@ -260,6 +260,7 @@ interface RenderedSection {
   el: HTMLElement
   /** lowercased title + prose + code, for the global search */ text: string
   /** the section's first code block, for the nav "open in editor" deep link */ firstCode?: string
+  /** and the language it is written in — a rondo snippet must not open as JS */ firstLang?: 'rondo'
 }
 
 async function renderSection(s: Section): Promise<RenderedSection> {
@@ -268,13 +269,17 @@ async function renderSection(s: Section): Promise<RenderedSection> {
   sec.append(el('h2', undefined, s.title))
   const parts: string[] = [s.title]
   let firstCode: string | undefined
+  let firstLang: 'rondo' | undefined
   for (const b of s.blocks) {
     sec.append(await renderBlock(b))
     // blockText knows every kind, so a table/list/note stays findable by search
     parts.push(blockText(b))
-    if (b.kind === 'code' && firstCode === undefined) firstCode = b.text
+    if (b.kind === 'code' && firstCode === undefined) {
+      firstCode = b.text
+      firstLang = b.lang
+    }
   }
-  return { el: sec, text: parts.join(' ').toLowerCase(), firstCode }
+  return { el: sec, text: parts.join(' ').toLowerCase(), firstCode, firstLang }
 }
 
 const REF_GROUPS: { title: string; kinds: DocEntry['kind'][] }[] = [
@@ -455,7 +460,7 @@ async function build(): Promise<void> {
     nav.append(sect)
     navBody = sect
   }
-  const addNav = (id: string, title: string, firstCode?: string): HTMLElement => {
+  const addNav = (id: string, title: string, firstCode?: string, firstLang?: 'rondo'): HTMLElement => {
     const row = el('div', 'nav-item')
     const a = el('a', undefined, title)
     a.href = `#${id}`
@@ -467,7 +472,7 @@ async function build(): Promise<void> {
       open.setAttribute('aria-label', `open ${title} in the editor`)
       open.target = '_blank'
       open.rel = 'noopener'
-      void encodeShare({ name: title, code: firstCode }).then((pl) => {
+      void encodeShare(sharePayloadFor(title, firstCode, firstLang)).then((pl) => {
         open.href = shareUrl(location.origin, '/', pl)
       })
       row.append(open)
@@ -484,7 +489,7 @@ async function build(): Promise<void> {
     }
     const r = await renderSection(s)
     main.append(r.el)
-    const row = addNav(s.id, s.title, r.firstCode)
+    const row = addNav(s.id, s.title, r.firstCode, r.firstLang)
     guide.push({ text: r.text, el: r.el, row })
   }
 

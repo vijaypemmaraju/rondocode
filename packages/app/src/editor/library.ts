@@ -17,11 +17,10 @@ import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
-import { readLangPref } from '../ui/onboarding'
 import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
-import { decodeShare, encodeShare, readShareHash, shareUrl } from '../session/share'
+import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../session/share'
 import { compile as compileRondo } from '@rondocode/rondo'
 
 const ACTIVE_KEY = 'rondocode-active-project'
@@ -225,9 +224,14 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     else closeSheet()
   })
 
-  // New projects default to the surveyed language preference when one is
-  // stored (ui/onboarding.ts); otherwise the editor's current language.
-  const newProjectLang = (): EditorLang => readLangPref(localStorage) ?? editor.getLang()
+  // A new project opens in the language you are CURRENTLY working in.
+  //
+  // It used to prefer the onboarding survey answer (rc.langPref), which meant
+  // one answer at first run outranked the toggle forever: flip the editor to
+  // rondo, hit new, and get JavaScript back. The survey still seeds the very
+  // first language — editor.ts's initialLang() reads it — so consulting it
+  // again here only overrode the user's later, more explicit choice.
+  const newProjectLang = (): EditorLang => editor.getLang()
 
   // Switch the editor to a project's working code and mark it active.
   const switchTo = async (p: Project): Promise<void> => {
@@ -427,7 +431,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
           setTimeout(() => (shareBtn.textContent = 'share'), 1800)
         }
         try {
-          const payload = await encodeShare({ name: current.name, code: editor.getDoc() })
+          const payload = await encodeShare(sharePayloadFor(current.name, editor.getDoc(), editor.getLang()))
           const url = shareUrl(location.origin, location.pathname, payload)
           await navigator.clipboard.writeText(url)
           flash('link copied')

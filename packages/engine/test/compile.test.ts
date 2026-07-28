@@ -22,7 +22,7 @@ const acidSpec = (): GraphSpec => ({
     node(2, 'param', {}, { name: 'cutoff' }),
     node(3, 'ladder', { in: { node: 1 }, cutoff: { node: 2 }, res: 0.3 }),
     node(4, 'gate'),
-    node(5, 'adsr', { gate: { node: 4 } }, { a: 0.01, d: 0.1, s: 0.8, r: 0.01 }),
+    node(5, 'adsr', { gate: { node: 4 }, a: 0.01, d: 0.1, s: 0.8, r: 0.01 }),
     node(6, 'mul', { a: { node: 3 }, b: { node: 5 } }),
     node(7, 'out', { in: { node: 6 } }),
   ],

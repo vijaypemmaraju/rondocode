@@ -398,6 +398,13 @@ describe('block-boundary continuity', () => {
       b: new Float32Array(n).fill(0.5),
       time: new Float32Array(n).fill(0.005), // 240 samples < n: echoes recirculate
       feedback: new Float32Array(n).fill(0.5),
+      // adsr stage ports. `a` above doubles as the attack time (clamped per
+      // sample), and `r` SWEEPS on purpose: the release spans the 512-sample
+      // boundary, so a cached release coefficient that failed to carry across
+      // would show up right here as a discontinuity.
+      d: new Float32Array(n).fill(0.05),
+      s: new Float32Array(n).fill(0.5),
+      r: Float32Array.from({ length: n }, (_, i) => 0.01 + (0.09 * i) / n),
     }
     const slice = (lo: number, hi: number): Record<string, Float32Array> => ({
       freq: inputs.freq.subarray(lo, hi),
@@ -410,6 +417,9 @@ describe('block-boundary continuity', () => {
       b: inputs.b.subarray(lo, hi),
       time: inputs.time.subarray(lo, hi),
       feedback: inputs.feedback.subarray(lo, hi),
+      d: inputs.d.subarray(lo, hi),
+      s: inputs.s.subarray(lo, hi),
+      r: inputs.r.subarray(lo, hi),
     })
     const full = new Float32Array(n)
     make().process(n, inputs, full, ctx)

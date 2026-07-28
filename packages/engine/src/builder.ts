@@ -183,7 +183,12 @@ export interface SynthCtx {
    *  B, default) cascades them; 'parallel' sums them (lp + hp leaves a hole
    *  between the cutoffs). */
   dualsvf(inp: SigIn, cutoff: SigIn, cutoff2: SigIn, opts?: { res?: SigIn; mode?: 'serial' | 'parallel'; a?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'; b?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
-  adsr(gate: SigIn, opts?: { a?: number; d?: number; s?: number; r?: number }): Sig
+  /** ADSR envelope. Every stage accepts a SIGNAL as well as a number, so a
+   *  knob, an LFO or another envelope can shape the shape: `adsr(gate, { a:
+   *  attackKnob })` reads the attack per sample and changes the ramp rate
+   *  under your finger. Times are seconds, clamped to [0.0005, 30]; `s` is a
+   *  level, clamped to [0, 1]. d/r are one-pole time constants. */
+  adsr(gate: SigIn, opts?: { a?: SigIn; d?: SigIn; s?: SigIn; r?: SigIn }): Sig
   /** Multi-segment (breakpoint) envelope — the flexible cousin of adsr.
    *  `points` are [timeSec, level] pairs: while the gate is held it ramps
    *  through them in order (each from the previous level), then HOLDS the last
@@ -915,11 +920,14 @@ const makeCtx = (b: Builder): SynthCtx => {
       ),
 
     adsr: (gate, opts) =>
-      b.node(
-        'adsr',
-        { gate: src(gate, 'adsr gate') },
-        definedConfig({ a: opts?.a, d: opts?.d, s: opts?.s, r: opts?.r }),
-      ),
+      b.node('adsr', {
+        gate: src(gate, 'adsr gate'),
+        // omitted stages are left unconnected so PORTS supplies the default
+        ...(opts?.a !== undefined ? { a: src(opts.a, 'adsr a') } : {}),
+        ...(opts?.d !== undefined ? { d: src(opts.d, 'adsr d') } : {}),
+        ...(opts?.s !== undefined ? { s: src(opts.s, 'adsr s') } : {}),
+        ...(opts?.r !== undefined ? { r: src(opts.r, 'adsr r') } : {}),
+      }),
 
     env: (gate, points, opts) =>
       b.node(

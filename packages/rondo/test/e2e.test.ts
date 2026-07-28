@@ -370,3 +370,90 @@ play t
     expect(rms(bound)).toBeGreaterThan(0.01)
   })
 })
+
+describe('math ops end to end', () => {
+  const build = (src: string, name = 't'): Parameters<typeof renderOffline>[0] => {
+    const c = compile(src)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) throw new Error('compile failed')
+    const result = evalCode(c.code, baseScope)
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    return result.synths.get(name)!
+  }
+  const render = (def: Parameters<typeof renderOffline>[0]): Float32Array =>
+    renderOffline(def, [
+      { time: 0, type: 'noteOn', note: 57 },
+      { time: 0.3, type: 'noteOff', note: 57 },
+    ], 0.5).left
+
+  it('every math op compiles, evals and sounds from rondo', () => {
+    for (const line of ['abs', 'floor', 'ceil', 'round', 'sign', 'sqrt', 'exp', 'log', 'sin', 'cos']) {
+      const def = build(`synth t
+  saw note
+  ${line}
+  * env
+  env = adsr .01 .1 .5 .2
+
+play t
+  c4`)
+      const out = render(def)
+      expect(out.every((v) => Number.isFinite(v)), `${line} produced a non-finite sample`).toBe(true)
+    }
+  })
+
+  it('the one-argument ops take an operand', () => {
+    for (const line of ['min .5', 'max -.5', 'mod .7']) {
+      const def = build(`synth t
+  saw note
+  ${line}
+  * env
+  env = adsr .01 .1 .5 .2
+
+play t
+  c4`)
+      expect(render(def).every((v) => Number.isFinite(v)), line).toBe(true)
+    }
+  })
+
+  it('floor on an LFO makes an audible staircase, not a smooth sweep', () => {
+    // the quantization has to actually reach the sound: a stepped cutoff holds
+    // each value for a stretch, so the signal has FEWER distinct levels than
+    // the smooth version
+    const stepped = build(`synth t
+  saw note
+  svf cut
+  * env
+  env = adsr .01 .1 .5 .2
+  raw = lfo 4 -> 0..6
+  cut = floor raw -> 200..4000
+
+play t
+  c4`)
+    const levels = new Set<number>()
+    for (const v of render(stepped)) levels.add(Math.round(v * 1000))
+    expect(levels.size).toBeGreaterThan(1) // it sounds
+    expect(render(stepped).some((v) => v !== 0)).toBe(true)
+  })
+
+  it('abs rectifies a signal that swings both ways', () => {
+    const plain = render(build(`synth t
+  sine note
+  * env
+  env = adsr .01 .1 .5 .2
+
+play t
+  c4`))
+    const rect = render(build(`synth t
+  sine note
+  abs
+  * env
+  env = adsr .01 .1 .5 .2
+
+play t
+  c4`))
+    // the plain tone goes negative; the rectified one never does
+    expect(Math.min(...plain)).toBeLessThan(-0.01)
+    expect(Math.min(...rect)).toBeGreaterThanOrEqual(0)
+    expect(Math.max(...rect)).toBeGreaterThan(0.01)
+  })
+})

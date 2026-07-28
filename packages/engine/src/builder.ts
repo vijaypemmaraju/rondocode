@@ -3,6 +3,7 @@ import type { GraphSpec, InputSource, NodeSpec, NodeType, ParamSpec } from './gr
 import { compileGraph, compilePost } from './compile'
 import type { VoiceOpts } from './voice'
 import type { EqBand } from './dsp/eq'
+import type { Math2Op, MathOp } from './dsp/math'
 
 /** Control keys the scheduler consumes as STRUCTURAL (never sent as setParam),
  *  so a param() with one of these names would be permanently undrivable by
@@ -75,6 +76,45 @@ export interface Sig {
   mix(other: SigIn, amount: SigIn): Sig
   /** Map a unipolar 0..1 signal (lfo/adsr) to [lo, hi]: lo + this·(hi−lo). */
   range(lo: SigIn, hi: SigIn): Sig
+
+  /* ---- elementary math ------------------------------------------------- *
+   * Per-sample, on control signals or audio alike. The ones that could
+   * produce a NaN or an Infinity are guarded instead (a bad sample would
+   * spread through the graph and silence the voice with nothing to see). */
+
+  /** |x| — full-wave rectification: an octave-up buzz on audio, and the way
+   *  to read an LFO's DISTANCE from centre rather than its direction. */
+  abs(): Sig
+  /** Largest integer <= x. Quantizes a sweep into steps: `lfo.range(0, 8).floor()`
+   *  is an 8-step staircase. */
+  floor(): Sig
+  /** Smallest integer >= x. */
+  ceil(): Sig
+  /** Nearest integer, halves away from zero. */
+  round(): Sig
+  /** -1, 0 or +1 — squares a signal off, hard. */
+  sign(): Sig
+  /** Square root, and 0 for a negative input (never NaN). Useful as a curve:
+   *  it lifts the quiet half of a 0..1 envelope without touching the top. */
+  sqrt(): Sig
+  /** e^x, input clamped to +-80 so the result stays finite. */
+  exp(): Sig
+  /** Natural log, input floored at 1e-9 so log(0) is about -20.7 rather than
+   *  -Infinity. Pairs with exp() for decibel-shaped curves. */
+  log(): Sig
+  /** sin(x), x in RADIANS. This is the math function, not the oscillator —
+   *  use `sine(freq)` to make a tone. */
+  sin(): Sig
+  /** cos(x), x in radians. */
+  cos(): Sig
+  /** Per-sample minimum — a ceiling when the other side is a constant. */
+  min(x: SigIn): Sig
+  /** Per-sample maximum — a floor, and `x.max(0)` is half-wave rectification. */
+  max(x: SigIn): Sig
+  /** FLOORED modulo: the result takes the sign of the divisor, so
+   *  `(-0.1).mod(1)` is 0.9. That is what wrapping a phase or a ramp needs;
+   *  JS `%` would give -0.1. Modulo by 0 is 0. */
+  mod(x: SigIn): Sig
 }
 
 export interface SynthCtx {
@@ -533,6 +573,28 @@ class SigImpl implements Sig {
     if (lo !== undefined) inputs['lo'] = this.builder.src(lo, 'clip lo')
     if (hi !== undefined) inputs['hi'] = this.builder.src(hi, 'clip hi')
     return this.builder.node('clip', inputs)
+  }
+
+  abs(): Sig { return this.#math('abs') }
+  floor(): Sig { return this.#math('floor') }
+  ceil(): Sig { return this.#math('ceil') }
+  round(): Sig { return this.#math('round') }
+  sign(): Sig { return this.#math('sign') }
+  sqrt(): Sig { return this.#math('sqrt') }
+  exp(): Sig { return this.#math('exp') }
+  log(): Sig { return this.#math('log') }
+  sin(): Sig { return this.#math('sin') }
+  cos(): Sig { return this.#math('cos') }
+  min(x: SigIn): Sig { return this.#math2('min', x) }
+  max(x: SigIn): Sig { return this.#math2('max', x) }
+  mod(x: SigIn): Sig { return this.#math2('mod', x) }
+
+  #math(op: MathOp): Sig {
+    return this.builder.node('math', { in: { node: this.id } }, { op })
+  }
+
+  #math2(op: Math2Op, x: SigIn): Sig {
+    return this.builder.node('math2', { a: { node: this.id }, b: this.builder.src(x, `${op} operand`) }, { op })
   }
 
   tanh(): Sig {

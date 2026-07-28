@@ -654,6 +654,20 @@ const SIG_METHODS: DocEntry[] = [
   sm('tanh', 'tanh()', 'Soft saturation: rounds off peaks like an overdriven amp, warm, musical distortion.', 'sine(pitch.range(45, 160)).mul(amp).tanh()'),
   sm('fold', 'fold()', 'Wavefold: peaks fold back on themselves instead of clipping, buzzy west-coast harmonics.', 'sine(note.freq).mul(depth).fold()'),
   sm('mix', 'mix(other: Sig | number, amount: Sig | number)', 'Crossfade this signal toward another: amount 0 keeps this, 1 is all the other.', 'saw(note.freq).mix(square(note.freq.mul(0.5)), 0.3)'),
+  // ---- elementary math ----
+  sm('abs', 'abs()', 'Absolute value. On audio it is full-wave rectification (an octave-up buzz); on an LFO it reads DISTANCE from centre rather than direction.', 'lfo(0.5).sub(0.5).abs()'),
+  sm('floor', 'floor()', 'Largest integer below the value, the way to quantize a smooth sweep into steps.', 'lfo(0.25).range(0, 8).floor()'),
+  sm('ceil', 'ceil()', 'Smallest integer above the value.', 'sig.ceil()'),
+  sm('round', 'round()', 'Nearest integer. Rounding a note offset snaps a glide to semitones.', 'sig.mul(12).round().div(12)'),
+  sm('sign', 'sign()', 'Squares the signal off to -1, 0 or +1, a hard square-up of anything.', 'sine(note.freq).sign()'),
+  sm('sqrt', 'sqrt()', 'Square root, and 0 for a negative input rather than NaN. As a curve it lifts the quiet half of a 0..1 envelope without touching the top.', 'env.sqrt()'),
+  sm('exp', 'exp()', 'e to the power of the signal, input clamped to +-80 so it stays finite. Pairs with log() for decibel-shaped curves.', 'env.mul(4).exp().div(55)'),
+  sm('log', 'log()', 'Natural log, input floored at 1e-9 so log(0) is about -20.7 instead of -Infinity.', 'amp.log()'),
+  sm('sin', 'sin()', 'Sine of the signal in RADIANS. This is the math function for waveshaping, not the oscillator, use sine(freq) to make a tone.', 'sine(note.freq).mul(3).sin()'),
+  sm('cos', 'cos()', 'Cosine of the signal in radians.', 'phase.cos()'),
+  sm('min', 'min(x: Sig | number)', 'Per-sample minimum, a ceiling when the other side is constant.', 'env.min(0.8)'),
+  sm('max', 'max(x: Sig | number)', 'Per-sample maximum, a floor. max(0) is half-wave rectification.', 'sine(note.freq).max(0)'),
+  sm('mod', 'mod(x: Sig | number)', 'Floored modulo, so the result takes the divisor sign and a negative phase wraps forward ((-0.1).mod(1) is 0.9). Modulo by 0 is 0.', 'ramp.mod(1)'),
   sm('range', 'range(lo: Sig | number, hi: Sig | number)', 'Map a 0..1 signal (envelope, lfo) onto lo..hi, aim it at Hz, seconds, anything.', 'pitch.pow(2).range(45, 160)'),
 ]
 

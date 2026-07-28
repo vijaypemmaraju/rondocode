@@ -10,6 +10,8 @@ import { WavetableKernel } from './dsp/wavetable'
 import { SvfKernel, LadderKernel, OnePoleKernel, DualSvfKernel } from './dsp/filters'
 import type { SvfMode, DualSvfConfig } from './dsp/filters'
 import { AdsrKernel, EnvKernel } from './dsp/env'
+import { Math2Kernel, MathKernel } from './dsp/math'
+import type { Math2Config, MathConfig } from './dsp/math'
 import type { EnvConfig } from './dsp/env'
 import { LfoKernel } from './dsp/lfo'
 import type { LfoShape } from './dsp/lfo'
@@ -178,6 +180,8 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   pow: [{ name: 'a' }, { name: 'b' }],
   clip: [{ name: 'in' }, { name: 'lo', def: -1 }, { name: 'hi', def: 1 }],
   fold: [{ name: 'in' }],
+  math: [{ name: 'in' }],
+  math2: [{ name: 'a' }, { name: 'b' }],
   tanh: [{ name: 'in' }],
   mix: [{ name: 'a' }, { name: 'b' }, { name: 't', def: 0.5 }],
   delay: [{ name: 'in' }, { name: 'time', def: 0.25 }, { name: 'feedback', def: 0 }],
@@ -252,6 +256,8 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   pow: () => new PowKernel(),
   clip: () => new ClipKernel(),
   fold: () => new FoldKernel(),
+  math: (c) => new MathKernel(c as MathConfig),
+  math2: (c) => new Math2Kernel(c as Math2Config),
   tanh: () => new TanhKernel(),
   mix: () => new MixKernel(),
   // ctx makes the delay allocate its ring buffer NOW, not on the audio thread

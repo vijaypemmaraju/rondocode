@@ -953,20 +953,53 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'export',
+    group: 'voice & visuals',
+    title: 'Export: WAV, stems, loudness',
+    blocks: [
+      p('The export button in the header (next to play) writes the staged track out. Every option renders the code exactly as it stands, offline and faster than real time, from the same path the editor plays.'),
+      table(
+        'Five ways out of the editor.',
+        ['export', 'what it carries', 'reach for it when'],
+        [
+          ['WAV', 'the rendered audio of N cycles, as one stereo file', 'you want the SOUND: a loop, a bounce, something to resample elsewhere'],
+          ['stems (.zip)', 'one WAV per synth, plus one per send bus, in a single archive', 'the track continues in a DAW, or someone else mixes it'],
+          ['MIDI (.mid)', 'the notes and nothing else: one named track per synth, `.gain` as velocity, one cycle as one bar of 4/4 at the current tempo', 'you want the ARRANGEMENT in a DAW, or sheet music in MuseScore or Dorico'],
+          ['measure loudness', 'integrated LUFS and true peak of that bounce, reported, never applied', 'you are about to deliver it somewhere and need the numbers'],
+          ['record session', 'the live output as it plays, microphone and knob turns included', 'the take is a PERFORMANCE, not a render'],
+        ],
+      ),
+      p('The depth picker next to the cycle count sets what the audio is written as. It applies to the WAV, the stems and the session recording alike.'),
+      table(
+        'Bit depth. Sample rate is 48 kHz throughout.',
+        ['depth', 'what it is', 'use it for'],
+        [
+          ['16-bit', 'integer PCM, the CD depth, clamped to full scale', 'sharing, uploading, anything final'],
+          ['24-bit', 'integer PCM with 256 times finer steps, still clamped', 'delivering stems or a master to someone else'],
+          ['32-bit float', "the render's own numbers, and anything past full scale is KEPT rather than clipped", 'the track is still being worked on somewhere else'],
+        ],
+      ),
+      p('STEMS are the parts of the finished mix, not raw voices. Each synth stem has already been through its own post-chain, has already been ducked by any `sidechain`, and carries the same master compression and level the mix got. Add the stems back up and you get the exported WAV, sample for sample. Every shared `bus` prints as its own stem, named `<project>-bus-<name>.wav`, because a bus mixes several synths through one FX chain and cannot be split per synth honestly. Reach for stems when the track is going somewhere else to be mixed; reach for the plain WAV when it is done.'),
+      note('A browser cannot write a folder, and a nine file download makes Chrome ask permission and can drop files. So stems arrive as one .zip that unpacks into a folder named after your project.'),
+      p('LOUDNESS is measurement, not processing. "measure loudness" renders the same bounce and reports two numbers: INTEGRATED LUFS (ITU-R BS.1770, how loud the whole thing actually sounds, gated so silence between hits does not drag it down) and TRUE PEAK in dBTP (the highest point the waveform reaches BETWEEN samples, which is what clips a converter or an MP3 encoder even when every stored sample looks safe).'),
+      table(
+        'What the numbers mean when you deliver.',
+        ['target', 'number', 'why'],
+        [
+          ['streaming', '-14 LUFS', 'Spotify, Apple Music and YouTube turn everything toward this, so anything louder just gets turned down and keeps the squashing'],
+          ['club or DJ', '-9 LUFS', 'loud and dense, mastered for a big system where nothing normalizes it'],
+          ['peak ceiling', '-1 dBTP', 'leaves room for the overshoot lossy encoding adds, so the file never clips on playback'],
+        ],
+      ),
+      p('Nothing is normalized for you on the way out. If the number is not where you want it, change the mix: `.mul()` the loud synth down, or reach for `masterCompress` and the tools in "Mixing & mastering".'),
+    ],
+  },
+  {
     id: 'midi-import',
     group: 'voice & visuals',
     title: 'MIDI import & export',
     blocks: [
-      p('Export goes the other way too: the export button in the header (next to play) writes the staged track out, as audio or as notes.'),
-      table(
-        'Three ways out of the editor. All three take the code exactly as it stands.',
-        ['export', 'what it carries', 'reach for it when'],
-        [
-          ['WAV', 'the rendered audio of N cycles, bounced offline (faster than real time, and the mic is silent)', 'you want the SOUND: a stem, a loop, something to resample elsewhere'],
-          ['MIDI (.mid)', 'the notes and nothing else: one named track per synth, `.gain` as velocity, one cycle as one bar of 4/4 at the current tempo', 'you want the ARRANGEMENT in a DAW, or sheet music in MuseScore or Dorico'],
-          ['record session', 'the live output as it plays, microphone and knob turns included', 'the take is a PERFORMANCE, not a render'],
-        ],
-      ),
+      p('MIDI travels both directions. The export button writes the staged notes out as a Standard MIDI File (see "Export"), and a MIDI file from anywhere else can become rondocode.'),
       p('In a MIDI export, custom-tuning notes that fall between semitones are rounded to the nearest one, with a pitch-bend written alongside so bend-aware players still hit the exact pitch. Channels that trigger samples or sing() export their trigger notes.'),
       p('A MIDI file can be turned into an editable rondocode example deterministically: the tempo, time signature, note timing and track split come straight from the file, nothing is guessed. Run the importer from the repo: `pnpm tsx packages/server/scripts/midi-to-rondocode.ts song.mid "my song"`. It picks a synth per track, derives setCps from the tempo, and prints an example you can paste here and edit.'),
       p('Imported patterns read like anything else you would write: a held note uses an `@` weight (on a 1/16 grid, `@16` is a whole bar), chords become stacked voice lines, and each track routes to its own synth. This is a small hand-written example in that same shape.'),

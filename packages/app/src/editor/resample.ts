@@ -1,5 +1,6 @@
 import { getCustomWavetables } from '@rondocode/engine'
 import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
+import type { MixStem } from '../../../server/src/render-runner'
 import type { AudioSession } from '../audio/AudioSession'
 import { normalize, toMono } from './micrec'
 
@@ -34,6 +35,16 @@ export interface StagedMix {
   sampleRate: number
   /** the staged tempo the render ran at (cycles per second) */
   cps: number
+  /** Present iff `stems` was requested: each part's contribution to THIS mix
+   *  (see renderMix's MixStem). Summed, they reconstruct left/right. */
+  stems?: MixStem[]
+}
+
+export interface StagedMixOpts {
+  /** Also return every synth's (and every send bus's) own audio. */
+  stems?: boolean
+  /** Render rate in Hz. Default 48000. */
+  sampleRate?: number
 }
 
 /** Stage `code` and render `cycles` of it offline: stageCode → runPatterns →
@@ -50,6 +61,7 @@ export function renderStagedMix(
   code: string,
   cycles: number,
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,
+  opts?: StagedMixOpts,
 ): StagedMix | { error: string } {
   const staged = stageCode(code)
   if (!staged.ok) return { error: staged.diagnostics.find((d) => d.severity === 'error')?.message ?? 'eval failed' }
@@ -58,7 +70,7 @@ export function renderStagedMix(
   const events = runPatterns(staged.patterns, { cycles, cps })
   const tables = getCustomWavetables()
   const mix = renderMix(staged.synths, events, durationSec, {
-    sampleRate: 48000,
+    sampleRate: opts?.sampleRate ?? 48000,
     // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
     // themselves off it, so an omitted cps would bounce at the wrong speed.
     cps,
@@ -68,8 +80,15 @@ export function renderStagedMix(
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     // custom wavetables the staged program registered (defineWavetable/wavedef)
     ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
+    ...(opts?.stems ? { stems: true } : {}),
   })
-  return { left: mix.left, right: mix.right, sampleRate: mix.sampleRate, cps }
+  return {
+    left: mix.left,
+    right: mix.right,
+    sampleRate: mix.sampleRate,
+    cps,
+    ...(mix.stems ? { stems: mix.stems } : {}),
+  }
 }
 
 /** Render `cycles` of `code` into loop-ready mono PCM: offline mix, downmix

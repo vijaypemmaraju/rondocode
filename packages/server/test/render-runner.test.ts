@@ -471,3 +471,130 @@ p('b', note('c4').sound('dry'))
     expect(run()).toEqual(run())
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * STEM EXPORT. A stem is only worth delivering if it is the part's
+ * contribution to the FINAL mix: its own post-chain, its sidechain ducking,
+ * and the master stage that ran over the sum. The contract that proves all of
+ * that at once is that the stems SUM BACK to the mix, so that is what these
+ * pin, on a program carrying every stage at once (post-chains, a shared bus,
+ * sidechain, master compression and peak normalization).
+ * ------------------------------------------------------------------------- */
+describe('renderMix: stems', () => {
+  const FULL_SOURCE = `
+const kick = synth(({ gate, adsr, sine, note }) =>
+  sine(note.freq.mul(0.5)).mul(adsr(gate, { a: 0.001, d: 0.12, s: 0, r: 0.02 })).mul(0.9))
+const pad = synth(
+  ({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.4, s: 0.7, r: 0.2 })).mul(0.9),
+  ({ input, reverb }) => input.mix(reverb(input), 0.4),
+)
+const bell = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.002, d: 0.3, s: 0, r: 0.1 })).mul(0.9))
+p('k', note('c1*4').sound('kick'))
+p('p', note('c3').sound('pad'))
+p('b', note('g4 e5').sound('bell'))
+bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.85 }), { bell: 0.5, pad: 0.3 })
+sidechain('kick', { depth: 0.6, release: 0.15 })
+masterCompress({ threshold: -18, ratio: 4, makeup: 8 })
+setCps(1)
+`
+  const render = (stems: boolean) => {
+    const staged = stageCode(FULL_SOURCE)
+    if (!staged.ok) throw new Error('stage failed')
+    const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+    return renderMix(staged.synths, events, 1.2, {
+      cps: 1,
+      sidechain: staged.sidechain!,
+      masterComp: staged.masterComp!,
+      buses: staged.buses,
+      sends: staged.sends,
+      ...(stems ? { stems: true } : {}),
+    })
+  }
+
+  /** RMS of a 10 ms window starting at `sec`. */
+  const rmsAt = (x: Float32Array, sec: number): number => {
+    const from = Math.round(sec * 48000)
+    let s = 0
+    for (let i = from; i < from + 480; i++) s += x[i]! * x[i]!
+    return Math.sqrt(s / 480)
+  }
+
+  it('sums back to the mix sample by sample', () => {
+    const mix = render(true)
+    expect(mix.normalized).toBe(true) // the master stage really is in play
+    const stems = mix.stems!
+    expect(stems.map((s) => `${s.kind}:${s.name}`)).toEqual(['synth:kick', 'synth:pad', 'synth:bell', 'bus:space'])
+    let worst = 0
+    let mixPeak = 0
+    for (let i = 0; i < mix.left.length; i++) {
+      let l = 0
+      let r = 0
+      for (const s of stems) {
+        l += s.left[i]!
+        r += s.right[i]!
+      }
+      worst = Math.max(worst, Math.abs(l - mix.left[i]!), Math.abs(r - mix.right[i]!))
+      mixPeak = Math.max(mixPeak, Math.abs(mix.left[i]!))
+    }
+    // Float32 storage rounds each stem independently, so the sum cannot be
+    // bit-exact; it must land in float noise. Measured max |sum - mix| is
+    // 1.4e-7 against a mix peaking at 0.89: about -137 dBFS.
+    expect(mixPeak).toBeCloseTo(0.89, 3)
+    expect(worst).toBeLessThan(1e-6)
+  })
+
+  it('leaves the mix bit-identical whether stems were asked for or not', () => {
+    const plain = render(false)
+    const withStems = render(true)
+    expect(plain.stems).toBeUndefined()
+    expect(withStems.left).toEqual(plain.left)
+    expect(withStems.right).toEqual(plain.right)
+    expect(withStems.perSynth).toEqual(plain.perSynth)
+    expect(withStems.normalized).toBe(plain.normalized)
+  })
+
+  it('carries the sidechain duck INTO the ducked stems', () => {
+    // Four kicks across the 1 s cycle. Right after the third kick the pad
+    // stem must be quieter than it is just before the fourth, and with no
+    // sidechain staged that difference goes away.
+    const pad = render(true).stems!.find((s) => s.name === 'pad')!
+    expect(rmsAt(pad.left, 0.51)).toBeLessThan(rmsAt(pad.left, 0.72) * 0.8)
+
+    const staged = stageCode(FULL_SOURCE)
+    if (!staged.ok) throw new Error('stage failed')
+    const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+    const flat = renderMix(staged.synths, events, 1.2, { cps: 1, buses: staged.buses, sends: staged.sends, stems: true })
+    const flatPad = flat.stems!.find((s) => s.name === 'pad')!
+    expect(rmsAt(flatPad.left, 0.51)).toBeGreaterThan(rmsAt(flatPad.left, 0.72) * 0.8)
+  })
+
+  it('prints the shared send bus as its own stem, not folded into a synth', () => {
+    const mix = render(true)
+    const bus = mix.stems!.find((s) => s.kind === 'bus')!
+    const kick = mix.stems!.find((s) => s.name === 'kick')!
+    const tail = (x: Float32Array, fromSec: number): number => {
+      const from = Math.round(fromSec * 48000)
+      let s = 0
+      for (let i = from; i < x.length; i++) s += x[i]! * x[i]!
+      return Math.sqrt(s / (x.length - from))
+    }
+    // the bus reverb rings on past the last note; the kick (no send, no post) does not
+    expect(tail(bus.left, 1.1)).toBeGreaterThan(1e-5)
+    expect(tail(kick.left, 1.1)).toBeLessThan(tail(bus.left, 1.1) * 0.1)
+  })
+
+  it('sums back with no bus and no master stage either', () => {
+    const staged = stageCode(TWO_SYNTH_SOURCE)
+    if (!staged.ok) throw new Error('stage failed')
+    const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+    const mix = renderMix(staged.synths, events, 1.5, { cps: 1, stems: true })
+    expect(mix.stems!.map((s) => s.name)).toEqual(['ping', 'buzz'])
+    let worst = 0
+    for (let i = 0; i < mix.left.length; i++) {
+      const l = mix.stems!.reduce((a, s) => a + s.left[i]!, 0)
+      worst = Math.max(worst, Math.abs(l - mix.left[i]!))
+    }
+    expect(worst).toBeLessThan(1e-6)
+  })
+})

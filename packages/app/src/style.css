@@ -1436,6 +1436,16 @@ body.shaderviz-on .cm-content {
   border: 1px solid var(--c-border);
   border-radius: var(--r-sm);
 }
+.export-select {
+  flex: 1 1 auto;
+  min-height: var(--h-ctrl); /* touch target */
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-ctrl);
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+}
 .export-btn {
   flex: 1 1 auto;
   display: inline-flex;

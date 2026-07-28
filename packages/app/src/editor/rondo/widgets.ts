@@ -849,16 +849,23 @@ class QueryRollWidget extends WidgetType {
       const cps = this.hooks.cps
       let anchor: { t: number; phase: number } | null = null
       let lastEv = 0
+      /** Park the sweep: hide the head AND unlight every cell. Clearing the
+       *  cells matters — a stopped roll that keeps a row lit reads as still
+       *  playing. */
+      const stopSweep = (): void => {
+        head.style.opacity = '0'
+        for (const { el } of cellEls) el.classList.remove('on')
+        anchor = null
+        this.raf = 0
+      }
       const frame = (): void => {
         if (anchor === null) { this.raf = 0; return }
         const tNow = now()
-        if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) {
-          // feed quiet for ~2 cycles: hide the head, stop sweeping
-          head.style.opacity = '0'
-          anchor = null
-          this.raf = 0
-          return
-        }
+        // STOP is immediate: the head free-runs on the audio clock, which
+        // keeps ticking after the transport halts.
+        if (this.hooks.isPlaying?.() === false) { stopSweep(); return }
+        // feed quiet for ~2 cycles (a paused feed rather than a stop)
+        if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) { stopSweep(); return }
         const phase = (anchor.phase + (tNow - anchor.t) * cps()) % 1
         head.style.opacity = '1'
         head.style.left = `${(phase * 100).toFixed(2)}%`
@@ -1032,17 +1039,19 @@ export class RollOverviewWidget extends WidgetType {
       const cps = this.hooks.cps
       let anchor: { t: number; pos: number } | null = null
       let lastEv = 0
+      const stopSweep = (): void => {
+        head.style.opacity = '0'
+        for (const { el } of cellEls) el.classList.remove('on')
+        anchor = null
+        this.raf = 0
+      }
       const frame = (): void => {
         if (anchor === null) { this.raf = 0; return }
         const tNow = now()
-        if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) {
-          // feed quiet for ~2 cycles: hide the head, stop sweeping
-          head.style.opacity = '0'
-          for (const { el } of cellEls) el.classList.remove('on')
-          anchor = null
-          this.raf = 0
-          return
-        }
+        // STOP is immediate: the head free-runs on the audio clock, which
+        // keeps ticking after the transport halts.
+        if (this.hooks.isPlaying?.() === false) { stopSweep(); return }
+        if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) { stopSweep(); return }
         const pos = (anchor.pos + (tNow - anchor.t) * cps()) % period
         head.style.opacity = '1'
         head.style.left = `${((pos / period) * 100).toFixed(2)}%`

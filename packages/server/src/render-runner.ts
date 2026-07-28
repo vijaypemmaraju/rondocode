@@ -268,6 +268,19 @@ export interface MixOpts {
   /** Per-synth sends into buses (0..1). Tapped from each stem's raw post-FX
    *  (pre-duck), matching the live engine's pre-fader send tap. */
   sends?: SendSpec[]
+  /** Keep every stem's audio, not just its RMS (see MixResult.stems). Costs
+   *  one stereo buffer per synth plus one per bus; the mix is byte-identical
+   *  either way. */
+  stems?: boolean
+}
+
+/** One deliverable stem: a named stereo part of the finished mix. */
+export interface MixStem {
+  /** Synth name, or bus name when `kind` is 'bus'. */
+  name: string
+  kind: 'synth' | 'bus'
+  left: Float32Array
+  right: Float32Array
 }
 
 export interface MixResult {
@@ -278,6 +291,15 @@ export interface MixResult {
   perSynth: Record<string, { events: number; rms: number }>
   /** True when the summed mix peaked above 0.89 and was scaled down. */
   normalized: boolean
+  /** Present iff `stems` was requested. Each synth's CONTRIBUTION TO THE
+   *  FINAL MIX: its own post-chain, its sidechain ducking, and the master
+   *  compressor's gain curve and any normalization scaling, applied exactly
+   *  as the mix applied them. Every shared send bus is a stem of its own
+   *  ('bus' kind), because a bus mixes several synths through one FX chain
+   *  (which may be nonlinear) and cannot be split back apart honestly.
+   *  Summed sample by sample, the stems reconstruct the mix to float noise.
+   *  Order: synths in `synths` order, then buses in `buses` order. */
+  stems?: MixStem[]
 }
 
 /** Per-sample sidechain duck envelope over the whole render. Mirrors the live
@@ -324,6 +346,10 @@ const stemRms = (l: Float32Array, r: Float32Array): number => {
  * (never scaled UP — a quiet render stays quiet, which is itself feedback).
  * Sounds in `events` with no def in `synths` are skipped; synths with no
  * events still appear in perSynth as { events: 0, rms: 0 }.
+ *
+ * With `stems: true` the individual parts come back too (MixResult.stems),
+ * carried through the master stage with the SAME per-sample gain the mix got
+ * so they still sum to it. The mix itself is unaffected by the option.
  */
 export function renderMix(
   synths: Map<string, SynthDef>,
@@ -338,6 +364,13 @@ export function renderMix(
   const left = new Float32Array(total)
   const right = new Float32Array(total)
   const perSynth: Record<string, { events: number; rms: number }> = {}
+  // Deliverable stems, collected only when asked for: each synth's audio at
+  // the point it enters the sum, plus each bus's output. The master stage
+  // multiplies them by the same gain it multiplies the mix by (below), which
+  // is what keeps them summing to the mix.
+  const wantStems = opts?.stems === true
+  const stemAudio = new Map<string, { left: Float32Array; right: Float32Array }>()
+  const busStems = new Map<string, { left: Float32Array; right: Float32Array }>()
 
   // Sidechain: build a per-sample duck envelope over the whole render — start
   // at 1, snap to 1 - depth at each SOURCE noteOn sample, recover toward 1 via
@@ -401,6 +434,7 @@ export function renderMix(
       left[i]! += stem.left[i]!
       right[i]! += stem.right[i]!
     }
+    if (wantStems) stemAudio.set(name, { left: stem.left, right: stem.right })
     const notes = evs.filter((e) => e.type === 'noteOn').length
     perSynth[name] = { events: notes, rms: stemRms(stem.left, stem.right) }
   }
@@ -423,12 +457,28 @@ export function renderMix(
         left[i]! += acc.L[i]! * g
         right[i]! += acc.R[i]! * g
       }
+      if (wantStems) {
+        // A bus is its own stem: several synths share one FX chain, so its
+        // output cannot be split back into per-synth shares (and would not be
+        // linear if the chain compresses or saturates). Post-gain, exactly the
+        // signal that just went into the sum.
+        const bl = new Float32Array(total)
+        const br = new Float32Array(total)
+        for (let i = 0; i < total; i++) {
+          bl[i] = acc.L[i]! * g
+          br[i] = acc.R[i]! * g
+        }
+        busStems.set(busName, { left: bl, right: br })
+      }
     }
   }
 
   // Master glue compressor (stereo-linked), mirroring the live engine's master
   // stage: detect on max(|L|,|R|), one gain from the same soft-knee curve.
+  // Its per-sample gain is a scalar, so recording it (for stems) and replaying
+  // it on each part reproduces the mix exactly — a stem is not re-compressed.
   const mc = opts?.masterComp
+  const masterGain = wantStems && mc !== undefined ? new Float64Array(total) : undefined
   if (mc !== undefined) {
     const knee = Math.max(0, mc.knee)
     const ratio = Math.min(60, Math.max(1, mc.ratio))
@@ -442,6 +492,7 @@ export function renderMix(
       const target = Math.min(60, Math.max(0, gainReductionDb(db, mc.threshold, ratio, knee)))
       gr += (target - gr) * (target > gr ? atk : rel)
       const g = Math.pow(10, -gr / 20) * makeup
+      if (masterGain !== undefined) masterGain[i] = g
       left[i]! *= g
       right[i]! *= g
     }
@@ -453,12 +504,39 @@ export function renderMix(
     if (amp > peak) peak = amp
   }
   const normalized = peak > 0.89
+  const scale = normalized ? 0.89 / peak : 1
   if (normalized) {
-    const scale = 0.89 / peak
     for (let i = 0; i < total; i++) {
       left[i]! *= scale
       right[i]! *= scale
     }
   }
-  return { left, right, sampleRate, perSynth, normalized }
+  if (!wantStems) return { left, right, sampleRate, perSynth, normalized }
+
+  // Replay the master stage on every stem, in the same two passes and the
+  // same order the mix ran them, so the only difference from the mix is the
+  // float32 rounding of one multiply per stem.
+  for (const part of [...stemAudio.values(), ...busStems.values()]) {
+    if (masterGain !== undefined) {
+      for (let i = 0; i < total; i++) {
+        part.left[i]! *= masterGain[i]!
+        part.right[i]! *= masterGain[i]!
+      }
+    }
+    if (normalized) {
+      for (let i = 0; i < total; i++) {
+        part.left[i]! *= scale
+        part.right[i]! *= scale
+      }
+    }
+  }
+  const stems: MixStem[] = []
+  for (const [name] of synths) {
+    const part = stemAudio.get(name)
+    if (part !== undefined) stems.push({ name, kind: 'synth', left: part.left, right: part.right })
+  }
+  for (const [busName, part] of busStems) {
+    stems.push({ name: busName, kind: 'bus', left: part.left, right: part.right })
+  }
+  return { left, right, sampleRate, perSynth, normalized, stems }
 }

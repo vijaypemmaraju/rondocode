@@ -59,19 +59,31 @@ const blankStarter = (lang: 'rondocode' | 'rondo'): string =>
 const sniffLang = (code: string): 'rondocode' | 'rondo' =>
   compileRondo(code).ok ? 'rondo' : 'rondocode'
 
-const getActiveId = (): string | undefined => {
+/** Fired on window whenever the active project is (re)established, with the id
+ *  in `detail`. Features that keep per-project state OUTSIDE the project record
+ *  — the MIDI rig, for one — listen for this instead of the library handing
+ *  them a reference, which keeps the library free of their concerns. It fires
+ *  once during mount too, so a listener that subscribed first is never left
+ *  without an id. */
+export const ACTIVE_PROJECT_EVENT = 'rondocode:active-project'
+
+/** The active project's id, or undefined before the library has mounted (or in
+ *  private mode, where nothing persists). */
+export const getActiveProjectId = (): string | undefined => {
   try {
     return localStorage.getItem(ACTIVE_KEY) ?? undefined
   } catch {
     return undefined
   }
 }
+const getActiveId = getActiveProjectId
 const setActiveId = (id: string): void => {
   try {
     localStorage.setItem(ACTIVE_KEY, id)
   } catch {
     // private mode: active project just won't persist across reloads
   }
+  window.dispatchEvent(new CustomEvent(ACTIVE_PROJECT_EVENT, { detail: id }))
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(

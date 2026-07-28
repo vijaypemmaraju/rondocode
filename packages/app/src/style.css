@@ -1613,6 +1613,77 @@ body.shaderviz-on .cm-content {
   border-radius: var(--r-sm);
 }
 
+/* knob mappings: the learn row and one row per bound control */
+.midi-learn-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+}
+.midi-parampick {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--h-ctrl); /* touch target */
+}
+.midi-learn {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+}
+.midi-learn:disabled {
+  opacity: 0.45;
+}
+.midi-maps {
+  display: flex;
+  flex-direction: column;
+}
+.midi-map-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl); /* touch target row */
+  border-top: 1px solid var(--c-border);
+}
+.midi-map-row:first-child {
+  border-top: none;
+}
+.midi-map-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-ctrl);
+}
+.midi-map-cc {
+  flex: 0 0 auto;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.midi-map-stale {
+  flex: 0 0 auto;
+  font-size: var(--fs-meta);
+  color: var(--c-error);
+}
+.midi-map-row.stale .midi-map-name {
+  color: var(--c-dim);
+  text-decoration: line-through;
+}
+.midi-map-unmap {
+  flex: 0 0 auto;
+  width: var(--h-ctrl);
+  min-height: var(--h-ctrl); /* touch target */
+  font-size: var(--fs-ctrl);
+  color: var(--c-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .midi-map-unmap:hover {
+    color: var(--c-text);
+  }
+}
+
 /* The sing() bake dialog + consent modal styles now live with their component
  * (src/ui/singDialog.css, imported by singDialog.ts) so the docs page gets
  * them too. */

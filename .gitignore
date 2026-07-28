@@ -13,3 +13,6 @@ renders/
 
 # Local, uncommitted example patches (loaded by examples/index.ts via import.meta.glob)
 packages/app/src/examples/local/
+
+# rust build output (packages/desktop)
+target/

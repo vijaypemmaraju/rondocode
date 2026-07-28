@@ -1,0 +1,12 @@
+{
+  "name": "@rondocode/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "rondocode desktop shell (Tauri): local project files + a virtual MIDI port for DAWs",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "cargo tauri build",
+    "check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+  }
+}

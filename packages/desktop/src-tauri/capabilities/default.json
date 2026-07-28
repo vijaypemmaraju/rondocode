@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The desktop shell's own commands only. No plugin permissions are granted: every file touch and every MIDI byte goes through a command in this crate, so the surface is exactly what src/main.rs exposes.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

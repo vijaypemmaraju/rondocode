@@ -242,3 +242,25 @@ describe('noteNameToMidi', () => {
     expect(noteNameToMidi('')).toBeUndefined()
   })
 })
+
+describe('diatonic mode names all resolve', () => {
+  // The README claims "every mode plus chromatic built in". `ionian` used to be
+  // missing, so that claim was false and `scale('c ionian')` was a dead end.
+  const MODES = ['ionian', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'aeolian', 'locrian']
+
+  it.each(MODES)('%s is a known scale', (mode) => {
+    expect(SCALES[mode]).toBeDefined()
+    expect(SCALES[mode]).toHaveLength(7)
+  })
+
+  it('ionian is major and aeolian is minor', () => {
+    expect(SCALES['ionian']).toEqual(SCALES['major'])
+    expect(SCALES['aeolian']).toEqual(SCALES['minor'])
+  })
+
+  it('the added scales have the right shapes', () => {
+    expect(SCALES['harmonicMinor']).toEqual([0, 2, 3, 5, 7, 8, 11]) // raised 7th
+    expect(SCALES['wholeTone']).toHaveLength(6)
+    expect(SCALES['blues']).toEqual([0, 3, 5, 6, 7, 10]) // minor pent + b5
+  })
+})

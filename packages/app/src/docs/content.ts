@@ -205,7 +205,7 @@ const pad = synth(({ note, gate, adsr, saw, svf }) =>
 p('lead', n('0 2 4 <7 6> 4 2').scale('c minor').sound('lead'))
 p('pad', chord('<Cm7 Abmaj7>').sound('pad').dur(0.96))`,
       ),
-      p("Every mode is built in: major, minor, dorian, phrygian, lydian, mixolydian, aeolian, locrian, both pentatonics, and CHROMATIC. `.scale('c chromatic')` makes degrees 0..11 the full 12-tone set, and note names (`c4 f#4 g#4`) are always chromatic, scale or no scale. Changing `'e dorian'` to `'e phrygian'` recolors a whole line with one word."),
+      p("Every diatonic mode is built in by name: major (ionian), minor (aeolian), dorian, phrygian, lydian, mixolydian, locrian. So are both pentatonics, blues, wholeTone, harmonicMinor, melodicMinor, and CHROMATIC. `.scale('c chromatic')` makes degrees 0..11 the full 12-tone set, and note names (`c4 f#4 g#4`) are always chromatic, scale or no scale. Changing `'e dorian'` to `'e phrygian'` recolors a whole line with one word."),
       p("Chords sit in root position by default. Reshape them with .invert(k) (inversions), .octave(n), and .voicing('drop2') (open/jazz spreads). Best of all, .voiceLead() nudges each chord onto the octaves nearest the previous one, so a progression glides smoothly instead of leaping, the difference between a beginner and a pro-sounding comp."),
       code(
         'The same progression, voice-led so the chords barely move.',
@@ -1013,7 +1013,7 @@ setCps(0.5)`,
           ['peak ceiling', '-1 dBTP', 'leaves room for the overshoot lossy encoding adds, so the file never clips on playback'],
         ],
       ),
-      p('Nothing is normalized for you on the way out. If the number is not where you want it, change the mix: `.mul()` the loud synth down, or reach for `masterCompress` and the tools in "Mixing & mastering".'),
+      p('No loudness processing is applied for you: nothing is compressed or limited on the way out, and a quiet render stays quiet. The one exception is a safety scale, and it is worth knowing about when you read the numbers: if the summed mix peaks above 0.89 it is scaled DOWN to 0.89 (never up), so a hot mix measures lower than the sum of its parts. If the loudness is not where you want it, change the mix rather than the export: `.mul()` the loud synth down, or reach for `masterCompress` and the tools in "Mixing & mastering".'),
     ],
   },
   {

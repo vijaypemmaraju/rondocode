@@ -10,8 +10,10 @@ languages:
 - **rondo**, a terse phone-first language that transpiles to it. One stage per
   line, signal flowing downward, bindings for modulation. The two are
   round-trip convertible: the editor's language toggle decompiles JavaScript
-  back into rondo, and `compile → decompile → compile` is a byte-identical
-  fixed point (fuzz-tested).
+  back into rondo, and `compile → decompile → compile` returns byte-identical
+  JavaScript. Whatever the terse syntax cannot express survives inside a `js`
+  block, and the fixed point is fuzz-tested over tens of thousands of
+  generated programs.
 
 A custom AudioWorklet DSP engine runs it all; nothing is sampled unless you
 load (or record, or resample) a sample.
@@ -23,10 +25,10 @@ load (or record, or resample) a sample.
 ## What's in the box
 
 - **The code is the instrument.** Knobs, draggable envelopes, piano rolls,
-  step sequencers and euclid rolls render inline in the code; every gesture
-  rewrites the source, so anything you can touch you can also type, undo and
-  share. Numbers scrub by touch, with a hold-to-enlarge lens and directional
-  speed tiers (drag up for x10/x100, down for x.1/x.01).
+  step sequencers and euclid rolls render inline in the code; a gesture that
+  changes a value rewrites the source, so anything you can touch you can also
+  type, undo and share. Numbers scrub by touch, with a hold-to-enlarge lens
+  and directional speed tiers (drag up for x10/x100, down for x.1/x.01).
 - **Performance lock**: freeze the text mid-jam while every widget stays live.
 - **Live mic**: `mic()` / `mic` is the microphone as a signal: vocode your
   voice through a supersaw, live.
@@ -41,8 +43,13 @@ load (or record, or resample) a sample.
 - **MIDI both ways**: a from-scratch importer (file → editable example) and
   exporter (staged track → format-1 `.mid`, pitch-bends for microtonal notes),
   the road to any DAW or MuseScore.
-- **Offline render**: bounce to WAV, headless or in-app, through the same
-  engine you hear live.
+- **Offline render**: bounce to WAV or to per-synth stems, headless or in-app.
+  The bounce runs the same DSP kernels as the live engine and mirrors its mix
+  stage (sidechain duck, master glue) using the same coefficients, rather than
+  driving the realtime engine itself. A mix peaking above 0.89 is scaled down
+  to it, so a bounce is not always sample-identical to what you just heard.
+  Pure synthesis reproduces run to run; a render containing `sing()` depends on
+  neural inference and is not bit-reproducible across machines.
 
 ## Why another live-coding system?
 
@@ -65,17 +72,23 @@ they are not making:
    stacks, vocoder, per-voice envelopes, shared post-chains, sidechain and
    master glue, all as code. Samples are one source among many (load one,
    record one on the mic, or resample your own track), not the foundation.
-3. **The text and the controls are the same thing.** Every widget gesture
-   rewrites the source; the source is always the whole truth, so anything
-   you can touch you can also type, undo, diff and share. And the two
-   languages are round-trip convertible: the editor decompiles JavaScript
-   into rondo and back, byte-identically, so choosing the terse language
-   never locks you out of the full API.
+3. **The text and the controls are the same thing.** A widget gesture that
+   changes a value rewrites the source (a few views, like the multi-bar clip
+   overview and the unison fan, are there to be read rather than dragged); the
+   source is always the whole truth, so anything you can touch you can also
+   type, undo, diff and share. The two languages convert both ways: the editor
+   decompiles JavaScript into rondo, and whatever the terse syntax cannot
+   express is preserved verbatim inside a `js` block, so nothing is lost on the
+   way in and choosing rondo never locks you out of the full API. The
+   round-trip is a tested fixed point: compile rondo to JavaScript, decompile
+   that back to rondo, compile again, and the JavaScript matches byte for byte.
 
-Some things here simply have no equivalent elsewhere yet: on-device neural
-singing from lyrics + melody, the live mic as a first-class signal, custom
-temperaments down to cents and ratios, MIDI in both directions, and a
-deterministic offline render through the same engine you perform on.
+A few things here are unusual for a live-coding environment: on-device neural
+singing from lyrics plus a melody, the live microphone as a signal you can
+vocode or granulate, and custom temperaments written in cents or frequency
+ratios. Plenty of what is here exists elsewhere too, MIDI in and out included,
+so treat this as a description of the toolkit rather than a claim about the
+field.
 
 So yes: if you want a one-line answer, "compose real tracks on your phone,
 with synths you designed" is the value proposition. The rest of this README

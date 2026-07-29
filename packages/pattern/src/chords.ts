@@ -364,3 +364,88 @@ Pattern.prototype.voiceLead = function <T>(this: Pattern<T>, center = 60): Patte
     return out
   })
 }
+
+/* ---- arpeggiating OVER a chord pattern ----------------------------------- *
+ * The live arpeggiator's pure half. A degree pattern supplies the RHYTHM and
+ * which chord tones sound; a chord pattern supplies the notes. Degrees are
+ * indices into the chord sounding at that moment, lowest note = 0, so one
+ * degree pattern re-voices itself as the harmony moves underneath it.
+ *
+ * Having this as a Pattern combinator (rather than only inside the live MIDI
+ * path) is what makes the arp testable without a keyboard, usable by people
+ * with no controller, and renderable offline — the same reasoning that makes
+ * every other part of this engine measurable. */
+
+declare module './pattern' {
+  interface Pattern<T> {
+    /** Read this pattern's numbers as CHORD DEGREES of `chords`, sounding at
+     *  each event's own time. Degrees past the top of the chord wrap up an
+     *  octave (so a 4-step figure over a triad climbs instead of repeating its
+     *  top note); negatives wrap down. An event with no chord under it is
+     *  dropped — silence is the honest answer to "the third of nothing". */
+    overChord(this: Pattern<T>, chords: Pattern<unknown>): Pattern<T>
+  }
+}
+
+/** Every note sounding across a set of haps, sorted ascending and deduped.
+ *  chord() emits ONE HAP PER CHORD TONE rather than an array, so the chord is
+ *  the whole query result, not the first element of it. */
+const chordNotesOf = (haps: readonly { value: unknown }[]): number[] => {
+  const out = new Set<number>()
+  for (const h of haps) {
+    const v = h.value
+    if (typeof v === 'number') { out.add(v); continue }
+    if (v !== null && typeof v === 'object') {
+      const note = (v as { note?: unknown }).note
+      if (typeof note === 'number') out.add(note)
+      else if (Array.isArray(note)) for (const x of note) if (typeof x === 'number') out.add(x)
+    }
+  }
+  return [...out].sort((a, b) => a - b)
+}
+
+/** The degree a hap carries. n() writes `n`, note() writes `note`, and a bare
+ *  number is itself — all three are legitimate ways to write a step. */
+const degreeOf = (v: unknown): number | null => {
+  if (typeof v === 'number') return v
+  if (v !== null && typeof v === 'object') {
+    const o = v as { n?: unknown; note?: unknown }
+    if (typeof o.n === 'number') return o.n
+    if (typeof o.note === 'number') return o.note
+  }
+  return null
+}
+
+/** Map a degree onto a chord, wrapping octaves. Shared with the live arp so
+ *  the pattern and the keyboard cannot disagree about what degree 3 means. */
+export function chordDegree(notes: readonly number[], degree: number): number | null {
+  const n = notes.length
+  if (n === 0) return null
+  const oct = Math.floor(degree / n)
+  return notes[degree - oct * n]! + oct * 12
+}
+
+Pattern.prototype.overChord = function <T>(this: Pattern<T>, chords: Pattern<unknown>): Pattern<T> {
+  return new Pattern<T>((span) => {
+    const out: Hap<T>[] = []
+    for (const h of this.query(span)) {
+      const deg = degreeOf(h.value)
+      if (deg === null) { out.push(h); continue } // not a degree: pass through
+      // the chord SOUNDING at this event's onset. A zero-width span finds a
+      // held chord whether or not it began inside this query window.
+      const at = h.whole?.begin ?? h.part.begin
+      const notes = chordNotesOf(chords.query(new TimeSpan(at, at.add(Fraction.of(1, 1000000)))))
+      const mapped = chordDegree(notes, Math.round(deg))
+      if (mapped === null) continue // no chord under it: drop rather than guess
+      const v = h.value
+      out.push(
+        typeof v === 'number'
+          ? { ...h, value: mapped as unknown as T }
+          // write `note` and drop `n`: downstream this is a pitch now, not a
+          // scale degree waiting on a .scale()
+          : { ...h, value: { ...(v as object), note: mapped, n: undefined } as unknown as T },
+      )
+    }
+    return out
+  })
+}

@@ -57,6 +57,10 @@ export interface DelayOpts {
   maxTime?: number
   /** Read `time` as transport cycles rather than seconds. */
   sync?: boolean
+  /** Wet amount, 0..1. Default 0.35 — the DRY signal is mixed back in, so a
+   *  delay adds echoes rather than replacing the sound with them. Set 1 for
+   *  wet-only, which is what you want in a send bus. */
+  mix?: SigIn
 }
 
 /** Handle to a node's output inside a synth() build. Immutable: every method
@@ -720,6 +724,7 @@ const makeShared = (b: Builder) => {
         time: src(time, 'delay time'),
       }
       if (feedback !== undefined) inputs['feedback'] = src(feedback, 'delay feedback')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'delay mix')
       const config: Record<string, unknown> = { maxTime: opts?.maxTime ?? 0.5 }
       if (opts?.sync === true) config['sync'] = true
       return b.node('delay', inputs, config)

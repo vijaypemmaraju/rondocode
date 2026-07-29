@@ -184,7 +184,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   math2: [{ name: 'a' }, { name: 'b' }],
   tanh: [{ name: 'in' }],
   mix: [{ name: 'a' }, { name: 'b' }, { name: 't', def: 0.5 }],
-  delay: [{ name: 'in' }, { name: 'time', def: 0.25 }, { name: 'feedback', def: 0 }],
+  delay: [{ name: 'in' }, { name: 'time', def: 0.25 }, { name: 'feedback', def: 0 }, { name: 'mix', def: 0.35 }],
   reverb: [{ name: 'in' }],
   chorus: [{ name: 'in' }],
   comb: [{ name: 'in' }, { name: 'freq', def: 220 }, { name: 'feedback', def: 0.5 }],

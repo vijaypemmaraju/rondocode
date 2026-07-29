@@ -253,7 +253,7 @@ describe('delay feedback loop', () => {
       nodes: [
         node(0, 'gate'),
         node(1, 'add', { a: { node: 0 }, b: { node: 3 } }),
-        node(2, 'delay', { in: { node: 1 }, time: 0.015, feedback: 0 }, { maxTime: 0.5 }),
+        node(2, 'delay', { in: { node: 1 }, time: 0.015, feedback: 0, mix: 1 }, { maxTime: 0.5 }),
         node(3, 'mul', { a: { node: 2 }, b: 0.5 }),
         node(4, 'out', { in: { node: 1 } }),
       ],
@@ -387,7 +387,7 @@ describe('VoicePool', () => {
       nodes: [
         node(0, 'gate'),
         node(1, 'add', { a: { node: 0 }, b: { node: 3 } }),
-        node(2, 'delay', { in: { node: 1 }, time: 0.025, feedback: 0 }, { maxTime: 0.5 }),
+        node(2, 'delay', { in: { node: 1 }, time: 0.025, feedback: 0, mix: 1 }, { maxTime: 0.5 }),
         node(3, 'mul', { a: { node: 2 }, b: 0.9 }),
         node(4, 'out', { in: { node: 1 } }),
       ],
@@ -459,7 +459,7 @@ describe('silenceAll clears FX tails, not just voices', () => {
       {
         nodes: [
           node(0, 'businput'),
-          node(1, 'delay', { in: { node: 0 }, time: 0.01, feedback: 0.97 }),
+          node(1, 'delay', { in: { node: 0 }, time: 0.01, feedback: 0.97, mix: 1 }),
           node(2, 'out', { in: { node: 1 } }),
         ],
         out: 2,

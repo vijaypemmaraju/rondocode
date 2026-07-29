@@ -23,7 +23,14 @@ const runDelay = (
     const m = Math.min(block, n - i)
     k.process(
       m,
-      { in: input.subarray(i, i + m), time: t.subarray(i, i + m), feedback: fb.subarray(i, i + m) },
+      {
+        in: input.subarray(i, i + m),
+        time: t.subarray(i, i + m),
+        feedback: fb.subarray(i, i + m),
+        // wet-only: these assert WHEN the echo lands, and mixing the dry back
+        // in would put the source on top of the measurement
+        mix: new Float32Array(m).fill(1),
+      },
       out.subarray(i, i + m),
       ctx,
     )
@@ -87,7 +94,7 @@ describe('DelayKernel', () => {
     for (let i = 0; i < n; i++) t[i] = 0.05 + (0.1 * i) / (n - 1)
     const fb = new Float32Array(n).fill(0.3)
     const out = new Float32Array(n)
-    new DelayKernel().process(n, { in: input, time: t, feedback: fb }, out, ctx)
+    new DelayKernel().process(n, { in: input, time: t, feedback: fb, mix: new Float32Array(n).fill(1) }, out, ctx)
     for (let i = 0; i < n; i++) expect(Number.isFinite(out[i]!)).toBe(true)
     expect(maxAbs(out)).toBeLessThan(10)
   })

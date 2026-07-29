@@ -92,7 +92,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   onepole: { kind: 'proc', pos: ['sig'] },
   // `sync:1` re-reads the time as transport CYCLES (.1875 = a dotted eighth)
   // instead of seconds; maxtime still sizes the buffer in SECONDS
-  delay: { kind: 'proc', pos: ['sig', 'sig'], named: { maxtime: 'num', sync: 'bool' }, alias: { maxtime: 'maxTime' } },
+  delay: { kind: 'proc', pos: ['sig', 'sig'], named: { maxtime: 'num', sync: 'bool', mix: 'sig' }, alias: { maxtime: 'maxTime' } },
   comb: { kind: 'proc', pos: ['sig', 'sig'], named: { damp: 'num' } },
   shape: { kind: 'proc', pos: ['sig'], named: { type: 'enum' } },
   formant: { kind: 'proc', pos: ['sig'] },

@@ -9,6 +9,9 @@ import { BLOCK } from '../src/compile'
 import type { EngineEvent, EngineMessage } from '../src/protocol'
 import type { DspContext } from '../src/dsp/types'
 
+// wet-only: these assert WHEN an echo lands, so the dry must not sit on top
+const WET = new Float32Array(4096).fill(1)
+
 /* ------------------------------------------------------------------------- *
  * TEMPO SYNC: `sync` turns an lfo's rate and a delay's time from absolute
  * units (Hz / seconds) into MUSICAL ones (transport cycles), read off
@@ -79,7 +82,7 @@ const delayImpulse = (
     if (i === 0) inp[0] = 1
     k.process(
       len,
-      { in: inp.subarray(0, len), time: timeBuf.subarray(0, len), feedback: fb.subarray(0, len) },
+      { in: inp.subarray(0, len), time: timeBuf.subarray(0, len), feedback: fb.subarray(0, len), mix: WET },
       out.subarray(i, i + len),
       ctx,
     )
@@ -255,7 +258,7 @@ describe('synced delay: time is a length in cycles', () => {
         } else {
           timeBuf.fill(moved ? 0.25 : 0.5) // the same move, in seconds
         }
-        k.process(block, { in: src.subarray(i, i + block), time: timeBuf, feedback: fb }, out.subarray(i, i + block), ctx)
+        k.process(block, { in: src.subarray(i, i + block), time: timeBuf, feedback: fb, mix: WET }, out.subarray(i, i + block), ctx)
       }
       return out
     }
@@ -279,7 +282,7 @@ describe('synced delay: time is a length in cycles', () => {
     ctx.cps = 1
     const settle = new Float32Array(128)
     for (let i = 0; i < SR; i += 128) {
-      k.process(128, { in: new Float32Array(128), time: new Float32Array(128).fill(0.25), feedback: new Float32Array(128) }, settle, ctx)
+      k.process(128, { in: new Float32Array(128), time: new Float32Array(128).fill(0.25), feedback: new Float32Array(128), mix: WET }, settle, ctx)
     }
     const at = peakIndex(delayImpulse(k, ctx, 0.25, SR))
     expect(at / SR).toBeCloseTo(0.25, 3) // 0.25 cycles at 1 cps
@@ -299,7 +302,7 @@ describe('synced delay: time is a length in cycles', () => {
     const out = new Float32Array(256)
     k.process(
       256,
-      { in: new Float32Array(256).fill(0.5), time: new Float32Array(256).fill(NaN), feedback: new Float32Array(256) },
+      { in: new Float32Array(256).fill(0.5), time: new Float32Array(256).fill(NaN), feedback: new Float32Array(256), mix: WET },
       out,
       ctx,
     )

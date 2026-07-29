@@ -90,6 +90,10 @@
   font-size: 10px;
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
+  /* a fixed box: the number inside changes width as a macro is dragged, and a
+     chip that resizes reads as jitter even with nothing after it on the line */
+  min-width: 5ch;
+  text-align: right;
   color: var(--c-dim);
   background: color-mix(in srgb, var(--c-accent) 10%, transparent);
   opacity: 0.7;

@@ -60,6 +60,27 @@ export function formatNumber(value: number, opts?: { step?: number; min?: number
   return String(Number(value.toPrecision(3)))
 }
 
+/**
+ * The widest literal formatNumber can produce for values in [lo, hi] on a
+ * `step` grid.
+ *
+ * A widget anchored AFTER a literal moves horizontally whenever that literal
+ * changes width, and a drag changes it constantly (`0` -> `0.02` -> `0.355`),
+ * so the dial slides under the finger holding it. Reserving this width ahead
+ * of the widget keeps it still: the padding shrinks by exactly what the number
+ * grows by. Over-reserving is harmless (a stable gap); under-reserving is the
+ * jiggle, so this rounds UP.
+ */
+export function literalWidth(lo: number, hi: number, step: number): number {
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return 0
+  const dec = step > 0 ? Math.min(stepDecimals(step), 10) : 0
+  const mag = Math.max(Math.abs(lo), Math.abs(hi))
+  const ints = Number.isFinite(mag) ? String(Math.floor(mag)).length : 1
+  const sign = Math.min(lo, hi) < 0 ? 1 : 0
+  // a pathological range must not reserve half the line
+  return Math.min(sign + ints + (dec > 0 ? 1 + dec : 0), 12)
+}
+
 export const formatBoolean = (b: boolean): string => (b ? 'true' : 'false')
 
 /** ChangeSpec replacing a literal with new text. */

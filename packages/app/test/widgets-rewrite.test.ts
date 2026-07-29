@@ -3,6 +3,7 @@ import {
   formatBoolean,
   formatNumber,
   literalChange,
+  literalWidth,
   niceStep,
   numberChange,
 } from '../src/editor/widgets/rewrite'
@@ -67,5 +68,53 @@ describe('literal changes', () => {
       to: 12,
       insert: `"c major"`,
     })
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Reserved literal width.
+ *
+ * A knob sits immediately after its DEF literal, and a drag rewrites that
+ * literal to widths that differ by whole characters. Without a reservation the
+ * dial slides sideways under the finger holding it, which is what this is for.
+ * ------------------------------------------------------------------------- */
+describe('literalWidth', () => {
+  const widest = (lo: number, hi: number, step: number): number => {
+    // the true answer, by brute force over the step grid the drag walks
+    let w = 0
+    for (let v = Math.min(lo, hi); v <= Math.max(lo, hi) + step / 2; v += step) {
+      w = Math.max(w, formatNumber(v, { step, min: Math.min(lo, hi) }).length)
+    }
+    return w
+  }
+
+  it('is never NARROWER than the widest literal a drag can write', () => {
+    // under-reserving is the jiggle, so this is the assertion that matters
+    for (const [lo, hi] of [[0, 1], [500, 7300], [80, 8000], [0, 0.5], [20, 20000], [-12, 12]]) {
+      const step = niceStep(Math.abs(hi! - lo!) / 200)
+      expect(literalWidth(lo!, hi!, step), `${lo}..${hi}`).toBeGreaterThanOrEqual(widest(lo!, hi!, step))
+    }
+  })
+
+  it('stays tight — it is a reservation, not a gutter', () => {
+    expect(literalWidth(500, 7300, 20)).toBe(4)   // "7300"
+    expect(literalWidth(0, 1, 0.005)).toBe(5)     // "0.005"
+    expect(literalWidth(-12, 12, 0.1)).toBe(5)    // "-12.1"
+  })
+
+  it('caps a pathological range rather than reserving half the line', () => {
+    expect(literalWidth(0, 1e-9, 1e-12)).toBeLessThanOrEqual(12)
+  })
+
+  it('a padded knob holds still: literal + reserve is constant across the sweep', () => {
+    const [lo, hi] = [0, 1]
+    const step = niceStep(1 / 200)
+    const max = literalWidth(lo, hi, step)
+    const widths = new Set<number>()
+    for (let t = 0; t <= 1.0001; t += 0.01) {
+      const text = formatNumber(lo + (hi - lo) * t, { step, min: lo })
+      widths.add(text.length + Math.max(0, max - text.length))
+    }
+    expect([...widths]).toEqual([max]) // one width, whatever the value
   })
 })

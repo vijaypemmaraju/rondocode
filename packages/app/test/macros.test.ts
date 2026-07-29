@@ -22,15 +22,28 @@ const rig = () => {
     currentTimeFrames: 0,
     sampleRate: 48000,
   }
+  // the scheduler tick is captured, not real: without driving it by hand no
+  // pattern event is ever dispatched, and every "the pattern takes back over"
+  // assertion below would pass vacuously
+  const intervals: { fn: () => void; cleared: boolean }[] = []
   const session = new Session({
     audio,
     startLead: 0,
-    setIntervalImpl: () => ({}),
-    clearIntervalImpl: () => {},
+    setIntervalImpl: (fn) => {
+      const h = { fn, cleared: false }
+      intervals.push(h)
+      return h
+    },
+    clearIntervalImpl: (h) => {
+      ;(h as { cleared: boolean }).cleared = true
+    },
   })
+  const tick = (): void => {
+    for (const i of intervals) if (!i.cleared) i.fn()
+  }
   const setParams = (name: string): Extract<EngineMessage, { kind: 'setParam' }>[] =>
     sent.filter((m): m is Extract<EngineMessage, { kind: 'setParam' }> => m.kind === 'setParam' && m.name === name)
-  return { session, sent, setParams }
+  return { session, sent, setParams, tick }
 }
 
 /** Three destinations, three different formulas, one declaration. */
@@ -123,7 +136,7 @@ describe('moving a macro moves every site at once', () => {
   it('holding outranks a pattern driving one of the copies', () => {
     // the macro knob is a performer's hand: while held, the sequencer's
     // .ctrl for that param is suppressed on exactly the held sites
-    const { session, setParams } = rig()
+    const { session, setParams, tick } = rig()
     const src = [
       `macro('bright', 1000, { min: 100, max: 8000 })`,
       `const lead = synth(({ gate, note, sine, svf, param }) => svf(sine(note.freq), param('bright')).mul(gate))`,
@@ -133,8 +146,35 @@ describe('moving a macro moves every site at once', () => {
     session.holdMacro('bright', 4000)
     const held = setParams('bright').length
     session.transport('play')
+    tick()
     expect(setParams('bright')).toHaveLength(held) // the pattern stood down
     session.releaseMacro('bright')
+  })
+
+  it('releases every site it HELD, even after an eval changed what is a macro', () => {
+    // A drag re-evals continuously, so the target list moves under it. Release
+    // computed from the CURRENT list misses a site that opted OUT mid-drag,
+    // and that site then ignores its pattern for the rest of the session.
+    const { session, setParams, tick } = rig()
+    const withMacro = [
+      `macro('bright', 1000, { min: 100, max: 8000 })`,
+      `const lead = synth(({ gate, note, sine, svf, param }) => svf(sine(note.freq), param('bright')).mul(gate))`,
+      `p('a', note('60 62').sound('lead').ctrl('bright', 500))`,
+    ].join('\n')
+    session.evalCode(withMacro)
+    session.holdMacro('bright', 4000)
+
+    // mid-drag edit: lead now declares its OWN bright, so it is no longer a
+    // macro site — but it IS still held from a moment ago
+    const optedOut = withMacro.replace(`param('bright')`, `param('bright', 900, { min: 100, max: 8000 })`)
+    expect(session.evalCode(optedOut).ok).toBe(true)
+    session.releaseMacro('bright')
+
+    // the hold is gone, so the pattern drives it again on the next event
+    const before = setParams('bright').length
+    session.transport('play')
+    tick()
+    expect(setParams('bright').slice(before).some((m) => m.value === 500)).toBe(true)
   })
 
   it('setMacro reports how many sites it reached, so "moved nothing" is visible', () => {

@@ -12,7 +12,7 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock } from './ast'
+import type { Binding, Comb, CpsItem, CtrlValue, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
 import type { BuiltinSpec } from './builtins'
@@ -678,6 +678,43 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push(item)
       i++
     }
+    // `macro bright 1480 500..7300 log` → macro('bright', 1480, {…}):
+    // a project-wide control. Same shape as a `knob` binding, except it lives
+    // at the top level and is referenced BARE from any synth or post chain.
+    else if (head.v === 'macro') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'macro needs a name (`macro bright 1480 500..7300 log`)', line: ln.line, col: ln.rawCol })
+      }
+      const defTok = ln.toks[2]
+      if (!defTok || defTok.k !== 'num') {
+        errors.push({ message: 'macro needs a default value (`macro bright 1480 500..7300 log`)', line: ln.line, col: ln.rawCol })
+        items.push({ t: 'macro', name, def: 0, pos: head.pos })
+        i++
+        continue
+      }
+      const item: MacroItem = { t: 'macro', name, def: defTok.v, pos: head.pos }
+      // the range is optional — without it the engine's param bounds apply
+      let k = 3
+      if (ln.toks[k]?.k === 'num' && ln.toks[k + 1]?.k === 'range') {
+        item.lo = (ln.toks[k] as Tok & { v: number }).v
+        const hiT = ln.toks[k + 2]
+        if (!hiT || hiT.k !== 'num') {
+          errors.push({ message: 'expected a number after `..`', line: ln.toks[k + 1]!.pos.line, col: ln.toks[k + 1]!.pos.col })
+        } else {
+          item.hi = hiT.v
+          k += 3
+        }
+      }
+      const cv = ln.toks[k]
+      if (cv !== undefined && cv.k === 'ident') { item.curve = cv.v; k++ }
+      if (ln.toks[k] !== undefined) {
+        errors.push({ message: 'macro takes a name, a default, an optional `lo..hi` range and an optional curve', line: ln.toks[k]!.pos.line, col: ln.toks[k]!.pos.col })
+      }
+      items.push(item)
+      i++
+    }
     // `scaledef pelog 0 1.2 2.7 5.4 6.7` → defineScale('pelog', [0, …]):
     // a custom tuning, steps in semitones from the root (floats welcome)
     else if (head.v === 'scaledef') {
@@ -848,7 +885,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / macro / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

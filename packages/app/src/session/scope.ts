@@ -1,4 +1,4 @@
-import { synth, defineWavetable } from '@rondocode/engine'
+import { synth, defineWavetable, macro } from '@rondocode/engine'
 import {
   Pattern,
   reify,
@@ -97,6 +97,12 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   // snapshots/clears/restores it). Must run BEFORE the synth() that uses the
   // table — synth() eager-compiles and resolves table names at construction.
   defineWavetable,
+  // project-wide macros: one declaration, referenced as param('name') with no
+  // default from any synth or post chain, so every use site reads ONE set of
+  // numbers and one knob moves them all. Same registry lifecycle as
+  // defineScale/defineWavetable (see macro.ts) and the same ordering rule —
+  // declare it above the synths that use it.
+  macro,
   // continuous signals
   sine,
   sine2,

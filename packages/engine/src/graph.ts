@@ -29,6 +29,11 @@ export interface ParamSpec {
   min: number
   max: number
   curve?: 'lin' | 'log'
+  /** Declared by a project-wide macro() rather than by this synth: the flag a
+   *  control surface reads to know that every param carrying this name moves
+   *  TOGETHER. Absent means an ordinary per-synth param, which two synths may
+   *  both name `cutoff` while meaning two different controls. */
+  macro?: true
 }
 
 export interface GraphSpec {

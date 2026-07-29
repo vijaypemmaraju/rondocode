@@ -93,6 +93,23 @@ export interface ParamTarget {
   /** true when the param lives in the synth's POST chain (shared per synth,
    *  and NOT reachable from a pattern's `.ctrl`). */
   post?: boolean
+  /** true when this site came from a project-wide macro() rather than the
+   *  synth's own param(): the flag that says it moves with every other site of
+   *  the same name. See macroTargets(). */
+  macro?: true
+}
+
+/** One project-wide macro, resolved against what is LIVE: the declared range
+ *  plus every param site it actually reaches. `sites` is empty when a macro is
+ *  declared but referenced nowhere — a knob with nothing on the other end,
+ *  which a control surface should show as such rather than silently drop. */
+export interface MacroTarget {
+  name: string
+  default: number
+  min: number
+  max: number
+  curve: 'lin' | 'log'
+  sites: ParamTarget[]
 }
 
 type SetIntervalImpl = (fn: () => void, ms: number) => unknown
@@ -592,13 +609,69 @@ export class Session {
     const out: ParamTarget[] = []
     for (const [synth, def] of this.liveDefs) {
       for (const p of def.graph.params) {
-        out.push({ synth, param: p.name, default: p.default, min: p.min, max: p.max, curve: p.curve ?? 'lin' })
+        const t: ParamTarget = { synth, param: p.name, default: p.default, min: p.min, max: p.max, curve: p.curve ?? 'lin' }
+        if (p.macro === true) t.macro = true
+        out.push(t)
       }
       for (const p of def.post?.params ?? []) {
-        out.push({ synth, param: p.name, default: p.default, min: p.min, max: p.max, curve: p.curve ?? 'lin', post: true })
+        const t: ParamTarget = { synth, param: p.name, default: p.default, min: p.min, max: p.max, curve: p.curve ?? 'lin', post: true }
+        if (p.macro === true) t.macro = true
+        out.push(t)
       }
     }
     return out
+  }
+
+  /** The project's macros, each with the live param sites it drives.
+   *
+   *  Grouped on the MACRO FLAG, never on the name alone: two synths that each
+   *  declare their own `cutoff` are deliberately two separate controls (a
+   *  param belongs to its synth), and only a macro() declaration says
+   *  otherwise. Every site of one macro carries the same range and curve by
+   *  construction — they all read the one declaration — so the group can be
+   *  drawn as a single knob without reconciling anything. */
+  macroTargets(): MacroTarget[] {
+    const byName = new Map<string, MacroTarget>()
+    for (const t of this.paramTargets()) {
+      if (t.macro !== true) continue
+      const found = byName.get(t.param)
+      if (found === undefined) {
+        byName.set(t.param, {
+          name: t.param, default: t.default, min: t.min, max: t.max, curve: t.curve, sites: [t],
+        })
+      } else found.sites.push(t)
+    }
+    return [...byName.values()]
+  }
+
+  /** Move a macro: applies to EVERY site at once, and holds them, so the one
+   *  knob outranks any pattern driving a copy (see holdParam). Unknown macro
+   *  name = no sites = a silent no-op, forgiven like setChannel: a control
+   *  surface races live evals that rename and delete things constantly. */
+  holdMacro(name: string, value: number, owner: ParamOwner = 'touch'): void {
+    for (const t of this.paramTargets()) {
+      if (t.macro === true && t.param === name) this.holdParam(t.synth, name, value, owner)
+    }
+  }
+
+  /** Release the hold on every site of a macro (see releaseParam). */
+  releaseMacro(name: string, owner: ParamOwner = 'touch'): void {
+    for (const t of this.paramTargets()) {
+      if (t.macro === true && t.param === name) this.releaseParam(t.synth, name, owner)
+    }
+  }
+
+  /** Set a macro WITHOUT holding it — the programmatic route (MCP, a script),
+   *  where nothing is going to call release. Returns how many sites it reached,
+   *  so a caller can tell "moved nothing" from "moved everything". */
+  setMacro(name: string, value: number, rampMs?: number): number {
+    let n = 0
+    for (const t of this.paramTargets()) {
+      if (t.macro !== true || t.param !== name) continue
+      this.setParam(`${t.synth}.${name}`, value, rampMs)
+      n++
+    }
+    return n
   }
 
   /** Set a live synth param. `addr` is "synthName.paramName" (split at the

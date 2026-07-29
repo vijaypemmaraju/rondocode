@@ -67,7 +67,7 @@ type Plan =
   | { kind: 'keep' } // js/visual block body: byte-identical, not even a trim
   | { kind: 'code'; role: Role; indent: number | null } // null = keep original
 
-const STATEMENTS = new Set(['cps', 'bpm', 'song', 'sidechain', 'master', 'scaledef', 'wavedef'])
+const STATEMENTS = new Set(['cps', 'bpm', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef'])
 
 const isBinding = (ln: Line): boolean =>
   ln.toks.length >= 2 && ln.toks[0]!.k === 'ident' && ln.toks[1]!.k === 'eq'

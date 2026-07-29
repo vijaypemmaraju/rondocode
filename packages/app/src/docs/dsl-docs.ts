@@ -200,6 +200,12 @@ const GLOBALS: DocEntry[] = [
     "defineWavetable('vox', [[1, 0.25], [0.4, 1, 0.5], [0.3, 0.8, 1, 0.7]])",
   ),
   g(
+    'macro',
+    "macro(name: string, def: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' })",
+    "Declare a project-wide macro: one control that reaches across every synth. Any synth or post chain below the declaration says param('name') with NO default to use it, and every use site reads these numbers, so one knob moves them all and nothing can drift. A macro is a VALUE, not a wire, so each site can scale it however it likes (param('bright').mul(0.5), or 0.6 minus a fraction of it for an inverse) and one knob drives several destinations at different ratios. A synth that passes its own default keeps a separate control of the same name. Declare it before the synths that use it.",
+    "macro('bright', 1480, { min: 500, max: 7300, curve: 'log' })",
+  ),
+  g(
     'setCps',
     'setCps(cps: number)',
     'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so 0.5 cps is a two-second bar, which at 4 beats to the bar is 120 bpm. setBpm is the same tempo in the unit you count in.',
@@ -438,8 +444,8 @@ const SYNTH_CTX: DocEntry[] = [
   sc('velocity', 'velocity: Sig', 'How hard the note was played, 0..1. Amplitude is already auto-scaled by velocity at the voice, so .gain() just works, use this signal for TIMBRE (e.g. brighten the filter); multiplying your output by it double-applies velocity.', 'svf(saw(note.freq), velocity.range(400, 4000))'),
   sc(
     'param',
-    "param(name: string, def: number, opts?: { min, max, curve })",
-    "Declare a live-controllable knob with a default and range; patterns drive it via .ctrl(name, ...).",
+    "param(name: string, def?: number, opts?: { min, max, curve })",
+    "Declare a live-controllable knob with a default and range; patterns drive it via .ctrl(name, ...). Omit the default to reference a project-wide macro() of that name instead, which shares one control across every synth that names it.",
     "const cutoff = param('cutoff', 800, { min: 80, max: 8000, curve: 'log' })",
   ),
   sc('sine', 'sine(freq: Sig | number)', 'A pure sine oscillator, smooth and round, the building block of FM and subs.', 'sine(note.freq)'),

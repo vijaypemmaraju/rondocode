@@ -633,3 +633,80 @@ describe('a mapped knob over a real Session', () => {
     expect(setParams('cutoff')).toHaveLength(0)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * A knob edit must not rebuild the synth.
+ *
+ * Dragging a knob rewrites its DEFAULT, and a params difference used to be
+ * rejected wholesale by the constant patcher — so every knob edit rebuilt the
+ * voice pool AND the post chain. That is inaudible on a filter, which
+ * re-settles in milliseconds, and very audible on a DELAY: a new kernel gets a
+ * zeroed ring buffer, so the echo tail vanishes and takes a delay time per
+ * repeat to build back. At a synced eighth with feedback that is the reported
+ * "second or two" before the change seems to land.
+ * ------------------------------------------------------------------------- */
+describe('a moved knob default is a VALUE change, not a rebuild', () => {
+  const withCut = (v: number): string => [
+    `const lead = synth(({ note, gate, param, saw, svf }) =>`,
+    `  svf(saw(note.freq), param('cut', ${v}, { min: 100, max: 8000 })).mul(gate))`,
+    `p('a', note('60').sound('lead'))`,
+  ].join('\n')
+
+  const withPostMix = (v: number): string => [
+    `const lead = synth(({ note, gate, saw }) => saw(note.freq).mul(gate),`,
+    `  ({ input, param, delay }) => delay(input, 0.125, 0.4, { sync: true, mix: param('wet', ${v}, { min: 0, max: 1 }) }))`,
+    `p('a', note('60').sound('lead'))`,
+  ].join('\n')
+
+  const rig = () => {
+    const sent: EngineMessage[] = []
+    const session = new Session({
+      audio: { send: (m: EngineMessage) => void sent.push(m), onEvent: undefined, currentTimeFrames: 0, sampleRate: 48000 },
+      startLead: 0,
+      setIntervalImpl: () => ({}),
+      clearIntervalImpl: () => {},
+    })
+    return { session, sent }
+  }
+
+  it('a VOICE knob moves by setParam, with no redefine', () => {
+    const { session, sent } = rig()
+    session.evalCode(withCut(900))
+    sent.length = 0
+    expect(session.evalCode(withCut(1200), { live: true }).ok).toBe(true)
+    expect(sent.some((m) => m.kind === 'defineSynth')).toBe(false)
+    expect(sent).toContainEqual({ kind: 'setParam', synth: 'lead', name: 'cut', value: 1200 })
+  })
+
+  it('a POST knob does too — the case that cost the delay its tail', () => {
+    const { session, sent } = rig()
+    session.evalCode(withPostMix(0.3))
+    sent.length = 0
+    expect(session.evalCode(withPostMix(0.9), { live: true }).ok).toBe(true)
+    expect(sent.some((m) => m.kind === 'defineSynth')).toBe(false)
+    expect(sent).toContainEqual({ kind: 'setParam', synth: 'lead', name: 'wet', value: 0.9 })
+  })
+
+  it('a hand on the knob outranks the text it is mid-way through writing', () => {
+    const { session, sent } = rig()
+    session.evalCode(withCut(900))
+    session.holdParam('lead', 'cut', 5000)
+    sent.length = 0
+    session.evalCode(withCut(1200), { live: true })
+    // the eval must not yank the param back to the document under the finger
+    expect(sent.filter((m) => m.kind === 'setParam')).toEqual([])
+  })
+
+  it('a REAL structural change still rebuilds', () => {
+    // renaming the param, changing its bounds, or editing the graph is not a
+    // value change and must not be smuggled through as one
+    const { session, sent } = rig()
+    session.evalCode(withCut(900))
+    sent.length = 0
+    const renamed = withCut(900).replace(/'cut'/g, "'brightness'")
+    // NOT live: a live rebuild is deliberately coalesced behind a debounce, so
+    // asserting on it would pin the timer rather than the decision
+    session.evalCode(renamed)
+    expect(sent.some((m) => m.kind === 'defineSynth')).toBe(true)
+  })
+})

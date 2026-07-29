@@ -1,6 +1,6 @@
 import { Scheduler } from '@rondocode/pattern'
 import type { SchedulerEvent } from '@rondocode/pattern'
-import { diffGraphConstants, getCustomWavetables } from '@rondocode/engine'
+import { diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -337,15 +337,34 @@ export class Session {
       const prev = this.liveDefs.get(name)
       // Patchable only if it already exists, isn't mid-rebuild, and only its
       // voice-graph input constants changed (post/voiceOpts/maxVoices equal).
+      // The POST chain is compared by SHAPE, not byte-for-byte: a knob declared
+      // in a post chain lives in post.params, so comparing the whole thing made
+      // every post-knob edit structural — the reason a `mix:` knob on a delay
+      // lagged. Its default moving is a value change, and setParam applies it
+      // now; only the graph around it moving is a rebuild.
+      const postShapeSame = prev !== undefined && graphShape(prev.post) === graphShape(def.post)
+      const postParams = postShapeSame
+        ? diffParamDefaults(prev.post?.params ?? [], def.post?.params ?? [])
+        : null
       const structuralSame =
         prev !== undefined &&
         !this.pendingRebuilds.has(name) &&
-        JSON.stringify(prev.post ?? null) === JSON.stringify(def.post ?? null) &&
+        postShapeSame && postParams !== null &&
         JSON.stringify(prev.voiceOpts ?? null) === JSON.stringify(def.voiceOpts ?? null) &&
         (prev.maxVoices ?? null) === (def.maxVoices ?? null)
       const patches = structuralSame ? diffGraphConstants(prev.graph, def.graph) : null
+      const voiceParams = structuralSame && patches !== null
+        ? diffParamDefaults(prev.graph.params, def.graph.params)
+        : null
       if (patches !== null) {
         if (patches.length > 0) this.audio.send({ kind: 'patchConstants', name, patches })
+        // A moved default IS the new value: send it now rather than waiting for
+        // a debounced rebuild to carry it. Held params are skipped — a hand on
+        // the knob outranks the text it is in the middle of writing.
+        for (const p of [...(voiceParams ?? []), ...(postParams ?? [])]) {
+          if (this.heldParams.has(`${name}.${p.name}`)) continue
+          this.audio.send({ kind: 'setParam', synth: name, name: p.name, value: p.value })
+        }
         this.liveDefs.set(name, def)
         this.liveSynths.set(name, json)
       } else if (live && this.liveSynths.has(name)) {

@@ -40,6 +40,7 @@ import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
+import { tabGet, tabSet } from '../session/tabstore'
 
 /* ------------------------------------------------------------------------- *
  * The live-coding editor shell: header (logo, example picker, master
@@ -71,7 +72,7 @@ const initialLang = (): EditorLang => {
     // A saved buffer with no saved lang predates the toggle — it's rondocode
     // JS. Booting it into rondo mode would squiggle the user's own work, so
     // preference/mobile defaults only apply to FRESH visits.
-    if (localStorage.getItem(DOC_KEY) !== null) return 'rondocode'
+    if (tabGet(DOC_KEY) !== null) return 'rondocode'
     const pref = readLangPref(localStorage)
     if (pref !== null) return pref
   } catch {
@@ -103,13 +104,16 @@ const firstExample = (lang: EditorLang): string => {
 
 const loadDoc = (lang: EditorLang): string => {
   try {
-    const cur = localStorage.getItem(DOC_KEY)
-    if (cur !== null) return cur
+    // PER TAB (see session/tabstore.ts): a fresh tab seeds from the shared
+    // value once, then owns its buffer — so typing here cannot land in the
+    // project another tab has open
+    const cur = tabGet(DOC_KEY)
+    if (cur !== null && cur !== '') return cur
     // one-time migration from the pre-rename key so the in-progress buffer
     // survives (rondocode was 'synthcode' until this rename).
     const legacy = localStorage.getItem('synthcode-doc')
     if (legacy !== null) {
-      localStorage.setItem(DOC_KEY, legacy)
+      tabSet(DOC_KEY, legacy)
       return legacy
     }
     return firstExample(lang)
@@ -311,11 +315,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let pendingSave: string | undefined
   const writeDoc = (source: string): void => {
-    try {
-      localStorage.setItem(DOC_KEY, source)
-    } catch {
-      // storage full / private mode: losing persistence is acceptable
-    }
+    tabSet(DOC_KEY, source)
   }
   const saveDoc = (source: string, delayMs: number): void => {
     clearTimeout(saveTimer)

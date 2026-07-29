@@ -3152,6 +3152,62 @@ master threshold:-7 ratio:2 attack:25 release:150 makeup:1
 bpm 126
 `
 
+/** The over-a-chord twin. NOT transpiled from the rondo: the JS names the
+ *  progression once as a shared const, which rondo has no spelling for, so
+ *  each block repeats the chord line. The two produce identical events
+ *  (pinned in test/examples.test.ts). */
+const overChordRondo = `# OVER A CHORD: the numbers are CHORD DEGREES, not scale degrees.
+# 0 is the lowest note of whatever chord is sounding, so ONE figure
+# re-voices itself as the progression moves. Change the chords and the
+# arp follows; change the figure and every chord gets the new shape.
+
+synth keys
+  saw note
+  svf cut * shape res:.25
+  * env
+  * .5
+  env = adsr .004 .18 .25 .12
+  shape = env ^ 1.3
+  cut = knob 2200 300..7000 log
+
+synth pad unison:3 detune:8
+  saw note
+  svf 1500 res:.15
+  * env
+  * .16
+  env = adsr .25 .4 .7 .5
+
+synth bass
+  sine note
+  * env
+  * 1.2
+  tanh
+  * .5
+  env = adsr .005 .2 .5 .1
+
+# the FIGURE: degrees of whatever chord is under it. Try changing a number,
+# or the rhythm, and hear every chord pick up the same new shape.
+play arp synth:keys
+  0 2 1 4 2 3 1 5
+  overchord: <Am7 Fmaj7 Cmaj7 G>
+  dur: .42
+  cut: sine 900..5200 slow:6
+
+# the same chords, held, as a bed
+play pad
+  <Am7 Fmaj7 Cmaj7 G>
+  dur: .95
+
+# and the root of each chord: degree 0, an octave down
+play bass
+  0 ~ 0 ~
+  overchord: <Am7 Fmaj7 Cmaj7 G>
+  sub 12
+  dur: .7
+
+cps .46
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -3175,7 +3231,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'fm presets', code: fmPresets, rondo: fmPresetsRondo },
   { name: 'chiptune', code: chiptune, rondo: chiptuneRondo },
   { name: 'chords & arps', code: chordsArp, rondo: chordsArpRondo },
-  { name: 'over a chord', code: overChordEx },
+  { name: 'over a chord', code: overChordEx, rondo: overChordRondo },
   { name: 'generative', code: generative, rondo: generativeRondo },
   { name: 'edm', code: edm, rondo: edmRondo },
   { name: 'synthscape', code: synthscape, rondo: synthscapeRondo },

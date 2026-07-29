@@ -676,6 +676,16 @@ function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound
       const sv = strValue(m.args[0]!)
       if (sv === undefined) return null
       sound = sv
+    } else if (m.method === 'overChord' && m.args.length === 1) {
+      // .overChord(chord('<Am7 F>')) → `overchord: <Am7 F>`. Only the literal
+      // chord() form has sugar; a shared const or a computed pattern has no
+      // rondo spelling, so it stays a js block rather than round-trip wrong.
+      const arg = m.args[0]!
+      if (!isCall(arg) || calleeName(arg) !== 'chord') return null
+      const cargs = arg['arguments'] as Node[]
+      const cv = cargs.length === 1 ? strValue(cargs[0]!) : undefined
+      if (cv === undefined) return null
+      mods.unshift(`overchord: ${cv}`)
     } else if (m.method === 'ctrl' && m.args.length === 2) {
       const cname = strValue(m.args[0]!)
       const cval = ctrlValue(m.args[1]!)

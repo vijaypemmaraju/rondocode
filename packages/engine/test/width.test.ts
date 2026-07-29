@@ -125,10 +125,17 @@ describe('WidthKernel: MONO COMPATIBILITY — the sum is the dry signal', () => 
       // level: measured -0.00, -0.26, -0.97, -1.94, -3.01 dB
       const db = 20 * Math.log10(rms(sum, skip) / rms(src, skip))
       expect(db, `amount ${a}`).toBeCloseTo(20 * Math.log10(g), 2)
-      // shape: the sum is the dry signal SCALED, sample for sample
+      // shape: the sum is the dry signal SCALED, sample for sample. Reduced to
+      // the WORST deviation and asserted once — per-sample expect() over five
+      // amounts is ~5x the buffer in assertions, and reports the first
+      // deviation rather than the largest.
+      let worstDev = 0
+      let worstAt = -1
       for (let i = skip; i < src.length; i++) {
-        expect(Math.abs(sum[i]! - src[i]! * g), `amount ${a} @ ${i}`).toBeLessThan(2e-6)
+        const dev = Math.abs(sum[i]! - src[i]! * g)
+        if (dev > worstDev) { worstDev = dev; worstAt = i }
       }
+      expect(worstDev, `amount ${a}: worst deviation at sample ${worstAt}`).toBeLessThan(2e-6)
     }
   })
 
@@ -171,13 +178,16 @@ describe('WidthKernel: MONO COMPATIBILITY — the sum is the dry signal', () => 
 describe('WidthKernel: hygiene', () => {
   it('stays finite and bounded on a full-scale tone', () => {
     const [l, r] = pair(sine(SR, 220, 1), 1)
+    // one assertion over the whole buffer, not four per sample (see flanger.test)
+    let worst = 0
+    let firstBad = -1
     for (let i = 0; i < l.length; i++) {
-      expect(Number.isFinite(l[i]!)).toBe(true)
-      expect(Number.isFinite(r[i]!)).toBe(true)
-      // |x ± a*y| / sqrt(1+a^2) <= (1+a)/sqrt(1+a^2) = sqrt(2) at a = 1
-      expect(Math.abs(l[i]!)).toBeLessThan(1.42)
-      expect(Math.abs(r[i]!)).toBeLessThan(1.42)
+      if (!Number.isFinite(l[i]!) || !Number.isFinite(r[i]!)) { firstBad = i; break }
+      worst = Math.max(worst, Math.abs(l[i]!), Math.abs(r[i]!))
     }
+    expect(firstBad, `non-finite sample at ${firstBad}`).toBe(-1)
+    // |x ± a*y| / sqrt(1+a^2) <= (1+a)/sqrt(1+a^2) = sqrt(2) at a = 1
+    expect(worst).toBeLessThan(1.42)
   })
 
   it('settles to exact 0 after the signal stops (no denormals, no feedback)', () => {

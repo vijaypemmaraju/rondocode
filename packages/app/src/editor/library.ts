@@ -196,7 +196,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     // actually came from it. Another tab may have left its own code here, and
     // writing that in would overwrite this project with a different one.
     if (bufferBelongsTo(readDocOwner(), active.id)) {
-      await store.saveCode(active.id, bootCode)
+      // unconditional: this is the boot read-then-write, so there is no
+      // earlier version to compare against yet
+      const r = await store.saveCode(active.id, bootCode)
+      if (r.kind === 'saved' || r.kind === 'unchanged') active = { ...active, updatedAt: r.updatedAt }
     }
   }
   let activeId: string = active.id
@@ -208,11 +211,42 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // before every project switch and on dispose so no edit is lost or misfiled.
   let saveTimer: ReturnType<typeof setTimeout> | undefined
   let pendingSave: { id: string; code: string } | undefined
+
+  /** The `updatedAt` this tab last saw for the project it is editing. The
+   *  second half of the two-tab fix: tabs no longer SHARE a project id
+   *  (session/tabstore.ts), but two tabs can still be opened on the SAME one,
+   *  and then both autosave to one record. */
+  let baseVersion: number | undefined = active.updatedAt
+
+  /**
+   * Autosave with a conflict check, and FORK rather than pick a winner.
+   *
+   * If another tab wrote this project since we last saw it, overwriting would
+   * throw their edit away and keeping quiet would throw ours away — there is
+   * no version of "resolve it silently" that does not lose someone's work. So
+   * this tab moves its own code to a new project and leaves theirs alone.
+   * Both survive, and the fork is visible in the library rather than being a
+   * dialog to dismiss under time pressure.
+   */
+  const autosave = async (id: string, code: string): Promise<void> => {
+    const r = await store.saveCode(id, code, baseVersion)
+    if (r.kind === 'saved' || r.kind === 'unchanged') { baseVersion = r.updatedAt; return }
+    if (r.kind === 'gone') return // deleted in another tab: nothing to write to
+    const forked = await store.createProject(`${r.theirs.name} (this tab)`, code, r.theirs.lang)
+    activeId = forked.id
+    baseVersion = forked.updatedAt
+    setActiveId(activeId)
+    writeDocOwner(activeId)
+    if (pendingSave !== undefined) pendingSave = { id: forked.id, code: pendingSave.code }
+    // the list is declared below; autosave only ever runs after mount
+    await render()
+    console.warn(`[library] '${r.theirs.name}' changed in another tab — this tab's edits are now '${forked.name}'`)
+  }
   const flushSave = (): void => {
     clearTimeout(saveTimer)
     saveTimer = undefined
     if (pendingSave !== undefined) {
-      void store.saveCode(pendingSave.id, pendingSave.code)
+      void autosave(pendingSave.id, pendingSave.code)
       // With a workspace, the FILE is the project — the same debounce that
       // saves the database row writes the file, so an edit is never only in
       // one of the two places. IndexedDB stays written as a crash cushion.

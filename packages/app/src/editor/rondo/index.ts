@@ -12,6 +12,7 @@ import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { hoverTooltip } from '@codemirror/view'
 import { autocompletion } from '@codemirror/autocomplete'
+import { makeRondoCompletionSource } from './complete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
 import type { Hooks as RondoWidgetHooks } from './widgets'
@@ -100,7 +101,9 @@ export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
 
 const c = (label: string, type: string, detail: string, info: string): Completion => ({ label, type, detail, info })
 
-const OPTIONS: Completion[] = [
+/** The vocabulary table: the one place each rondo word is DESCRIBED.
+ *  complete.ts decides which of them belong at the cursor. */
+export const OPTIONS: Completion[] = [
   c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings. Header opts: mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, humanize:, voices:.'),
   c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
   c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.'),
@@ -207,6 +210,12 @@ export const rondoHover = hoverTooltip((view, pos) => {
   }
 })
 
+/** Context-aware: what may go HERE, not the whole vocabulary. OPTIONS stays
+ *  the single place words are DESCRIBED; complete.ts decides which of them
+ *  belong at the cursor (and adds the ones only the document knows — this
+ *  block's bindings, the project's macros, a call's named args). */
+export const rondoCompletionSource = makeRondoCompletionSource(OPTIONS)
+
 /** The prebuilt rondo autocomplete extension (main editor + docs share it). */
 export const rondoAutocomplete = autocompletion({
   override: [rondoCompletionSource],
@@ -214,10 +223,3 @@ export const rondoAutocomplete = autocompletion({
   maxRenderedOptions: 20,
 })
 
-export function rondoCompletionSource(ctx: CompletionContext): CompletionResult | null {
-  const word = ctx.matchBefore(/[a-zA-Z_]\w*/)
-  if (!word || (word.from === word.to && !ctx.explicit)) return null
-  const options = OPTIONS.filter((o) => (o.label as string).startsWith(word.text))
-  if (options.length === 0) return null
-  return { from: word.from, options, validFor: /^[a-zA-Z_]\w*$/ }
-}

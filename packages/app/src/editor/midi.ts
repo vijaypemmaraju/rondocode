@@ -2,6 +2,7 @@ import type { EditorHandle } from './editor'
 import { isDesktop, openVirtualMidi } from '../desktop/bridge'
 import { ArpDriver } from '../midi/arpdriver'
 import type { ArpDriverOpts } from '../midi/arpdriver'
+import { parseArpSteps } from '../midi/livearp'
 import type { MidiSink } from '../desktop/bridge'
 import type { AudioSession } from '../audio/AudioSession'
 import type { ParamTarget } from '../session/Session'
@@ -176,16 +177,30 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   arpRow.append(arpLabel, arpOn, latchLabel, arpLatch, arpGrid, arpMode)
   const arpHint = el('div', 'export-hint', 'hold a chord; the transport plays the figure over it')
 
+  // The STEP PATTERN — the Cthulhu idea. Degrees, not notes: the same figure
+  // re-voices itself onto whatever chord you hold. Empty falls back to the
+  // mode dropdown's plain up/down ordering, so the simple case stays simple.
+  const arpSteps = el('input', 'export-input') as HTMLInputElement
+  arpSteps.type = 'text'
+  arpSteps.placeholder = '0 2 1 4     (~ rest, _ tie, [0,2] stab, :vel, ^oct)'
+  arpSteps.setAttribute('aria-label', 'arp step pattern')
+  const stepsHint = el('div', 'export-hint', 'degrees of the chord you hold, so one figure fits every chord')
+
   const applyArp = (): void => {
     const synth = activeSynth()
     if (synth === undefined || synth === null) return
+    const steps = parseArpSteps(arpSteps.value)
+    // a pattern that parsed to nothing must not silently disable the mode
+    // ordering — omit `steps` entirely and the arp keeps its old behaviour
     setArp(synth, arpOn.checked, {
       latch: arpLatch.checked,
       stepsPerCycle: Number(arpGrid.value),
       mode: arpMode.value,
+      ...(steps.length > 0 ? { steps } : {}),
     })
   }
   for (const c of [arpOn, arpLatch, arpGrid, arpMode]) c.addEventListener('change', applyArp)
+  arpSteps.addEventListener('input', applyArp)
 
   pop.append(
     el('div', 'export-head', 'midi input'),
@@ -196,6 +211,8 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     el('div', 'export-hint', 'plays a running synth from a connected keyboard'),
     arpRow,
     arpHint,
+    arpSteps,
+    stepsHint,
     mapHead,
     learnRow,
     rowList,

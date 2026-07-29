@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HeldNotes, LiveArp, degreeToNote } from '../src/midi/livearp'
+import { HeldNotes, LiveArp, degreeToNote, formatArpSteps, parseArpSteps } from '../src/midi/livearp'
 
 /* The Cthulhu idea under test: a step names a chord DEGREE, so one pattern
  * re-voices onto any chord. Everything here is about that holding true as the
@@ -151,5 +151,75 @@ describe('held notes and latch', () => {
     h.noteOn(57); h.noteOff(57)
     h.setLatch(false)
     expect(h.notes()).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The step-pattern notation.
+ *
+ * Degrees, not notes: the same figure re-voices itself onto whatever chord you
+ * hold, which is what makes a pattern reusable instead of a transcription.
+ * Everything here is about how a WRITTEN pattern becomes steps — and about
+ * what a typo costs, since this is parsed on every keystroke.
+ * ------------------------------------------------------------------------- */
+describe('parseArpSteps', () => {
+  it('reads degrees in order', () => {
+    expect(parseArpSteps('0 2 1 4')).toEqual([
+      { degrees: [0] }, { degrees: [2] }, { degrees: [1] }, { degrees: [4] },
+    ])
+  })
+
+  it('`~` is a rest, which is how rhythm gets written', () => {
+    expect(parseArpSteps('0 ~ 2')).toEqual([{ degrees: [0] }, { degrees: [] }, { degrees: [2] }])
+  })
+
+  it('`_` ties, so a note can last longer than one step', () => {
+    expect(parseArpSteps('0 _')).toEqual([{ degrees: [0] }, { degrees: [], tie: true }])
+  })
+
+  it('brackets stab several degrees at once', () => {
+    expect(parseArpSteps('[0,2,4] 1')).toEqual([{ degrees: [0, 2, 4] }, { degrees: [1] }])
+  })
+
+  it('carries velocity and octave, including on a stab', () => {
+    expect(parseArpSteps('0:.6 1^-1 [0,2]:.5^1')).toEqual([
+      { degrees: [0], velocity: 0.6 },
+      { degrees: [1], octave: -1 },
+      { degrees: [0, 2], velocity: 0.5, octave: 1 },
+    ])
+  })
+
+  it('negative degrees reach below the chord', () => {
+    expect(parseArpSteps('-1 0')).toEqual([{ degrees: [-1] }, { degrees: [0] }])
+  })
+
+  it('DROPS a bad step instead of guessing, and keeps the rest', () => {
+    // parsed on every keystroke: a half-typed token must cost that step, not
+    // the pattern
+    expect(parseArpSteps('0 zz 2')).toEqual([{ degrees: [0] }, { degrees: [2] }])
+    expect(parseArpSteps('0 [ 2')).toEqual([{ degrees: [0] }, { degrees: [2] }])
+  })
+
+  it('an out-of-range velocity is ignored rather than clamped silently', () => {
+    expect(parseArpSteps('0:9')).toEqual([{ degrees: [0] }])
+  })
+
+  it('empty input yields nothing, so the caller keeps its default', () => {
+    expect(parseArpSteps('   ')).toEqual([])
+  })
+
+  it('round-trips through formatArpSteps', () => {
+    for (const src of ['0 2 1 4', '0 ~ 2 _', '[0,2] 1', '0:0.6 1^-1', '-1 0']) {
+      expect(formatArpSteps(parseArpSteps(src))).toBe(src)
+    }
+  })
+
+  it('a parsed pattern really drives the arp over a held chord', () => {
+    const arp = new LiveArp({ steps: parseArpSteps('0 ~ [0,2] 1') })
+    const held = [60, 64, 67] // C major
+    expect(arp.at(0, held).map((n) => n.note)).toEqual([60])
+    expect(arp.at(1, held)).toEqual([]) // the rest
+    expect(arp.at(2, held).map((n) => n.note)).toEqual([60, 67])
+    expect(arp.at(3, held).map((n) => n.note)).toEqual([64])
   })
 })

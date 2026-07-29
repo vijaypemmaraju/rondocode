@@ -65,6 +65,7 @@ const COVERED_GLOBALS: Record<string, string> = {
   xy: 'two knobs / two scrubbed numbers',
   pick: '`<…>` alternation, or edit-in-place with autocomplete',
   macroval: 'write the macro NAME in a modifier (`dur: bright / 7300`); codegen emits it',
+  curve: 'a timeline automation lane — reachable from a modifier via the js{ … } hatch until it has a block form',
 }
 
 describe('rondo ⇄ JS DSL parity scoreboard', () => {

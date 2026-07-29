@@ -1561,11 +1561,19 @@ class EnvWidget extends WidgetType {
     wrap.title = 'drag the handles: attack · decay/sustain · release'
     wrap.innerHTML =
       `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-      '<path class="fill"/><path class="line" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>' +
+      '<line class="base" x1="0" y1="0" x2="0" y2="0"/>' +
+      '<path class="fill"/><path class="line" fill="none" stroke-linejoin="round" stroke-linecap="round"/>' +
       '<circle class="emark" r="4"/>' +
       '<circle class="h ha" r="5"/><circle class="h hd" r="5"/><circle class="h hr" r="5"/></svg>'
     const line = wrap.querySelector('.line') as SVGPathElement
     const fill = wrap.querySelector('.fill') as SVGPathElement
+    // the floor: a fixed reference so a low sustain reads as low rather than
+    // as a curve floating somewhere in an unmarked box
+    const baseLine = wrap.querySelector('.base') as SVGLineElement
+    baseLine.setAttribute('x1', String(pad))
+    baseLine.setAttribute('x2', String(W - pad))
+    baseLine.setAttribute('y1', String(base))
+    baseLine.setAttribute('y2', String(base))
     const ha = wrap.querySelector('.ha') as SVGCircleElement
     const hd = wrap.querySelector('.hd') as SVGCircleElement
     const hr = wrap.querySelector('.hr') as SVGCircleElement

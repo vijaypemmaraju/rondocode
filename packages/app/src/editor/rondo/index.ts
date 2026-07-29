@@ -12,6 +12,7 @@ import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { hoverTooltip } from '@codemirror/view'
 import { autocompletion } from '@codemirror/autocomplete'
+import { rondoMode } from '../langflag'
 import { makeRondoCompletionSource } from './complete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
@@ -94,7 +95,7 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
  *  firing, pattern-driven knobs. Omit hooks for read-only contexts (docs
  *  snippets) that only need highlighting. */
 export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
-  return new LanguageSupport(rondoStreamLang, [rondoHover, ...(hooks ? [rondoWidgets(hooks)] : [])])
+  return new LanguageSupport(rondoStreamLang, [rondoMode.of(true), rondoHover, ...(hooks ? [rondoWidgets(hooks)] : [])])
 }
 
 /* ---- autocomplete -------------------------------------------------------- */
@@ -162,6 +163,24 @@ export const OPTIONS: Completion[] = [
   c('flanger', 'function', 'flanger rate:… feedback:…', 'Swept resonant comb — the jet whoosh (post).'),
   c('exciter', 'function', 'exciter freq:… amount:…', 'Harmonic exciter — adds air/sheen (post).'),
   c('ott', 'function', 'ott depth:…', 'OTT multiband compressor — the modern glue (post).'),
+  // sig ops: on a spine line they take the running signal (`abs`, `max 0.2`);
+  // in a BINDING they are a call, target first (`amt = max norm 0.2`)
+  c('abs', 'function', 'abs', 'Absolute value — full-wave rectification (an octave-up buzz on audio; distance from centre on an LFO).'),
+  c('ceil', 'function', 'ceil', 'Round up to a whole number.'),
+  c('floor', 'function', 'floor', 'Round DOWN to a whole number: quantizes a smooth sweep into steps. `lfo .25 -> 0..8` then `floor` then `/ 8` is an audible eight-step sample-and-hold.'),
+  c('round', 'function', 'round', 'Round to the nearest whole number.'),
+  c('sign', 'function', 'sign', 'Sign of the signal: -1, 0 or 1.'),
+  c('sqrt', 'function', 'sqrt', 'Square root. A negative input gives 0 rather than NaN — a NaN would spread through everything downstream and silence the voice.'),
+  c('exp', 'function', 'exp', 'e to the power of the signal, clamped so the result stays finite.'),
+  c('log', 'function', 'log', 'Natural log. Zero or less gives about -20.7 rather than -Infinity.'),
+  c('sin', 'function', 'sin', 'Sine of the signal IN RADIANS — for waveshaping. Not the oscillator: `sine freq` makes a tone, `sin` shapes one.'),
+  c('cos', 'function', 'cos', 'Cosine of the signal in radians, for waveshaping.'),
+  c('min', 'function', 'min x', 'The smaller of the signal and x — a ceiling.'),
+  c('max', 'function', 'max x', 'The larger of the signal and x — a floor. `max 0` is half-wave rectification.'),
+  c('mod', 'function', 'mod x', 'Remainder, FLOORED: it takes the sign of the divisor, so `-0.1 mod 1` is 0.9. Wraps a rising ramp back to the start, which is how you build a phasor out of anything. Modulo 0 is 0.'),
+  c('fold', 'function', 'fold', 'Wave folding: reflects the signal back on itself past ±1 instead of clipping it, adding harmonics rather than flattening.'),
+  c('syncsaw', 'function', 'syncsaw freq ratio:…', 'Hard-synced sawtooth: a second oscillator restarted by the first, for the classic sync tear.'),
+  c('lfsr', 'function', 'lfsr freq mode:white|periodic', 'Linear-feedback shift register — the chiptune noise channel. `periodic` is the short, pitched rattle.'),
   c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.'),
   c('every', 'keyword', 'every N: <comb>', 'Apply a combinator every Nth cycle (e.g. `every 4: rev`).'),
   c('gain', 'keyword', 'gain: v', 'Note velocity (0..1).'),
@@ -174,13 +193,13 @@ export const OPTIONS: Completion[] = [
 ]
 
 /* ---- hover docs ---------------------------------------------------------- *
- * Rondo-SPECIFIC vocabulary only (block keywords, knob, modifiers): shared
- * builtin names (saw, ladder, reverb, …) fall through to the JS DSL's
- * dslHover, which documents the underlying call accurately — two tooltips
- * for one word would just stack. */
-const HOVER_DOCS = new Map<string, Completion>(
-  OPTIONS.filter((o) => o.type === 'keyword' || o.label === 'knob').map((o) => [o.label as string, o]),
-)
+ * EVERY word rondo knows, answered in rondo. Builtins used to fall through to
+ * the JS DSL's dslHover, which documents the underlying CALL — `svf(inp,
+ * cutoff, opts?)` for a language whose actual spelling is `svf cutoff res:…`.
+ * Accurate about JavaScript, and about nothing you can type here. dslHover
+ * now stands down in rondo documents (see langflag.ts), so these do not
+ * stack. */
+const HOVER_DOCS = new Map<string, Completion>(OPTIONS.map((o) => [o.label as string, o]))
 
 export const rondoHover = hoverTooltip((view, pos) => {
   const line = view.state.doc.lineAt(pos)

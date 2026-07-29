@@ -1,4 +1,5 @@
 import { hoverTooltip } from '@codemirror/view'
+import { rondoMode } from './langflag'
 import type { EditorState, Extension } from '@codemirror/state'
 import type { DocEntry } from '../docs/dsl-docs'
 import { docsByName } from '../docs/dsl-docs'
@@ -128,6 +129,10 @@ const renderTooltip = (entries: DocEntry[]): HTMLElement => {
 
 /** The hover extension mountEditor installs. */
 export const dslHover: Extension = hoverTooltip((view, pos) => {
+  // rondo documents get rondoHover, which speaks rondo. Answering them here
+  // too would show the JavaScript call shape for a language that does not
+  // have one — and stack a second tooltip on the words rondo does cover.
+  if (view.state.facet(rondoMode)) return null
   const docs = hoverDocsAt(view.state, pos)
   if (docs === null) return null
   return {

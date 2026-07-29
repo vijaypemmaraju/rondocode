@@ -65,4 +65,5 @@ export type { ExportNote, SmfOptions } from './midiExport'
 // above for its exports, likewise installs the control methods.)
 import './combinators'
 export * from './curve'
+export * from './curvedef'
 export * from './macroval'

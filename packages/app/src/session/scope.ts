@@ -28,6 +28,8 @@ import {
   defineScale,
   macroval,
   curve,
+  curvedef,
+  shape,
 } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -94,6 +96,12 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   // env(), measured in cycles and run against the transport, for what a DAW
   // calls an automation lane. rise/fall are its two-point special cases.
   curve,
+  // named curve SHAPES, stored normalised and scaled at the point of use:
+  // env measures in seconds and curve() in cycles, so a shape carrying real
+  // durations would mean two different things depending on where you spent
+  // it. Same registry lifecycle as defineScale.
+  curvedef,
+  shape,
   // custom tunings: register a scale for .scale(). NOT per-eval staging —
   // the registry lives in the pattern package; evalCode snapshots/clears/
   // restores it around each run so it mirrors the last successful eval.

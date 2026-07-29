@@ -206,6 +206,18 @@ const GLOBALS: DocEntry[] = [
     "macro('bright', 1480, { min: 500, max: 7300, curve: 'log' })",
   ),
   g(
+    'curvedef',
+    'curvedef(name: string, points: ([fraction, level] | [fraction, level, curve])[])',
+    "Register a named curve SHAPE. Stored normalised -- the fractions are relative segment lengths, not durations -- and scaled where it is used, which is what lets one definition serve both layers: shape('swell', 0.8) is 0.8 seconds for env(), shape('swell', 16) is 16 cycles for curve(). The cost, plainly: a named curve cannot carry an absolute timing. It is a shape, and how long it takes belongs to the call.",
+    "curvedef('swell', [[0.25, 1], [0.75, 0.2]])",
+  ),
+  g(
+    'shape',
+    'shape(name: string, length: number)',
+    "A curvedef scaled to `length` -- seconds for env(), cycles for curve() -- returned as an ordinary points array, so neither of them needs to know a registry exists. An unknown name throws and lists what is registered, rather than returning an empty envelope: a silent [] is a synth that makes no sound with nothing to look at.",
+    "env(gate, shape('swell', 0.8))",
+  ),
+  g(
     'curve',
     'curve(points: ([cycles, level] | [cycles, level, curve])[], opts?: { curve?, from?, loop? })',
     "A breakpoint automation lane, measured in CYCLES: curve([[8, 1], [4, 0.3], [16, 1]]) opens over 8 bars, sags over 4, and comes back over 16. The same shape as a synth's env() and the same easing numbers, run against the transport instead of a note's gate -- rise/fall are the two-point linear special cases of it. A third number on a breakpoint gives that leg its own curve; `from` sets the level before the first one (default 0); `loop` repeats instead of holding the last level. Sampled once per event like any signal, so a control that must move WITHIN one note belongs in the synth.",

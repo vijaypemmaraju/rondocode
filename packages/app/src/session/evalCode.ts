@@ -1,7 +1,7 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues } from '@rondocode/pattern'
+import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
 import { busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
@@ -825,10 +825,12 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   const priorScales = snapshotCustomScales()
   const priorWavetables = snapshotCustomWavetables()
   const priorMacros = snapshotMacros()
+  const priorShapes = snapshotCurveShapes()
   clearCustomScales()
   clearCustomWavetables()
   clearMacros()
   clearMacroValues()
+  clearCurveShapes()
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -845,6 +847,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     restoreCustomScales(priorScales)
     restoreCustomWavetables(priorWavetables)
     restoreMacros(priorMacros)
+    restoreCurveShapes(priorShapes)
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   } finally {
     sealed = true
@@ -869,6 +872,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     restoreCustomScales(priorScales) // this version is not applied — roll scales back too
     restoreCustomWavetables(priorWavetables) // ...and the wavetables with them
     restoreMacros(priorMacros) // ...and the macros
+    restoreCurveShapes(priorShapes) // ...and the named curve shapes
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   }
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).

@@ -643,6 +643,61 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'macros',
+    group: 'patterns & form',
+    title: 'Macros',
+    blocks: [
+      p("A param belongs to the synth that declared it. That is on purpose: two synths with a `cutoff` each are two separate controls, and moving one should not move the other. A MACRO is how you ask for the opposite. Declare it once, above your synths, and any synth or post chain can reference it by name -- one knob, reaching the whole project."),
+      p("The part worth understanding is that a macro is a VALUE, not a wire. Every use site gets the same number, and each site is free to do arithmetic on it, so one knob can open a filter, close a delay and trim a level, each at its own depth. There is no fan-out syntax to learn: `param('bright').mul(0.5)` is half as much, `0.6` minus a fraction of it is the inverse. That is also why the numbers cannot drift: the only literal is on the macro line, and every destination reads it."),
+      code(
+        'One knob, four destinations, four different formulas.',
+        `macro('energy', 0.35, { min: 0, max: 1 })
+
+const lead = synth(({ note, gate, param, adsr, supersaw, ladder }) => {
+  // 1:1 -- the filter opens straight across the knob's range
+  const cut = param('energy').mul(5200).add(400)
+  return ladder(supersaw(note.freq, { detune: 0.35 }), cut, { res: 0.5 })
+    .mul(adsr(gate, { a: 0.003, d: 0.18, s: 0.25, r: 0.1 })).mul(0.5)
+}, ({ input, param, delay }) => {
+  // INVERTED -- the delay dries up as the lead brightens, so the space tightens
+  return delay(input, 0.1875, param('energy').mul(-0.4).add(0.55), { sync: true })
+})
+
+const sub = synth(({ note, gate, param, adsr, sine }) => {
+  // a gentler inverse: the sub steps back to make room, but never disappears
+  const level = param('energy').mul(-0.45).add(1)
+  return sine(note.freq).mul(adsr(gate, { a: 0.008, d: 0.12, s: 0.5, r: 0.07 })).mul(level).tanh()
+}, undefined, { mono: true, glide: 0.05 })
+
+p('lead', n('<0 3 5 7> ~ 3 ~ 5 7 ~ 3').scale('e minor').sound('lead').dur(0.22))
+p('sub', note('~ e1 ~ e1 ~ e1 ~ e1').sound('sub').dur(0.18))
+setBpm(126)`,
+      ),
+      p("In rondo it is one line and a bare name. `macro energy 0.35 0..1` at the top, then write `energy` anywhere you would write a number -- on its own for 1:1, or in any expression for a ratio. The macros example ships both spellings; drag the dial on the macro line and every destination in the document shows you what it is receiving, live, including values built out of other values."),
+      rondo(
+        'The same thing in rondo.',
+        `macro energy 0.35 0..1
+
+synth lead
+  supersaw detune:.35
+  ladder cut res:.5
+  * env
+  cut = 400 + energy * 5200
+  env = adsr .003 .18 .25 .1
+  post
+    delay .1875 fb sync:1
+    fb = 0.55 - energy * 0.4
+
+play lead
+  <0 3 5 7> ~ 3 ~ 5 7 ~ 3
+  scale: e-min
+  dur: .22`,
+      ),
+      note("Declare a macro ABOVE the synths that use it. A synth compiles its graph the moment you define it, and that is when `param('energy')` looks the bounds up -- the same rule a custom wavetable follows. In rondo the compiler hoists the line for you, so it works wherever you put it."),
+      note("A synth that passes its own default keeps its own control, even if a macro shares the name: `param('cutoff', 800, ...)` is that synth's cutoff, not the macro's. Only the no-default form joins the macro, which is what stops two unrelated knobs from fusing because they happen to be spelled alike. And a macro cannot be used in a bus, because a bus has no notes and no .ctrl route, so nothing there could ever change."),
+    ],
+  },
+  {
     id: 'generative',
     group: 'patterns & form',
     title: 'Generative',

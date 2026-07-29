@@ -657,6 +657,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // no eval round-trip) and suppresses the pattern drive until release
     holdParam: (synth, name, value) => session.holdParam(synth, name, value),
     releaseParam: (synth, name) => session.releaseParam(synth, name),
+    // a macro knob: the same override, fanned out to every site it reaches, so
+    // one drag moves the whole project rather than one synth's copy
+    holdMacro: (name, value) => session.holdMacro(name, value),
+    releaseMacro: (name) => session.releaseMacro(name),
     // grid preview: tapping a piano-roll cell while stopped sounds that note
     // (a one-shot noteOn/noteOff straight to the engine; the tap is the
     // audio-unlock gesture)

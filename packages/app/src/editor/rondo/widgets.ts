@@ -30,6 +30,8 @@ import type { EnumSpan } from './enums'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
+import { macroReadouts, scanMacroDecls } from './macrolens'
+import type { MacroDecl } from './macrolens'
 import type { UnisonScan } from './unison'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
@@ -67,6 +69,11 @@ export interface Hooks {
    *  back to the pattern on its next event. */
   holdParam?: (synth: string, name: string, value: number) => void
   releaseParam?: (synth: string, name: string) => void
+  /** A project-wide macro: one move reaches EVERY site at once (see
+   *  Session.holdMacro). Separate from holdParam because a macro has no single
+   *  synth to address — that is the whole point of it. */
+  holdMacro?: (name: string, value: number) => void
+  releaseMacro?: (name: string) => void
   /** GRID PREVIEW: sound one note now (tapping a piano-roll cell while the
    *  transport is stopped previews what you just placed). */
   previewNote?: (synth: string, midi: number) => void
@@ -166,6 +173,9 @@ export interface KnobMatch {
   name?: string
   /** the enclosing `synth NAME` block, for routing live events. */
   synth?: string
+  /** a project-wide `macro` declaration rather than a synth-local `knob`: the
+   *  drag fans out to every site instead of holding one synth's param. */
+  macro?: true
 }
 
 /** Iterate a doc's CODE lines: the text before any rondo `#` comment, with the
@@ -194,6 +204,14 @@ function codeLines(text: string): { line: string; off: number; synth?: string }[
 export function scanKnobs(text: string): KnobMatch[] {
   const out: KnobMatch[] = []
   for (const { line, off, synth } of codeLines(text)) {
+    // a `macro` declaration IS a knob — the same dial, the same drag, but it
+    // holds every site of the macro instead of one synth's param
+    for (const d of scanMacroDecls(line)) {
+      out.push({
+        defFrom: off + d.defFrom, defTo: off + d.defTo, value: d.value,
+        lo: d.lo, hi: d.hi, log: d.log, name: d.name, macro: true,
+      })
+    }
     KNOB_RE.lastIndex = 0
     let m: RegExpExecArray | null
     while ((m = KNOB_RE.exec(line)) !== null) {
@@ -1129,6 +1147,107 @@ export function rollOverviewBlockDecos(
   return out
 }
 
+/* ------------------------------------------------------------------------- *
+ * The macro live env.
+ *
+ * A macro's destinations have no literal to rewrite — they are expressions
+ * (`bright * 0.5`), which is exactly what lets one knob drive several things
+ * at different ratios. So while the knob moves, each destination's CHIP is
+ * recomputed from its own formula against the dragged value.
+ *
+ * It has to be pushed rather than rebuilt: decoration rebuilds are suppressed
+ * mid-drag (so the dial's DOM and its pointer capture survive), which would
+ * otherwise leave every chip frozen at its pre-drag number until the drag
+ * ended. Per view, because the values belong to that document.
+ * ------------------------------------------------------------------------- */
+interface MacroEnv {
+  /** live overrides, while a knob is held; empty at rest (the doc is truth). */
+  values: Record<string, number>
+  text: string
+  decls: MacroDecl[]
+  subs: Set<(byAt: ReadonlyMap<number, number>) => void>
+}
+
+const macroEnvs = new WeakMap<EditorView, MacroEnv>()
+
+function macroEnv(view: EditorView): MacroEnv {
+  let e = macroEnvs.get(view)
+  if (e === undefined) {
+    e = { values: {}, text: '', decls: [], subs: new Set() }
+    macroEnvs.set(view, e)
+  }
+  return e
+}
+
+/** Re-scan on every decoration rebuild: the document is the truth at rest, so
+ *  the live overrides are dropped here. */
+function refreshMacroEnv(view: EditorView, text: string, decls: MacroDecl[]): void {
+  const e = macroEnv(view)
+  e.text = text
+  e.decls = decls
+  e.values = {}
+}
+
+/** A macro moved: recompute every destination and push the results to the
+ *  chips. Each chip evaluates ITS OWN formula, so the ratios (and any binding
+ *  cascade between them) come out right without the chips knowing about each
+ *  other. */
+function setMacroLive(view: EditorView, name: string, value: number): void {
+  const e = macroEnv(view)
+  e.values[name] = value
+  if (e.subs.size === 0) return
+  const byAt = new Map<number, number>()
+  for (const r of macroReadouts(e.text, e.decls, e.values)) byAt.set(r.at, r.value)
+  for (const fn of e.subs) fn(byAt)
+}
+
+/** Compact display for a destination value: enough digits to see it move,
+ *  never so many that the line reflows. */
+export function formatMacroValue(v: number): string {
+  const a = Math.abs(v)
+  if (a >= 1000) return String(Math.round(v))
+  if (a >= 10) return v.toFixed(1)
+  if (a >= 1) return v.toFixed(2)
+  return v.toFixed(3)
+}
+
+/** What one destination is currently receiving, shown at the end of its line.
+ *  Read-only on purpose: the number is DERIVED, so the only honest place to
+ *  change it is the macro declaration (or the formula itself). */
+class MacroChipWidget extends WidgetType {
+  private unsub?: () => void
+
+  constructor(readonly at: number, readonly label: string, readonly value: number) { super() }
+
+  eq(o: MacroChipWidget): boolean {
+    return o.at === this.at && o.label === this.label && o.value === this.value
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const el = document.createElement('span')
+    el.className = 'rondo-macro-chip'
+    el.setAttribute('aria-hidden', 'true') // decorative: the formula is the content
+    el.title = `${this.label}: driven by a macro`
+    el.textContent = formatMacroValue(this.value)
+    const env = macroEnv(view)
+    const fn = (byAt: ReadonlyMap<number, number>): void => {
+      const v = byAt.get(this.at)
+      if (v === undefined) return
+      el.textContent = formatMacroValue(v)
+      el.classList.add('live')
+    }
+    env.subs.add(fn)
+    this.unsub = () => env.subs.delete(fn)
+    return el
+  }
+
+  destroy(): void {
+    this.unsub?.()
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
 class KnobWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
@@ -1157,6 +1276,8 @@ class KnobWidget extends WidgetType {
      *  ONE control at runtime, so a drag has to move all of them or the
      *  declarations drift and the two halves scale the value differently. */
     readonly siblings: readonly { from: number; to: number }[] = [],
+    /** a macro declaration: hold every site, not one synth's param. */
+    readonly isMacro = false,
   ) { super() }
 
   eq(o: KnobWidget): boolean {
@@ -1270,11 +1391,21 @@ class KnobWidget extends WidgetType {
       // text rewrite below still records the value (text stays the truth).
       const canHold = this.hooks.holdParam !== undefined &&
         this.name !== undefined && this.synth !== undefined
+      const canHoldMacro = this.isMacro && this.name !== undefined
       return {
         onMove: (ev) => {
           const t = clamp(t0 + (startY - ev.clientY) / 170, 0, 1)
           const v = fromNorm(t, this.lo, this.hi, this.log)
           if (canHold) { this.holding = true; this.hooks.holdParam!(this.synth!, this.name!, v) }
+          // A macro moves every destination at once — the sound through
+          // holdMacro, and the on-screen numbers through the live env, which
+          // recomputes each chip's own formula. Decoration rebuilds are
+          // suppressed mid-drag, so the chips are updated in place.
+          if (canHoldMacro) {
+            this.holding = true
+            this.hooks.holdMacro?.(this.name!, v)
+            setMacroLive(view, this.name!, v)
+          }
           const text = formatNumber(v, { step, min: Math.min(this.lo, this.hi) })
           if (!writer.write(text)) return // a concurrent edit aborted the gesture
           setDial(t)
@@ -1285,7 +1416,11 @@ class KnobWidget extends WidgetType {
           this.drag.ended = true
           wrap.classList.remove('active')
           // hand off the knob: the pattern drive resumes on its next event
-          if (this.holding) { this.holding = false; this.hooks.releaseParam?.(this.synth!, this.name!) }
+          if (this.holding) {
+            this.holding = false
+            if (canHoldMacro) this.hooks.releaseMacro?.(this.name!)
+            else this.hooks.releaseParam?.(this.synth!, this.name!)
+          }
           view.dispatch({}) // empty transaction → plugin rebuilds (fresh ranges)
           this.hooks.requestEval(false)
         },
@@ -1298,9 +1433,10 @@ class KnobWidget extends WidgetType {
     this.unsub?.()
     this.timers.clear()
     cancelAnimationFrame(this.raf)
-    if (this.holding && this.synth !== undefined && this.name !== undefined) {
+    if (this.holding && this.name !== undefined) {
       this.holding = false
-      this.hooks.releaseParam?.(this.synth, this.name)
+      if (this.isMacro) this.hooks.releaseMacro?.(this.name)
+      else if (this.synth !== undefined) this.hooks.releaseParam?.(this.synth, this.name)
     }
   }
 
@@ -1984,9 +2120,15 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   for (const k of knobs) {
     const sibs = k.name === undefined ? [] : (family.get(`${k.synth ?? ''}\u0000${k.name}`) ?? [])
     items.push(Decoration.widget({
-      widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag, sibs),
+      widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag, sibs, k.macro === true),
       side: 1,
     }).range(k.defTo))
+  }
+  // Every destination a macro reaches, with the value ITS formula produces.
+  const macroDecls = scanMacroDecls(text)
+  refreshMacroEnv(view, text, macroDecls)
+  for (const r of macroReadouts(text, macroDecls)) {
+    items.push(Decoration.widget({ widget: new MacroChipWidget(r.at, r.label, r.value), side: 1 }).range(r.at))
   }
   const envW = envWidth(view)
   for (const e of scan.envs(text)) {

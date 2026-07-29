@@ -548,6 +548,10 @@ function decompileChainFn(fn: Node, indent: string, fromInput = false): string[]
             const pname = pa[0] !== undefined ? strValue(pa[0]) : undefined
             const def = pa[1] !== undefined ? numValue(pa[1]) : undefined
             const po = pa[2] !== undefined ? objEntries(pa[2]) : {}
+            // param('bright') with NO default is a MACRO reference: the
+            // numbers live on the macro line, so there is nothing to write
+            // here — the bare `bright` in the spine IS the rondo source.
+            if (pname === bname && def === undefined && pa.length === 1) continue
             if (pname !== bname || def === undefined || po === undefined) return null
             const min = po['min'] !== undefined ? numValue(po['min']) : 0
             const max = po['max'] !== undefined ? numValue(po['max']) : 1
@@ -965,6 +969,24 @@ function decompileStaging(stmt: Node): string | null {
     }
     if (vals.length < 2) return null
     return `scaledef ${sname} ${vals.join(' ')}`
+  }
+  if (name === 'macro' && args.length >= 2 && args.length <= 3) {
+    // macro('bright', 1480, { min, max, curve }) → `macro bright 1480 500..7300 log`
+    const mname = strValue(args[0]!)
+    const mdef = numValue(args[1]!)
+    if (mname === undefined || mdef === undefined || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(mname)) return null
+    const o = args[2] !== undefined ? objEntries(args[2]) : {}
+    if (o === undefined) return null
+    for (const k of Object.keys(o)) if (k !== 'min' && k !== 'max' && k !== 'curve') return null
+    const lo = o['min'] !== undefined ? numValue(o['min']) : undefined
+    const hi = o['max'] !== undefined ? numValue(o['max']) : undefined
+    // a HALF range has no rondo spelling (`lo..hi` is one token pair), so it
+    // stays a js block rather than round-tripping to something else
+    if ((lo === undefined) !== (hi === undefined)) return null
+    const curve = o['curve'] !== undefined ? strValue(o['curve']) : undefined
+    if (o['curve'] !== undefined && curve === undefined) return null
+    const range = lo !== undefined && hi !== undefined ? ` ${num(lo)}..${num(hi)}` : ''
+    return `macro ${mname} ${num(mdef)}${range}${curve !== undefined ? ` ${curve}` : ''}`
   }
   if (name === 'defineWavetable' && args.length === 2) {
     // only the literal frames-of-numbers form has sugar (`wavedef NAME a b /

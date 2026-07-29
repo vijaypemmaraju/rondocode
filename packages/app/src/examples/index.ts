@@ -3078,6 +3078,80 @@ play sub
 cps .5
 `
 
+/** ONE macro driving four destinations at four different ratios. */
+const macrosRondo = `# ONE KNOB, A WHOLE TRACK.
+# macro declares a control that lives above every synth. Reference it bare
+# from any synth or post chain and one dial moves them all. Each site is free
+# to SCALE it however it likes, so the same knob can open one thing while it
+# closes another. Drag energy and watch the numbers next to every
+# destination move with it.
+
+macro energy 0.35 0..1
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp  = adsr .001 .2 0 .07
+
+# the sub gets QUIETER as energy rises: it makes room for the lead
+synth sub mono glide:.05
+  sine
+  * env
+  * level
+  tanh
+  env = adsr .008 .12 .5 .07
+  level = 1 - energy * 0.45
+
+# the lead's filter opens 1:1 with energy...
+synth lead
+  supersaw detune:.35 mix:.6
+  ladder cut res:.5
+  * env
+  cut = 400 + energy * 5200
+  env = adsr .003 .18 .25 .1
+  post
+    # ...while the delay dries up, so the space tightens as it brightens
+    delay .1875 fb sync:1
+    fb = 0.55 - energy * 0.4
+
+# the pad's shimmer follows at a third of the depth
+synth pad
+  saw note
+  + saw note * 1.005
+  svf air res:.2
+  * env
+  air = 900 + energy * 1700
+  env = adsr .4 .6 .7 .9
+
+play kick
+  c2 c2 c2 c2
+  gain: .95
+
+play sub
+  ~ e1 ~ e1 ~ e1 ~ e1
+  dur: .18
+  gain: .8
+
+play lead
+  <0 3 5 7> ~ 3 ~ 5 7 ~ 3
+  scale: e-min
+  dur: .22
+  gain: .5
+
+play pad
+  <Em Cmaj7>
+  dur: 1.9
+  gain: .22
+
+sidechain kick depth:.7 release:.14 sub:.9 pad:.5
+
+master threshold:-7 ratio:2 attack:25 release:150 makeup:1
+
+bpm 126
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -3118,6 +3192,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
+  { name: 'macros', code: fromRondo(macrosRondo), rondo: macrosRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

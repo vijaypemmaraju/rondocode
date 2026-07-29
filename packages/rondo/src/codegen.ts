@@ -5,7 +5,7 @@
  * `p('NAME', n('…')…)`, tempo as `setCps(x)`. We collect which synth-ctx
  * members each synth uses and emit exactly that destructure. */
 
-import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Program, RondoError, SynthBlock, TopItem } from './ast'
+import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
 import { BUILTINS } from './builtins'
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
@@ -92,7 +92,14 @@ export function expandScale(short: string): string {
 
 class SynthGen {
   uses = new Set<string>()
-  constructor(readonly errors: RondoError[], readonly bound: ReadonlySet<string> = new Set()) {}
+  /** macros this chain referenced, in first-seen order — one `const NAME =
+   *  param('NAME')` is emitted per entry (see cgChain). */
+  readonly macros = new Set<string>()
+  constructor(
+    readonly errors: RondoError[],
+    readonly bound: ReadonlySet<string> = new Set(),
+    readonly declaredMacros: ReadonlySet<string> = new Set(),
+  ) {}
 
   expr(e: Expr): string {
     switch (e.t) {
@@ -103,6 +110,13 @@ class SynthGen {
         if (e.name === 'gate') { this.uses.add('gate'); return 'gate' }
         if (e.name === 'input') { this.uses.add('input'); return 'input' }
         if (e.name === 'velocity') { this.uses.add('velocity'); return 'velocity' }
+        // a project-wide macro, referenced bare. A LOCAL binding of the same
+        // name wins (ordinary scoping), which is why this is checked second.
+        if (!this.bound.has(e.name) && this.declaredMacros.has(e.name)) {
+          this.uses.add('param')
+          this.macros.add(e.name)
+          return e.name
+        }
         // a bare proc/sigop name that is NOT a binding was a call missing its
         // input (the parser left it as an ident for us to resolve)
         if (!this.bound.has(e.name) && BUILTINS[e.name] !== undefined) {
@@ -332,11 +346,24 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
 }
 
 /** Render one `(ctx) => …` chain function: topo-sorted bindings + `return`. */
-function cgChain(bindings: Binding[], spine: Expr, headOrder: string[], errors: RondoError[]): string {
-  const g = new SynthGen(errors, new Set(bindings.map((b) => b.name)))
+function cgChain(
+  bindings: Binding[],
+  spine: Expr,
+  headOrder: string[],
+  errors: RondoError[],
+  opts: { macros?: ReadonlySet<string>; noMacros?: { why: string; pos: Pos } } = {},
+): string {
+  const g = new SynthGen(errors, new Set(bindings.map((b) => b.name)), opts.macros)
   const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
   const spineStr = g.expr(spine)
+  // A macro reference becomes an ordinary param with no default: the numbers
+  // live on the macro line, so no use site can drift from another. These come
+  // FIRST — they depend on nothing, and a binding may be built from them.
+  const macroLines = [...g.macros].map((m) => `  const ${m} = param('${m}')`)
+  if (macroLines.length > 0 && opts.noMacros !== undefined) {
+    errors.push({ message: opts.noMacros.why, line: opts.noMacros.pos.line, col: opts.noMacros.pos.col })
+  }
   // a binding may reuse a builtin's name (lfo = …) — but not while the chain
   // ALSO calls that builtin: the destructured ctx member and the const would
   // collide ("Identifier 'x' has already been declared" at eval time)
@@ -348,18 +375,18 @@ function cgChain(bindings: Binding[], spine: Expr, headOrder: string[], errors: 
   const head = headOrder.filter((n) => g.uses.has(n))
   const rest = [...g.uses].filter((n) => !head.includes(n)).sort()
   const destructure = [...head, ...rest].join(', ')
-  const body = [...bindingLines, `  return ${spineStr}`].join('\n')
+  const body = [...macroLines, ...bindingLines, `  return ${spineStr}`].join('\n')
   return `({ ${destructure} }) => {\n${body}\n}`
 }
 
-function cgSynth(block: SynthBlock, errors: RondoError[]): string {
-  const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors)
+function cgSynth(block: SynthBlock, errors: RondoError[], macros: ReadonlySet<string>): string {
+  const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors, { macros })
   // header voice options: `synth acid mono glide:.08` → the synth() opts arg
   const opts = block.voiceOpts !== undefined
     ? `{ ${Object.entries(block.voiceOpts).map(([k, v]) => `${k}: ${v === true ? 'true' : num(v as number)}`).join(', ')} }`
     : undefined
   if (block.post) {
-    const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)
+    const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors, { macros })
     return `const ${block.name} = synth(${voice}, ${post}${opts !== undefined ? `, ${opts}` : ''})`
   }
   return `const ${block.name} = synth(${voice}${opts !== undefined ? `, ${opts}` : ''})`
@@ -466,7 +493,7 @@ function cgPlay(block: PlayBlock): string {
 /** `sing NAME [voice:V]` → p(NAME, sing([voice,] lyrics, notes, { name, post? })<mods>).
  *  Lyric/melody line pairs join with single spaces — mini treats the joined
  *  strings exactly like the multi-line template literals the JS API uses. */
-function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[]): string {
+function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
   const lyrics = block.lyrics.map((l) => l.text).join(' ')
   const notes = block.notes.map((l) => l.text).join(' ')
   const voiceArg = block.voice !== undefined ? `${q(block.voice)}, ` : ''
@@ -488,7 +515,7 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[]): s
     mods.push(m)
   }
   if (block.post) {
-    opts.push(`post: ${cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors)}`)
+    opts.push(`post: ${cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors, { macros })}`)
   }
   let pat = `sing(${voiceArg}${q(lyrics)}, ${q(notes)}, { ${opts.join(', ')} })`
   for (const m of orderMods(mods)) pat += cgMod(m)
@@ -526,11 +553,26 @@ function cgWaveDef(item: Extract<TopItem, { t: 'wavedef' }>): string {
   return `defineWavetable('${item.name}', [${frames}])`
 }
 
-function cgBus(item: Extract<TopItem, { t: 'bus' }>, errors: RondoError[]): string {
-  const fx = cgChain(item.bindings, item.fx, ['input'], errors)
+function cgBus(item: Extract<TopItem, { t: 'bus' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
+  // A bus has no notes and no .ctrl route, so a param in its FX chain could
+  // never change — the engine rejects one outright. Say so here, pointing at
+  // the bus, rather than letting the eval fail with the engine's wording.
+  const fx = cgChain(item.bindings, item.fx, ['input'], errors, {
+    macros,
+    noMacros: { why: 'a macro can\'t be used in a bus — a bus has no notes or .ctrl route, so it could never change (use a fixed value)', pos: item.pos },
+  })
   const sendEntries = Object.entries(item.sends)
   const sends = sendEntries.length > 0 ? `, { ${sendEntries.map(([k, v]) => `${k}: ${num(v)}`).join(', ')} }` : ''
   return `bus('${item.name}', ${fx}${sends})`
+}
+
+/** `macro bright 1480 500..7300 log` → macro('bright', 1480, { … }). */
+function cgMacro(item: Extract<TopItem, { t: 'macro' }>): string {
+  const parts: string[] = []
+  if (item.lo !== undefined) parts.push(`min: ${num(item.lo)}`)
+  if (item.hi !== undefined) parts.push(`max: ${num(item.hi)}`)
+  if (item.curve !== undefined) parts.push(`curve: '${item.curve}'`)
+  return `macro('${item.name}', ${num(item.def)}${parts.length > 0 ? `, { ${parts.join(', ')} }` : ''})`
 }
 
 function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
@@ -548,18 +590,31 @@ export function codegen(program: Program, errors: RondoError[]): string {
   // the same reason, one stage earlier: synth() eager-compiles its graph and
   // the wavetable kernel resolves table names at CONSTRUCTION, so a table
   // must be registered before any synth that names it.
-  const isDef = (it: TopItem): boolean => it.t === 'scaledef' || it.t === 'wavedef'
+  // MACROS hoist for the same reason wavetables do: synth() eager-compiles,
+  // and param('bright') resolves its bounds from the registry at that moment,
+  // so the declaration must run first wherever the musician wrote it.
+  const macroNames = new Set(
+    program.items.filter((it): it is Extract<TopItem, { t: 'macro' }> => it.t === 'macro').map((it) => it.name),
+  )
+  for (const it of program.items) {
+    if (it.t !== 'macro') continue
+    if (BUILTINS[it.name] !== undefined) {
+      errors.push({ message: `macro '${it.name}' collides with the builtin '${it.name}' — rename the macro`, line: it.pos.line, col: it.pos.col })
+    }
+  }
+  const isDef = (it: TopItem): boolean => it.t === 'scaledef' || it.t === 'wavedef' || it.t === 'macro'
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
   const parts = items.map((item: TopItem) => {
-    if (item.t === 'synth') return cgSynth(item, errors)
+    if (item.t === 'synth') return cgSynth(item, errors, macroNames)
     if (item.t === 'play') return cgPlay(item)
-    if (item.t === 'sing') return cgSing(item, errors)
+    if (item.t === 'sing') return cgSing(item, errors, macroNames)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item)
     if (item.t === 'master') return cgMaster(item)
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)
-    if (item.t === 'bus') return cgBus(item, errors)
+    if (item.t === 'bus') return cgBus(item, errors, macroNames)
+    if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'section') return cgSection(item)
     if (item.t === 'song') return '' // assembled below, after all sections exist

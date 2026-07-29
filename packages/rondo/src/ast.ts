@@ -204,10 +204,26 @@ export interface SingBlock {
   pos: Pos
 }
 
+/** `macro bright 1480 500..7300 log` — a project-wide control. Declared once
+ *  at the top level, then referenced BARE from any synth or post chain, so one
+ *  knob moves every use site. Each site is free to scale it (`bright * 0.5`,
+ *  `0.6 - bright / 7300 * 0.55`), which is how one knob drives several things
+ *  at different ratios: a macro is a value, not a wire. The range is optional
+ *  (the engine's param defaults apply without it). */
+export interface MacroItem {
+  t: 'macro'
+  name: string
+  def: number
+  lo?: number
+  hi?: number
+  curve?: string
+  pos: Pos
+}
+
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
-  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem
+  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem
 
 export interface Program {
   items: TopItem[]

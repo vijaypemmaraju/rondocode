@@ -18,7 +18,7 @@ import { scrubLens } from '../widgets/scrub'
 import type { EditorState, Extension, Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
-import { formatNumber, niceStep } from '../widgets/rewrite'
+import { formatNumber, literalWidth, niceStep } from '../widgets/rewrite'
 import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, MultiLiveWriter, attachGesture, verifiedChanges } from './gesture'
@@ -1308,6 +1308,19 @@ class KnobWidget extends WidgetType {
     const kvStep = niceStep(Math.abs(this.hi - this.lo) / 200)
     const showValue = (v: number): void => { kv.textContent = formatNumber(v, { step: kvStep, min: Math.min(this.lo, this.hi) }) }
     const setDial = (t: number): void => { ptr.setAttribute('transform', `rotate(${-135 + 270 * t} 12 12)`) }
+    // HOLD THE DIAL STILL. The widget sits immediately after the DEF literal,
+    // and a drag rewrites that literal to widths that differ by characters
+    // (`0` -> `0.02` -> `0.355`) — so without this the dial slides sideways
+    // under the finger holding it. Reserve the widest literal the range can
+    // produce and give back exactly what the number takes.
+    const maxW = literalWidth(this.lo, this.hi, kvStep)
+    const reserve = (len: number): void => {
+      wrap.style.marginLeft = `calc(2px + ${Math.max(0, maxW - len)}ch)`
+    }
+    reserve(this.defTo - this.defFrom) // the literal AS WRITTEN, not as we would print it
+    // the readout is inside the widget, so its width shifts everything after
+    // it on the line — pin it to the same reserve
+    kv.style.minWidth = `${maxW}ch`
     const baseT = toNorm(this.value, this.lo, this.hi, this.log)
     setDial(baseT)
     showValue(this.value)
@@ -1408,6 +1421,7 @@ class KnobWidget extends WidgetType {
           }
           const text = formatNumber(v, { step, min: Math.min(this.lo, this.hi) })
           if (!writer.write(text)) return // a concurrent edit aborted the gesture
+          reserve(text.length)
           setDial(t)
           kv.textContent = text
           this.hooks.requestEval(false)

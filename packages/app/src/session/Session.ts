@@ -644,21 +644,32 @@ export class Session {
     return [...byName.values()]
   }
 
+  /** Which synths a macro is currently HELD on. A drag re-evals continuously,
+   *  so the live target list changes under it — a synth can be renamed, added
+   *  or removed between the hold and the release. Releasing against the
+   *  CURRENT list would then miss a site and leave it held forever, ignoring
+   *  its pattern for the rest of the session. Release what was actually held. */
+  private readonly heldMacroSites = new Map<string, Set<string>>()
+
   /** Move a macro: applies to EVERY site at once, and holds them, so the one
    *  knob outranks any pattern driving a copy (see holdParam). Unknown macro
    *  name = no sites = a silent no-op, forgiven like setChannel: a control
    *  surface races live evals that rename and delete things constantly. */
   holdMacro(name: string, value: number, owner: ParamOwner = 'touch'): void {
+    const sites = this.heldMacroSites.get(name) ?? new Set<string>()
     for (const t of this.paramTargets()) {
-      if (t.macro === true && t.param === name) this.holdParam(t.synth, name, value, owner)
+      if (t.macro !== true || t.param !== name) continue
+      this.holdParam(t.synth, name, value, owner)
+      sites.add(t.synth) // voice and post share one key, so a Set is exact
     }
+    this.heldMacroSites.set(name, sites)
   }
 
-  /** Release the hold on every site of a macro (see releaseParam). */
+  /** Release the hold on every site this macro was HELD on (see releaseParam
+   *  and heldMacroSites for why it is not the current target list). */
   releaseMacro(name: string, owner: ParamOwner = 'touch'): void {
-    for (const t of this.paramTargets()) {
-      if (t.macro === true && t.param === name) this.releaseParam(t.synth, name, owner)
-    }
+    for (const synth of this.heldMacroSites.get(name) ?? []) this.releaseParam(synth, name, owner)
+    this.heldMacroSites.delete(name)
   }
 
   /** Set a macro WITHOUT holding it — the programmatic route (MCP, a script),

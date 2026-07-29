@@ -1,5 +1,7 @@
 import type { EditorHandle } from './editor'
 import { isDesktop, openVirtualMidi } from '../desktop/bridge'
+import { ArpDriver } from '../midi/arpdriver'
+import type { ArpDriverOpts } from '../midi/arpdriver'
 import type { MidiSink } from '../desktop/bridge'
 import type { AudioSession } from '../audio/AudioSession'
 import type { ParamTarget } from '../session/Session'
@@ -140,6 +142,51 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     },
   })
 
+  /* ---- arp controls ---------------------------------------------------- *
+   * Opt-in PER SYNTH, so plugging in a keyboard behaves exactly as it always
+   * has until you ask for the arp. The figure is a step pattern of chord
+   * degrees; this panel exposes the switch, latch and grid, and the pattern
+   * itself stays where patterns belong (see `.overChord()`). */
+  const arpRow = el('div', 'midi-arp-row')
+  const arpOn = el('input') as HTMLInputElement
+  arpOn.type = 'checkbox'
+  arpOn.id = 'midi-arp-on'
+  const arpLabel = el('label', 'export-label', 'arpeggiate')
+  arpLabel.htmlFor = 'midi-arp-on'
+  const arpLatch = el('input') as HTMLInputElement
+  arpLatch.type = 'checkbox'
+  arpLatch.id = 'midi-arp-latch'
+  const latchLabel = el('label', 'export-label', 'latch')
+  latchLabel.htmlFor = 'midi-arp-latch'
+  const arpGrid = el('select', 'midi-pick') as HTMLSelectElement
+  arpGrid.setAttribute('aria-label', 'arp grid')
+  for (const [label, steps] of [['1/8', 8], ['1/16', 16], ['1/32', 32]] as [string, number][]) {
+    const o = el('option', undefined, label) as HTMLOptionElement
+    o.value = String(steps)
+    if (steps === 16) o.selected = true
+    arpGrid.append(o)
+  }
+  const arpMode = el('select', 'midi-pick') as HTMLSelectElement
+  arpMode.setAttribute('aria-label', 'arp mode')
+  for (const m of ['up', 'down', 'updown', 'downup', 'converge']) {
+    const o = el('option', undefined, m) as HTMLOptionElement
+    o.value = m
+    arpMode.append(o)
+  }
+  arpRow.append(arpLabel, arpOn, latchLabel, arpLatch, arpGrid, arpMode)
+  const arpHint = el('div', 'export-hint', 'hold a chord; the transport plays the figure over it')
+
+  const applyArp = (): void => {
+    const synth = activeSynth()
+    if (synth === undefined || synth === null) return
+    setArp(synth, arpOn.checked, {
+      latch: arpLatch.checked,
+      stepsPerCycle: Number(arpGrid.value),
+      mode: arpMode.value,
+    })
+  }
+  for (const c of [arpOn, arpLatch, arpGrid, arpMode]) c.addEventListener('change', applyArp)
+
   pop.append(
     el('div', 'export-head', 'midi input'),
     status,
@@ -147,6 +194,8 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     pick,
     toggle,
     el('div', 'export-hint', 'plays a running synth from a connected keyboard'),
+    arpRow,
+    arpHint,
     mapHead,
     learnRow,
     rowList,
@@ -439,11 +488,71 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     const cmd = data[0]! & 0xf0
     const synth = activeSynth()
     if (!synth) return
+    // ARP (opt-in per synth): the keyboard feeds a HELD CHORD instead of
+    // sounding directly, and the transport plays the figure over it. Off by
+    // default, so plugging in a controller behaves the way it always has.
+    const arp = arpFor(synth)
+    if (arp !== null) {
+      if (cmd === 0x90 && data[2]! > 0) arp.noteOn(data[1]!)
+      else if (cmd === 0x80 || (cmd === 0x90 && data[2] === 0)) arp.noteOff(data[1]!)
+      return
+    }
     if (cmd === 0x90 && data[2]! > 0) {
       audio.send({ kind: 'noteOn', synth, note: data[1]!, velocity: data[2]! / 127 })
     } else if (cmd === 0x80 || (cmd === 0x90 && data[2] === 0)) {
       audio.send({ kind: 'noteOff', synth, note: data[1]! })
     }
+  }
+
+  /* ---- live arp -------------------------------------------------------- *
+   * One driver per synth that has it switched on. Polled on a timer rather
+   * than the scheduler's tick: the arp reads the TRANSPORT position (which
+   * resets on stop) and only acts when the step index changes, so a coarse
+   * poll costs nothing and a missed poll cannot double-fire. */
+  const arps = new Map<string, ArpDriver>()
+  let arpTimer: ReturnType<typeof setInterval> | undefined
+
+  const arpFor = (synth: string): ArpDriver | null => arps.get(synth) ?? null
+
+  /** Switch the arp on or off for `synth`. */
+  const setArp = (synth: string, on: boolean, opts: ArpDriverOpts = {}): void => {
+    const existing = arps.get(synth)
+    if (!on) {
+      existing?.stop()
+      arps.delete(synth)
+      if (arps.size === 0 && arpTimer !== undefined) {
+        clearInterval(arpTimer)
+        arpTimer = undefined
+      }
+      return
+    }
+    if (existing !== undefined) {
+      existing.configure(opts)
+      return
+    }
+    arps.set(
+      synth,
+      new ArpDriver(
+        {
+          now: () => audio.currentTimeFrames / audio.sampleRate,
+          cycleAt: (t) => session.cycleAt(t),
+          isPlaying: () => session.getState().playing,
+          noteOn: (note, velocity) => audio.send({ kind: 'noteOn', synth, note, velocity }),
+          noteOff: (note) => audio.send({ kind: 'noteOff', synth, note }),
+        },
+        opts,
+      ),
+    )
+    // 4 ms: comfortably finer than a 16th at any sane tempo, and the driver
+    // is idempotent per step so over-polling is free
+    arpTimer ??= setInterval(() => {
+      for (const d of arps.values()) d.tick()
+    }, 4)
+  }
+
+  /** Release every arp (transport stop, panel teardown). */
+  const stopArps = (): void => {
+    for (const d of arps.values()) d.stop()
   }
 
   const inputs = (): MIDIInput[] =>
@@ -524,6 +633,7 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
 
   return () => {
     offState()
+    stopArps()
     if (enabled) disable()
     stopClockPoll()
     router.releaseHeld()

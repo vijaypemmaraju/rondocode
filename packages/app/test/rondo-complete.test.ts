@@ -126,3 +126,44 @@ describe('what the document knows', () => {
     expect(macroNames('macro a 1 0..2\n# macro b 1 0..2\nmacro c 2 0..4\n')).toEqual(['a', 'c'])
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Hover must answer in RONDO.
+ *
+ * Builtins used to fall through to the JS DSL's hover, which documents the
+ * underlying CALL — `svf(inp, cutoff, opts?)` — for a language whose actual
+ * spelling is `svf cutoff res:…`. Accurate about JavaScript, and about
+ * nothing you can type in a .rondo file.
+ * ------------------------------------------------------------------------- */
+describe('rondo hover speaks rondo', () => {
+  const byLabel = new Map(OPTIONS.map((o) => [String(o.label), o]))
+
+  it('covers BUILTINS, not just block keywords', () => {
+    for (const name of ['svf', 'ladder', 'reverb', 'delay', 'wavetable', 'adsr']) {
+      expect(byLabel.has(name), name).toBe(true)
+    }
+  })
+
+  it('every signature is rondo-shaped: no parens, no JS punctuation', () => {
+    for (const o of OPTIONS) {
+      const sig = String(o.detail ?? '')
+      expect(sig, `${String(o.label)}: ${sig}`).not.toMatch(/\(|\)|=>|;/)
+      // and it leads with the word itself, the way you would type it
+      expect(sig.startsWith(String(o.label)), `${String(o.label)}: ${sig}`).toBe(true)
+    }
+  })
+
+  it('the math ops are documented — they had no entry at all before', () => {
+    for (const name of ['abs', 'floor', 'max', 'min', 'mod', 'sqrt', 'fold', 'syncsaw', 'lfsr']) {
+      expect(byLabel.has(name), name).toBe(true)
+    }
+    expect(String(byLabel.get('max')!.detail)).toBe('max x')
+    // the floored-mod surprise is the thing worth saying out loud
+    expect(String(byLabel.get('mod')!.info)).toMatch(/FLOORED/)
+  })
+
+  it('so they are offered in a synth body too', () => {
+    const got = labels({ kind: 'synth', block: 'synth' }, 'synth s\n  saw note\n', 0)
+    expect(got).toEqual(expect.arrayContaining(['max', 'floor', 'abs']))
+  })
+})

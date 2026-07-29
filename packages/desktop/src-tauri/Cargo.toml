@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "rondocode desktop shell: local files + a virtual MIDI port for DAWs"
 license = "MIT"
+# Name the app binary explicitly. Diagnostics live in examples/, NOT src/bin:
+# a second [[bin]] made `tauri build` bundle the wrong executable, so the .app
+# launched a CLI that printed and exited, which presents as "crashes on launch".
+default-run = "rondocode-desktop"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

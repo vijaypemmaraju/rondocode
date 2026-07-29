@@ -23,7 +23,8 @@
     "security": {
       "csp": null
     },
-    "macOSPrivateApi": false
+    "macOSPrivateApi": false,
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { AdsrKernel, EnvKernel } from '../src/dsp/env'
+import type { EnvPoint } from '../src/dsp/env'
 import type { DspContext } from '../src/dsp/types'
 
 const ctx: DspContext = { sampleRate: 48000 }
@@ -281,5 +282,56 @@ describe('EnvKernel (multi-segment)', () => {
 
   it('rejects an empty breakpoint list at construction', () => {
     expect(() => new EnvKernel({ points: [] })).toThrow()
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Per-segment curvature.
+ *
+ * `curve` warps every joint the same way, which is not how a curve is drawn:
+ * the attack wants snapping and the tail wants easing. A third number on a
+ * breakpoint gives THAT segment its own shape.
+ * ------------------------------------------------------------------------- */
+describe('EnvKernel: a breakpoint may carry its own curve', () => {
+  const held = (points: EnvPoint[], opts: Record<string, unknown> = {}): Float32Array => {
+    const k = new EnvKernel({ points, ...opts } as never)
+    const n = Math.floor(0.4 * ctx.sampleRate)
+    const gate = new Float32Array(n).fill(1)
+    const out = new Float32Array(n)
+    k.process(n, { gate }, out, ctx)
+    return out
+  }
+  const at = (o: Float32Array, ms: number): number => o[Math.floor((ms / 1000) * ctx.sampleRate)]!
+
+  it('shapes ONE segment and leaves the next linear', () => {
+    // 0->1 over 100ms, then 1->0 over 100ms
+    const o = held([[0.1, 1, 4], [0.1, 0]])
+    expect(at(o, 50)).toBeGreaterThan(0.85)     // attack eased out, well past half
+    expect(at(o, 150)).toBeCloseTo(0.5, 2)      // decay still a straight line
+  })
+
+  it('a negative curve eases IN — slow, then fast', () => {
+    const o = held([[0.1, 1, -4], [0.1, 0]])
+    expect(at(o, 50)).toBeLessThan(0.15)
+  })
+
+  it('two segments can bend in OPPOSITE directions, which is the point', () => {
+    const o = held([[0.1, 1, -4], [0.1, 0, 4]])
+    expect(at(o, 50)).toBeLessThan(0.15)   // ease in
+    expect(at(o, 150)).toBeLessThan(0.15)  // ease out: already most of the way down
+  })
+
+  it('an omitted curve inherits the envelope-wide one — old patches unchanged', () => {
+    const global = held([[0.1, 1], [0.1, 0]], { curve: 4 })
+    const perSeg = held([[0.1, 1, 4], [0.1, 0, 4]])
+    expect(at(perSeg, 50)).toBeCloseTo(at(global, 50), 5)
+    expect(at(perSeg, 150)).toBeCloseTo(at(global, 150), 5)
+  })
+
+  it('plain pairs are still exactly linear', () => {
+    const o = held([[0.1, 1], [0.1, 0]])
+    expect(at(o, 25)).toBeCloseTo(0.25, 2)
+    expect(at(o, 50)).toBeCloseTo(0.5, 2)
+    expect(at(o, 75)).toBeCloseTo(0.75, 2)
   })
 })

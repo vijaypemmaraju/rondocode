@@ -27,6 +27,10 @@ export type Expr =
   | { t: 'map'; x: Expr; lo: Expr; hi: Expr; pos: Pos }
   /** a live control declared on a binding: `knob DEF lo..hi curve`. */
   | { t: 'knob'; def: Expr; lo: Expr; hi: Expr; curve?: string; pos: Pos }
+  /** `LEVEL:CURVE` on an env breakpoint — that segment's own shape, where the
+   *  envelope-wide `curve:` would bend every joint the same way. Only legal in
+   *  an `env` argument list. */
+  | { t: 'curved'; level: Expr; curve: Expr; pos: Pos }
   /** raw rondocode/JS passed through verbatim via the `js{ … }` escape hatch. */
   | { t: 'js'; code: string; pos: Pos }
 

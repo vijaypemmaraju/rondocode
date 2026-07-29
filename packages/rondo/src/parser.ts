@@ -177,7 +177,20 @@ function parseApp(c: Cursor): Expr {
       // Bare `env` stays an ident — it's a reference to a binding named env.
       c.next()
       const args: Expr[] = []
-      while (canStartArg(c)) args.push(parseExpr(c, 5))
+      while (canStartArg(c)) {
+        const arg = parseExpr(c, 5)
+        // `LEVEL:CURVE` gives THIS segment its own shape. Only after a level
+        // (odd slot); a colon after a time would be `time:` and means nothing.
+        // Unambiguous because a number followed by a colon has no other
+        // meaning in an expression — named args are `word:value`.
+        const nx = c.peek()
+        if (nx?.k === 'colon' && args.length % 2 === 1) {
+          c.next()
+          args.push({ t: 'curved', level: arg, curve: parseExpr(c, 5), pos: nx.pos })
+          continue
+        }
+        args.push(arg)
+      }
       const named = parseNamed(c, BUILTINS['env'])
       if (args.length === 0 && Object.keys(named).length === 0) return { t: 'ident', name, pos: t.pos }
       if (args.length === 0 || args.length % 2 !== 0) c.err('env takes time/level pairs, e.g. `env .005 1 .15 .4 release:.3`', t.pos)

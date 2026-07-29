@@ -153,7 +153,7 @@ export const OPTIONS: Completion[] = [
   c('tanh', 'function', 'tanh', 'Saturate the running signal (harmonic bass).'),
   c('clip', 'function', 'clip [lo hi]', 'Hard-clip the running signal.'),
   c('mix', 'function', 'mix other t', 'Crossfade the running signal with another.'),
-  c('env', 'function', 'env t lvl t lvl … release:… curve:… loop:1', 'Breakpoint envelope: time/level pairs (the flexible cousin of adsr).'),
+  c('env', 'function', 'env t lvl t lvl:curve … release:… curve:… loop:1', 'Breakpoint envelope: time/level pairs (the flexible cousin of adsr). A level may carry its OWN curve as `1:3` — the envelope-wide `curve:` bends every joint the same way, and a drawn curve does not.'),
   c('eq', 'function', 'eq hp 170 peak 300 -3 2 highshelf 7000 4', 'Parametric EQ: each band is a type word + freq [gain] [q].'),
   c('vocoder', 'function', 'vocoder MOD bands:20', 'Vocoder: the running signal is the carrier, MOD supplies the voice.'),
   c('reverb', 'function', 'reverb room:… mix:…', 'Algorithmic reverb (post). `mix:` blends wet over dry.'),

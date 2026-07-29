@@ -177,6 +177,9 @@ class SynthGen {
           }
         }
         return e.code
+      case 'curved':
+        this.errors.push({ message: '`level:curve` is only for an env breakpoint (`env .005 1:3 .15 .4`)', line: e.pos.line, col: e.pos.col })
+        return this.expr(e.level)
       case 'knob':
         this.errors.push({ message: 'knob can only appear on a binding (`cutoff = knob …`)', line: e.pos.line, col: e.pos.col })
         return '0'
@@ -210,12 +213,21 @@ class SynthGen {
 
     // positional args (parser already ordered them; procs/sigops carry the
     // input/running signal as args[0])
-    let a = e.args.map((x) => this.expr(x))
-    // env: flat time/level pairs → ONE [[t, l], …] points argument
+    // env: flat time/level pairs → ONE [[t, l], …] points argument. Built from
+    // the RAW args, since a level may carry its own curve (`1:3`).
+    let a: string[]
     if (name === 'env') {
       const pairs: string[] = []
-      for (let i = 0; i + 1 < a.length; i += 2) pairs.push(`[${a[i]}, ${a[i + 1]}]`)
+      for (let i = 0; i + 1 < e.args.length; i += 2) {
+        const time = this.expr(e.args[i]!)
+        const lv = e.args[i + 1]!
+        pairs.push(lv.t === 'curved'
+          ? `[${time}, ${this.expr(lv.level)}, ${this.expr(lv.curve)}]`
+          : `[${time}, ${this.expr(lv)}]`)
+      }
       a = [`[${pairs.join(', ')}]`]
+    } else {
+      a = e.args.map((x) => this.expr(x))
     }
     // an osc/gated source with a freq default and no freq arg reads the note
     // (gated too: bare `pluck` / `modal model:bell` should pitch from the note)
@@ -325,6 +337,7 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
       case 'bin': return [...refs(e.l), ...refs(e.r)]
       case 'map': return [...refs(e.x), ...refs(e.lo), ...refs(e.hi)]
       case 'call': return [...e.args.flatMap(refs), ...Object.values(e.named).flatMap(refs)]
+      case 'curved': return [...refs(e.level), ...refs(e.curve)]
       case 'knob': return [...refs(e.def), ...refs(e.lo), ...refs(e.hi)]
       case 'js': return []
       default: return []

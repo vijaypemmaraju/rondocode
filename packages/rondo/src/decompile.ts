@@ -265,12 +265,17 @@ function rExpr(n: Node): R | null {
         for (const el of pts['elements'] as (Node | null)[]) {
           if (el === null || el.type !== 'ArrayExpression') return null
           const pair = el['elements'] as (Node | null)[]
-          if (pair.length !== 2) return null
+          // [t, level] or [t, level, curve] — the third gives THAT segment its
+          // own shape and comes back as `level:curve`
+          if (pair.length !== 2 && pair.length !== 3) return null
+          const vals: number[] = []
           for (const p of pair) {
             const x = p !== null ? numValue(p) : undefined
             if (x === undefined) return null
-            flat.push(num(x))
+            vals.push(x)
           }
+          flat.push(num(vals[0]!))
+          flat.push(vals.length === 3 ? `${num(vals[1]!)}:${num(vals[2]!)}` : num(vals[1]!))
         }
         if (flat.length === 0) return null
         const named = namedArgs(BUILTINS['env']!, args[2])

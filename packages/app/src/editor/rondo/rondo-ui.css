@@ -105,6 +105,23 @@
   color: var(--c-accent);
   background: color-mix(in srgb, var(--c-accent) 20%, transparent);
 }
+/* the value the ENGINE will use, where it differs from the one written. A
+   warning tone rather than the accent: this is "that number is not doing what
+   it says", not a readout you asked for. */
+.rondo-clamp-chip {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-warn, #e0a94a);
+  background: color-mix(in srgb, var(--c-warn, #e0a94a) 16%, transparent);
+  pointer-events: none;
+  user-select: none;
+}
 /* inline rondo envelope widget: a draggable A/D/S/R curve after an `adsr` */
 .rondo-env {
   display: inline-flex;

@@ -457,7 +457,15 @@ export interface SynthDef {
 }
 
 /** Normalize + clamp user VoiceOptsInput into a full VoiceOpts. */
-const normalizeVoiceOpts = (o: VoiceOptsInput): VoiceOpts => {
+/** Clamp `voices` the way synth() does when it becomes maxVoices. Exported so
+ *  the editor can show the effective value without copying the numbers. */
+export const clampMaxVoices = (v: number): number =>
+  Math.floor(Math.min(64, Math.max(1, v)))
+
+/** Normalize + clamp voice options exactly as synth() will. EXPORTED so the
+ *  editor can report what a written value actually becomes: a second copy of
+ *  these bounds in the UI would drift from these the first time one changed. */
+export const normalizeVoiceOpts = (o: VoiceOptsInput): VoiceOpts => {
   const num = (v: unknown, def: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : def)
   return {
     mono: o.mono === true,

@@ -7,7 +7,7 @@ import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { javascript } from '@codemirror/lang-javascript'
 import { compile, decompile, formatRondo } from '@rondocode/rondo'
 import type { NoteSpan } from '@rondocode/rondo'
-import { getWavetableBank } from '@rondocode/engine'
+import { clampMaxVoices, getWavetableBank, normalizeVoiceOpts } from '@rondocode/engine'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
@@ -661,6 +661,11 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // one drag moves the whole project rather than one synth's copy
     holdMacro: (name, value) => session.holdMacro(name, value),
     releaseMacro: (name) => session.releaseMacro(name),
+    // the engine's OWN clamps, so the editor never restates them
+    voiceOptEffective: (name, written) =>
+      name === 'voices'
+        ? clampMaxVoices(written)
+        : (normalizeVoiceOpts({ [name]: written }) as unknown as Record<string, number>)[name] ?? written,
     // grid preview: tapping a piano-roll cell while stopped sounds that note
     // (a one-shot noteOn/noteOff straight to the engine; the tap is the
     // audio-unlock gesture)

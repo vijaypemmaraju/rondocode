@@ -1,4 +1,4 @@
-import { Scheduler } from '@rondocode/pattern'
+import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
@@ -675,6 +675,9 @@ export class Session {
    *  name = no sites = a silent no-op, forgiven like setChannel: a control
    *  surface races live evals that rename and delete things constantly. */
   holdMacro(name: string, value: number, owner: ParamOwner = 'touch'): void {
+    // the PATTERN layer reads the same knob (macroval), and it must not have
+    // to wait for a re-eval to see the hand move
+    setMacroValue(name, value)
     const sites = this.heldMacroSites.get(name) ?? new Set<string>()
     for (const t of this.paramTargets()) {
       if (t.macro !== true || t.param !== name) continue
@@ -695,6 +698,7 @@ export class Session {
    *  where nothing is going to call release. Returns how many sites it reached,
    *  so a caller can tell "moved nothing" from "moved everything". */
   setMacro(name: string, value: number, rampMs?: number): number {
+    setMacroValue(name, value)
     let n = 0
     for (const t of this.paramTargets()) {
       if (t.macro !== true || t.param !== name) continue

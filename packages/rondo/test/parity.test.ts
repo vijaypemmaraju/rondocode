@@ -64,6 +64,7 @@ const COVERED_GLOBALS: Record<string, string> = {
   toggle: 'scrub a 0/1 (or pattern it: `<1 0>`)',
   xy: 'two knobs / two scrubbed numbers',
   pick: '`<…>` alternation, or edit-in-place with autocomplete',
+  macroval: 'write the macro NAME in a modifier (`dur: bright / 7300`); codegen emits it',
 }
 
 describe('rondo ⇄ JS DSL parity scoreboard', () => {

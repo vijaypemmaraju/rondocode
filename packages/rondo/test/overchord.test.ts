@@ -74,3 +74,91 @@ describe('overchord', () => {
     expect(decompile(js)).not.toContain('overchord:')
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * A numeric modifier will not quietly take a word.
+ *
+ * `dur: bright / 7300` used to compile to `.dur('bright / 7300')` — a mini
+ * string — and every event came out with dur set to the STRING "bright". No
+ * error, and no sound change you could trace back. The mistake is easy to make
+ * because `bright` IS a real name: a synth param, which lives in the audio
+ * graph and cannot be read from the pattern layer at all.
+ * ------------------------------------------------------------------------- */
+describe('numeric play modifiers reject bare words', () => {
+  const play = (mod: string): string =>
+    `synth lead\n  saw note\n  bright = knob 1200 500..7300 log\n  * bright\n\nplay lead\n  0 3 5\n  ${mod}\n`
+
+  it('names the offending word, and where it actually lives', () => {
+    const c = compile(play('dur: bright / 7300'))
+    expect(c.ok).toBe(false)
+    if (!c.ok) {
+      expect(c.errors[0]!.message).toMatch(/takes numbers, not `bright`/)
+      expect(c.errors[0]!.message).toMatch(/lives in the synth/)
+      expect(c.errors[0]!.line).toBe(8)
+    }
+  })
+
+  it('catches it on gain and pan and a .ctrl too, not just dur', () => {
+    for (const mod of ['gain: bright', 'pan: bright', 'cutoff: bright']) {
+      expect(compile(play(mod)).ok, mod).toBe(false)
+    }
+  })
+
+  it('still accepts everything a numeric modifier legitimately takes', () => {
+    for (const mod of ['dur: .5', 'dur: <.5 1>', 'gain: 1 .5 ~ .8', 'dur: sine 0.1..2 slow:4', 'cutoff: rise 8']) {
+      expect(compile(play(mod)).ok, mod).toBe(true)
+    }
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A macro reaching `dur` — the structural side of the pattern.
+ *
+ * `dur`, `gain` and `pan` are consumed by the SCHEDULER per event and never
+ * sent to the engine, so a synth param could never drive one. A macro can,
+ * because its value is mirrored into the pattern layer (macroval) and read at
+ * query time.
+ * ------------------------------------------------------------------------- */
+describe('macros drive dur/gain/pan', () => {
+  const play = (mod: string): string =>
+    `macro bright 1200 500..7300 log\n\nsynth lead\n  saw note\n  svf bright res:.3\n\nplay lead\n  0 3 5\n  ${mod}\n`
+
+  const line = (mod: string): string => {
+    const c = compile(play(mod))
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    return c.ok ? c.code.split('\n').find((l) => l.startsWith("p('lead'"))! : ''
+  }
+
+  it('a bare macro name becomes a pattern signal, not a mini string', () => {
+    expect(line('dur: bright / 7300')).toContain(".dur(macroval('bright').div(7300))")
+  })
+
+  it('COMMUTES a literal head, since a number has no .sub', () => {
+    // the same shape the synth side emits for `0.6 - norm * 0.55`
+    expect(line('dur: 0.6 - bright / 7300')).toContain(".dur(macroval('bright').div(7300).mul(-1).add(0.6))")
+  })
+
+  it('works on gain and pan and a .ctrl alike', () => {
+    expect(line('gain: bright / 7300')).toContain(".gain(macroval('bright')")
+    expect(line('pan: bright / 7300')).toContain(".pan(macroval('bright')")
+    expect(line('cutoff: bright / 2')).toContain(".ctrl('cutoff', macroval('bright')")
+  })
+
+  it('leaves ordinary values alone', () => {
+    expect(line('dur: .5')).toContain('.dur(0.5)')
+    expect(line('dur: <.5 1>')).toContain(".dur('<.5 1>')")
+    expect(line('dur: sine 0.1..2 slow:4')).toContain('.dur(sine.range(0.1, 2).slow(4))')
+  })
+
+  it('a word that is NOT a declared macro is still an error, not a mini string', () => {
+    const c = compile(play('dur: nosuch / 2'))
+    expect(c.ok).toBe(false)
+    if (!c.ok) expect(c.errors[0]!.message).toMatch(/takes numbers, not `nosuch`/)
+  })
+
+  it('declines what it cannot express rather than emitting something wrong', () => {
+    // `2 / bright` has no reciprocal combinator to lean on
+    const c = compile(play('dur: 2 / bright'))
+    expect(c.ok).toBe(false)
+  })
+})

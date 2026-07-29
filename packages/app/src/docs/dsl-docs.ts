@@ -206,6 +206,12 @@ const GLOBALS: DocEntry[] = [
     "macro('bright', 1480, { min: 500, max: 7300, curve: 'log' })",
   ),
   g(
+    'macroval',
+    'macroval(name: string)',
+    "Read a project-wide macro from the PATTERN side, as a signal: macroval('bright').div(7300). A macro is normally a synth param, and dur/gain/pan are structural -- the scheduler consumes them per event and they never reach the engine -- so a param could not drive one. This mirrors the same macro across, sampled once per note like any signal-driven control. In rondo you just write the macro's name in the modifier (dur: bright / 7300) and this is what it compiles to.",
+    "p('lead', n('0 3 5').sound('lead').dur(macroval('bright').div(7300)))",
+  ),
+  g(
     'setCps',
     'setCps(cps: number)',
     'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so 0.5 cps is a two-second bar, which at 4 beats to the bar is 120 bpm. setBpm is the same tempo in the unit you count in.',

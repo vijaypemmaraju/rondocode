@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { scanEnvsJs, scanKnobsJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
+import { scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
 import { scanEnvs } from '../src/editor/rondo/widgets'
+import { scanEnvPoints } from '../src/editor/rondo/envpoints'
 
 /* The JavaScript half of the widget scanners. They must produce EXACTLY the
  * descriptors the rondo scanners produce, because the widgets downstream are
@@ -229,5 +230,59 @@ describe('scanEnvsJs: adsr(gate, { a, d, s, r }) becomes a curve', () => {
     const spans = scanEnvs(rd)[0]!.ranges!
     expect(spans).toHaveLength(4)
     expect(new Set(spans.map((r) => r.from)).size).toBe(4) // no aliasing on equal values
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The breakpoint editor, in JavaScript.
+ *
+ * Nothing about the WRITER had to change: it edits character ranges, and a
+ * number inside a JS array literal is a range like any other. The editor was
+ * rondo-only because nobody had read the spans out of the tree — so what is
+ * tested is the spans, and that both languages describe the same shape.
+ * ------------------------------------------------------------------------- */
+describe('scanEnvPointsJs: env(gate, [[t, l], …]) becomes a shape', () => {
+  const JS = [
+    `const bell = synth(({ gate, env, saw, note }) => {`,
+    `  const e = env(gate, [[0.005, 1], [0.15, 0.4, 3], [0.5, 0.6]], { release: 0.3, curve: 2 })`,
+    `  return saw(note.freq).mul(e)`,
+    `})`,
+  ].join('\n')
+
+  it('reads every breakpoint, with a span on each number', () => {
+    const [s] = scanEnvPointsJs(JS)
+    expect(s!.points.map((p) => [p.time, p.level])).toEqual([[0.005, 1], [0.15, 0.4], [0.5, 0.6]])
+    expect(s!.points.map((p) => JS.slice(p.timeSpan.from, p.timeSpan.to))).toEqual(['0.005', '0.15', '0.5'])
+    expect(s!.points.map((p) => JS.slice(p.levelSpan.from, p.levelSpan.to))).toEqual(['1', '0.4', '0.6'])
+  })
+
+  it('carries a per-point curve and the envelope-wide one', () => {
+    const [s] = scanEnvPointsJs(JS)
+    expect(s!.points.map((p) => p.curve)).toEqual([undefined, 3, undefined])
+    expect(JS.slice(s!.points[1]!.curveSpan!.from, s!.points[1]!.curveSpan!.to)).toBe('3')
+    expect(s!.curve).toBe(2)
+  })
+
+  it('describes the same shape rondo does', () => {
+    const rd = '  e = env .005 1 .15 .4:3 .5 .6 curve:2\n'
+    const [j] = scanEnvPointsJs(JS)
+    const [r] = scanEnvPoints(rd)
+    expect(j!.points.map((p) => [p.time, p.level, p.curve]))
+      .toEqual(r!.points.map((p) => [p.time, p.level, p.curve]))
+    expect(j!.curve).toBe(r!.curve)
+  })
+
+  it('knows its synth, for the note marker', () => {
+    expect(scanEnvPointsJs(JS)[0]!.synth).toBe('bell')
+  })
+
+  it('DECLINES a computed breakpoint — the drawn shape would not be the played one', () => {
+    expect(scanEnvPointsJs('env(gate, [[0.1, 1], [dur, 0.5]])')).toEqual([])
+    expect(scanEnvPointsJs('env(gate, points)')).toEqual([])
+    expect(scanEnvPointsJs('env(gate, [[0.1, 1, 2, 3]])')).toEqual([]) // four is not a breakpoint
+  })
+
+  it('takes a single-point envelope, which is legal', () => {
+    expect(scanEnvPointsJs('env(gate, [[0.1, 1]])')[0]!.points).toHaveLength(1)
   })
 })

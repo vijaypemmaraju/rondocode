@@ -23,6 +23,7 @@
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { EnvMatch, KnobMatch, WidgetScan } from '../rondo/widgets'
+import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import type { UnisonScan } from '../rondo/unison'
 
@@ -231,6 +232,67 @@ export function scanEnvsJs(text: string): EnvMatch[] {
   return out
 }
 
+/* ---- the breakpoint editor: env(gate, [[t, l], …]) ----------------------- */
+
+/** Elements of an ArrayExpression, punctuation skipped. */
+function arrayItems(arr: SyntaxNode): SyntaxNode[] {
+  if (arr.name !== 'ArrayExpression') return []
+  const out: SyntaxNode[] = []
+  for (const c of kids(arr)) {
+    if (c.name === '[' || c.name === ']' || c.name === ',') continue
+    out.push(c)
+  }
+  return out
+}
+
+/** `env(gate, [[t, l], [t, l, curve], …], opts?)` as the same descriptor the
+ *  rondo scan produces, so the SAME widget serves both.
+ *
+ *  Nothing about the writer had to change: it edits character ranges, and a
+ *  number inside a JS array literal is a character range like any other. The
+ *  reason this was rondo-only was only ever that nobody had read the spans out
+ *  of the tree.
+ *
+ *  Every breakpoint must be plain literals. One computed point and the shape
+ *  drawn would not be the shape playing, so the widget declines rather than
+ *  draw a handle it cannot move. */
+export function scanEnvPointsJs(text: string): EnvPointsScan[] {
+  const root = parse(text)
+  const out: EnvPointsScan[] = []
+  for (const n of walk(root)) {
+    if (calleeName(text, n) !== 'env') continue
+    const args = callArgs(n)
+    if (args[1] === undefined || args[1].name !== 'ArrayExpression') continue
+    const points: EnvPointsScan['points'] = []
+    let ok = true
+    for (const el of arrayItems(args[1])) {
+      const nums = arrayItems(el).map((q) => numTok(text, q))
+      if (el.name !== 'ArrayExpression' || nums.length < 2 || nums.length > 3 || nums.some((q) => q === null)) {
+        ok = false
+        break
+      }
+      const [t, l, c] = nums as [NumTok, NumTok, NumTok | undefined]
+      const p: EnvPointsScan['points'][number] = {
+        time: t.value,
+        level: l.value,
+        timeSpan: { from: t.from, to: t.to },
+        levelSpan: { from: l.from, to: l.to },
+      }
+      if (c !== undefined) { p.curve = c.value; p.curveSpan = { from: c.from, to: c.to } }
+      points.push(p)
+    }
+    if (!ok || points.length === 0) continue
+    const synth = enclosingSynth(text, root, n.from)
+    const scan: EnvPointsScan = { points, at: n.to }
+    if (synth !== undefined) scan.synth = synth
+    const wide = args[2] !== undefined ? objProps(text, args[2]).get('curve') : undefined
+    const wideNum = wide !== undefined ? numTok(text, wide) : null
+    if (wideNum !== null) scan.curve = wideNum.value
+    out.push(scan)
+  }
+  return out
+}
+
 /* ---- unison fan: synth(fn, opts) / synth(fn, post, opts) ----------------- */
 
 /** Voice-spread glyphs on a `synth(…, { unison, detune, spread })`. Display
@@ -354,15 +416,16 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
  * literal. It is reachable — `n('0 3 5')` is right there — it just needs the
  * writer taught to stay inside the quotes. Until then it returns nothing here
  * rather than half-working, so a JS doc simply shows the widgets that fully
- * function. (The envelope came across once its writer stopped rebuilding a
- * space-joined region and started writing the four VALUES in place: that is
- * the only part the two languages share.) */
+ * function.
+ *
+ * The two envelope editors came across the same way, and it is the pattern to
+ * copy: nothing about either WRITER changed. Both edit character ranges, and a
+ * number inside a JS options object or array literal is a range like any
+ * other — the work was reading the spans out of the tree. */
 export const JS_SCAN: WidgetScan = {
   knobs: scanKnobsJs,
   envs: scanEnvsJs,
-  // the breakpoint editor is rondo-only for now: the JS form is an array of
-  // arrays, so the spans are there, but the writer has to stay inside them
-  envPoints: () => [],
+  envPoints: scanEnvPointsJs,
   plays: () => [],
   richPlays: () => [],
   beats: () => [],

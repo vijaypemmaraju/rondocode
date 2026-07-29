@@ -1,0 +1,19 @@
+[package]
+name = "rondocode-dsp"
+version = "0.1.0"
+edition = "2021"
+description = "rondocode DSP kernels: one implementation, wasm for the browser and native for a plugin"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# NO DEPENDENCIES, deliberately. The hot path must not pull wasm-bindgen: its
+# glue costs a call per invocation and we want ONE call per block. Raw exports
+# over linear memory is both faster and buildable from a cold offline registry.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"   # a panic in an audio callback has nowhere to go anyway
+codegen-units = 1

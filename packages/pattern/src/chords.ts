@@ -97,7 +97,11 @@ export function chord(x: string | Pattern<string>): Pattern<ControlMap> {
 }
 
 /** Arp note-index orders for N chord notes (indices into the low→high stack). */
-const ARP_ORDERS: Record<string, (n: number) => number[]> = {
+/** Index order per arp mode, for `n` notes. Exported so a LIVE arpeggiator
+ *  (held notes from a MIDI keyboard) walks the same orders as the pattern
+ *  `.arp()` — two tables would drift, and "updown" meaning two different
+ *  things in one app is exactly the kind of difference nobody reports. */
+export const ARP_ORDERS: Record<string, (n: number) => number[]> = {
   up: (n) => Array.from({ length: n }, (_, i) => i),
   down: (n) => Array.from({ length: n }, (_, i) => n - 1 - i),
   updown: (n) => {

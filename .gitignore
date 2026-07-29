@@ -16,3 +16,6 @@ packages/app/src/examples/local/
 
 # rust build output (packages/desktop)
 target/
+
+# rust spike build output
+packages/dsp-rs/target/

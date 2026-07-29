@@ -136,6 +136,70 @@ export class LiveWriter {
   }
 }
 
+/** A LiveWriter over SEVERAL ranges that must always hold the same text.
+ *
+ *  One param declared in both a synth body and its post chain is ONE control at
+ *  runtime — same name, same synth, driven by the same .ctrl. Two independent
+ *  knobs let the declarations drift apart, and then the two halves scale the
+ *  same value differently, silently. So a drag writes every declaration.
+ *
+ *  All ranges move in a SINGLE dispatch, because CodeMirror resolves every
+ *  change in a transaction against the ORIGINAL document — writing them one at
+ *  a time would shift the later offsets out from under themselves, which is the
+ *  bug that made the wavedef editor glitch under its own rewrites. Positions
+ *  are then re-tracked by accumulating each range's length delta. */
+export class MultiLiveWriter {
+  private ranges: { from: number; to: number; expected: string }[]
+  private aborted = false
+
+  constructor(
+    private readonly view: WriteHost,
+    ranges: readonly { from: number; to: number }[],
+  ) {
+    // ascending, so the delta accumulation below is a single forward pass
+    this.ranges = [...ranges]
+      .sort((a, b) => a.from - b.from)
+      .map((r) => ({ from: r.from, to: r.to, expected: view.state.doc.sliceString(r.from, r.to) }))
+  }
+
+  /** The primary (lowest) range, for callers that need one anchor. */
+  get from(): number {
+    return this.ranges[0]?.from ?? 0
+  }
+
+  get to(): number {
+    return this.ranges[0]?.to ?? 0
+  }
+
+  get text(): string {
+    return this.ranges[0]?.expected ?? ''
+  }
+
+  write(text: string): boolean {
+    if (this.aborted || this.ranges.length === 0) return false
+    // write-verify EVERY range: one stale range means the doc moved under us
+    for (const r of this.ranges) {
+      if (this.view.state.doc.sliceString(r.from, r.to) !== r.expected) {
+        this.aborted = true
+        return false
+      }
+    }
+    if (this.ranges.every((r) => r.expected === text)) return true
+    this.view.dispatch({
+      changes: this.ranges.map((r) => ({ from: r.from, to: r.to, insert: text })),
+    })
+    let delta = 0
+    for (const r of this.ranges) {
+      const before = r.to - r.from
+      r.from += delta
+      r.to = r.from + text.length
+      r.expected = text
+      delta += text.length - before
+    }
+    return true
+  }
+}
+
 /** One-shot verified splice(s) for deferred commit-at-end writes: dispatch
  *  only when EVERY range still holds its expected text — a single stale
  *  range drops the WHOLE write (the caller resyncs from the text instead).

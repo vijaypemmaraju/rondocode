@@ -1,14 +1,10 @@
 import { GraphError, validateGraph } from './graph'
 import type { GraphSpec, InputSource, NodeSpec, NodeType, ParamSpec } from './graph'
+import { RESERVED_PARAM_NAMES, lookupMacro } from './macro'
 import { compileGraph, compilePost } from './compile'
 import type { VoiceOpts } from './voice'
 import type { EqBand } from './dsp/eq'
 import type { Math2Op, MathOp } from './dsp/math'
-
-/** Control keys the scheduler consumes as STRUCTURAL (never sent as setParam),
- *  so a param() with one of these names would be permanently undrivable by
- *  .ctrl(). Mirrors the Session's NON_PARAM_KEYS; rejected at synth() build. */
-const RESERVED_PARAM_NAMES = new Set(['note', 'n', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc'])
 
 /* ------------------------------------------------------------------------- *
  * Synth builder DSL: the user-facing API for defining synths. A build
@@ -132,7 +128,7 @@ export interface SynthCtx {
   velocity: Sig
   /** Declare a live-controllable parameter. Omitted bounds default to
    *  min = 0, max = def > 0 ? def*4 : 1. */
-  param(name: string, def: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
+  param(name: string, def?: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
   sine(freq: SigIn): Sig
   saw(freq: SigIn): Sig
   square(freq: SigIn): Sig
@@ -332,7 +328,7 @@ export interface SynthCtx {
 export interface PostCtx {
   /** The summed-voices signal to process (a businput source). */
   input: Sig
-  param(name: string, def: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
+  param(name: string, def?: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -650,7 +646,7 @@ const definedConfig = (obj: Record<string, unknown>): Record<string, unknown> | 
 const makeShared = (b: Builder) => {
   const src = (x: SigIn, what: string): InputSource => b.src(x, what)
   return {
-    param: (name: string, def: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig => {
+    param: (name: string, def?: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig => {
       if (RESERVED_PARAM_NAMES.has(name)) {
         throw new GraphError(
           `param '${name}' shadows a structural control key — it can never be driven by .ctrl('${name}', …) (those are consumed as note/gain/pan/dur/…). Rename the param.`,
@@ -659,16 +655,31 @@ const makeShared = (b: Builder) => {
       if (b.params.some((p) => p.name === name)) {
         throw new GraphError(`duplicate param name '${name}' in synth()`)
       }
-      if (def < 0 && opts?.min === undefined) {
+      // No default given: this is a MACRO reference. The numbers live on the
+      // macro() declaration, which is the whole point — one literal, so no use
+      // site can drift from another.
+      const mac = def === undefined ? lookupMacro(name) : undefined
+      if (def === undefined && mac === undefined) {
+        throw new GraphError(
+          `param('${name}') has no default and no macro named '${name}' is declared — pass a default, or declare macro('${name}', …) above this synth`,
+        )
+      }
+      if (mac !== undefined) {
+        const spec: ParamSpec = { name, default: mac.default, min: mac.min, max: mac.max, macro: true }
+        if (mac.curve !== undefined) spec.curve = mac.curve
+        b.params.push(spec)
+        return b.node('param', {}, { name })
+      }
+      if (def! < 0 && opts?.min === undefined) {
         throw new GraphError(
           `param '${name}': negative default (${def}) requires an explicit min (omitted min defaults to 0)`,
         )
       }
       const spec: ParamSpec = {
         name,
-        default: def,
+        default: def!,
         min: opts?.min ?? 0,
-        max: opts?.max ?? (def > 0 ? def * 4 : 1),
+        max: opts?.max ?? (def! > 0 ? def! * 4 : 1),
       }
       if (opts?.curve !== undefined) spec.curve = opts.curve
       b.params.push(spec)

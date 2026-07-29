@@ -1,0 +1,172 @@
+import { describe, expect, it } from 'vitest'
+import type { EngineEvent, EngineMessage } from '@rondocode/engine'
+import { Session } from '../src/session/Session'
+
+/* ------------------------------------------------------------------------- *
+ * Project-wide macros, over a real Session.
+ *
+ * The feature is "one knob controls things across the whole project, each at
+ * its own ratio". Two halves, tested separately because they fail differently:
+ *
+ *   - the RATIOS are ordinary arithmetic at each use site, so nothing has to
+ *     know about them. What the macro guarantees is that every site reads ONE
+ *     declaration, so the numbers cannot drift.
+ *   - the BROADCAST is Session's job: one move, one message per live site.
+ * ------------------------------------------------------------------------- */
+
+const rig = () => {
+  const sent: EngineMessage[] = []
+  const audio = {
+    send: (m: EngineMessage) => void sent.push(m),
+    onEvent: undefined as ((ev: EngineEvent) => void) | undefined,
+    currentTimeFrames: 0,
+    sampleRate: 48000,
+  }
+  const session = new Session({
+    audio,
+    startLead: 0,
+    setIntervalImpl: () => ({}),
+    clearIntervalImpl: () => {},
+  })
+  const setParams = (name: string): Extract<EngineMessage, { kind: 'setParam' }>[] =>
+    sent.filter((m): m is Extract<EngineMessage, { kind: 'setParam' }> => m.kind === 'setParam' && m.name === name)
+  return { session, sent, setParams }
+}
+
+/** Three destinations, three different formulas, one declaration. */
+const SRC = [
+  `macro('bright', 1480, { min: 500, max: 7300, curve: 'log' })`,
+  ``,
+  `const lead = synth(({ note, gate, saw, svf, param }) =>`,
+  `  svf(saw(note.freq), param('bright')).mul(gate))`,
+  ``,
+  `const pad = synth(({ note, gate, saw, svf, param }) =>`,
+  `  svf(saw(note.freq), param('bright').mul(0.5)).mul(gate))`,
+  ``,
+  `const sub = synth(({ note, gate, sine, param }) => {`,
+  `  const bright = param('bright')`,
+  `  return sine(note.freq).mul(gate).mul(bright.div(7300).mul(-0.4).add(1))`,
+  `})`,
+  `p('a', note('60').sound('lead'))`,
+  `p('b', note('48').sound('pad'))`,
+  `p('c', note('36').sound('sub'))`,
+].join('\n')
+
+describe('a macro declaration is the single source of the numbers', () => {
+  it('every site carries the declared range, so nothing can drift', () => {
+    const { session } = rig()
+    expect(session.evalCode(SRC).ok).toBe(true)
+    const sites = session.paramTargets().filter((t) => t.param === 'bright')
+    expect(sites.map((t) => t.synth).sort()).toEqual(['lead', 'pad', 'sub'])
+    for (const t of sites) {
+      expect(t).toMatchObject({ default: 1480, min: 500, max: 7300, curve: 'log', macro: true })
+    }
+  })
+
+  it('groups into ONE control, and reports the sites it reaches', () => {
+    const { session } = rig()
+    session.evalCode(SRC)
+    const macros = session.macroTargets()
+    expect(macros).toHaveLength(1)
+    expect(macros[0]).toMatchObject({ name: 'bright', default: 1480, min: 500, max: 7300, curve: 'log' })
+    expect(macros[0]!.sites).toHaveLength(3)
+  })
+
+  it('a macro declared but never referenced is a knob with no sites, not a crash', () => {
+    const { session } = rig()
+    expect(session.evalCode(`macro('unused', 1)\nconst a = synth(({ gate }) => gate)`).ok).toBe(true)
+    expect(session.macroTargets()).toEqual([])
+  })
+
+  it('a synth’s OWN param of the same name stays separate — the flag is the truth', () => {
+    // this is the decision that keeps two `cutoff` knobs in two synths from
+    // silently fusing: only a macro() reference opts in
+    const { session } = rig()
+    const src = [
+      `macro('cutoff', 1000, { min: 100, max: 8000 })`,
+      `const a = synth(({ gate, sine, param }) => sine(param('cutoff')).mul(gate))`,
+      `const b = synth(({ gate, sine, param }) => sine(param('cutoff', 400)).mul(gate))`,
+      `p('x', note('60').sound('a'))`,
+      `p('y', note('60').sound('b'))`,
+    ].join('\n')
+    expect(session.evalCode(src).ok).toBe(true)
+    expect(session.macroTargets()[0]!.sites.map((s) => s.synth)).toEqual(['a'])
+    expect(session.paramTargets().find((t) => t.synth === 'b')!.default).toBe(400)
+  })
+
+  it('reaches POST chains, which no pattern .ctrl can', () => {
+    const { session } = rig()
+    const src = [
+      `macro('air', 0.4, { min: 0, max: 1 })`,
+      `const lead = synth(`,
+      `  ({ gate, sine, note, param }) => sine(note.freq).mul(gate).mul(param('air')),`,
+      `  ({ input, delay, param }) => delay(input, 0.25, param('air').mul(0.9)))`,
+      `p('x', note('60').sound('lead'))`,
+    ].join('\n')
+    expect(session.evalCode(src).ok).toBe(true)
+    const sites = session.macroTargets()[0]!.sites
+    expect(sites).toHaveLength(2)
+    expect(sites.filter((s) => s.post === true)).toHaveLength(1)
+  })
+})
+
+describe('moving a macro moves every site at once', () => {
+  it('one hold sends one setParam per site, all with the same value', () => {
+    const { session, setParams } = rig()
+    session.evalCode(SRC)
+    session.holdMacro('bright', 3000)
+    const msgs = setParams('bright')
+    expect(msgs.map((m) => m.synth).sort()).toEqual(['lead', 'pad', 'sub'])
+    expect(msgs.every((m) => m.value === 3000)).toBe(true)
+  })
+
+  it('holding outranks a pattern driving one of the copies', () => {
+    // the macro knob is a performer's hand: while held, the sequencer's
+    // .ctrl for that param is suppressed on exactly the held sites
+    const { session, setParams } = rig()
+    const src = [
+      `macro('bright', 1000, { min: 100, max: 8000 })`,
+      `const lead = synth(({ gate, note, sine, svf, param }) => svf(sine(note.freq), param('bright')).mul(gate))`,
+      `p('a', note('60 62').sound('lead').ctrl('bright', 500))`,
+    ].join('\n')
+    session.evalCode(src)
+    session.holdMacro('bright', 4000)
+    const held = setParams('bright').length
+    session.transport('play')
+    expect(setParams('bright')).toHaveLength(held) // the pattern stood down
+    session.releaseMacro('bright')
+  })
+
+  it('setMacro reports how many sites it reached, so "moved nothing" is visible', () => {
+    const { session } = rig()
+    session.evalCode(SRC)
+    expect(session.setMacro('bright', 2000)).toBe(3)
+    expect(session.setMacro('nosuch', 1)).toBe(0)
+  })
+
+  it('a macro deleted by the next eval simply stops having sites', () => {
+    const { session } = rig()
+    session.evalCode(SRC)
+    expect(session.macroTargets()).toHaveLength(1)
+    expect(session.evalCode(`const lead = synth(({ gate }) => gate)\np('a', note('60').sound('lead'))`).ok).toBe(true)
+    expect(session.macroTargets()).toEqual([])
+    expect(session.setMacro('bright', 2000)).toBe(0) // forgiven, not thrown
+  })
+})
+
+describe('macro errors are the user’s errors, reported not thrown', () => {
+  it('referencing an undeclared macro fails the eval with a pointed message', () => {
+    const { session } = rig()
+    const r = session.evalCode(`const a = synth(({ param, gate }) => gate.mul(param('nope')))`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toMatch(/no macro named 'nope'/)
+  })
+
+  it('a failed eval rolls the registry back, so last-good keeps its macros', () => {
+    const { session } = rig()
+    session.evalCode(SRC)
+    expect(session.evalCode(`macro('bright', 99, { min: 0, max: 1 })\nthrow new Error('boom')`).ok).toBe(false)
+    // the previous program is still live and still holds the OLD declaration
+    expect(session.macroTargets()[0]).toMatchObject({ default: 1480, min: 500, max: 7300 })
+  })
+})

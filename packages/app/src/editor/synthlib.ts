@@ -1,4 +1,5 @@
-import type { EditorHandle } from './editor'
+import type { EditorHandle, EditorLang } from './editor'
+import { decompile } from '@rondocode/rondo'
 import { PreviewPlayer } from '../docs/player'
 import { highlightDsl } from '../docs/highlight'
 import { icon, iconEl } from '../ui/icons'
@@ -19,6 +20,11 @@ interface LibrarySynth {
   tags: string
   code: string
   demoTail: string // appended to code to make an audible program for preview
+  /** Hand-written rondo form. OPTIONAL: without one the JS is decompiled at
+   *  insert time, which is correct but sometimes falls back to `js{ … }`
+   *  blocks. Write one where the terse form is worth reading, which for a
+   *  library preset is most of the value. */
+  rondo?: string
 }
 
 const SYNTHS: LibrarySynth[] = [
@@ -33,6 +39,12 @@ const SYNTHS: LibrarySynth[] = [
   return ladder(osc, cutoff.mul(env.pow(2)), { res: 0.85 }).mul(env)
 })`,
     demoTail: `p('demo', note('c2 c2 g2 c2 eb2 c2 g1 c2').sound('acid'))`,
+    rondo: `synth acid
+  saw + square note/2 * 0.3
+  ladder cut * env ^ 2 res:.85
+  * env
+  env = adsr .003 .2 .3 .1
+  cut = knob 800 80..8000 log`,
   },
   {
     name: 'sub',
@@ -51,6 +63,13 @@ const SYNTHS: LibrarySynth[] = [
   return ladder(saw(note.freq), lfo(2).range(200, 3000), { res: 0.7 }).mul(env)
 })`,
     demoTail: `setCps(0.5)\np('demo', note('c2 c2 c2 c2').sound('wobble'))`,
+    rondo: `synth wobble
+  saw
+  ladder wob res:.7
+  * env
+  env = adsr .01 .2 .8 .2
+  lf  = lfo 2 tri
+  wob = lf -> 200..3000`,
   },
   {
     name: 'lead',
@@ -63,6 +82,12 @@ const SYNTHS: LibrarySynth[] = [
   { unison: 7, detune: 18, spread: 0.8 },
 )`,
     demoTail: `p('demo', n('0 2 4 7 4 2').scale('a minor').sound('lead'))`,
+    rondo: `synth lead
+  saw + square note*2 * 0.3
+  svf cut res:.3
+  * env
+  env = adsr .01 .15 .6 .2
+  cut = knob 3000 400..9000 log`,
   },
   {
     name: 'sync',
@@ -72,6 +97,11 @@ const SYNTHS: LibrarySynth[] = [
   syncsaw(note.freq, lfo(0.25).range(1, 5))
     .mul(adsr(gate, { a: 0.01, d: 0.3, s: 0.5, r: 0.2 })))`,
     demoTail: `p('demo', note('c3 c3 g3 c3').sound('sync'))`,
+    rondo: `synth sync
+  syncsaw note ratio
+  * env
+  env = adsr .005 .2 .5 .15
+  ratio = knob 2 1..8`,
   },
   {
     name: 'pad',
@@ -86,6 +116,12 @@ const SYNTHS: LibrarySynth[] = [
   },
 )`,
     demoTail: `setCps(0.4)\np('demo', chord('<Cmaj7 Fmaj7>').sound('pad'))`,
+    rondo: `synth pad unison:3 detune:10
+  saw
+  svf 1800 res:.15
+  * env
+  * .3
+  env = adsr .4 .6 .8 1`,
   },
   {
     name: 'keys',
@@ -97,6 +133,12 @@ const SYNTHS: LibrarySynth[] = [
   return sine(note.freq.add(mod)).mul(env)
 })`,
     demoTail: `p('demo', chord('<Am7 Dm7>').sound('keys'))`,
+    rondo: `synth keys
+  tri + saw * .3
+  svf 2600 res:.2
+  * env
+  * .5
+  env = adsr .005 .25 .3 .3`,
   },
   {
     name: 'pluck',
@@ -126,6 +168,12 @@ const SYNTHS: LibrarySynth[] = [
   return sine(pitch.pow(2).range(45, 160)).mul(amp).tanh()
 })`,
     demoTail: `setCps(0.5)\np('demo', note('c1*4').sound('kick'))`,
+    rondo: `synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .07 0 .04 ^ 2 -> 45..170
+  amp  = adsr .001 .2 0 .06`,
   },
   {
     name: 'snare',
@@ -137,6 +185,12 @@ const SYNTHS: LibrarySynth[] = [
   return body.add(rattle).mul(0.7).tanh()
 })`,
     demoTail: `setCps(0.5)\np('demo', note('~ c3 ~ c3').sound('snare'))`,
+    rondo: `synth snare
+  noise
+  svf 2200 mode:bp
+  * env
+  * .6
+  env = adsr .001 .12 0 .08`,
   },
   {
     name: 'hat',
@@ -184,6 +238,15 @@ const wtlead = synth(({ note, gate, param, adsr, wavetable, svf, shape }) => {
   return shape(svf(a.mix(b, 0.35), 4200, { res: 0.22 }).mul(env), 1.3, { type: 'sine' }).mul(0.45)
 })`,
     demoTail: `setCps(0.5)\np('demo', n('0 3 5 7 5 3').scale('a minor').sound('wtlead').dur(0.5))`,
+    rondo: `synth wtlead
+  wavetable note scan table:harmonic warp:sync warpamt:amt
+  svf 4200 res:.22
+  * env
+  shape 1.3 type:sine
+  * .45
+  env  = adsr .004 .3 .4 .2
+  scan = env -> 0.1..0.85
+  amt  = knob .35 0..1`,
   },
   {
     name: 'wtpad',
@@ -200,6 +263,17 @@ const wtpad = synth(({ note, gate, adsr, lfo, wavetable, svf }) => {
 }, ({ input, width, reverb }) => width(input, 0.7).mix(reverb(input, { roomSize: 0.8 }), 0.3),
    { unison: 3, detune: 8, spread: 0.9 })`,
     demoTail: `setCps(0.25)\np('demo', chord('<Fmaj9 Cmaj9>').sound('wtpad').dur(0.95))`,
+    rondo: `synth wtpad unison:3 detune:8 spread:.9
+  wavetable note scan table:basic
+  svf 2100 res:.12
+  * env
+  * .22
+  env  = adsr .6 1.2 .8 1.4
+  lf   = lfo .08
+  scan = lf -> 0.05..0.7
+  post
+    width .7
+    reverb room:.8 mix:.3`,
   },
   {
     name: 'vox',
@@ -225,6 +299,11 @@ const bell = synth(({ note, gate, modal, reverb }) => {
   return hit.mix(reverb(hit, { roomSize: 0.7, damp: 0.4 }), 0.3).mul(0.6)
 })`,
     demoTail: `setCps(0.35)\np('demo', n('0 4 7 11').scale('c major').sound('bell').dur(0.9))`,
+    rondo: `synth bell
+  modal note model:glass decay:.85 damp:.25
+  * .6
+  post
+    reverb room:.7 damp:.4 mix:.3`,
   },
   {
     name: 'cloud',
@@ -251,6 +330,23 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   if (cls !== undefined) n.className = cls
   if (text !== undefined) n.textContent = text
   return n
+}
+
+/** The preset in the language the project is written in.
+ *
+ *  A rondo project must not receive JavaScript: it would sit there as a syntax
+ *  error until the user noticed the panel had handed them the wrong dialect.
+ *  A hand-written `rondo` wins; otherwise the decompiler converts, which always
+ *  yields VALID rondo even when it has to wrap a construct in `js{ … }`. */
+export function presetFor(sy: { code: string; rondo?: string }, lang: EditorLang): string {
+  if (lang !== 'rondo') return sy.code
+  if (sy.rondo !== undefined) return sy.rondo
+  try {
+    return decompile(sy.code)
+  } catch {
+    // the decompiler is total, but never hand the user a broken insert
+    return sy.code
+  }
 }
 
 /** Insert a synth definition into the editor at the cursor, landing it on its
@@ -373,7 +469,7 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
       const insert = el('button', 'btn synthlib-insert', 'insert')
       insert.type = 'button'
       insert.addEventListener('click', () => {
-        insertSynth(editor, sy.code)
+        insertSynth(editor, presetFor(sy, editor.getLang()))
         close()
       })
 

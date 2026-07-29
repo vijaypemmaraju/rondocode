@@ -206,6 +206,12 @@ const GLOBALS: DocEntry[] = [
     "macro('bright', 1480, { min: 500, max: 7300, curve: 'log' })",
   ),
   g(
+    'curve',
+    'curve(points: ([cycles, level] | [cycles, level, curve])[], opts?: { curve?, from?, loop? })',
+    "A breakpoint automation lane, measured in CYCLES: curve([[8, 1], [4, 0.3], [16, 1]]) opens over 8 bars, sags over 4, and comes back over 16. The same shape as a synth's env() and the same easing numbers, run against the transport instead of a note's gate -- rise/fall are the two-point linear special cases of it. A third number on a breakpoint gives that leg its own curve; `from` sets the level before the first one (default 0); `loop` repeats instead of holding the last level. Sampled once per event like any signal, so a control that must move WITHIN one note belongs in the synth.",
+    "p('pad', chord('<Am F>').sound('pad').ctrl('cutoff', curve([[8, 1], [8, 0.2]]).range(300, 6000)))",
+  ),
+  g(
     'macroval',
     'macroval(name: string)',
     "Read a project-wide macro from the PATTERN side, as a signal: macroval('bright').div(7300). A macro is normally a synth param, and dur/gain/pan are structural -- the scheduler consumes them per event and they never reach the engine -- so a param could not drive one. This mirrors the same macro across, sampled once per note like any signal-driven control. In rondo you just write the macro's name in the modifier (dur: bright / 7300) and this is what it compiles to.",

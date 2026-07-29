@@ -131,13 +131,28 @@
   color: var(--c-accent, #6ea8fe);
   cursor: pointer;
   touch-action: none;
-  opacity: 0.8;
+}
+.rondo-env svg { display: block; overflow: visible; }
+/* The CURVE is the content, so it is drawn at full strength: it used to
+   inherit a blanket opacity:0.8 from the widget and sit at the same weight and
+   colour as every other accent control, which made the one thing you are
+   reading the hardest thing to see. The chrome dims instead. */
+.rondo-env .line {
+  stroke: var(--c-accent-alt, #8fd0ff);
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--c-accent-alt, #8fd0ff) 55%, transparent));
+}
+.rondo-env .fill { fill: color-mix(in srgb, var(--c-accent-alt, #8fd0ff) 26%, transparent); }
+/* a floor to read the shape against, so a low sustain is legible as low */
+.rondo-env .base { stroke: var(--c-border, #2a2e37); stroke-width: 1; }
+.rondo-env .h {
+  fill: var(--c-bg, #16181d);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.75; /* the handles are chrome — they must not out-shout the curve */
   transition: opacity 0.1s;
 }
-.rondo-env:hover, .rondo-env.active { opacity: 1; }
-.rondo-env svg { display: block; overflow: visible; }
-.rondo-env .fill { fill: color-mix(in srgb, var(--c-accent, #6ea8fe) 16%, transparent); }
-.rondo-env .h { fill: var(--c-bg, #16181d); stroke: currentColor; stroke-width: 1.5; }
+.rondo-env:hover .h, .rondo-env.active .h { opacity: 1; }
 /* the note-fired marker riding the curve + the "firing" flash */
 .rondo-env .emark {
   fill: var(--c-accent-alt, #6ea8fe);

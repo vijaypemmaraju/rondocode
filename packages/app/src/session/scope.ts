@@ -27,6 +27,7 @@ import {
   fall,
   defineScale,
   macroval,
+  curve,
 } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -89,6 +90,10 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   arrange,
   rise,
   fall,
+  // breakpoint automation over the TIMELINE: the same shape as a synth's
+  // env(), measured in cycles and run against the transport, for what a DAW
+  // calls an automation lane. rise/fall are its two-point special cases.
+  curve,
   // custom tunings: register a scale for .scale(). NOT per-eval staging —
   // the registry lives in the pattern package; evalCode snapshots/clears/
   // restores it around each run so it mirrors the last successful eval.

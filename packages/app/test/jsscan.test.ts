@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { scanKnobsJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
+import { scanEnvsJs, scanKnobsJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
+import { scanEnvs } from '../src/editor/rondo/widgets'
 
 /* The JavaScript half of the widget scanners. They must produce EXACTLY the
  * descriptors the rondo scanners produce, because the widgets downstream are
@@ -167,5 +168,66 @@ describe('scanning never throws on broken source', () => {
       scanWavetableCallsJs(src)
       scanWavedefsJs(src)
     }).not.toThrow()
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The envelope, in JavaScript.
+ *
+ * It came across once the widget stopped rebuilding rondo's space-joined
+ * `adsr A D S R` region and started writing the four VALUES in place — the
+ * only thing the two spellings share. So the contract tested here is that both
+ * scanners describe the same curve, and that the spans point at the numbers.
+ * ------------------------------------------------------------------------- */
+describe('scanEnvsJs: adsr(gate, { a, d, s, r }) becomes a curve', () => {
+  const JS = [
+    `const acid = synth(({ note, gate, adsr, saw }) => {`,
+    `  const env = adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: 0.1 })`,
+    `  return saw(note.freq).mul(env)`,
+    `})`,
+  ].join('\n')
+
+  it('reads the four stages and points at each literal', () => {
+    const [e] = scanEnvsJs(JS)
+    expect([e!.a, e!.d, e!.s, e!.r]).toEqual([0.003, 0.2, 0.3, 0.1])
+    expect(e!.ranges!.map((r) => JS.slice(r.from, r.to))).toEqual(['0.003', '0.2', '0.3', '0.1'])
+  })
+
+  it('describes the same curve rondo does, from the same synth', () => {
+    const rd = 'synth acid\n  saw note\n  * env\n  env = adsr .003 .2 .3 .1\n'
+    const [j] = scanEnvsJs(JS)
+    const [r] = scanEnvs(rd)
+    expect([j!.a, j!.d, j!.s, j!.r]).toEqual([r!.a, r!.d, r!.s, r!.r])
+    expect(j!.synth).toBe(r!.synth)
+    // and each points at its OWN spelling, which a drag preserves
+    expect(rd.slice(r!.ranges![0]!.from, r!.ranges![0]!.to)).toBe('.003')
+  })
+
+  it('orders the spans a/d/s/r however the object was written', () => {
+    const src = `adsr(gate, { r: 0.1, a: 0.003, s: 0.3, d: 0.2 })`
+    const [e] = scanEnvsJs(src)
+    expect([e!.a, e!.d, e!.s, e!.r]).toEqual([0.003, 0.2, 0.3, 0.1])
+    expect(e!.ranges!.map((x) => src.slice(x.from, x.to))).toEqual(['0.003', '0.2', '0.3', '0.1'])
+  })
+
+  it('gives repeated values DISTINCT spans, so a drag cannot rewrite the wrong one', () => {
+    const src = `adsr(gate, { a: 0.1, d: 0.1, s: 0.1, r: 0.1 })`
+    const spans = scanEnvsJs(src)[0]!.ranges!
+    expect(new Set(spans.map((r) => r.from)).size).toBe(4)
+  })
+
+  it('yields nothing when a stage is not a literal — there is nothing to drag', () => {
+    // `adsr(gate, { r: relKnob })` is a real thing to write; it just cannot
+    // also be a handle, and three live corners plus one dead one is worse
+    // than none
+    expect(scanEnvsJs(`adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: relKnob })`)).toEqual([])
+    expect(scanEnvsJs(`adsr(gate, { a: 0.003, d: 0.2, s: 0.3 })`)).toEqual([])
+  })
+
+  it('rondo carries the spans too, so ONE writer serves both languages', () => {
+    const rd = 'synth x\n  * env\n  env = adsr .1 .1 .1 .1\n'
+    const spans = scanEnvs(rd)[0]!.ranges!
+    expect(spans).toHaveLength(4)
+    expect(new Set(spans.map((r) => r.from)).size).toBe(4) // no aliasing on equal values
   })
 })

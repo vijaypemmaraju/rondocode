@@ -240,6 +240,24 @@ export interface EnvMatch {
   r: number
   /** the enclosing `synth NAME` block — its notes fire the curve's marker. */
   synth?: string
+  /** the four VALUE spans, in a/d/s/r order. A drag rewrites only the fields
+   *  it touched, in place — which is what lets one writer serve both
+   *  languages: rondo's `adsr .003 .2 .3 .1` and JS's
+   *  `adsr(gate, { a: 0.003, ... })` differ in everything BUT these four. */
+  ranges?: { from: number; to: number }[]
+}
+
+/** The four value spans inside an `adsr A D S R` match, walked out of the
+ *  matched text so repeated values (`adsr .1 .1 .1 .1`) can't alias. */
+function envRanges(m: RegExpExecArray, base: number): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = []
+  let pos = m[1]!.length
+  for (let g = 2; g <= 5; g++) {
+    while (pos < m[0].length && (m[0][pos] === ' ' || m[0][pos] === '\t')) pos++
+    out.push({ from: base + pos, to: base + pos + m[g]!.length })
+    pos += m[g]!.length
+  }
+  return out
 }
 
 /** Find every `adsr A D S R` in `text` (pure — unit tested). */
@@ -252,7 +270,10 @@ export function scanEnvs(text: string): EnvMatch[] {
       const a = Number(m[2]), d = Number(m[3]), s = Number(m[4]), r = Number(m[5])
       if (![a, d, s, r].every((n) => Number.isFinite(n))) continue
       const from = off + m.index + m[1]!.length
-      out.push({ from, to: off + m.index + m[0].length, a, d, s, r, synth })
+      out.push({
+        from, to: off + m.index + m[0].length, a, d, s, r, synth,
+        ranges: envRanges(m, off + m.index),
+      })
     }
   }
   return out
@@ -1478,6 +1499,8 @@ class EnvWidget extends WidgetType {
     readonly width: number,
     readonly hooks: Hooks,
     readonly drag: Drag,
+    /** the four value spans (a/d/s/r), ascending — what a drag rewrites. */
+    readonly ranges: readonly { from: number; to: number }[] = [],
   ) { super() }
 
   eq(o: EnvWidget): boolean {
@@ -1603,25 +1626,18 @@ class EnvWidget extends WidgetType {
         ['r', dist(g0.rx, base)] as const,
       ].sort((p, q) => p[1] - q[1])[0]![0]
       const tStep = 0.001, sStep = 0.01
-      const writer = new LiveWriter(view, this.regionFrom, this.regionTo)
-      // Preserve the SOURCE spelling of untouched fields: only the dragged
-      // handle's value(s) are reformatted — otherwise touching release would
-      // silently re-quantize a `.003` attack onto the step grid. parts is
-      // [aRaw, ws, dRaw, ws, sRaw, ws, rRaw] (values at even indices).
-      const parts = writer.text.split(/([ \t]+)/)
-      const canSplice = parts.length === 7
-      const fmt = (): string => {
-        if (!canSplice) {
-          return [
-            formatNumber(a, { step: tStep }), formatNumber(d, { step: tStep }),
-            formatNumber(s, { step: sStep }), formatNumber(r, { step: tStep }),
-          ].join(' ')
-        }
-        const p = parts.slice()
-        if (which === 'a') p[0] = formatNumber(a, { step: tStep })
-        else if (which === 'ds') { p[2] = formatNumber(d, { step: tStep }); p[4] = formatNumber(s, { step: sStep }) }
-        else p[6] = formatNumber(r, { step: tStep })
-        return p.join('')
+      // Write the four VALUES in place, never the region: the text around them
+      // is `.003 .2` in rondo and `a: 0.003, d: 0.2` in JS, and only the
+      // numbers are common to both. Rewriting just the dragged field also
+      // preserves the SOURCE spelling of the others — otherwise touching
+      // release would silently re-quantize a `.003` attack onto the step grid.
+      const writer = new MultiLiveWriter(view, this.ranges)
+      const fmt = (): string[] => {
+        const t = writer.texts.slice() // a/d/s/r, ascending — untouched stay as written
+        if (which === 'a') t[0] = formatNumber(a, { step: tStep })
+        else if (which === 'ds') { t[1] = formatNumber(d, { step: tStep }); t[2] = formatNumber(s, { step: sStep }) }
+        else t[3] = formatNumber(r, { step: tStep })
+        return t
       }
       return {
         onMove: (ev) => {
@@ -1636,7 +1652,7 @@ class EnvWidget extends WidgetType {
             const hx = pad + tx(a, AMAX) + tx(d, DMAX) + holdFrozen
             r = xt(mx - hx, RMAX)
           }
-          if (!writer.write(fmt())) return // a concurrent edit aborted the gesture
+          if (!writer.writeEach(fmt())) return // a concurrent edit aborted the gesture
           render(a, d, s, r, holdFrozen)
           this.hooks.requestEval(false)
         },
@@ -2146,7 +2162,10 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   }
   const envW = envWidth(view)
   for (const e of scan.envs(text)) {
-    items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag), side: 1 }).range(e.to))
+    // a scanner that cannot point at the four values cannot write them — skip
+    // rather than render a dial that silently does nothing
+    if (e.ranges === undefined || e.ranges.length !== 4) continue
+    items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag, e.ranges), side: 1 }).range(e.to))
   }
   for (const p of scan.plays(text)) {
     items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))

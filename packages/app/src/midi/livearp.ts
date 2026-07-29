@@ -36,6 +36,69 @@ export interface ArpStep {
   tie?: boolean
 }
 
+/**
+ * Parse a step pattern the way you would write one on paper.
+ *
+ *   0 2 1 4        four steps, chord degrees (0 = lowest note held)
+ *   0 ~ 2 ~        `~` is a rest — this is how rhythm gets written
+ *   0 _ _ 2        `_` ties: the note keeps ringing instead of retriggering
+ *   [0,2] 1        a stab: several degrees on one step
+ *   0:.6           velocity, 0..1
+ *   0^1  0^-1      whole octaves on top of the degree's own wrapping
+ *   -1             negative degrees reach BELOW the chord
+ *
+ * The degrees are the point: the same pattern re-voices itself onto whatever
+ * chord you hold, which is what makes it reusable rather than a transcription.
+ *
+ * Anything unparseable is DROPPED rather than guessed at, and an empty result
+ * leaves the caller on its default — a bad character in the middle of a
+ * pattern should cost you that step, not silence the arp.
+ */
+export function parseArpSteps(text: string): ArpStep[] {
+  const out: ArpStep[] = []
+  for (const tok of text.trim().split(/\s+/)) {
+    if (tok === '') continue
+    if (tok === '~') { out.push({ degrees: [] }); continue }
+    if (tok === '_') { out.push({ degrees: [], tie: true }); continue }
+    // strip the suffixes first, so `[0,2]:.6^1` works like `0:.6^1`
+    let body = tok
+    let velocity: number | undefined
+    let octave: number | undefined
+    const oct = /\^(-?\d+)$/.exec(body)
+    if (oct !== null) { octave = Number(oct[1]); body = body.slice(0, oct.index) }
+    const vel = /:(\d*\.?\d+)$/.exec(body)
+    if (vel !== null) { velocity = Number(vel[1]); body = body.slice(0, vel.index) }
+    const inner = /^\[(.*)\]$/.exec(body)
+    const parts = (inner !== null ? inner[1]! : body).split(',')
+    const degrees: number[] = []
+    let bad = parts.length === 0
+    for (const part of parts) {
+      const t = part.trim()
+      if (!/^-?\d+$/.test(t)) { bad = true; break }
+      degrees.push(Number(t))
+    }
+    if (bad || degrees.length === 0) continue // drop the step, keep the pattern
+    const step: ArpStep = { degrees }
+    if (velocity !== undefined && velocity >= 0 && velocity <= 1) step.velocity = velocity
+    if (octave !== undefined) step.octave = octave
+    out.push(step)
+  }
+  return out
+}
+
+/** Render steps back to the notation above — so the panel can show what it
+ *  parsed, and a saved pattern round-trips instead of drifting. */
+export function formatArpSteps(steps: readonly ArpStep[]): string {
+  return steps.map((s) => {
+    if (s.tie === true && s.degrees.length === 0) return '_'
+    if (s.degrees.length === 0) return '~'
+    let t = s.degrees.length > 1 ? `[${s.degrees.join(',')}]` : String(s.degrees[0])
+    if (s.velocity !== undefined && s.velocity !== 1) t += `:${s.velocity}`
+    if (s.octave !== undefined && s.octave !== 0) t += `^${s.octave}`
+    return t
+  }).join(' ')
+}
+
 /** A note the arp wants sounded. */
 export interface ArpNote {
   note: number

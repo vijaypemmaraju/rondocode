@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
+import { compile, decompile } from '@rondocode/rondo'
+import { presetFor } from '../src/editor/synthlib'
 
 /* Every preset in the synth library must EVAL and SOUND.
  *
@@ -56,5 +58,45 @@ describe('the synth library', () => {
     for (const p of presets) {
       expect(unescape(p.code), p.name).toMatch(new RegExp(`const ${p.name}\\s*=\\s*synth\\(`))
     }
+  })
+})
+
+describe('a rondo project gets rondo', () => {
+  /* The panel used to insert JavaScript whatever the project was written in,
+   * so a rondo user got a block of the other dialect sitting in their file as
+   * a syntax error. Every preset must therefore have a rondo form that
+   * COMPILES — hand-written where the terse version is worth reading, and
+   * decompiled otherwise (which is always valid, if sometimes wrapped in
+   * `js{ … }`). */
+
+  /** Each preset's own source block, bounded by the next entry — searching
+   *  from a name to the first `rondo:` would find a LATER preset's twin. */
+  const blockOf = (name: string): string => {
+    const start = src.indexOf(`name: '${name}',`)
+    const next = src.indexOf("\n  {\n    name: '", start)
+    return src.slice(start, next === -1 ? undefined : next)
+  }
+
+  it.each(presets.map((p) => [p.name, p] as const))('%s has a rondo form that compiles', (name, p) => {
+    const block = blockOf(name)
+    const hand = /rondo: `([\s\S]*?)`,\n/.exec(block)
+    const rondo = hand !== null ? unescape(hand[1]!) : decompile(unescape(p.code))
+    const c = compile(rondo)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) return
+    expect(c.code).toMatch(new RegExp(`const ${name}\\s*=\\s*synth\\(`))
+  })
+
+  it('presetFor hands JS to a JS project and rondo to a rondo one', () => {
+    const sy = { code: 'const x = 1', rondo: 'synth x\n  saw' }
+    expect(presetFor(sy, 'rondocode')).toBe('const x = 1')
+    expect(presetFor(sy, 'rondo')).toBe('synth x\n  saw')
+  })
+
+  it('falls back to decompiling when no twin is written', () => {
+    const js = "const p = synth(({ saw, note }) => saw(note.freq))"
+    const out = presetFor({ code: js }, 'rondo')
+    expect(out).not.toBe(js)
+    expect(compile(out).ok).toBe(true)
   })
 })

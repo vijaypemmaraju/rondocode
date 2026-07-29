@@ -542,9 +542,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'delay',
-    'delay(input, time, feedback?, opts?: { maxTime, sync })',
-    'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off. With sync, time is read in CYCLES instead and the echo rides the tempo: 0.25 is a quarter note, 0.1875 the dotted eighth every dub delay wants. maxTime still sizes the buffer in seconds and caps a synced time, so raise it for slow tempos or long musical delays.',
-    'tone.add(delay(tone, 0.1875, 0.45, { sync: true }))',
+    'delay(input, time, feedback?, opts?: { maxTime, sync, mix })',
+    'A per-voice echo: repeats the input after `time` seconds, feedback making the repeats trail off. `mix` is the WET amount, default 0.35, so the dry signal comes through and the delay adds echoes instead of replacing your sound with them; use mix 1 for wet-only, which is what a send bus wants. With sync, time is read in CYCLES instead and the echo rides the tempo: 0.25 is a quarter note, 0.1875 the dotted eighth every dub delay wants. maxTime still sizes the buffer in seconds and caps a synced time, so raise it for slow tempos or long musical delays.',
+    'saw(note.freq).mul(env), delay(tone, 0.1875, 0.45, { sync: true, mix: 0.4 })',
   ),
   sc(
     'reverb',

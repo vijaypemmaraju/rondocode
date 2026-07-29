@@ -79,6 +79,7 @@ export class DelayKernel implements Kernel {
     const input = inputs['in']!
     const time = inputs['time']!
     const feedback = inputs['feedback']!
+    const mix = inputs['mix']!
     const sr = ctx.sampleRate
     // Lazy fallback (no-ctx construction only): +2 so the interpolation tap
     // at the full maxTime never collides with the write head.
@@ -109,7 +110,11 @@ export class DelayKernel implements Kernel {
       let r1 = r0 - 1
       if (r1 < 0) r1 += len
       const read = buf[r0]! + frac * (buf[r1]! - buf[r0]!)
-      out[i] = read
+      // WET/DRY, not wet-only. A delay on a spine line reads as "add echoes to
+      // this", the way every other processor there transforms the signal — so
+      // returning only the echoes silently deleted the note that caused them.
+      const m = mix[i]! < 0 ? 0 : mix[i]! > 1 ? 1 : mix[i]!
+      out[i] = input[i]! * (1 - m) + read * m
       let v = input[i]! + clamp(feedback[i]!, -0.99, 0.99) * read
       if (v > 1) v = 2 - 1 / v
       else if (v < -1) v = -2 - 1 / v

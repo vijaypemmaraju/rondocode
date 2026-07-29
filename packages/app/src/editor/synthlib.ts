@@ -148,6 +148,98 @@ const SYNTHS: LibrarySynth[] = [
     .mul(0.5))`,
     demoTail: `setCps(0.5)\np('demo', note('c5*8').sound('hat'))`,
   },
+
+  /* ---- the newer engine, which the library had nothing for ------------- *
+   * Wavetables, unison supersaws, formant and physical modelling all shipped
+   * without a preset to start from, so the only way to find them was reading
+   * the reference. These are the shapes the hand-tuned examples converged on. */
+
+  {
+    name: 'stab',
+    title: 'Supersaw stab',
+    tags: 'lead · unison · edm',
+    code: `// the EDM chord stab: unison detune for width, the envelope opening
+// the ladder so each hit blooms, squared for a snappier curve.
+const stab = synth(({ note, gate, param, adsr, supersaw, ladder }) => {
+  const env = adsr(gate, { a: 0.003, d: 0.16, s: 0.28, r: 0.12 })
+  const cut = param('cut', 2600, { min: 300, max: 9000, curve: 'log' })
+  return ladder(supersaw(note.freq, { detune: 0.18, mix: 0.75 }), cut.mul(env.pow(1.6)), { res: 0.3 })
+    .mul(env)
+    .mul(0.5)
+}, { unison: 5, detune: 16, spread: 0.85 })`,
+    demoTail: `setCps(0.45)\np('demo', chord('<Am7 Fmaj7 Cmaj7 G>').sound('stab').dur(0.5))`,
+  },
+  {
+    name: 'wtlead',
+    title: 'Wavetable lead',
+    tags: 'lead · wavetable · warp',
+    code: `// wavetable + WARP: the envelope scans the table while 'sync' re-runs each
+// cycle early and wraps, which is the hard-sync tear. Two detuned layers.
+const wtlead = synth(({ note, gate, param, adsr, wavetable, svf, shape }) => {
+  const env = adsr(gate, { a: 0.004, d: 0.3, s: 0.4, r: 0.2 })
+  const scan = env.range(0.1, 0.85)
+  const amt = param('warp', 0.35, { min: 0, max: 1 })
+  const a = wavetable(note.freq, scan, { table: 'harmonic', warp: 'sync', warpAmt: amt })
+  const b = wavetable(note.freq.mul(1.004), scan, { table: 'basic' })
+  return shape(svf(a.mix(b, 0.35), 4200, { res: 0.22 }).mul(env), 1.3, { type: 'sine' }).mul(0.45)
+})`,
+    demoTail: `setCps(0.5)\np('demo', n('0 3 5 7 5 3').scale('a minor').sound('wtlead').dur(0.5))`,
+  },
+  {
+    name: 'wtpad',
+    title: 'Wavetable pad',
+    tags: 'pad · wavetable · wide',
+    code: `// a slow LFO walks the table instead of an envelope, so the timbre keeps
+// moving under a held chord. width() spreads it without detuning.
+const wtpad = synth(({ note, gate, adsr, lfo, wavetable, svf }) => {
+  const env = adsr(gate, { a: 0.6, d: 1.2, s: 0.8, r: 1.4 })
+  const scan = lfo(0.08).range(0.05, 0.7)
+  const osc = wavetable(note.freq, scan, { table: 'basic' })
+    .mix(wavetable(note.freq.mul(0.5), scan, { table: 'harmonic' }), 0.3)
+  return svf(osc, 2100, { res: 0.12 }).mul(env).mul(0.22)
+}, ({ input, width, reverb }) => width(input, 0.7).mix(reverb(input, { roomSize: 0.8 }), 0.3),
+   { unison: 3, detune: 8, spread: 0.9 })`,
+    demoTail: `setCps(0.25)\np('demo', chord('<Fmaj9 Cmaj9>').sound('wtpad').dur(0.95))`,
+  },
+  {
+    name: 'vox',
+    title: 'Formant vox',
+    tags: 'lead · formant · vowel',
+    code: `// formant() imposes vowel resonances on any source: morph sweeps between
+// them, so a held note talks. Saw in, because it has harmonics to filter.
+const vox = synth(({ note, gate, adsr, lfo, saw, formant }) => {
+  const env = adsr(gate, { a: 0.05, d: 0.3, s: 0.7, r: 0.3 })
+  const morph = lfo(0.25).range(0, 1)
+  return formant(saw(note.freq), morph).mul(env).mul(0.5)
+})`,
+    demoTail: `setCps(0.35)\np('demo', note('a3 c4 e4 c4').sound('vox').dur(0.9))`,
+  },
+  {
+    name: 'bell',
+    title: 'Modal bell',
+    tags: 'perc · physical',
+    code: `// modal() is a physical model: struck resonators rather than an oscillator
+// through an envelope. 'glass' is bright and long, 'bar' is woodier.
+const bell = synth(({ note, gate, modal, reverb }) => {
+  const hit = modal(gate, note.freq, { model: 'glass', decay: 0.85, damp: 0.25 })
+  return hit.mix(reverb(hit, { roomSize: 0.7, damp: 0.4 }), 0.3).mul(0.6)
+})`,
+    demoTail: `setCps(0.35)\np('demo', n('0 4 7 11').scale('c major').sound('bell').dur(0.9))`,
+  },
+  {
+    name: 'cloud',
+    title: 'Granular cloud',
+    tags: 'texture · granular',
+    code: `// granular() sprays grains from a loaded sample: 'pos' scans the buffer and
+// 'rate' is the pitch, so a slow pos with a fixed rate is a frozen texture.
+const cloud = synth(({ note, gate, adsr, lfo, granular, svf }) => {
+  const env = adsr(gate, { a: 0.4, d: 0.6, s: 0.85, r: 0.9 })
+  const pos = lfo(0.05).range(0.05, 0.9)
+  const g = granular(gate, 'pad', { pos, rate: note.freq.div(220), size: 0.12, spray: 0.4 })
+  return svf(g, 3200, { res: 0.1 }).mul(env).mul(0.5)
+})`,
+    demoTail: `setCps(0.2)\np('demo', note('a3 c4').sound('cloud').dur(0.95))`,
+  },
 ]
 
 export interface SynthLibHandle {

@@ -633,6 +633,36 @@ function ctrlValue(n: Node): string | null {
       if (v === undefined) return null
       base = `${calleeName(cur)!} ${num(v)}`
     } else return null
+  } else if (isCall(cur) && calleeName(cur) === 'curve') {
+    const a = cur['arguments'] as Node[]
+    if (a.length !== 1) return null
+    const arg = a[0]!
+    // curve(shape('swell', 16)) → `shape swell 16`
+    if (isCall(arg) && calleeName(arg) === 'shape') {
+      const sa = arg['arguments'] as Node[]
+      const sn = sa[0] !== undefined ? strValue(sa[0]) : undefined
+      const sl = sa[1] !== undefined ? numValue(sa[1]) : undefined
+      if (sn === undefined || sl === undefined || sa.length !== 2) return null
+      base = `shape ${sn} ${num(sl)}`
+    } else if (arg.type === 'ArrayExpression') {
+      // curve([[8, 1], [8, .2, 3]]) → `curve 8 1 8 .2:3`
+      const flat: string[] = []
+      for (const el of arg['elements'] as (Node | null)[]) {
+        if (el === null || el.type !== 'ArrayExpression') return null
+        const pair = el['elements'] as (Node | null)[]
+        if (pair.length !== 2 && pair.length !== 3) return null
+        const vals: number[] = []
+        for (const q of pair) {
+          const x = q !== null ? numValue(q) : undefined
+          if (x === undefined) return null
+          vals.push(x)
+        }
+        flat.push(num(vals[0]!))
+        flat.push(vals.length === 3 ? `${num(vals[1]!)}:${num(vals[2]!)}` : num(vals[1]!))
+      }
+      if (flat.length === 0) return null
+      base = `curve ${flat.join(' ')}`
+    } else return null
   }
   if (base === undefined) return null
   let out = base
@@ -1002,6 +1032,29 @@ function decompileStaging(stmt: Node): string | null {
     if (o['curve'] !== undefined && curve === undefined) return null
     const range = lo !== undefined && hi !== undefined ? ` ${num(lo)}..${num(hi)}` : ''
     return `macro ${mname} ${num(mdef)}${range}${curve !== undefined ? ` ${curve}` : ''}`
+  }
+  if (name === 'curvedef' && args.length === 2) {
+    // curvedef('swell', [[.25, 1], [.75, .2, 3]]) → `curvedef swell .25 1 .75 .2:3`
+    const cname = strValue(args[0]!)
+    if (cname === undefined || !/^[a-zA-Z_]\w*$/.test(cname)) return null
+    const arr = args[1]!
+    if (arr.type !== 'ArrayExpression') return null
+    const flat: string[] = []
+    for (const el of arr['elements'] as (Node | null)[]) {
+      if (el === null || el.type !== 'ArrayExpression') return null
+      const pair = el['elements'] as (Node | null)[]
+      if (pair.length !== 2 && pair.length !== 3) return null
+      const vals: number[] = []
+      for (const q of pair) {
+        const x = q !== null ? numValue(q) : undefined
+        if (x === undefined) return null
+        vals.push(x)
+      }
+      flat.push(num(vals[0]!))
+      flat.push(vals.length === 3 ? `${num(vals[1]!)}:${num(vals[2]!)}` : num(vals[1]!))
+    }
+    if (flat.length === 0) return null
+    return `curvedef ${cname} ${flat.join(' ')}`
   }
   if (name === 'defineWavetable' && args.length === 2) {
     // only the literal frames-of-numbers form has sugar (`wavedef NAME a b /

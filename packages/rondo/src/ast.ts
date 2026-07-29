@@ -224,10 +224,21 @@ export interface MacroItem {
   pos: Pos
 }
 
+/** `curvedef swell .25 1 .75 .2` — a named curve SHAPE. Fractions are relative
+ *  segment lengths, not durations: the shape is scaled where it is used, which
+ *  is what lets one definition serve `env` (seconds) and a lane (cycles). A
+ *  level may carry its own curve as `level:curve`, exactly as in `env`. */
+export interface CurveDefItem {
+  t: 'curvedef'
+  name: string
+  points: { frac: number; level: number; curve?: number }[]
+  pos: Pos
+}
+
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
-  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem
+  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
 
 export interface Program {
   items: TopItem[]

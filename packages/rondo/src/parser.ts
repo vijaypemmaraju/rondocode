@@ -12,7 +12,7 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, CtrlValue, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock } from './ast'
+import type { Binding, Comb, CpsItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
 import type { BuiltinSpec } from './builtins'
@@ -369,8 +369,13 @@ export const FN_COMBS: Record<string, { pre: number; js: string }> = {
   jux: { pre: 0, js: 'jux' },
 }
 
+/** A breakpoint number in a `curve` ctrl value: a plain number, or a level
+ *  carrying its own curve (`1:3`). Deliberately NOT matching `slow:4` — a
+ *  named suffix starts with a letter — so the pair run stops where it should. */
+const CURVE_NUM = /^-?\d*\.?\d+(?::-?\d*\.?\d+)?$/
+
 /** Parse a modifier value: number | signal (`sine 200..2400 slow:4`,
- *  `rise 8 0..1`) | mini. */
+ *  `rise 8 0..1`, `curve 8 1 8 .2`, `shape swell 16`) | mini. */
 function parseCtrlValue(raw: string): CtrlValue {
   const s = raw.trim()
   const toks = s.split(/\s+/)
@@ -383,6 +388,28 @@ function parseCtrlValue(raw: string): CtrlValue {
   } else if ((toks[0] === 'rise' || toks[0] === 'fall')) {
     if (rest[0] !== undefined && NUM_RE.test(rest[0])) { sig = `${toks[0]}(${rest[0]})`; rest = rest.slice(1) }
     else sig = `${toks[0]}()`
+  } else if (toks[0] === 'curve') {
+    // `cutoff: curve 8 1 8 .2 300..6000` — a breakpoint automation lane in
+    // CYCLES. Pairs are eaten until a token that is not a plain number, so the
+    // range/slow/fast suffixes below still land.
+    const pairs: string[] = []
+    const buf: string[] = []
+    while (rest[0] !== undefined && CURVE_NUM.test(rest[0])) { buf.push(rest[0]); rest = rest.slice(1) }
+    for (let i = 0; i + 1 < buf.length; i += 2) {
+      const lv = /^(-?\d*\.?\d+):(-?\d*\.?\d+)$/.exec(buf[i + 1]!)
+      pairs.push(lv !== null
+        ? `[${Number(buf[i])}, ${Number(lv[1])}, ${Number(lv[2])}]`
+        : `[${Number(buf[i])}, ${Number(buf[i + 1])}]`)
+    }
+    // an odd count is half a breakpoint — leave sig unset so it falls through
+    // to a mini value and the usual "that is not a number" diagnostic
+    if (pairs.length > 0 && buf.length % 2 === 0) sig = `curve([${pairs.join(', ')}])`
+  } else if (toks[0] === 'shape') {
+    // `cutoff: shape swell 16 300..6000` — a NAMED shape scaled to 16 cycles
+    if (rest[0] !== undefined && /^[a-zA-Z_]\w*$/.test(rest[0]) && rest[1] !== undefined && NUM_RE.test(rest[1])) {
+      sig = `curve(shape('${rest[0]}', ${Number(rest[1])}))`
+      rest = rest.slice(2)
+    }
   }
   if (sig !== undefined) {
     const v: CtrlValue = { kind: 'sig', sig }
@@ -728,6 +755,50 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push(item)
       i++
     }
+    // `curvedef swell .25 1 .75 .2` → curvedef('swell', [[…]]): a named shape,
+    // fractions + levels in the same pair form `env` uses, and `level:curve`
+    // for a segment that wants its own bend.
+    else if (head.v === 'curvedef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'curvedef needs a name (`curvedef swell .25 1 .75 .2`)', line: ln.line, col: ln.rawCol })
+      }
+      const nums: { v: number; curve?: number }[] = []
+      let bad = false
+      for (let k = 2; k < ln.toks.length; k++) {
+        const t = ln.toks[k]!
+        if (t.k !== 'num') {
+          errors.push({ message: 'curvedef takes fraction/level pairs (`curvedef swell .25 1 .75 .2`)', line: t.pos.line, col: t.pos.col })
+          bad = true
+          break
+        }
+        const entry: { v: number; curve?: number } = { v: t.v }
+        // `level:curve`, the same suffix env uses — only after a level
+        if (nums.length % 2 === 1 && ln.toks[k + 1]?.k === 'colon' && ln.toks[k + 2]?.k === 'num') {
+          entry.curve = (ln.toks[k + 2] as Tok & { v: number }).v
+          k += 2
+        }
+        nums.push(entry)
+      }
+      if (!bad && (nums.length < 2 || nums.length % 2 !== 0)) {
+        errors.push({ message: 'curvedef takes fraction/level PAIRS (`curvedef swell .25 1 .75 .2`)', line: ln.line, col: ln.rawCol })
+        bad = true
+      }
+      const points: CurveDefItem['points'] = []
+      if (!bad) {
+        for (let k = 0; k + 1 < nums.length; k += 2) {
+          const pt: { frac: number; level: number; curve?: number } = { frac: nums[k]!.v, level: nums[k + 1]!.v }
+          if (nums[k + 1]!.curve !== undefined) pt.curve = nums[k + 1]!.curve
+          points.push(pt)
+        }
+        if (!points.some((pt) => pt.frac > 0)) {
+          errors.push({ message: 'curvedef: at least one segment needs a fraction above 0', line: ln.line, col: ln.rawCol })
+        }
+      }
+      items.push({ t: 'curvedef', name, points, pos: head.pos })
+      i++
+    }
     // `scaledef pelog 0 1.2 2.7 5.4 6.7` → defineScale('pelog', [0, …]):
     // a custom tuning, steps in semitones from the root (floats welcome)
     else if (head.v === 'scaledef') {
@@ -898,7 +969,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / macro / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / macro / curvedef / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

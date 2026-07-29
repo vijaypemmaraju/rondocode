@@ -463,7 +463,7 @@ function orderMods(mods: Mod[]): Mod[] {
 
 /** The pattern EXPRESSION for a play block (no p() wrapper) — sections stack
  *  these; a top-level play wraps it in p(). */
-function cgPlayPat(block: PlayBlock): string {
+function cgPlayPat(block: PlayBlock, errors: RondoError[]): string {
   const lineExpr = (notation: string): string => {
     // `beat` blocks: words are synth names → s('kick hat kick hat');
     // `word:v` velocity suffixes become an aligned per-voice gain pattern
@@ -481,13 +481,27 @@ function cgPlayPat(block: PlayBlock): string {
     ? `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
     : lineExpr(block.notation)
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
+  // `overchord: <Am7 F>` re-reads the degrees as CHORD degrees. It applies
+  // BEFORE .sound(), like the JS twin: it rewrites the notes themselves, and
+  // every later modifier (a .ctrl sweep, a gain) decorates the result.
+  const over = block.mods.find((m): m is Extract<Mod, { kind: 'ctrl' }> => m.kind === 'ctrl' && m.name === 'overchord')
+  if (over !== undefined) {
+    if (over.value.kind !== 'mini') {
+      errors.push({ message: '`overchord:` takes chord names (`overchord: <Am7 Fmaj7 Cmaj7 G>`)', line: over.pos.line, col: over.pos.col })
+    } else {
+      pat += `.overChord(chord(${q(over.value.text)}))`
+    }
+  }
   if (block.entry !== 'sound') pat += `.sound('${block.synthName ?? block.name}')`
-  for (const m of orderMods(block.mods)) pat += cgMod(m)
+  for (const m of orderMods(block.mods)) {
+    if (m === over) continue // already emitted, ahead of .sound()
+    pat += cgMod(m)
+  }
   return pat
 }
 
-function cgPlay(block: PlayBlock): string {
-  return `p('${block.name}', ${cgPlayPat(block)})`
+function cgPlay(block: PlayBlock, errors: RondoError[]): string {
+  return `p('${block.name}', ${cgPlayPat(block, errors)})`
 }
 
 /** `sing NAME [voice:V]` → p(NAME, sing([voice,] lyrics, notes, { name, post? })<mods>).
@@ -522,8 +536,8 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], ma
   return `p(${q(block.name)}, ${pat})`
 }
 
-function cgSection(item: Extract<TopItem, { t: 'section' }>): string {
-  const pats = item.plays.map(cgPlayPat)
+function cgSection(item: Extract<TopItem, { t: 'section' }>, errors: RondoError[]): string {
+  const pats = item.plays.map((pb) => cgPlayPat(pb, errors))
   const body = pats.length === 1 ? pats[0]! : `stack(${pats.join(', ')})`
   return `const __sec_${item.name} = ${body}`
 }
@@ -606,7 +620,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
   const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors, macroNames)
-    if (item.t === 'play') return cgPlay(item)
+    if (item.t === 'play') return cgPlay(item, errors)
     if (item.t === 'sing') return cgSing(item, errors, macroNames)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item)
@@ -616,7 +630,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'bus') return cgBus(item, errors, macroNames)
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
-    if (item.t === 'section') return cgSection(item)
+    if (item.t === 'section') return cgSection(item, errors)
     if (item.t === 'song') return '' // assembled below, after all sections exist
     // the tempo line, in the unit it was written in: `bpm 128` → setBpm(128),
     // `cps .5333` → setCps(0.5333). Keeping the unit in the JS is what lets

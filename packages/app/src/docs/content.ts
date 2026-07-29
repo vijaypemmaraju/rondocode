@@ -624,6 +624,19 @@ setCps(0.4)`,
       p("adsr's four stages are SIGNALS, not settings: `a`, `d`, `s` and `r` each accept a knob, an LFO or another envelope as readily as a number, and each is read per sample. So `adsr(gate, { r: relKnob })` shortens the release under your finger while a note is still ringing, and one knob can shape the filter and the envelope at once if you scale it differently for each. A plain number costs nothing extra, and because the times are no longer baked in at build time, dragging an envelope value now re-points it on the voices already sounding instead of rebuilding the synth mid-note."),
       note('In rondo, bind the expression before you pass it. `adsr .002 .08 .2 bright/12300` reads as `adsr(...) / 12300` -- the trailing operator attaches to the whole call, not to the last argument, which divides the ENVELOPE by 12300 and leaves you with silence. Write `rel = bright / 12300` on its own line and pass `rel`.'),
       p("`.overChord()` arpeggiates over a HARMONY rather than a scale: the numbers become chord degrees, 0 being the lowest note of whatever chord is sounding under them. `n('0 2 1 4').overChord(chord('<Am F>'))` plays a-e-c-a over Am and f-c-a-f over F: one figure, re-voiced by the progression, instead of two transcriptions. Degrees past the top of the chord wrap up an octave, so a four-step figure over a triad climbs instead of repeating its top note, and negatives reach below it. Everything the notation already does still applies: `~` rests, `[0,2]` stabs two degrees at once, `0(3,8)` places them euclidean, `<0 2>` alternates per cycle."),
+      p("In rondo it is a modifier line on the play block: `overchord: <Am F>` under the notation, with the chord names written where you can see them. It applies before everything else on the block, so a `dur:`, a `gain:` or a `.ctrl` sweep decorates the re-voiced notes rather than the raw degrees. The over-a-chord example ships in both languages and they play identical events."),
+      rondo(
+        'One figure, re-voiced by the progression.',
+        `synth keys
+  saw note
+  * env
+  env = adsr .004 .18 .25 .12
+
+play arp synth:keys
+  0 2 1 4 2 3 1 5
+  overchord: <Am7 Fmaj7 Cmaj7 G>
+  dur: .42`,
+      ),
       p("The same degrees work from a KEYBOARD. In the midi panel, switch on `arpeggiate` for the synth you are playing: your held chord becomes the harmony and the transport plays the figure over it, restarting at step 0 every time you press run. `latch` keeps the chord after you lift your hand, which is what lets you play something else on top; pressing a new chord replaces it. It is opt-in per synth, so a connected keyboard behaves exactly as it always did until you ask for the arp."),
       note("An event with no chord under it is DROPPED rather than given a pitch, because silence is the honest answer to 'the third of nothing'. Non-numeric values pass straight through, so a drum pattern is unaffected if you pipe one through by accident."),
       p("When adsr's four stages are not enough, env() takes a list of [seconds, level] breakpoints for any shape you like, and drives amplitude, pitch or a filter. Here a two-stage pluck envelope shapes the amp, while a second env bends the pitch down at the very start for a synthetic 'blip' attack."),

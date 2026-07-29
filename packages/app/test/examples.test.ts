@@ -45,6 +45,36 @@ describe('examples', () => {
         }
       })
     }
+
+    it("'over a chord' plays exactly what its JS twin plays", () => {
+      // The last example to get a twin, and the one where a difference would be
+      // easiest to miss: `overchord:` rewrites the NOTES, so a wrong modifier
+      // order still sounds musical while playing something else. Compare the
+      // event streams rather than trusting that both merely run.
+      const ex = EXAMPLES.find((e) => e.name === 'over a chord')!
+      const c = compile(ex.rondo!)
+      expect(c.ok).toBe(true)
+      if (!c.ok) return
+      const span = new TimeSpan(F(0), F(4))
+      const stream = (src: string): Record<string, string[]> => {
+        const r = evalCode(src, baseScope)
+        expect(r.ok).toBe(true)
+        const out: Record<string, string[]> = {}
+        for (const [name, pat] of r.patterns) {
+          out[name] = pat.query(span).filter(hasOnset).map(
+            (h) => `${h.whole!.begin.valueOf()}|${String(h.value.note)}|${String(h.value.sound)}|${String(h.value.dur)}`,
+          )
+        }
+        return out
+      }
+      const js = stream(ex.code)
+      const rondo = stream(c.code)
+      expect(Object.keys(rondo).sort()).toEqual(Object.keys(js).sort())
+      for (const k of Object.keys(js)) {
+        expect(js[k]!.length, `${k} is not empty`).toBeGreaterThan(0)
+        expect(rondo[k], `${k} differs between the languages`).toEqual(js[k])
+      }
+    })
   })
 
   for (const ex of EXAMPLES) {

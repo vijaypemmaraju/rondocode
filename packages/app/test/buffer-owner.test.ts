@@ -45,7 +45,9 @@ describe('the guard is actually wired to the dangerous write', () => {
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
     const src = readFileSync(join(__dirname, '../src/editor/library.ts'), 'utf8')
-    expect(src).toMatch(/if \(bufferBelongsTo\(readDocOwner\(\), active\.id\)\) \{\s*\n\s*await store\.saveCode\(active\.id, bootCode\)/)
+    // comments may sit between the guard and the call; what must hold is that
+    // the write is INSIDE the guard and nothing else is
+    expect(src).toMatch(/if \(bufferBelongsTo\(readDocOwner\(\), active\.id\)\) \{(?:\s*\n\s*\/\/[^\n]*)*\s*\n\s*const r = await store\.saveCode\(active\.id, bootCode\)/)
   })
 
   it('switching projects claims the buffer for the new one', () => {

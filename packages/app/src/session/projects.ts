@@ -36,6 +36,14 @@ export interface Version {
   label?: string
 }
 
+/** What a compare-and-set autosave did. `conflict` carries the record as it
+ *  actually is, so the caller can keep BOTH versions rather than pick one. */
+export type SaveOutcome =
+  | { kind: 'saved'; updatedAt: number }
+  | { kind: 'unchanged'; updatedAt: number }
+  | { kind: 'conflict'; theirs: Project }
+  | { kind: 'gone' }
+
 export type StoreName = 'projects' | 'versions'
 
 /** The minimal async storage the store needs — no indexes: version sets per
@@ -126,11 +134,27 @@ export class ProjectStore {
     await this.db.del('projects', id)
   }
 
-  /** Autosave path: update the working code + updatedAt. Does NOT snapshot. */
-  async saveCode(id: string, code: string): Promise<void> {
+  /**
+   * Autosave path: update the working code + updatedAt. Does NOT snapshot.
+   *
+   * `expect` is the `updatedAt` this caller last saw. Pass it and the write
+   * becomes a compare-and-set: if the record has moved since, ANOTHER TAB
+   * wrote it, and blindly putting would erase their edit with ours. The store
+   * refuses and hands back what it found, because only the caller can decide
+   * what to do about it — and doing nothing is the one option that is always
+   * wrong.
+   *
+   * Omit `expect` and it is the old last-write-wins put, which is correct for
+   * the single-tab case and for callers that have just read the record.
+   */
+  async saveCode(id: string, code: string, expect?: number): Promise<SaveOutcome> {
     const p = await this.getProject(id)
-    if (!p || p.code === code) return
-    await this.db.put('projects', { ...p, code, updatedAt: this.now() })
+    if (!p) return { kind: 'gone' }
+    if (expect !== undefined && p.updatedAt !== expect) return { kind: 'conflict', theirs: p }
+    if (p.code === code) return { kind: 'unchanged', updatedAt: p.updatedAt }
+    const updatedAt = this.now()
+    await this.db.put('projects', { ...p, code, updatedAt })
+    return { kind: 'saved', updatedAt }
   }
 
   async listVersions(id: string): Promise<Version[]> {

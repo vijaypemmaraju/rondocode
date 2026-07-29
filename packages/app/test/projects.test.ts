@@ -148,3 +148,83 @@ describe('ProjectStore history', () => {
     expect((await store.getProject(p.id))!.updatedAt).toBe(before)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Two tabs on the SAME project.
+ *
+ * Scoping the active project per tab stopped two tabs from fighting over which
+ * project is open; it cannot stop you opening one project twice. Then both
+ * tabs autosave to one record and the later write erases the earlier one with
+ * no trace, which is the part that actually loses work.
+ *
+ * `expect` turns the autosave into a compare-and-set. A TAB here is just a
+ * remembered `updatedAt` — which is exactly what a tab is, as far as the store
+ * can tell.
+ * ------------------------------------------------------------------------- */
+describe('ProjectStore autosave: two tabs, one project', () => {
+  it('a normal save advances the version it hands back', async () => {
+    const { store, tick } = makeStore()
+    const p = await store.createProject('tune', 'a')
+    tick()
+    const r = await store.saveCode(p.id, 'b', p.updatedAt)
+    expect(r).toEqual({ kind: 'saved', updatedAt: 1001 })
+    expect((await store.getProject(p.id))!.code).toBe('b')
+  })
+
+  it('an unchanged save is not a conflict, and keeps the version', async () => {
+    // both tabs idling on the same text must not fork each other forever
+    const { store } = makeStore()
+    const p = await store.createProject('tune', 'a')
+    expect(await store.saveCode(p.id, 'a', p.updatedAt)).toEqual({ kind: 'unchanged', updatedAt: p.updatedAt })
+  })
+
+  it('REFUSES a write over another tab’s, and hands back what it found', async () => {
+    const { store, tick } = makeStore()
+    const p = await store.createProject('tune', 'a')
+    const tab1 = p.updatedAt
+    const tab2 = p.updatedAt
+
+    tick()
+    expect(await store.saveCode(p.id, 'tab1 edit', tab1)).toMatchObject({ kind: 'saved' })
+
+    tick()
+    const r = await store.saveCode(p.id, 'tab2 edit', tab2)
+    expect(r.kind).toBe('conflict')
+    // the loser gets the winner's record, so it can keep BOTH versions
+    if (r.kind === 'conflict') expect(r.theirs.code).toBe('tab1 edit')
+    // and nothing was overwritten
+    expect((await store.getProject(p.id))!.code).toBe('tab1 edit')
+  })
+
+  it('the same tab can keep saving after its own write', async () => {
+    const { store, tick } = makeStore()
+    const p = await store.createProject('tune', 'a')
+    let v = p.updatedAt
+    for (const code of ['b', 'c', 'd']) {
+      tick()
+      const r = await store.saveCode(p.id, code, v)
+      expect(r.kind).toBe('saved')
+      if (r.kind === 'saved') v = r.updatedAt
+    }
+    expect((await store.getProject(p.id))!.code).toBe('d')
+  })
+
+  it('a deleted project reports gone rather than resurrecting itself', async () => {
+    const { store } = makeStore()
+    const p = await store.createProject('tune', 'a')
+    await store.deleteProject(p.id)
+    expect(await store.saveCode(p.id, 'b', p.updatedAt)).toEqual({ kind: 'gone' })
+    expect(await store.getProject(p.id)).toBeUndefined()
+  })
+
+  it('without an expectation it is the old last-write-wins put', async () => {
+    // the single-tab path, and every caller that just read the record
+    const { store, tick } = makeStore()
+    const p = await store.createProject('tune', 'a')
+    tick()
+    await store.saveCode(p.id, 'other tab', p.updatedAt)
+    tick()
+    expect(await store.saveCode(p.id, 'blind')).toMatchObject({ kind: 'saved' })
+    expect((await store.getProject(p.id))!.code).toBe('blind')
+  })
+})

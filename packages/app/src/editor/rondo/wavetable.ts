@@ -721,16 +721,43 @@ export class WavedefWidget extends WidgetType {
       }
       const col = target.closest?.('.wd-bar') as HTMLElement | null
       if (!col) return null
-      const i = Number(col.dataset['i'])
+      const startI = Number(col.dataset['i'])
       const cur = rescanWavedef(view.state.doc.toString(), scan.name, values, this.dialect)
-      const range = cur?.ranges[sel]?.[i]
+      const range = cur?.ranges[sel]?.[startI]
       if (range === undefined) return null
       buzz()
       wrap.classList.add('active')
-      const writer = new LiveWriter(view, range.from, range.to)
-      const fill = col.querySelector('.wd-fill') as HTMLElement
+      // PAINT ACROSS. The bar is re-hit-tested on every move rather than
+      // captured at pointerdown: a table is a CURVE, and setting eight
+      // partials as eight separate press-drag-release gestures is what made
+      // this feel like eight controls instead of one instrument.
+      let bar = col
+      let i = startI
+      let writer = new LiveWriter(view, range.from, range.to)
+      let fill = col.querySelector('.wd-fill') as HTMLElement
+
+      /** Move the gesture onto `next`. The ranges must be RESCANNED, not
+       *  reused: the bars already painted were rewritten to different widths
+       *  (`0.5` -> `1`), which shifts every offset after them. */
+      const retarget = (next: HTMLElement): void => {
+        const ni = Number(next.dataset['i'])
+        if (!Number.isFinite(ni) || ni === i) return
+        const re = rescanWavedef(view.state.doc.toString(), scan.name, values, this.dialect)
+        const r = re?.ranges[sel]?.[ni]
+        if (r === undefined) return // the doc moved under us: stay where we are
+        bar = next
+        i = ni
+        writer = new LiveWriter(view, r.from, r.to)
+        fill = next.querySelector('.wd-fill') as HTMLElement
+      }
+
       const apply = (ev: PointerEvent): void => {
-        const rect = col.getBoundingClientRect() // fresh: reflow-proof mapping
+        // pointer capture keeps events coming to the ORIGINAL element, so the
+        // bar under the finger has to be found by coordinate
+        const under = document.elementFromPoint(ev.clientX, ev.clientY)
+        const hit = (under as HTMLElement | null)?.closest?.('.wd-bar') as HTMLElement | null
+        if (hit !== null && hit !== bar && wrap.contains(hit)) retarget(hit)
+        const rect = bar.getBoundingClientRect() // fresh: reflow-proof mapping
         const v = barValue(ev.clientY, rect.top, rect.height)
         if (values[sel]![i] === v) return
         // write FIRST, sync the local copy only on success: an aborted writer

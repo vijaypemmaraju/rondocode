@@ -210,3 +210,87 @@ describe('env breakpoints can carry their own curve', () => {
     expect(compile('synth s\n  * e\n  e = env .005:3 1 .15 .4\n').ok).toBe(false)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * `curvedef` and the lane forms.
+ *
+ * Both existed only through the js{ … } hatch. The shapes chosen: curvedef
+ * mirrors `env`'s pair form (including `level:curve`) because it IS the same
+ * kind of list, and the lane rides the existing signal ctrl-value slot beside
+ * `sine …` and `rise …` rather than inventing a value kind.
+ * ------------------------------------------------------------------------- */
+describe('curvedef', () => {
+  const gen = (src: string): string => {
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    return c.ok ? c.code.trim() : ''
+  }
+
+  it('takes fraction/level pairs, like env', () => {
+    expect(gen('curvedef swell .25 1 .75 .2\n')).toBe("curvedef('swell', [[0.25, 1], [0.75, 0.2]])")
+  })
+
+  it('takes a per-segment curve with the same `level:curve` suffix', () => {
+    expect(gen('curvedef s .25 1:3 .75 .2:-2\n')).toBe("curvedef('s', [[0.25, 1, 3], [0.75, 0.2, -2]])")
+  })
+
+  it('refuses a half pair, and a shape with no length anywhere', () => {
+    expect(compile('curvedef s .25\n').ok).toBe(false)
+    expect(compile('curvedef s 0 1 0 .5\n').ok).toBe(false)
+  })
+
+  it('HOISTS, so a play above it still resolves the name', () => {
+    const code = gen('play pad\n  0 3\n  cut: shape swell 8\n\ncurvedef swell .25 1 .75 .2\n')
+    expect(code.indexOf('curvedef(')).toBeLessThan(code.indexOf("p('pad'"))
+  })
+})
+
+describe('curve / shape as a modifier value', () => {
+  const line = (mod: string): string => {
+    const c = compile(`curvedef swell .25 1 .75 .2\n\nsynth pad\n  saw note\n\nplay pad\n  0 3 5\n  ${mod}\n`)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    return c.ok ? (c.code.split('\n').find((l) => l.startsWith("p('pad'")) ?? '') : ''
+  }
+
+  it('a breakpoint lane in cycles', () => {
+    expect(line('cut: curve 8 1 8 .2 300..6000'))
+      .toContain(".ctrl('cut', curve([[8, 1], [8, 0.2]]).range(300, 6000))")
+  })
+
+  it('a NAMED shape scaled to a length in cycles', () => {
+    expect(line('cut: shape swell 16 300..6000'))
+      .toContain(".ctrl('cut', curve(shape('swell', 16)).range(300, 6000))")
+  })
+
+  it('still takes the range/slow suffixes, and per-leg curves', () => {
+    expect(line('cut: curve 4 1:3 4 0 200..4000 slow:2'))
+      .toContain('curve([[4, 1, 3], [4, 0]]).range(200, 4000).slow(2)')
+  })
+
+  it('leaves the other signal forms alone', () => {
+    expect(line('cut: sine 200..2400 slow:4')).toContain('sine.range(200, 2400).slow(4)')
+    expect(line('cut: rise 8')).toContain('rise(8)')
+  })
+
+  it('a half breakpoint is an error that names the right thing', () => {
+    // it must NOT say "a knob lives in the synth" — curve IS legal here, so
+    // that would send you looking in entirely the wrong place
+    const c = compile('curvedef s .5 1\n\nsynth pad\n  saw note\n\nplay pad\n  0\n  cut: curve 8 1 8\n')
+    expect(c.ok).toBe(false)
+    if (!c.ok) expect(c.errors[0]!.message).toMatch(/fraction\/level PAIRS/)
+  })
+
+  it('round-trips as rondo, both forms', () => {
+    for (const mod of ['cut: shape swell 16 300..6000', 'cut: curve 8 1 8 0.2']) {
+      const src = `curvedef swell .25 1 .75 .2\n\nsynth pad\n  saw note\n\nplay pad\n  0 3 5\n  ${mod}\n`
+      const a = compile(src)
+      expect(a.ok).toBe(true)
+      if (!a.ok) continue
+      const back = decompile(a.code)
+      expect(back).toContain('curvedef swell 0.25 1 0.75 0.2')
+      expect(back).not.toContain('js{')
+      const b = compile(back)
+      expect(b.ok && (b as { code: string }).code).toBe(a.code)
+    }
+  })
+})

@@ -446,6 +446,19 @@ function checkNumericMini(
   if (v.kind !== 'mini') return
   const word = /(^|[\s<>[\]()])([a-zA-Z_]\w*)/.exec(v.text)
   if (word === null) return
+  // `curve`/`shape` ARE legal here — reaching this means the value did not
+  // parse as one, and blaming the synth would send you looking in the wrong
+  // place entirely
+  if (word[2] === 'curve' || word[2] === 'shape') {
+    errors.push({
+      message: word[2] === 'curve'
+        ? `\`${name}: ${v.text}\` — a curve lane takes fraction/level PAIRS (\`${name}: curve 8 1 8 .2\`).`
+        : `\`${name}: ${v.text}\` — a named shape takes a name and a length in cycles (\`${name}: shape swell 16\`).`,
+      line: pos.line,
+      col: pos.col,
+    })
+    return
+  }
   if (macros.has(word[2]!)) {
     // The word IS a macro, so it is legal here in principle — we only reach
     // this when cgMacroCtrl could not express the expression (a reciprocal,
@@ -685,6 +698,13 @@ function cgScaleDef(item: Extract<TopItem, { t: 'scaledef' }>): string {
   return `defineScale('${item.name}', [${item.values.map(num).join(', ')}])`
 }
 
+/** `curvedef swell .25 1 .75 .2` → curvedef('swell', [[0.25, 1], [0.75, 0.2]]). */
+function cgCurveDef(item: Extract<TopItem, { t: 'curvedef' }>): string {
+  const pts = item.points.map((p) =>
+    p.curve !== undefined ? `[${num(p.frac)}, ${num(p.level)}, ${num(p.curve)}]` : `[${num(p.frac)}, ${num(p.level)}]`)
+  return `curvedef('${item.name}', [${pts.join(', ')}])`
+}
+
 /** `wavedef vox 1 .3 / .5 1 .6` → defineWavetable('vox', [[1, 0.3], …]). */
 function cgWaveDef(item: Extract<TopItem, { t: 'wavedef' }>): string {
   const frames = item.frames.map((f) => `[${f.map(num).join(', ')}]`).join(', ')
@@ -740,7 +760,8 @@ export function codegen(program: Program, errors: RondoError[]): string {
       errors.push({ message: `macro '${it.name}' collides with the builtin '${it.name}' — rename the macro`, line: it.pos.line, col: it.pos.col })
     }
   }
-  const isDef = (it: TopItem): boolean => it.t === 'scaledef' || it.t === 'wavedef' || it.t === 'macro'
+  const isDef = (it: TopItem): boolean =>
+    it.t === 'scaledef' || it.t === 'wavedef' || it.t === 'macro' || it.t === 'curvedef'
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
   const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors, macroNames)
@@ -751,6 +772,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'master') return cgMaster(item)
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)
+    if (item.t === 'curvedef') return cgCurveDef(item)
     if (item.t === 'bus') return cgBus(item, errors, macroNames)
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)

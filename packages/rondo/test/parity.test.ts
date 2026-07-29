@@ -43,6 +43,7 @@ const globalNames = new Set(docsOfKind('global').map((e) => e.name))
  *  (n/note/chord/stack/mini, `beat` → s/sound, `irand N seg:M`), and the
  *  continuous signals + rise/fall as ctrl values. */
 const FIRST_CLASS_GLOBALS = [
+  'curve', 'curvedef', 'shape',
   'synth', 'defineSynth', 'defineScale', 'defineWavetable', 'macro', 'p', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'bus',
   'n', 'note', 'chord', 'stack', 'mini', 'arrange',
   'sound', 's', 'irand',
@@ -65,9 +66,7 @@ const COVERED_GLOBALS: Record<string, string> = {
   xy: 'two knobs / two scrubbed numbers',
   pick: '`<…>` alternation, or edit-in-place with autocomplete',
   macroval: 'write the macro NAME in a modifier (`dur: bright / 7300`); codegen emits it',
-  curvedef: 'a named shape — declared with `curvedef` at the top level once it has a block form; reachable via js{ … }',
-  shape: 'scale a named curve at its use site; reachable via js{ … }',
-  curve: 'a timeline automation lane — reachable from a modifier via the js{ … } hatch until it has a block form',
+
 }
 
 describe('rondo ⇄ JS DSL parity scoreboard', () => {

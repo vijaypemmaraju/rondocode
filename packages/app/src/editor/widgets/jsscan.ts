@@ -360,6 +360,9 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
 export const JS_SCAN: WidgetScan = {
   knobs: scanKnobsJs,
   envs: scanEnvsJs,
+  // the breakpoint editor is rondo-only for now: the JS form is an array of
+  // arrays, so the spans are there, but the writer has to stay inside them
+  envPoints: () => [],
   plays: () => [],
   richPlays: () => [],
   beats: () => [],

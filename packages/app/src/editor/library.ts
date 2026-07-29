@@ -30,6 +30,43 @@ import type { WorkspaceEntry } from '../desktop/bridge'
 import { compile as compileRondo } from '@rondocode/rondo'
 
 const ACTIVE_KEY = 'rondocode-active-project'
+/** Which project the shared editor buffer (DOC_KEY) currently holds.
+ *
+ *  Both the buffer and the active id are SINGLE localStorage keys, so two tabs
+ *  on different projects overwrite each other's. That is survivable while each
+ *  tab autosaves to its own project id — until boot, which reconciles "the
+ *  buffer is the freshest copy of the active project" and writes one project's
+ *  code into another. Recording the owner makes that claim checkable instead
+ *  of assumed. */
+const DOC_OWNER_KEY = 'rondocode-doc-owner'
+
+const readDocOwner = (): string | null => {
+  try {
+    return localStorage.getItem(DOC_OWNER_KEY)
+  } catch {
+    return null
+  }
+}
+
+const writeDocOwner = (id: string): void => {
+  try {
+    localStorage.setItem(DOC_OWNER_KEY, id)
+  } catch {
+    /* storage denied: bufferBelongsTo() then refuses to reconcile, which is
+       the safe direction — a missed reconcile costs the last few keystrokes,
+       a wrong one costs a whole project */
+  }
+}
+
+/** May the shared buffer be reconciled into `projectId`?
+ *
+ *  Only when the buffer is known to belong to it. An UNKNOWN owner is treated
+ *  as "yes" for exactly one case — a legacy profile that predates this key and
+ *  has only ever had one tab — and as "no" the moment a different owner is
+ *  recorded. Pure, so the decision is testable without storage. */
+export function bufferBelongsTo(owner: string | null, projectId: string): boolean {
+  return owner === null || owner === projectId
+}
 const SAVE_DEBOUNCE_MS = 600
 
 const BLANK_STARTER = `// new tune. define a synth, then p('name', pattern) to play it.
@@ -167,11 +204,16 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
       // first run (or a stale id): adopt the current buffer as "untitled".
       active = projects[0] ?? (await store.createProject('untitled', bootCode))
     }
-    // The buffer is the freshest copy of the active project — reconcile it in.
-    await store.saveCode(active.id, bootCode)
+    // The buffer is the freshest copy of the active project ONLY when it
+    // actually came from it. Another tab may have left its own code here, and
+    // writing that in would overwrite this project with a different one.
+    if (bufferBelongsTo(readDocOwner(), active.id)) {
+      await store.saveCode(active.id, bootCode)
+    }
   }
   let activeId: string = active.id
   setActiveId(activeId)
+  writeDocOwner(activeId)
 
   // Pending debounced autosave (see the autosave wiring below), captured with
   // the project id it belongs to. flushSave() writes it immediately — called
@@ -257,6 +299,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     activeId = p.id
     active = p
     setActiveId(p.id)
+    writeDocOwner(p.id) // this tab's buffer now holds THIS project
     setLabel(p.name)
     // a project remembers its language; legacy records are sniffed once
     editor.setLang(p.lang ?? sniffLang(p.code))

@@ -31,6 +31,8 @@ import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
+import { scanClampedOpts } from './clamps'
+import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
 import type { UnisonScan } from './unison'
 
@@ -72,6 +74,10 @@ export interface Hooks {
   /** A project-wide macro: one move reaches EVERY site at once (see
    *  Session.holdMacro). Separate from holdParam because a macro has no single
    *  synth to address — that is the whole point of it. */
+  /** What the engine will actually use for a written voice option — injected
+   *  so this module never imports the engine (docs eager-graph boundary, the
+   *  same reason wavetableBank is injected). Absent = no clamp chips. */
+  voiceOptEffective?: EffectiveOpt
   holdMacro?: (name: string, value: number) => void
   releaseMacro?: (name: string) => void
   /** GRID PREVIEW: sound one note now (tapping a piano-roll cell while the
@@ -1232,6 +1238,30 @@ export function formatMacroValue(v: number): string {
   return v.toFixed(3)
 }
 
+/** "You wrote 32; the engine is using 9."
+ *
+ *  Shown only where the two DIFFER, so a header of sensible values stays
+ *  clean and a clamped one cannot be missed. Read-only: the number to change
+ *  is the one right before it. */
+class ClampChipWidget extends WidgetType {
+  constructor(readonly name: string, readonly written: number, readonly effective: number) { super() }
+
+  eq(o: ClampChipWidget): boolean {
+    return o.name === this.name && o.written === this.written && o.effective === this.effective
+  }
+
+  toDOM(): HTMLElement {
+    const el = document.createElement('span')
+    el.className = 'rondo-clamp-chip'
+    el.textContent = `→ ${formatMacroValue(this.effective)}`
+    el.title = `${this.name}: ${this.written} is out of range — the engine uses ${this.effective}`
+    el.setAttribute('aria-label', el.title)
+    return el
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
 /** What one destination is currently receiving, shown at the end of its line.
  *  Read-only on purpose: the number is DERIVED, so the only honest place to
  *  change it is the macro declaration (or the formula itself). */
@@ -2159,6 +2189,10 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   refreshMacroEnv(view, text, macroDecls)
   for (const r of macroReadouts(text, macroDecls)) {
     items.push(Decoration.widget({ widget: new MacroChipWidget(r.at, r.label, r.value), side: 1 }).range(r.at))
+  }
+  // Voice options the engine will not use as written (unison:32 -> 9, …).
+  for (const c of hooks.voiceOptEffective !== undefined ? scanClampedOpts(text, hooks.voiceOptEffective) : []) {
+    items.push(Decoration.widget({ widget: new ClampChipWidget(c.name, c.written, c.effective), side: 1 }).range(c.at))
   }
   const envW = envWidth(view)
   for (const e of scan.envs(text)) {

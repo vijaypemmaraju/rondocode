@@ -28,34 +28,27 @@ import {
 } from '../desktop/bridge'
 import type { WorkspaceEntry } from '../desktop/bridge'
 import { compile as compileRondo } from '@rondocode/rondo'
+import { tabGet, tabSet } from '../session/tabstore'
 
 const ACTIVE_KEY = 'rondocode-active-project'
-/** Which project the shared editor buffer (DOC_KEY) currently holds.
+/** Which project this TAB's editor buffer currently holds.
  *
- *  Both the buffer and the active id are SINGLE localStorage keys, so two tabs
- *  on different projects overwrite each other's. That is survivable while each
- *  tab autosaves to its own project id — until boot, which reconciles "the
- *  buffer is the freshest copy of the active project" and writes one project's
- *  code into another. Recording the owner makes that claim checkable instead
- *  of assumed. */
+ *  The buffer and the active id are per-tab now (see session/tabstore.ts), so
+ *  two tabs can no longer fight over them. This stays as the second line of
+ *  defence: boot reconciles "the buffer is the freshest copy of the active
+ *  project", and that claim should be CHECKED rather than assumed — a legacy
+ *  profile, a restored session, or storage that refused a write can all leave
+ *  the two out of step. A missed reconcile costs the last few keystrokes; a
+ *  wrong one costs a whole project. */
 const DOC_OWNER_KEY = 'rondocode-doc-owner'
 
 const readDocOwner = (): string | null => {
-  try {
-    return localStorage.getItem(DOC_OWNER_KEY)
-  } catch {
-    return null
-  }
+  const v = tabGet(DOC_OWNER_KEY)
+  return v === null || v === '' ? null : v
 }
 
 const writeDocOwner = (id: string): void => {
-  try {
-    localStorage.setItem(DOC_OWNER_KEY, id)
-  } catch {
-    /* storage denied: bufferBelongsTo() then refuses to reconcile, which is
-       the safe direction — a missed reconcile costs the last few keystrokes,
-       a wrong one costs a whole project */
-  }
+  tabSet(DOC_OWNER_KEY, id)
 }
 
 /** May the shared buffer be reconciled into `projectId`?
@@ -112,19 +105,14 @@ export const ACTIVE_PROJECT_EVENT = 'rondocode:active-project'
 /** The active project's id, or undefined before the library has mounted (or in
  *  private mode, where nothing persists). */
 export const getActiveProjectId = (): string | undefined => {
-  try {
-    return localStorage.getItem(ACTIVE_KEY) ?? undefined
-  } catch {
-    return undefined
-  }
+  // PER TAB: a second tab picks this up once, as a seed, and owns it after
+  // that — so switching projects here can never move another open tab
+  const v = tabGet(ACTIVE_KEY)
+  return v === null || v === '' ? undefined : v
 }
 const getActiveId = getActiveProjectId
 const setActiveId = (id: string): void => {
-  try {
-    localStorage.setItem(ACTIVE_KEY, id)
-  } catch {
-    // private mode: active project just won't persist across reloads
-  }
+  tabSet(ACTIVE_KEY, id)
   window.dispatchEvent(new CustomEvent(ACTIVE_PROJECT_EVENT, { detail: id }))
 }
 

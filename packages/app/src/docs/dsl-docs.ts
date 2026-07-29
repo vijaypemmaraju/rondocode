@@ -536,9 +536,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'env',
-    'env(gate, points: [time, level][], opts?: { release?, curve?, loop? })',
-    'A multi-segment (breakpoint) envelope, the flexible cousin of adsr. points are [seconds, level] pairs: while the gate is held it ramps through them in order (each from the previous level), then holds the last level, or with loop repeats them like a function generator. Gate-off releases from the current level to 0 over release (def 0.1s). curve (def 0) shapes every segment: >0 fast-then-slow, <0 slow-then-fast. Levels are not clamped, so aim it at amplitude, pitch or any modulation.',
-    "env(gate, [[0.005, 1], [0.15, 0.4], [0.5, 0.6]], { release: 0.3, curve: 3 })",
+    'env(gate, points: ([time, level] | [time, level, curve])[], opts?: { release?, curve?, loop? })',
+    'A multi-segment (breakpoint) envelope, the flexible cousin of adsr. points are [seconds, level] pairs: while the gate is held it ramps through them in order (each from the previous level), then holds the last level, or with loop repeats them like a function generator. Gate-off releases from the current level to 0 over release (def 0.1s). curve (def 0) shapes every segment: >0 fast-then-slow, <0 slow-then-fast. A THIRD number on a breakpoint overrides it for that segment alone, so an attack can snap while its tail eases -- one exponent for the whole envelope bends every joint the same way, which is not how a curve is drawn. Levels are not clamped, so aim it at amplitude, pitch or any modulation.',
+    "env(gate, [[0.005, 1, 4], [0.15, 0.4], [0.5, 0.6, -2]], { release: 0.3 })",
   ),
   sc(
     'lfo',

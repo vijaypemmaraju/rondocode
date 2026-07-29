@@ -162,3 +162,51 @@ describe('macros drive dur/gain/pan', () => {
     expect(c.ok).toBe(false)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * `LEVEL:CURVE` on an env breakpoint.
+ *
+ * `curve:` bends every joint the same way. A drawn curve does not: the attack
+ * wants snapping and the tail wants easing. The colon is unambiguous because a
+ * NUMBER followed by one has no other meaning — named args are `word:value`.
+ * ------------------------------------------------------------------------- */
+describe('env breakpoints can carry their own curve', () => {
+  const gen = (body: string): string => {
+    const c = compile(`synth s\n  saw note\n  * e\n  e = ${body}\n`)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    return c.ok ? (c.code.split('\n').find((l) => l.includes('const e')) ?? '').trim() : ''
+  }
+
+  it('emits a TRIPLE for the segment that carries one', () => {
+    expect(gen('env .005 1:3 .15 .4')).toBe('const e = env(gate, [[0.005, 1, 3], [0.15, 0.4]])')
+  })
+
+  it('leaves plain pairs exactly as they were', () => {
+    expect(gen('env .005 1 .15 .4')).toBe('const e = env(gate, [[0.005, 1], [0.15, 0.4]])')
+  })
+
+  it('mixes shaped and plain segments, and still takes named args', () => {
+    expect(gen('env .005 1:3 .15 .4:-2 release:.3 curve:1'))
+      .toBe('const e = env(gate, [[0.005, 1, 3], [0.15, 0.4, -2]], { release: 0.3, curve: 1 })')
+  })
+
+  it('round-trips as rondo, not as a js block', () => {
+    const c = compile('synth s\n  saw note\n  * e\n  e = env .005 1:3 .15 .4:-2\n')
+    expect(c.ok).toBe(true)
+    if (!c.ok) return
+    const back = decompile(c.code)
+    expect(back).toContain('env 0.005 1:3 0.15 0.4:-2')
+    expect(back).not.toContain('js{')
+    expect(compile(back).ok && (compile(back) as { code: string }).code).toBe(c.code)
+  })
+
+  it('is rejected where it means nothing', () => {
+    // the parser only builds it inside an env arg list, so `svf 900:3` never
+    // reaches codegen — it is refused earlier, which is the better place
+    expect(compile('synth s\n  svf 900:3 res:.3\n').ok).toBe(false)
+  })
+
+  it('a colon after a TIME is not a curve — that slot has no shape to give', () => {
+    expect(compile('synth s\n  * e\n  e = env .005:3 1 .15 .4\n').ok).toBe(false)
+  })
+})

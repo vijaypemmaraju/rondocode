@@ -5,6 +5,7 @@ import { compileGraph, compilePost } from './compile'
 import type { VoiceOpts } from './voice'
 import type { EqBand } from './dsp/eq'
 import type { Math2Op, MathOp } from './dsp/math'
+import type { EnvPoint } from './dsp/env'
 
 /* ------------------------------------------------------------------------- *
  * Synth builder DSL: the user-facing API for defining synths. A build
@@ -236,7 +237,7 @@ export interface SynthCtx {
    *  releases from the current level to 0 over `release` (def 0.1 s). `curve`
    *  (def 0) shapes every segment: > 0 fast-then-slow, < 0 slow-then-fast.
    *  Levels are not clamped, so it drives amplitude, pitch or any modulation. */
-  env(gate: SigIn, points: [number, number][], opts?: { release?: number; curve?: number; loop?: boolean }): Sig
+  env(gate: SigIn, points: EnvPoint[], opts?: { release?: number; curve?: number; loop?: boolean }): Sig
   /** Slow oscillator, output 0..1. `freq` is Hz unless `sync` is set, and then
    *  it is a period length in transport CYCLES: 1 = one sweep per cycle,
    *  0.25 = a quarter note at four beats to the cycle, 0.0625 = a sixteenth.

@@ -112,10 +112,16 @@ export class AdsrKernel implements Kernel {
   }
 }
 
+/** One breakpoint: `[timeSec, level]`, or `[timeSec, level, curve]` to give
+ *  that segment its own shape. A positive curve eases out (fast then slow), a
+ *  negative one eases in; 0 is linear. Omitted = the envelope's own `curve`. */
+export type EnvPoint = [number, number] | [number, number, number]
+
 export interface EnvConfig {
-  /** Breakpoints as [timeSec, level] pairs: segment k ramps from the previous
+  /** Breakpoints: see EnvPoint. [timeSec, level] pairs, or [t, level, curve] triples
+   *  to give ONE segment its own shape. Segment k ramps from the previous
    *  level (0 at start) to level_k over time_k seconds. Required, non-empty. */
-  points: [number, number][]
+  points: EnvPoint[]
   /** Gate-off ramp time to 0, seconds. Default 0.1. */
   release?: number
   /** Segment shape: 0 = linear; > 0 = fast-then-slow (exponential-decay feel);
@@ -148,6 +154,9 @@ export class EnvKernel implements Kernel {
   private readonly release: number
   private readonly curve: number
   private readonly denom: number // 1 - e^-curve, precomputed for the warp
+  /** per-breakpoint curve, defaulting to `curve`; denominators precomputed. */
+  private readonly segCurves: number[]
+  private readonly segDenoms: number[]
   private readonly loop: boolean
 
   private level = 0
@@ -164,13 +173,30 @@ export class EnvKernel implements Kernel {
     this.release = clamp(config.release ?? 0.1, 0.0002, 30)
     this.curve = Number.isFinite(config.curve) ? (config.curve as number) : 0
     this.denom = this.curve !== 0 ? 1 - Math.exp(-this.curve) : 0
+    // PER-SEGMENT shape. One exponent for the whole envelope makes every joint
+    // bend the same way, which is not how a curve is drawn: the attack wants
+    // snapping and the tail wants easing. A third number on a breakpoint gives
+    // that segment its own; absent, it inherits the envelope's.
+    this.segCurves = pts.map((p) => (p.length > 2 && Number.isFinite(p[2]) ? (p[2] as number) : this.curve))
+    this.segDenoms = this.segCurves.map((c) => (c !== 0 ? 1 - Math.exp(-c) : 0))
     this.loop = config.loop === true
   }
 
-  /** Warp a 0..1 fraction by the curve (0 = linear). */
+  /** Warp a 0..1 fraction by a curve exponent (0 = linear). */
+  private static shape(f: number, curve: number, denom: number): number {
+    if (curve === 0) return f
+    return (1 - Math.exp(-curve * f)) / denom
+  }
+
+  /** Warp within segment `seg`, which may carry its own curve. */
+  private warpSeg(f: number, seg: number): number {
+    return EnvKernel.shape(f, this.segCurves[seg]!, this.segDenoms[seg]!)
+  }
+
+  /** Warp the RELEASE, which always uses the envelope-wide curve: it is not a
+   *  breakpoint and has no third number to carry one. */
   private warp(f: number): number {
-    if (this.curve === 0) return f
-    return (1 - Math.exp(-this.curve * f)) / this.denom
+    return EnvKernel.shape(f, this.curve, this.denom)
   }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
@@ -206,7 +232,7 @@ export class EnvKernel implements Kernel {
           level = target // instant segment
         } else {
           const f = t / dur
-          level = f >= 1 ? target : segStart + (target - segStart) * this.warp(f)
+          level = f >= 1 ? target : segStart + (target - segStart) * this.warpSeg(f, seg)
         }
         t += dt
         if (t >= dur) {

@@ -175,8 +175,23 @@ export class MultiLiveWriter {
     return this.ranges[0]?.expected ?? ''
   }
 
+  /** What each range currently holds, in ascending position order. Lets a
+   *  caller rewrite ONE field and hand the others back untouched, which is how
+   *  the envelope keeps a `.003` attack spelled `.003` when you drag release. */
+  get texts(): string[] {
+    return this.ranges.map((r) => r.expected)
+  }
+
   write(text: string): boolean {
+    return this.writeEach(this.ranges.map(() => text))
+  }
+
+  /** Write a DIFFERENT text per range, in ascending position order — one
+   *  dispatch, one undo step, and positions re-tracked by accumulated delta.
+   *  `write` is this with every text the same. */
+  writeEach(texts: readonly string[]): boolean {
     if (this.aborted || this.ranges.length === 0) return false
+    if (texts.length !== this.ranges.length) return false
     // write-verify EVERY range: one stale range means the doc moved under us
     for (const r of this.ranges) {
       if (this.view.state.doc.sliceString(r.from, r.to) !== r.expected) {
@@ -184,12 +199,14 @@ export class MultiLiveWriter {
         return false
       }
     }
-    if (this.ranges.every((r) => r.expected === text)) return true
+    if (this.ranges.every((r, i) => r.expected === texts[i])) return true
     this.view.dispatch({
-      changes: this.ranges.map((r) => ({ from: r.from, to: r.to, insert: text })),
+      changes: this.ranges.map((r, i) => ({ from: r.from, to: r.to, insert: texts[i]! })),
     })
     let delta = 0
-    for (const r of this.ranges) {
+    for (let i = 0; i < this.ranges.length; i++) {
+      const r = this.ranges[i]!
+      const text = texts[i]!
       const before = r.to - r.from
       r.from += delta
       r.to = r.from + text.length

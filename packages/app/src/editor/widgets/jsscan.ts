@@ -22,7 +22,7 @@
  * ------------------------------------------------------------------------- */
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
-import type { KnobMatch, WidgetScan } from '../rondo/widgets'
+import type { EnvMatch, KnobMatch, WidgetScan } from '../rondo/widgets'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import type { UnisonScan } from '../rondo/unison'
 
@@ -191,6 +191,46 @@ export function scanKnobsJs(text: string): KnobMatch[] {
   return out
 }
 
+/* ---- the envelope: adsr(gate, { a, d, s, r }) ---------------------------- */
+
+/** ADSR curves on `adsr(gate, { a: 0.004, d: 0.18, s: 0.25, r: 0.12 })`.
+ *
+ *  All four stages must be plain literals: the widget drags a CURVE, and a
+ *  stage driven by a knob or an expression has no number to write back to
+ *  (`adsr(gate, { r: relKnob })` is a real and useful thing to write — it just
+ *  cannot also be a handle). Partial coverage would be worse than none: three
+ *  draggable corners and one that silently ignores you.
+ *
+ *  The four spans go out in a/d/s/r order regardless of how the object was
+ *  written, so `{ r: 0.1, a: 0.003, ... }` drags correctly too. */
+export function scanEnvsJs(text: string): EnvMatch[] {
+  const root = parse(text)
+  const out: EnvMatch[] = []
+  for (const n of walk(root)) {
+    if (calleeName(text, n) !== 'adsr') continue
+    const args = callArgs(n)
+    if (args[1] === undefined) continue
+    const props = objProps(text, args[1])
+    const toks = (['a', 'd', 's', 'r'] as const).map((k) => {
+      const node = props.get(k)
+      return node !== undefined ? numTok(text, node) : null
+    })
+    if (toks.some((t) => t === null)) continue
+    const [a, d, sus, r] = toks as [NumTok, NumTok, NumTok, NumTok]
+    const synth = enclosingSynth(text, root, n.from)
+    out.push({
+      // the region is the whole call: eq() uses it to notice a respelled
+      // literal, and the widget anchors after it
+      from: n.from,
+      to: n.to,
+      a: a.value, d: d.value, s: sus.value, r: r.value,
+      ranges: [a, d, sus, r].map((t) => ({ from: t.from, to: t.to })),
+      ...(synth !== undefined ? { synth } : {}),
+    })
+  }
+  return out
+}
+
 /* ---- unison fan: synth(fn, opts) / synth(fn, post, opts) ----------------- */
 
 /** Voice-spread glyphs on a `synth(…, { unison, detune, spread })`. Display
@@ -309,17 +349,17 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
 
 /** JavaScript's widget scanners.
  *
- * The families still on rondo-only are the ones whose write-back re-emits
- * rondo SYNTAX rather than rewriting a number in place: the envelope rebuilds
- * `adsr A D S R` as a space-joined region, and the roll family rewrites
- * mini-notation that rondo carries unquoted. Both are reachable — the JS forms
- * exist (`adsr(gate, { a, d, s, r })`, `n('0 3 5')`) — they just need the
- * widget's writer parameterised the way its READER now is. Until then they
- * return nothing here rather than half-working, so a JS doc simply shows the
- * widgets that fully function. */
+ * The roll family is the one still on rondo-only: its write-back rewrites
+ * mini-notation, which rondo carries unquoted and JS carries inside a string
+ * literal. It is reachable — `n('0 3 5')` is right there — it just needs the
+ * writer taught to stay inside the quotes. Until then it returns nothing here
+ * rather than half-working, so a JS doc simply shows the widgets that fully
+ * function. (The envelope came across once its writer stopped rebuilding a
+ * space-joined region and started writing the four VALUES in place: that is
+ * the only part the two languages share.) */
 export const JS_SCAN: WidgetScan = {
   knobs: scanKnobsJs,
-  envs: () => [],
+  envs: scanEnvsJs,
   plays: () => [],
   richPlays: () => [],
   beats: () => [],

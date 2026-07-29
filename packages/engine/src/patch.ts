@@ -1,4 +1,4 @@
-import type { GraphSpec, NodeSpec, NodeType } from './graph'
+import type { GraphSpec, NodeSpec, NodeType, ParamSpec } from './graph'
 
 /* ------------------------------------------------------------------------- *
  * Live constant patching — the "sweep a synth number and hear it glide"
@@ -41,9 +41,50 @@ const cfg = (n: NodeSpec): string => JSON.stringify(n.config ?? {})
  * Otherwise — any structural, config, param, or node-set difference — return
  * null (the caller must rebuild via defineSynth).
  */
+/** A declared param whose DEFAULT moved. Not a rebuild: the name, bounds and
+ *  curve are unchanged, so the only thing that differs is the number the
+ *  param buffer holds — which is exactly what setParam writes. */
+export interface ParamDefaultPatch {
+  name: string
+  value: number
+}
+
+/** Identity of a param, ignoring its default: what must match for a default
+ *  change to be patchable rather than structural. */
+const paramShape = (p: ParamSpec): string =>
+  JSON.stringify({ name: p.name, min: p.min, max: p.max, curve: p.curve ?? null, macro: p.macro ?? null })
+
+/**
+ * Params that differ ONLY in `default`, or null if anything else about them
+ * changed (a rename, new bounds, a param added or removed).
+ *
+ * Dragging a knob rewrites its default, and that used to be lumped in with
+ * every other params difference and rejected — so every knob edit rebuilt the
+ * whole voice pool, debounced, instead of applying now. Nothing about the
+ * graph moves when a default does.
+ */
+export function diffParamDefaults(prev: readonly ParamSpec[], next: readonly ParamSpec[]): ParamDefaultPatch[] | null {
+  if (prev.length !== next.length) return null
+  const out: ParamDefaultPatch[] = []
+  for (let i = 0; i < next.length; i++) {
+    const a = prev[i]!
+    const b = next[i]!
+    if (paramShape(a) !== paramShape(b)) return null
+    if (a.default !== b.default) out.push({ name: b.name, value: b.default })
+  }
+  return out
+}
+
+/** A graph with its params blanked — the shape comparison that asks "is this
+ *  the same graph apart from what the knobs are set to". */
+export const graphShape = (g: GraphSpec | undefined): string =>
+  g === undefined ? 'null' : JSON.stringify({ nodes: g.nodes, out: g.out })
+
 export function diffGraphConstants(prev: GraphSpec, next: GraphSpec): ConstPatch[] | null {
   if (prev.out !== next.out) return null
-  if (JSON.stringify(prev.params) !== JSON.stringify(next.params)) return null
+  // a params difference is patchable when it is DEFAULTS ONLY; the caller
+  // applies those separately (see diffParamDefaults)
+  if (diffParamDefaults(prev.params, next.params) === null) return null
   if (prev.nodes.length !== next.nodes.length) return null
 
   const prevById = new Map<number, NodeSpec>()

@@ -299,3 +299,36 @@ describe('knob value ↔ position mapping', () => {
     expect(toNorm(800, 80, 8000, true)).toBeCloseTo(0.5)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * NEGATIVE degrees.
+ *
+ * `-1` reaches below the scale root, and .overChord documents negatives
+ * reaching below the chord — so they are ordinary notation. The roll scan
+ * matched /^\d+$/, so ONE negative made the whole widget vanish from a line
+ * that was perfectly valid, with no indication why.
+ * ------------------------------------------------------------------------- */
+describe('the roll handles degrees below zero', () => {
+  it('still produces a widget when a line contains one', () => {
+    const [r] = scanPlays('play a\n  -1 0 3 -5\n')
+    expect(r).toBeDefined()
+    expect(r!.steps).toEqual([-1, 0, 3, -5])
+  })
+
+  it('keeps rests alongside them', () => {
+    expect(scanPlays('play a\n  0 ~ -12 ~ 7\n')[0]!.steps).toEqual([0, null, -12, null, 7])
+  })
+
+  it('reads them inside a polymeter figure too', () => {
+    expect(scanPlays('play a\n  {0 -3 5}%8\n')[0]!.steps).toEqual([0, -3, 5])
+  })
+
+  it('leaves an all-positive line exactly as it was', () => {
+    expect(scanPlays('play a\n  0 3 5 7\n')[0]!.steps).toEqual([0, 3, 5, 7])
+  })
+
+  it('still refuses what is not a degree, so note names keep the rich roll', () => {
+    expect(scanPlays('play a\n  c4 e4 g4\n')).toEqual([])
+    expect(scanPlays('play a\n  0 -x 5\n')).toEqual([])
+  })
+})

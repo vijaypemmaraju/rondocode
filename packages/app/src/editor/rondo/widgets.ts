@@ -342,12 +342,12 @@ export function scanPlays(text: string): PlayRoll[] {
     // a PURE POLYMETER figure `{0 3 5}%8` is a flat sequence inside braces —
     // it gets the full editable grid, scoped to the braces' interior (the
     // stepping %n stays a scrubbable number in the text)
-    const pm = /^\{([0-9~ \t]+)\}%\d+$/.exec(notation)
+    const pm = /^\{([-0-9~ \t]+)\}%\d+$/.exec(notation)
     if (pm) {
       const inner = pm[1]!.replace(/\s+$/, '')
       const innerStart = notation.indexOf(inner)
       const ptoks = inner.trim().split(/\s+/).filter(Boolean)
-      if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || /^\d+$/.test(tk))) {
+      if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || /^-?\d+$/.test(tk))) {
         const roll: PlayRoll = {
           from: lineFrom + innerStart,
           to: lineFrom + innerStart + inner.length,
@@ -364,7 +364,10 @@ export function scanPlays(text: string): PlayRoll[] {
     }
     const toks = notation.trim().split(/\s+/).filter(Boolean)
     if (toks.length === 0) continue
-    if (!toks.every((tk) => tk === '~' || /^\d+$/.test(tk))) continue // simple degrees/rests only
+    // NEGATIVE degrees are legal — they reach below the scale root, and
+    // .overChord documents them reaching below the chord. Rejecting them made
+    // the whole widget vanish from a line that was perfectly valid.
+    if (!toks.every((tk) => tk === '~' || /^-?\d+$/.test(tk))) continue // simple degrees/rests only
     const from = lineFrom
     const roll: PlayRoll = { from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) }
     roll.synth = ph[3] ?? ph[2]!
@@ -1861,9 +1864,17 @@ class PianoRollWidget extends WidgetType {
 
   toDOM(view: EditorView): HTMLElement {
     const cols = this.steps.length
+    // The grid spans minDeg..maxDeg, not 0..maxDeg: a degree used to BE its
+    // row index, which silently had no room for a negative one. The default
+    // floor stays 0 so an ordinary line looks exactly as it did.
     let maxDeg = 7
-    for (const s of this.steps) if (s !== null && s > maxDeg) maxDeg = s
-    const rows = maxDeg + 1
+    let minDeg = 0
+    for (const s of this.steps) {
+      if (s === null) continue
+      if (s > maxDeg) maxDeg = s
+      if (s < minDeg) minDeg = s
+    }
+    const rows = maxDeg - minDeg + 1
     const grid = document.createElement('span')
     grid.className = 'rondo-roll'
     grid.setAttribute('role', 'group')
@@ -1876,7 +1887,7 @@ class PianoRollWidget extends WidgetType {
       for (let c = 0; c < cols; c++) {
         const cell = document.createElement('span')
         // every 4th column reads brighter — the beat grid, like the prototype
-        cell.className = 'rc' + (steps[c] === dr ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
+        cell.className = 'rc' + (steps[c] !== null && steps[c]! - minDeg === dr ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
         cell.dataset.r = String(dr)
         cell.dataset.c = String(c)
         cellEls[dr]![c] = cell
@@ -1914,7 +1925,7 @@ class PianoRollWidget extends WidgetType {
       })
     }
     const refresh = (c: number): void => {
-      for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] === r)
+      for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] !== null && steps[c]! - minDeg === r)
     }
     attachGesture(grid, this.drag, 'element', (e) => {
       const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
@@ -1922,7 +1933,8 @@ class PianoRollWidget extends WidgetType {
       const writer = new LiveWriter(view, this.from, this.to)
       let mode: 'draw' | 'erase' = 'draw'
       const set = (r: number, c: number): void => {
-        const next = mode === 'draw' ? r : null
+        // r is a ROW; the degree it stands for is offset by the grid's floor
+        const next = mode === 'draw' ? r + minDeg : null
         if (steps[c] === next) return // no-op: don't spam identical rewrites/evals mid-drag
         steps[c] = next
         refresh(c)

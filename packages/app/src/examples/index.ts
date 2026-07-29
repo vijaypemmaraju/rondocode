@@ -570,6 +570,43 @@ p('amb', chords.sound('cloud').dur(0.98).gain(0.9))
 setCps(0.16)
 `
 
+/** Arpeggiating over a HARMONY: the numbers are chord degrees, so one figure
+ *  re-voices itself as the progression moves. */
+const overChordEx = `// OVER A CHORD: the numbers are CHORD DEGREES, not scale degrees.
+// 0 is the lowest note of whatever chord is sounding, so ONE figure
+// re-voices itself as the progression moves. Change the chords and the
+// arp follows; change the figure and every chord gets the new shape.
+
+const keys = synth(({ note, gate, param, adsr, saw, svf }) => {
+  const env = adsr(gate, { a: 0.004, d: 0.18, s: 0.25, r: 0.12 })
+  const cut = param('cut', 2200, { min: 300, max: 7000, curve: 'log' })
+  return svf(saw(note.freq), cut.mul(env.pow(1.3)), { res: 0.25 }).mul(env).mul(0.5)
+})
+
+const pad = synth(({ note, gate, adsr, saw, svf }) =>
+  svf(saw(note.freq), 1500, { res: 0.15 })
+    .mul(adsr(gate, { a: 0.25, d: 0.4, s: 0.7, r: 0.5 })).mul(0.16), { unison: 3, detune: 8 })
+
+const bass = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.005, d: 0.2, s: 0.5, r: 0.1 })).mul(1.2).tanh().mul(0.5))
+
+// the harmony, once — everything else reads its degrees
+const prog = chord('<Am7 Fmaj7 Cmaj7 G>')
+
+// the FIGURE: degrees of whatever chord is under it. Try changing a number,
+// or the rhythm, and hear every chord pick up the same new shape.
+p('arp', n('0 2 1 4 2 3 1 5').overChord(prog).sound('keys').dur(0.42)
+  .ctrl('cut', sine.range(900, 5200).slow(6)))
+
+// the same chords, held, as a bed
+p('pad', prog.sound('pad').dur(0.95))
+
+// and the root of each chord: degree 0, an octave down
+p('bass', n('0 ~ 0 ~').overChord(prog).sub(12).sound('bass').dur(0.7))
+
+setCps(0.46)
+`
+
 const chordsArp = `// chords & arps, name chords instead of hand-stacking notes.
 // chord('<...>') expands each name to a STACK of notes (root octave 3);
 // .arp() spreads a chord's notes across its step. Qualities: maj m 7 maj7 m7
@@ -3064,6 +3101,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'fm presets', code: fmPresets, rondo: fmPresetsRondo },
   { name: 'chiptune', code: chiptune, rondo: chiptuneRondo },
   { name: 'chords & arps', code: chordsArp, rondo: chordsArpRondo },
+  { name: 'over a chord', code: overChordEx },
   { name: 'generative', code: generative, rondo: generativeRondo },
   { name: 'edm', code: edm, rondo: edmRondo },
   { name: 'synthscape', code: synthscape, rondo: synthscapeRondo },

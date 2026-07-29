@@ -273,6 +273,7 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('sub', 'sub(x: number | Pattern)', 'Subtract from every value, shift degrees or notes down.', "n('7 5 3').sub(7)"),
   pm('mul', 'mul(x: number | Pattern)', 'Multiply every value.', 'saw.mul(0.5)'),
   pm('div', 'div(x: number | Pattern)', 'Divide every value.', 'saw.div(2)'),
+  pm('overChord', 'overChord(chords: Pattern)', "Read this pattern's numbers as CHORD DEGREES of another pattern: 0 is the lowest note of whatever chord is sounding, and degrees past the top wrap up an octave. One figure re-voices itself as the harmony moves, so the same line is Am then F without rewriting it.", "n('0 2 1 4').overChord(chord('<Am F G Em>'))"),
   pm('range', 'range(lo: number, hi: number)', 'Map a 0..1 signal onto lo..hi, the standard way to aim a sweep at real units.', 'sine.range(200, 2400)'),
   pm(
     'rangex',

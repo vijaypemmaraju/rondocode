@@ -161,6 +161,37 @@
 }
 .rondo-env.firing .line { stroke: var(--c-accent-alt, #6ea8fe); }
 .rondo-env.firing .fill { fill: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 22%, transparent); }
+/* the breakpoint editor: `env t l t l …` as a draggable shape. Same visual
+   language as the adsr curve — the curve is the content and reads brightest,
+   the handles are chrome and dim until you go near them. */
+.rondo-envpts {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: text-bottom;
+  margin: 0 0 0 6px;
+  color: var(--c-accent, #6ea8fe);
+  cursor: pointer;
+  touch-action: none;
+}
+.rondo-envpts svg { display: block; overflow: visible; }
+.rondo-envpts .line {
+  stroke: var(--c-accent-alt, #8fd0ff);
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--c-accent-alt, #8fd0ff) 55%, transparent));
+}
+.rondo-envpts .fill { fill: color-mix(in srgb, var(--c-accent-alt, #8fd0ff) 26%, transparent); }
+.rondo-envpts .base { stroke: var(--c-border, #2a2e37); stroke-width: 1; }
+.rondo-envpts .h {
+  fill: var(--c-bg, #16181d);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  opacity: 0.75;
+  transition: opacity 0.1s, r 0.1s;
+}
+.rondo-envpts:hover .h, .rondo-envpts.active .h { opacity: 1; }
+@media (pointer: coarse) {
+  .rondo-envpts .h { r: 6; } /* a thumb needs a bigger target than a cursor */
+}
 /* inline rondo piano-roll: tap/drag the notation as a step grid */
 .rondo-roll {
   display: inline-grid;

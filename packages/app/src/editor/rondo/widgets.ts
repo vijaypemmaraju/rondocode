@@ -32,6 +32,8 @@ import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
+import { envGeometry, scanEnvPoints } from './envpoints'
+import type { EnvPointsScan } from './envpoints'
 import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
 import type { UnisonScan } from './unison'
@@ -1714,6 +1716,122 @@ class EnvWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
+/* ------------------------------------------------------------------------- *
+ * The BREAKPOINT editor: `env t l t l …` as a draggable shape.
+ *
+ * adsr has four values in fixed roles, so its widget has three handles in
+ * known places. env has as many points as you type — so the handles come from
+ * the source, and a drag rewrites ONE point's two numbers and leaves every
+ * other spelled exactly as it was. That is what MultiLiveWriter.writeEach is
+ * for: both numbers in one dispatch, so a drag is one undo step and the two
+ * halves of a point can never land in the document separately.
+ * ------------------------------------------------------------------------- */
+const EP_H = 40
+const EP_PAD = 4
+/** Shortest breakpoint a drag will write. Zero is legal in the ENGINE (an
+ *  instant segment) but a handle you cannot get back off the left edge is
+ *  not; type a 0 if you want one. */
+const EP_MIN_TIME = 0.001
+
+class EnvPointsWidget extends WidgetType {
+  constructor(
+    readonly scan: EnvPointsScan,
+    /** the source text of the whole call — part of eq(), so an edit anywhere
+     *  in it produces fresh DOM rather than stale spans in live closures. */
+    readonly key: string,
+    readonly width: number,
+    readonly hooks: Hooks,
+    readonly drag: Drag,
+  ) { super() }
+
+  eq(o: EnvPointsWidget): boolean {
+    return o.key === this.key && o.width === this.width && o.scan.at === this.scan.at
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const W = Math.max(90, Math.min(this.width, 320))
+    const pts = this.scan.points
+    const wrap = document.createElement('span')
+    wrap.className = 'rondo-envpts'
+    wrap.setAttribute('role', 'group')
+    wrap.setAttribute('aria-label', `${pts.length}-point envelope`)
+    wrap.title = 'drag a point: sideways for time, up and down for level'
+    const svg = `<svg width="${W}" height="${EP_H}" viewBox="0 0 ${W} ${EP_H}">` +
+      `<line class="base" x1="${EP_PAD}" y1="${EP_H - EP_PAD}" x2="${W - EP_PAD}" y2="${EP_H - EP_PAD}"/>` +
+      '<path class="fill"/><path class="line" fill="none" stroke-linejoin="round" stroke-linecap="round"/>' +
+      pts.map((_, i) => `<circle class="h" data-i="${i}" r="4.5"/>`).join('') +
+      '</svg>'
+    wrap.innerHTML = svg
+    const line = wrap.querySelector('.line') as SVGPathElement
+    const fill = wrap.querySelector('.fill') as SVGPathElement
+    const handles = Array.from(wrap.querySelectorAll('.h')) as SVGCircleElement[]
+
+    // live copies: the doc is rewritten in step, but the geometry has to move
+    // per frame without waiting for a rescan
+    const times = pts.map((p) => p.time)
+    const levels = pts.map((p) => p.level)
+
+    const render = (): void => {
+      const g = envGeometry(pts.map((p, i) => ({ ...p, time: times[i]!, level: levels[i]! })), W, EP_H, EP_PAD)
+      const d = g.map((q, i) => `${i === 0 ? 'M' : 'L'} ${q.x.toFixed(1)} ${q.y.toFixed(1)}`).join(' ')
+      line.setAttribute('d', d)
+      fill.setAttribute('d', `${d} L ${g[g.length - 1]!.x.toFixed(1)} ${EP_H - EP_PAD} L ${EP_PAD} ${EP_H - EP_PAD} Z`)
+      // g[0] is the origin, so handle i sits on g[i + 1]
+      handles.forEach((h, i) => {
+        h.setAttribute('cx', String(g[i + 1]!.x))
+        h.setAttribute('cy', String(g[i + 1]!.y))
+      })
+    }
+    render()
+
+    attachGesture(wrap, this.drag, 'window', (e) => {
+      const target = e.target as HTMLElement | null
+      const hit = target?.closest?.('.h') as SVGCircleElement | null
+      if (hit === null) return null
+      const i = Number(hit.dataset['i'])
+      const p = pts[i]
+      if (p === undefined) return null
+      buzz()
+      wrap.classList.add('active')
+      const rect = wrap.getBoundingClientRect()
+      const total = times.reduce((n, t) => n + Math.max(0, t), 0) || 1
+      const span = W - EP_PAD * 2
+      const t0 = times[i]!
+      const startX = e.clientX
+      // ONE writer over this point's two numbers: both land in a single
+      // dispatch, so a drag is one undo step and the pair cannot split
+      const writer = new MultiLiveWriter(view, [p.timeSpan, p.levelSpan])
+      const tStep = niceStep(total / 200)
+      return {
+        onMove: (ev) => {
+          const dx = (ev.clientX - startX) * (W / Math.max(1, rect.width))
+          const t = Math.max(EP_MIN_TIME, t0 + (dx / span) * total)
+          const y = (ev.clientY - rect.top) * (EP_H / Math.max(1, rect.height))
+          const lv = clamp((EP_H - EP_PAD - y) / (EP_H - EP_PAD * 2), 0, 1)
+          const texts = [
+            formatNumber(t, { step: tStep, min: 0 }),
+            formatNumber(lv, { step: 0.01, min: 0 }),
+          ]
+          if (!writer.writeEach(texts)) return // a concurrent edit aborted it
+          times[i] = t
+          levels[i] = lv
+          render()
+          this.hooks.requestEval(false)
+        },
+        onEnd: () => {
+          this.drag.ended = true
+          wrap.classList.remove('active')
+          view.dispatch({}) // one rebuild, fresh spans
+          this.hooks.requestEval(false)
+        },
+      }
+    })
+    return wrap
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
 class PianoRollWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
@@ -2144,6 +2262,8 @@ const enumMark = Decoration.mark({ class: 'cm-rondo-enum' })
 export interface WidgetScan {
   knobs(text: string): KnobMatch[]
   envs(text: string): EnvMatch[]
+  /** `env t l t l …` breakpoint lists — the n-handle editor. */
+  envPoints(text: string): EnvPointsScan[]
   plays(text: string): PlayRoll[]
   richPlays(text: string): RichPlay[]
   beats(text: string): BeatBlock[]
@@ -2160,6 +2280,7 @@ export interface WidgetScan {
 export const RONDO_SCAN: WidgetScan = {
   knobs: scanKnobs,
   envs: scanEnvs,
+  envPoints: scanEnvPoints,
   plays: scanPlays,
   richPlays: scanRichPlays,
   beats: scanBeats,
@@ -2201,6 +2322,13 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   // Voice options the engine will not use as written (unison:32 -> 9, …).
   for (const c of hooks.voiceOptEffective !== undefined ? scanClampedOpts(text, hooks.voiceOptEffective) : []) {
     items.push(Decoration.widget({ widget: new ClampChipWidget(c.name, c.written, c.effective), side: 1 }).range(c.at))
+  }
+  // env breakpoint editors — as many handles as the source has points
+  for (const ep of scan.envPoints(text)) {
+    const key = text.slice(ep.points[0]!.timeSpan.from, ep.at)
+    items.push(Decoration.widget({
+      widget: new EnvPointsWidget(ep, key, envWidth(view), hooks, drag), side: 1,
+    }).range(ep.at))
   }
   const envW = envWidth(view)
   for (const e of scan.envs(text)) {

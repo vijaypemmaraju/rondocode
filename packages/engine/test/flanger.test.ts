@@ -211,11 +211,20 @@ describe('FlangerKernel: stereo', () => {
 describe('FlangerKernel: hygiene', () => {
   it('stays finite and bounded at maximum feedback on a full-scale tone', () => {
     const out = run(new FlangerKernel({ feedback: 0.95, depth: 1, mix: 1 }, ctx), sine(2 * SR, 220, 1))
+    // Scan in a plain loop and assert ONCE. Two expect() calls per sample over
+    // 2s of audio is ~192k assertions, which is slow enough to time out under
+    // a loaded suite — and it reports only the FIRST bad sample. This reports
+    // the worst one, which is what you want when a bound is exceeded.
+    let worst = 0
+    let firstBad = -1
     for (let i = 0; i < out.length; i++) {
-      expect(Number.isFinite(out[i]!)).toBe(true)
-      // the soft knee bounds every write to |v| < 2, and out = read
-      expect(Math.abs(out[i]!)).toBeLessThan(2.1)
+      const v = out[i]!
+      if (!Number.isFinite(v)) { firstBad = i; break }
+      if (Math.abs(v) > worst) worst = Math.abs(v)
     }
+    expect(firstBad, `non-finite sample at ${firstBad}`).toBe(-1)
+    // the soft knee bounds every write to |v| < 2, and out = read
+    expect(worst).toBeLessThan(2.1)
   })
 
   it('keeps audio still IN FLIGHT inside the line instead of draining it early', () => {

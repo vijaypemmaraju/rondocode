@@ -21,7 +21,7 @@ import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { formatNumber, niceStep } from '../widgets/rewrite'
 import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
-import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
+import { LiveWriter, MultiLiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
 import { RONDO_WAVEDEF, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
 import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable'
@@ -1152,12 +1152,20 @@ class KnobWidget extends WidgetType {
     readonly synth: string | undefined,
     readonly hooks: Hooks,
     readonly drag: Drag,
+    /** Every declaration of this same param (same synth + name), including
+     *  this one. A param declared in both the synth body and its post chain is
+     *  ONE control at runtime, so a drag has to move all of them or the
+     *  declarations drift and the two halves scale the value differently. */
+    readonly siblings: readonly { from: number; to: number }[] = [],
   ) { super() }
 
   eq(o: KnobWidget): boolean {
     return o.defFrom === this.defFrom && o.defTo === this.defTo && o.value === this.value &&
       o.lo === this.lo && o.hi === this.hi && o.log === this.log &&
-      o.name === this.name && o.synth === this.synth
+      o.name === this.name && o.synth === this.synth &&
+      // stale sibling ranges would splice the wrong characters
+      o.siblings.length === this.siblings.length &&
+      o.siblings.every((r, i) => r.from === this.siblings[i]!.from && r.to === this.siblings[i]!.to)
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -1252,7 +1260,11 @@ class KnobWidget extends WidgetType {
       const startY = e.clientY
       const t0 = toNorm(this.value, this.lo, this.hi, this.log)
       const step = niceStep(Math.abs(this.hi - this.lo) / 200)
-      const writer = new LiveWriter(view, this.defFrom, this.defTo) // DEF only
+      // DEF only — and every sibling declaration of the same param at once
+      const writer = new MultiLiveWriter(
+        view,
+        this.siblings.length > 0 ? this.siblings : [{ from: this.defFrom, to: this.defTo }],
+      )
       // TOUCH-TO-OVERRIDE: while held, the exact hand value plays NOW (engine
       // param, no eval round-trip) and the pattern drive is suppressed; the
       // text rewrite below still records the value (text stays the truth).
@@ -1961,8 +1973,20 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   // (and the line-oriented play scan) work without slicing bookkeeping.
   const text = view.state.doc.toString()
   const knobs = scan.knobs(text)
+  // Declarations of the SAME param (same synth + name) are one control, so
+  // each widget is handed the whole family and a drag rewrites all of them.
+  const family = new Map<string, { from: number; to: number }[]>()
   for (const k of knobs) {
-    items.push(Decoration.widget({ widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag), side: 1 }).range(k.defTo))
+    if (k.name === undefined) continue
+    const key = `${k.synth ?? ''}\u0000${k.name}`
+    family.set(key, [...(family.get(key) ?? []), { from: k.defFrom, to: k.defTo }])
+  }
+  for (const k of knobs) {
+    const sibs = k.name === undefined ? [] : (family.get(`${k.synth ?? ''}\u0000${k.name}`) ?? [])
+    items.push(Decoration.widget({
+      widget: new KnobWidget(k.defFrom, k.defTo, k.value, k.lo, k.hi, k.log, k.name, k.synth, hooks, drag, sibs),
+      side: 1,
+    }).range(k.defTo))
   }
   const envW = envWidth(view)
   for (const e of scan.envs(text)) {

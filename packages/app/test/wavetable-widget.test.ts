@@ -431,3 +431,50 @@ describe('block widget spacing cannot be margin', () => {
     expect(body).toMatch(/background-clip:\s*padding-box/)
   })
 })
+
+describe('paint across bars in ONE gesture', () => {
+  /* A table is a CURVE. Setting eight partials as eight separate
+   * press-drag-release gestures is what made the widget feel like eight
+   * controls instead of one instrument, so a drag now re-hit-tests the bar
+   * under the pointer instead of capturing it at pointerdown. */
+
+  const src = readFileSync(join(__dirname, '../src/editor/rondo/wavetable.ts'), 'utf8')
+
+  it('hit-tests on every move rather than capturing the column at pointerdown', () => {
+    // the exact defect: `col` was fixed at pointerdown and re-measured forever
+    expect(src).toContain('document.elementFromPoint(ev.clientX, ev.clientY)')
+    expect(src).toMatch(/if \(hit !== null && hit !== bar && wrap\.contains\(hit\)\) retarget\(hit\)/)
+  })
+
+  it('RESCANS when it crosses a bar, because earlier writes moved the offsets', () => {
+    // painting bar 0 from `.3` to `1` shortens the line; bar 1's range would
+    // be two characters off if it were reused from the gesture's first scan
+    const before = 'wavedef vox 1 .3 .7 / .5 1 0\n'
+    const v0 = scanWavedefs(before)[0]!.frames
+    const r0 = rescanWavedef(before, 'vox', v0)!.ranges[0]![2]!
+    expect(before.slice(r0.from, r0.to)).toBe('.7')
+
+    // …now bar 1 has been repainted to a WIDER spelling
+    const after = 'wavedef vox 1 0.55 .7 / .5 1 0\n'
+    const v1 = scanWavedefs(after)[0]!.frames
+    const stale = before.slice(r0.from, r0.to)
+    const fresh = rescanWavedef(after, 'vox', v1)!.ranges[0]![2]!
+    expect(after.slice(fresh.from, fresh.to)).toBe('.7') // still the right bar
+    expect(fresh.from).not.toBe(r0.from) // …at a different offset
+    expect(stale).toBe('.7') // and the stale range would have pointed elsewhere
+    expect(after.slice(r0.from, r0.to)).not.toBe('.7')
+  })
+
+  it('keeps the write-then-sync order while retargeting', () => {
+    // a drifted `values` copy makes rescanWavedef (which matches BY VALUE)
+    // refuse every later gesture, and painting multiplies the chances
+    const write = src.indexOf('if (!writer.write(formatNumber(v')
+    const sync = src.indexOf('values[sel]![i] = v', write)
+    expect(write).toBeGreaterThan(-1)
+    expect(sync).toBeGreaterThan(write)
+  })
+
+  it('a retarget that cannot resolve stays on the current bar, never guesses', () => {
+    expect(src).toMatch(/if \(r === undefined\) return \/\/ the doc moved under us/)
+  })
+})

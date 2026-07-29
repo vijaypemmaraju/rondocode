@@ -414,10 +414,121 @@ function cgComb(c: Comb): string {
   return `${name}(${args.join(', ')})`
 }
 
-function cgMod(m: Mod): string {
+/** A NUMERIC modifier's mini value may hold numbers, rests and the grouping
+ *  operators — never a bare word.
+ *
+ *  `dur: bright / 7300` used to compile to `.dur('bright / 7300')`, a mini
+ *  string, and every event came out with dur set to the STRING "bright". No
+ *  error, no sound change you could trace: the scheduler wants a number and
+ *  quietly got a word. The mistake is an easy one to make, because `bright`
+ *  IS a real name — just a synth param, which lives in the audio graph and
+ *  cannot be read from the pattern layer at all. */
+function checkNumericMini(
+  name: string,
+  v: CtrlValue,
+  pos: Pos,
+  errors: RondoError[],
+  macros: ReadonlySet<string>,
+): void {
+  if (v.kind !== 'mini') return
+  const word = /(^|[\s<>[\]()])([a-zA-Z_]\w*)/.exec(v.text)
+  if (word === null) return
+  if (macros.has(word[2]!)) {
+    // The word IS a macro, so it is legal here in principle — we only reach
+    // this when cgMacroCtrl could not express the expression (a reciprocal,
+    // say). Falling through to a mini string would be the silent-garbage the
+    // whole check exists to stop, so say what happened.
+    errors.push({
+      message: `\`${name}: ${v.text}\` can't be expressed here — a macro modifier takes + - * and / with the macro on the left (\`${name}: ${word[2]!} / 7300\`, \`${name}: 0.6 - ${word[2]!} / 7300\`).`,
+      line: pos.line,
+      col: pos.col,
+    })
+    return
+  }
+  errors.push({
+    message: `\`${name}:\` takes numbers, not \`${word[2]}\` — a knob or binding lives in the synth, and a play block can't read it. Use a number, a signal (\`${name}: sine .1..2 slow:4\`) or alternation (\`${name}: <.5 1>\`).`,
+    line: pos.line,
+    col: pos.col,
+  })
+}
+
+/**
+ * A numeric modifier's value, when it is arithmetic over MACROS.
+ *
+ * `dur: bright / 7300` -> `macroval('bright').div(7300)`. `dur`, `gain` and
+ * `pan` are structural — the scheduler consumes them per event and they never
+ * reach the engine — so a synth param could never drive one. macroval reads
+ * the same macro from the pattern side, and Pattern already carries the same
+ * .add/.sub/.mul/.div the audio side does, so the emitted shape is identical.
+ *
+ * Returns null when the text is not pure macro arithmetic, leaving the caller
+ * to emit a plain mini value or reject an unknown word as before.
+ */
+function cgMacroCtrl(text: string, macros: ReadonlySet<string>): string | null {
+  if (macros.size === 0) return null
+  const toks = text.match(/[a-zA-Z_]\w*|\d*\.?\d+|[-+*/()]/g)
+  if (toks === null || toks.join('') !== text.replace(/\s+/g, '')) return null
+  const names = toks.filter((t) => /^[a-zA-Z_]/.test(t))
+  if (names.length === 0 || !names.every((n) => macros.has(n))) return null
+  const PREC: Record<string, number> = { '+': 1, '-': 1, '*': 2, '/': 2 }
+  const METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div' }
+  let i = 0
+  // `lit` tracks whether the head is still a bare NUMBER: a number has no
+  // .sub, so `0.6 - bright` has to lift its head into a pattern first
+  type Node = { js: string; lit: boolean }
+  const atom = (): Node | null => {
+    const t = toks[i]
+    if (t === undefined) return null
+    if (t === '(') {
+      i++
+      const v = climb(1)
+      if (v === null || toks[i] !== ')') return null
+      i++
+      return v
+    }
+    if (/^[a-zA-Z_]/.test(t)) { i++; return { js: `macroval('${t}')`, lit: false } }
+    if (/^\d*\.?\d+$/.test(t)) { i++; return { js: num(Number(t)), lit: true } }
+    return null
+  }
+  const climb = (min: number): Node | null => {
+    let lhs = atom()
+    if (lhs === null) return null
+    for (;;) {
+      const t = toks[i]
+      if (t === undefined || PREC[t] === undefined || PREC[t]! < min) break
+      i++
+      const rhs = climb(PREC[t]! + 1)
+      if (rhs === null) return null
+      if (lhs.lit) {
+        // a NUMBER on the left has no .add, so commute onto the pattern — the
+        // same shape the synth side emits for `0.6 - norm * 0.55`
+        const a: string = lhs.js
+        if (t === '+') lhs = { js: `${rhs.js}.add(${a})`, lit: false }
+        else if (t === '-') lhs = { js: `${rhs.js}.mul(-1).add(${a})`, lit: false }
+        else if (t === '*') lhs = { js: `${rhs.js}.mul(${a})`, lit: false }
+        else return null // `2 / bright` has no reciprocal combinator to lean on
+        continue
+      }
+      lhs = { js: `${lhs.js}.${METHOD[t]!}(${rhs.js})`, lit: false }
+    }
+    return lhs
+  }
+  const out = climb(1)
+  if (out === null || i !== toks.length || out.lit) return null
+  return out.js
+}
+
+function cgMod(m: Mod, errors: RondoError[], macros: ReadonlySet<string>): string {
+  const macroVal = (m.kind === 'ctrl' || m.kind === 'method') && m.value.kind === 'mini'
+    ? cgMacroCtrl(m.value.text, macros)
+    : null
   switch (m.kind) {
-    case 'ctrl': return `.ctrl(${q(m.name)}, ${cgCtrlValue(m.value)})`
-    case 'method': return `.${m.name}(${cgCtrlValue(m.value)})`
+    case 'ctrl':
+      if (macroVal === null) checkNumericMini(m.name, m.value, m.pos, errors, macros)
+      return `.ctrl(${q(m.name)}, ${macroVal ?? cgCtrlValue(m.value)})`
+    case 'method':
+      if (macroVal === null) checkNumericMini(m.name, m.value, m.pos, errors, macros)
+      return `.${m.name}(${macroVal ?? cgCtrlValue(m.value)})`
     case 'fncomb': {
       const pre = m.pre.map(num)
       return `.${m.name}(${[...pre, `x => x.${cgComb(m.comb)}`].join(', ')})`
@@ -463,7 +574,7 @@ function orderMods(mods: Mod[]): Mod[] {
 
 /** The pattern EXPRESSION for a play block (no p() wrapper) — sections stack
  *  these; a top-level play wraps it in p(). */
-function cgPlayPat(block: PlayBlock, errors: RondoError[]): string {
+function cgPlayPat(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<string>): string {
   const lineExpr = (notation: string): string => {
     // `beat` blocks: words are synth names → s('kick hat kick hat');
     // `word:v` velocity suffixes become an aligned per-voice gain pattern
@@ -495,13 +606,13 @@ function cgPlayPat(block: PlayBlock, errors: RondoError[]): string {
   if (block.entry !== 'sound') pat += `.sound('${block.synthName ?? block.name}')`
   for (const m of orderMods(block.mods)) {
     if (m === over) continue // already emitted, ahead of .sound()
-    pat += cgMod(m)
+    pat += cgMod(m, errors, macros)
   }
   return pat
 }
 
-function cgPlay(block: PlayBlock, errors: RondoError[]): string {
-  return `p('${block.name}', ${cgPlayPat(block, errors)})`
+function cgPlay(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<string>): string {
+  return `p('${block.name}', ${cgPlayPat(block, errors, macros)})`
 }
 
 /** `sing NAME [voice:V]` → p(NAME, sing([voice,] lyrics, notes, { name, post? })<mods>).
@@ -532,12 +643,12 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], ma
     opts.push(`post: ${cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors, { macros })}`)
   }
   let pat = `sing(${voiceArg}${q(lyrics)}, ${q(notes)}, { ${opts.join(', ')} })`
-  for (const m of orderMods(mods)) pat += cgMod(m)
+  for (const m of orderMods(mods)) pat += cgMod(m, errors, macros)
   return `p(${q(block.name)}, ${pat})`
 }
 
-function cgSection(item: Extract<TopItem, { t: 'section' }>, errors: RondoError[]): string {
-  const pats = item.plays.map((pb) => cgPlayPat(pb, errors))
+function cgSection(item: Extract<TopItem, { t: 'section' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
+  const pats = item.plays.map((pb) => cgPlayPat(pb, errors, macros))
   const body = pats.length === 1 ? pats[0]! : `stack(${pats.join(', ')})`
   return `const __sec_${item.name} = ${body}`
 }
@@ -620,7 +731,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
   const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors, macroNames)
-    if (item.t === 'play') return cgPlay(item, errors)
+    if (item.t === 'play') return cgPlay(item, errors, macroNames)
     if (item.t === 'sing') return cgSing(item, errors, macroNames)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item)
@@ -630,7 +741,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'bus') return cgBus(item, errors, macroNames)
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
-    if (item.t === 'section') return cgSection(item, errors)
+    if (item.t === 'section') return cgSection(item, errors, macroNames)
     if (item.t === 'song') return '' // assembled below, after all sections exist
     // the tempo line, in the unit it was written in: `bpm 128` → setBpm(128),
     // `cps .5333` → setCps(0.5333). Keeping the unit in the JS is what lets

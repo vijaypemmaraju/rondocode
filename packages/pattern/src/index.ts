@@ -64,3 +64,4 @@ export type { ExportNote, SmfOptions } from './midiExport'
 // remove this even though nothing is bound from it. (controls.ts, imported
 // above for its exports, likewise installs the control methods.)
 import './combinators'
+export * from './macroval'

@@ -26,6 +26,7 @@ import {
   rise,
   fall,
   defineScale,
+  macroval,
 } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -103,6 +104,11 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   // defineScale/defineWavetable (see macro.ts) and the same ordering rule —
   // declare it above the synths that use it.
   macro,
+  // the same macro, read from the PATTERN layer: `dur: bright / 7300` is
+  // .dur(macroval('bright').div(7300)). `dur`/`gain`/`pan` are structural —
+  // the scheduler consumes them per event and they never reach the engine —
+  // so a synth param could not drive them. This mirrors the value across.
+  macroval,
   // continuous signals
   sine,
   sine2,

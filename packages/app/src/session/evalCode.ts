@@ -1,9 +1,9 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales } from '@rondocode/pattern'
+import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros } from '@rondocode/engine'
+import { busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -828,6 +828,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   clearCustomScales()
   clearCustomWavetables()
   clearMacros()
+  clearMacroValues()
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -848,6 +849,12 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   } finally {
     sealed = true
   }
+
+  // Mirror every DECLARED macro into the pattern layer, so a play block's
+  // `dur: bright / 7300` reads the same number the synths do. The knob writes
+  // here too as it moves (Session.holdMacro), so this only has to establish
+  // the value the text currently says.
+  for (const [name, spec] of getMacros()) setMacroValue(name, spec.default)
 
   // The code ran; now catch `.ctrl()` targets the engine would reject at play
   // time (unknown/post-only params). Treated as errors: like any failed eval,

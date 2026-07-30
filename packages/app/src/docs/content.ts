@@ -1613,7 +1613,7 @@ bpm 132`,
     group: 'the rondo language',
     blocks: [
       p('Rondo code grows CONTROL SURFACES inline. Nothing is hidden in a panel: the widget sits on the line that made it.'),
-      note("The controls are not a rondo feature -- they read the SOURCE, so they work in JavaScript too, on the same code they always described. `param('cut', 900, { min: 100, max: 8000 })` grows a dial, `adsr(gate, { a: 0.005, ... })` and `env(gate, [[0.005, 1], ...])` grow envelopes, `n('0 3 5 7')` a grid, `stack(s('kick ~ kick ~'), ...)` a step sequencer, and a quoted enum like `{ mode: 'lp' }` cycles on a tap. A gesture writes back inside the string or the array literal it came from. The one still missing in JavaScript is the filter response curve. A test compiles a rondo program and requires both scanners to find the same widgets, so the two cannot drift apart quietly."),
+      note("The controls are not a rondo feature -- they read the SOURCE, so they work in JavaScript too, on the same code they always described. `param('cut', 900, { min: 100, max: 8000 })` grows a dial, `adsr(gate, { a: 0.005, ... })` and `env(gate, [[0.005, 1], ...])` grow envelopes, `n('0 3 5 7')` a grid, `stack(s('kick ~ kick ~'), ...)` a step sequencer, `svf(x, 900, { res: 0.4 })` grows a response curve, and a quoted enum like `{ mode: 'lp' }` cycles on a tap. A gesture writes back inside the string or the array literal it came from. A filter line grows its own response curve, in either language. A test compiles a rondo program and requires both scanners to find the same widgets, so the two cannot drift apart quietly."),
       table(
         'The inventory: what you write, and what it becomes.',
         ['in the code', 'the control it grows'],

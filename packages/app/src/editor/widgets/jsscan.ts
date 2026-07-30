@@ -25,9 +25,10 @@ import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
-import { ENUM_VALUE_TABLE, WT_TABLES } from '../rondo/enums'
+import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, WT_TABLES } from '../rondo/enums'
 import type { EnumSpan } from '../rondo/enums'
 import type { UnisonScan } from '../rondo/unison'
+import type { EqBandTypeName, FilterScan, StaticArg, SvfModeName } from '../rondo/filtercurve'
 
 type Tree = ReturnType<typeof javascriptLanguage.parser.parse>
 type SyntaxNode = Tree['topNode']
@@ -615,6 +616,182 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
   return out
 }
 
+/* ---- filter response curves: svf / ladder / dualsvf / eq ----------------- */
+
+/** rondo's `ladder 900` and JS's `ladder(x, 900)` do NOT resonate the same.
+ *
+ *  The engine's own default is res 0 for all three (compile.ts's port table),
+ *  but rondo's builtin registry emits `res: 0.5` whenever a ladder line omits
+ *  it. So the same written line means two different filters depending on the
+ *  language, and a curve drawn at 0.5 over a JS ladder would show a peak that
+ *  is not there. The scanner reports what THIS language actually does. */
+const JS_RES_DEFAULT = 0
+
+/** Where a mid-line call's curve hangs: the end of the line it ends on.
+ *
+ *  rondo's `at` is "end of the line's code part" because a rondo filter IS a
+ *  whole spine line. In JS the call is an expression with `.mul(env)` often
+ *  still to come, and anchoring at the closing paren would drop a 420px block
+ *  into the middle of the source. Same contract, computed rather than given. */
+const lineEndFrom = (text: string, pos: number): number => {
+  const nl = text.indexOf('\n', pos)
+  const end = nl === -1 ? text.length : nl
+  let i = end
+  while (i > pos && (text[i - 1] === ' ' || text[i - 1] === '\t')) i--
+  return i
+}
+
+/** Binding name → literal `param()` default, scoped to the enclosing synth.
+ *
+ *  The rondo scanner keys knob DEFs by the param's NAME because rondo's `cutoff
+ *  = knob 800 …` makes the two the same word. JS can spell them apart — `const
+ *  fc = param('cutoff', 800)` — and the call site says `fc`, so the binding is
+ *  what has to be resolvable. */
+function paramBindings(doc: string, root: SyntaxNode): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const n of walk(root)) {
+    if (n.name !== 'VariableDeclaration') continue
+    let name: string | undefined
+    let def: NumTok | null = null
+    for (const c of kids(n)) {
+      if (c.name === 'VariableDefinition') name = slice(doc, c)
+      if (c.name === 'CallExpression' && calleeName(doc, c) === 'param') {
+        const args = callArgs(c)
+        def = args[1] !== undefined ? numTok(doc, args[1]) : null
+      }
+    }
+    if (name === undefined || def === null) continue
+    out.set(`${enclosingSynth(doc, root, n.from) ?? ''} ${name}`, def.value)
+  }
+  return out
+}
+
+/** One numeric argument's static story, by the same three rules the rondo
+ *  scanner applies: a literal is a value you may drag; a bare identifier that
+ *  names a knob is a value you may not (the signal owns it); anything else has
+ *  no honest value at all. */
+function staticArgJs(
+  doc: string,
+  node: SyntaxNode | undefined,
+  bindings: Map<string, number>,
+  synth: string | undefined,
+): StaticArg | null {
+  if (node === undefined) return null
+  const num = numTok(doc, node)
+  if (num !== null) return { value: num.value, range: { from: num.from, to: num.to } }
+  if (node.name !== 'VariableName') return null // a rich expression: no read
+  const def = bindings.get(`${synth ?? ''} ${slice(doc, node)}`)
+    ?? bindings.get(` ${slice(doc, node)}`)
+  return def !== undefined ? { value: def } : null
+}
+
+const isSvfMode = (s: string | null): s is SvfModeName => s !== null && SVF_MODES.has(s)
+
+const SVF_MODES = new Set(['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'])
+const EQ_TYPES = new Set(['lowshelf', 'highshelf', 'peak', 'lp', 'hp'])
+
+/** Filter response curves under `svf(…)`, `ladder(…)`, `dualsvf(…)`, `eq(…)`.
+ *
+ *  The last rondo-only widget family. Nothing about the curve maths or the
+ *  drag handles is language-specific — a handle writes a number into a
+ *  character range — so this is a scan and only a scan.
+ *
+ *  Positions differ from rondo in exactly one way that matters: rondo's spine
+ *  passes the input implicitly, so `svf 900` puts the cutoff first, while JS
+ *  spells the input out and the cutoff is the SECOND argument. Everything
+ *  after that is the same values under different punctuation. */
+export function scanFiltersJs(text: string): FilterScan[] {
+  const root = parse(text)
+  const bindings = paramBindings(text, root)
+  // Ordered by each call's CLOSING position, not its start. A rondo spine
+  // reads in signal-flow order (input first, every line feeding the next), and
+  // the JS form of that same spine is nested inside-out —
+  // `eq(dualsvf(svf(ladder(saw(note)))))`. The innermost call is the earliest
+  // stage and it is also the first to close, so the closing paren is where the
+  // two languages agree about what "first" means.
+  const out: (FilterScan & { readonly to: number })[] = []
+  for (const n of walk(root)) {
+    const kind = calleeName(text, n)
+    if (kind !== 'svf' && kind !== 'ladder' && kind !== 'dualsvf' && kind !== 'eq') continue
+    const args = callArgs(n)
+    const synth = enclosingSynth(text, root, n.from)
+    const scan: FilterScan & { to: number } = {
+      kind, at: lineEndFrom(text, n.to), to: n.to, cutoffs: [], res: { value: JS_RES_DEFAULT },
+      mode: 'lp', routing: 'serial', a: 'lp', b: 'lp', bands: [],
+    }
+    if (synth !== undefined) scan.synth = synth
+
+    if (kind === 'eq') {
+      // eq(inp, [{ type, freq, gain, q }, …]) — every band fully literal or
+      // the line stays curve-less, the same rule the rondo scanner applies to
+      // its bare `eq peak 800 6 1.2` groups
+      const list = args[1]
+      if (list === undefined || list.name !== 'ArrayExpression') continue
+      let ok = true
+      for (const b of kids(list)) {
+        if (b.name === '[' || b.name === ']' || b.name === ',') continue
+        if (b.name !== 'ObjectExpression') { ok = false; break }
+        const props = objProps(text, b)
+        const typeNode = props.get('type')
+        const type = typeNode !== undefined ? strVal(text, typeNode) : 'peak' // engine default
+        if (type === null || !EQ_TYPES.has(type)) { ok = false; break }
+        const lit = (k: string): StaticArg | null => {
+          const node = props.get(k)
+          if (node === undefined) return null
+          const t = numTok(text, node)
+          return t === null ? null : { value: t.value, range: { from: t.from, to: t.to } }
+        }
+        const freq = lit('freq')
+        if (freq === null) { ok = false; break } // freq is required, as in rondo
+        const band: FilterScan['bands'][number] = { type: type as EqBandTypeName, freq }
+        const gain = lit('gain')
+        const q = lit('q')
+        if (gain !== null) band.gain = gain
+        if (q !== null) band.q = q
+        scan.bands.push(band)
+      }
+      if (!ok || scan.bands.length === 0) continue
+      out.push(scan)
+      continue
+    }
+
+    // svf/ladder/dualsvf: input, cutoff(s), then one options object
+    const need = kind === 'dualsvf' ? 2 : 1
+    let bad = false
+    for (let i = 0; i < need; i++) {
+      const sa = staticArgJs(text, args[1 + i], bindings, synth)
+      if (sa === null) { bad = true; break }
+      scan.cutoffs.push(sa)
+    }
+    if (bad) continue
+    const opts = args[1 + need]
+    if (opts !== undefined && opts.name === 'ObjectExpression') {
+      const props = objProps(text, opts)
+      const resNode = props.get('res')
+      if (resNode !== undefined) {
+        // a signal-driven res falls back to the default silently — the curve is
+        // still honest at the written cutoffs, just drawn at rest
+        const sa = staticArgJs(text, resNode, bindings, synth)
+        if (sa !== null) scan.res = sa
+      }
+      const modeNode = props.get('mode')
+      const mode = modeNode !== undefined ? strVal(text, modeNode) : null
+      if (kind === 'svf' && isSvfMode(mode)) scan.mode = mode
+      if (kind === 'dualsvf' && (mode === 'serial' || mode === 'parallel')) scan.routing = mode
+      if (kind === 'dualsvf') {
+        const aNode = props.get('a')
+        const bNode = props.get('b')
+        const av = aNode !== undefined ? strVal(text, aNode) : null
+        const bv = bNode !== undefined ? strVal(text, bNode) : null
+        if (isSvfMode(av)) scan.a = av
+        if (isSvfMode(bv)) scan.b = bv
+      }
+    }
+    out.push(scan)
+  }
+  return out.sort((x, y) => x.to - y.to).map(({ to: _to, ...rest }) => rest)
+}
+
 /* ---- enum words: the tap-cycler ------------------------------------------ */
 
 /** Enum arguments in a JS call: `{ mode: 'lp' }` and the positional word slots.
@@ -663,6 +840,26 @@ export function scanEnumSpansJs(text: string): EnumSpan[] {
       }
     }
   }
+  // eq band types live in an ARRAY of objects, not in the call's own options,
+  // so the loop above cannot reach them: `eq(x, [{ type: 'peak', … }])`. They
+  // also cycle within their arity group rather than across all five types —
+  // see EQ_TYPE_CYCLES — because hp/lp read their numbers as freq q and the
+  // others as freq gain q, so crossing groups would re-key the numbers.
+  for (const n of walk(root)) {
+    if (calleeName(text, n) !== 'eq') continue
+    const list = callArgs(n)[1]
+    if (list === undefined || list.name !== 'ArrayExpression') continue
+    for (const band of kids(list)) {
+      if (band.name !== 'ObjectExpression') continue
+      const node = objProps(text, band).get('type')
+      if (node === undefined) continue
+      const tok = strTok(text, node)
+      if (tok === null) continue
+      const group = EQ_TYPE_CYCLES.find((g) => g.includes(tok.value))
+      if (group === undefined) continue
+      out.push({ from: tok.from, to: tok.to, word: tok.value, values: group })
+    }
+  }
   return out.sort((a, b) => a.from - b.from)
 }
 
@@ -675,6 +872,13 @@ export function scanEnumSpansJs(text: string): EnumSpan[] {
  * array literal, and — for the roll family — the INTERIOR of a string. Hand
  * the widget a span between the quotes and its existing writer cannot leave
  * them. The work was always reading the spans out of the tree.
+ *
+ * The filter curves were the last family to cross, and they crossed the same
+ * way: the maths, the handles and the write-verify are untouched, because a
+ * handle only ever writes a number into a character range. What differed was
+ * the reading — JS spells the input out, so the cutoff is the second argument
+ * rather than the first — and one real semantic gap: rondo injects res 0.5
+ * into a bare `ladder`, JS leaves it at the engine's 0. See JS_RES_DEFAULT.
  *
  * The one place a WRITER did have to learn something: a beat row's velocity is
  * inline in rondo (`kick:0.6`) and a parallel `.gain('1 ~ 0.6')` pattern in
@@ -693,6 +897,6 @@ export const JS_SCAN: WidgetScan = {
   wavedefDialect: { sep: ', ', scan: scanWavedefsJs },
   wavetableCalls: scanWavetableCallsJs,
   unisonHeaders: scanUnisonHeadersJs,
-  filters: () => [],
+  filters: scanFiltersJs,
   enumSpans: scanEnumSpansJs,
 }

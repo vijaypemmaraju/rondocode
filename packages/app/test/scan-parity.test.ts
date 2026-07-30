@@ -51,15 +51,26 @@ const semantic = (v: unknown): unknown => {
   return v
 }
 
-/** Families compared. `filters` is absent because the JS side is still a stub
- *  — listing it here would be the honest place to notice that, and it is:
- *  see the test at the bottom, which asserts exactly which ones are missing so
- *  the gap cannot be forgotten again. */
+/** Every family, filters included — the last one to cross. The test at the
+ *  bottom asserts the rondo-only list is EMPTY, which is the claim this file
+ *  exists to keep honest. */
 const FAMILIES = [
   'knobs', 'envs', 'envPoints', 'plays', 'richPlays', 'beats',
-  'unisonHeaders', 'wavetableCalls', 'wavedefs', 'enumSpans',
+  'unisonHeaders', 'wavetableCalls', 'wavedefs', 'enumSpans', 'filters',
 ] as const
 
+/** `filters` is the one scanner that takes a second argument (knob DEFs, for a
+ *  signal-driven cutoff's fallback value), so it cannot go through the plain
+ *  indexed call the rest share. */
+const run = (scan: WidgetScan, fam: (typeof FAMILIES)[number], text: string): unknown[] =>
+  fam === 'filters' ? scan.filters(text, scan.knobs(text)) : (scan as WidgetScan)[fam](text)
+
+/* A bare `ladder 1200` is deliberately NOT here. rondo's codegen materialises
+ * its res default into the output (`{ res: 0.5 }`), so the compiled JS has a
+ * number to drag that the rondo source does not — a real difference between
+ * two texts, not a disagreement between two scanners. The JS side's own
+ * default is pinned directly in jsscan.test.ts, where compiled rondo cannot
+ * reach: it is 0, the engine's, and NOT rondo's 0.5. */
 const CASES: Record<string, string> = {
   'a knob': 'synth a\n  saw note\n  svf cut res:.3\n  cut = knob 900 100..8000 log\n',
   'an adsr': 'synth a\n  saw note\n  * e\n  e = adsr .005 .2 .3 .1\n',
@@ -75,6 +86,13 @@ const CASES: Record<string, string> = {
   'a wavetable call': 'synth a\n  wavetable note .3 table:basic\n',
   'a custom wavetable': 'wavedef vox 1 .3 / .5 1\n\nsynth a\n  wavetable note .2 table:vox\n',
   'a filter mode': 'synth a\n  saw note\n  svf 900 res:.4 mode:lp\n',
+  // filter curves: literal cutoff, knob-bound cutoff (value but no handle),
+  // a rich expression (no curve at all), dual routing, and eq bands
+  'a written res': 'synth a\n  saw note\n  ladder 1200 res:.7\n',
+  'a knob-bound cutoff': 'synth a\n  saw note\n  svf cut\n  cut = knob 640 80..9000 log\n',
+  'an expression cutoff': 'synth a\n  saw note\n  * e\n  ladder cut * 2\n  e = adsr .01 .1 .5 .1\n  cut = knob 900 100..8000\n',
+  'a dual filter': 'synth a\n  saw note\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n',
+  'eq bands': 'synth a\n  saw note\n  eq peak 800 6 1.2 hp 120 highshelf 6000 -3\n',
 }
 
 describe('rondo and JS scanners see the same document', () => {
@@ -84,8 +102,8 @@ describe('rondo and JS scanners see the same document', () => {
       expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
       if (!c.ok) return
       for (const fam of FAMILIES) {
-        const r = (RONDO_SCAN as WidgetScan)[fam](rondo)
-        const j = (JS_SCAN as WidgetScan)[fam](c.code)
+        const r = run(RONDO_SCAN, fam, rondo)
+        const j = run(JS_SCAN, fam, c.code)
         expect(semantic(j), `${fam} differs`).toEqual(semantic(r))
       }
     })
@@ -97,7 +115,7 @@ describe('rondo and JS scanners see the same document', () => {
       const c = compile(rondo)
       if (!c.ok) continue
       for (const fam of FAMILIES) {
-        if ((RONDO_SCAN as WidgetScan)[fam](rondo).length > 0) seen.add(fam)
+        if (run(RONDO_SCAN, fam, rondo).length > 0) seen.add(fam)
       }
     }
     expect([...FAMILIES].filter((f) => !seen.has(f))).toEqual([])
@@ -105,23 +123,18 @@ describe('rondo and JS scanners see the same document', () => {
 })
 
 describe('which families are still rondo-only', () => {
-  it('is exactly this list — shrink it, never grow it', () => {
-    // A PR claimed every family was covered while two were stubs. Naming them
-    // here means the next such claim has to edit this line to be true.
+  it('is nothing — the list is empty and must stay that way', () => {
+    // A PR claimed every family was covered while two were stubs. This started
+    // life asserting `['filters']`; it now asserts nothing, which is a claim
+    // that has to be re-earned by every future family.
     const src = 'synth a\n  saw note\n  svf 900 res:.4 mode:lp\n'
     const c = compile(src)
     expect(c.ok).toBe(true)
     if (!c.ok) return
-    const stubbed = ([...FAMILIES, 'filters'] as const).filter((fam) => {
-      const r = fam === 'filters'
-        ? RONDO_SCAN.filters(src, RONDO_SCAN.knobs(src))
-        : (RONDO_SCAN as WidgetScan)[fam](src)
-      const j = fam === 'filters'
-        ? JS_SCAN.filters(c.code, JS_SCAN.knobs(c.code))
-        : (JS_SCAN as WidgetScan)[fam](c.code)
-      return r.length > 0 && j.length === 0
-    })
-    expect(stubbed).toEqual(['filters'])
+    const stubbed = FAMILIES.filter(
+      (fam) => run(RONDO_SCAN, fam, src).length > 0 && run(JS_SCAN, fam, c.code).length === 0,
+    )
+    expect(stubbed).toEqual([])
   })
 })
 
@@ -136,13 +149,14 @@ describe('the README says which view is still rondo-only', () => {
     expect(readme).toMatch(/controls read the source rather than the\s*\n?\s*language/)
   })
 
-  it('names the filter curve as the exception, and it still IS the exception', () => {
-    expect(readme).toMatch(/filter response\s*\n?\s*curve is the one view still rondo-only/)
+  it('no longer carves out the filter curve, because it is no longer carved out', () => {
+    expect(readme).not.toMatch(/still rondo-only/)
     const src = 'synth a\n  saw note\n  svf 900 res:.4 mode:lp\n'
     const c = compile(src)
     expect(c.ok).toBe(true)
     if (!c.ok) return
+    // both sides see the curve now — the README's unqualified claim is true
     expect(RONDO_SCAN.filters(src, RONDO_SCAN.knobs(src)).length).toBeGreaterThan(0)
-    expect(JS_SCAN.filters(c.code, JS_SCAN.knobs(c.code))).toEqual([])
+    expect(JS_SCAN.filters(c.code, JS_SCAN.knobs(c.code)).length).toBeGreaterThan(0)
   })
 })

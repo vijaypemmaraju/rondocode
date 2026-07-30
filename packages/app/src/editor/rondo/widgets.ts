@@ -32,7 +32,7 @@ import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
-import { envGeometry, scanEnvPoints } from './envpoints'
+import { envGeometry, envPath, scanEnvPoints } from './envpoints'
 import type { EnvPointsScan } from './envpoints'
 import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
@@ -1762,22 +1762,39 @@ class EnvPointsWidget extends WidgetType {
     const svg = `<svg width="${W}" height="${EP_H}" viewBox="0 0 ${W} ${EP_H}">` +
       `<line class="base" x1="${EP_PAD}" y1="${EP_H - EP_PAD}" x2="${W - EP_PAD}" y2="${EP_H - EP_PAD}"/>` +
       '<path class="fill"/><path class="line" fill="none" stroke-linejoin="round" stroke-linecap="round"/>' +
+      // invisible, thick: the grab zone for BENDING a segment. It sits where
+      // the bend visually lives, which is why it beats a modifier key — and a
+      // modifier is not reachable with a thumb anyway.
+      pts.map((_, i) => `<line class="seg" data-i="${i}"/>`).join('') +
       pts.map((_, i) => `<circle class="h" data-i="${i}" r="4.5"/>`).join('') +
       '</svg>'
     wrap.innerHTML = svg
     const line = wrap.querySelector('.line') as SVGPathElement
     const fill = wrap.querySelector('.fill') as SVGPathElement
     const handles = Array.from(wrap.querySelectorAll('.h')) as SVGCircleElement[]
+    const segs = Array.from(wrap.querySelectorAll('.seg')) as SVGLineElement[]
 
     // live copies: the doc is rewritten in step, but the geometry has to move
     // per frame without waiting for a rescan
     const times = pts.map((p) => p.time)
     const levels = pts.map((p) => p.level)
 
+    const curves = pts.map((p) => p.curve)
     const render = (): void => {
-      const g = envGeometry(pts.map((p, i) => ({ ...p, time: times[i]!, level: levels[i]! })), W, EP_H, EP_PAD)
-      const d = g.map((q, i) => `${i === 0 ? 'M' : 'L'} ${q.x.toFixed(1)} ${q.y.toFixed(1)}`).join(' ')
+      const live = pts.map((p, i) => {
+        const q = { ...p, time: times[i]!, level: levels[i]! }
+        if (curves[i] !== undefined) q.curve = curves[i]!
+        return q
+      })
+      const g = envGeometry(live, W, EP_H, EP_PAD)
+      // BENT, not straight: a curve you can drag has to be a curve you can see,
+      // or you are moving a number and watching nothing happen
+      const d = envPath(live, W, EP_H, EP_PAD, this.scan.curve ?? 0)
       line.setAttribute('d', d)
+      segs.forEach((sg, i) => {
+        sg.setAttribute('x1', String(g[i]!.x)); sg.setAttribute('y1', String(g[i]!.y))
+        sg.setAttribute('x2', String(g[i + 1]!.x)); sg.setAttribute('y2', String(g[i + 1]!.y))
+      })
       fill.setAttribute('d', `${d} L ${g[g.length - 1]!.x.toFixed(1)} ${EP_H - EP_PAD} L ${EP_PAD} ${EP_H - EP_PAD} Z`)
       // g[0] is the origin, so handle i sits on g[i + 1]
       handles.forEach((h, i) => {
@@ -1789,6 +1806,8 @@ class EnvPointsWidget extends WidgetType {
 
     attachGesture(wrap, this.drag, 'window', (e) => {
       const target = e.target as HTMLElement | null
+      const seg = target?.closest?.('.seg') as SVGLineElement | null
+      if (seg !== null) return this.bendGesture(view, Number(seg.dataset['i']), e, wrap, curves, render)
       const hit = target?.closest?.('.h') as SVGCircleElement | null
       if (hit === null) return null
       const i = Number(hit.dataset['i'])
@@ -1830,6 +1849,51 @@ class EnvPointsWidget extends WidgetType {
       }
     })
     return wrap
+  }
+
+  /** Bend segment `i`: drag the SEGMENT, not a handle. Vertical only — the
+   *  horizontal axis already means time, and the bend has no width. */
+  private bendGesture(
+    view: EditorView,
+    i: number,
+    e: PointerEvent,
+    wrap: HTMLElement,
+    curves: (number | undefined)[],
+    render: () => void,
+  ): { onMove: (ev: PointerEvent) => void; onEnd: () => void } | null {
+    const p = this.scan.points[i]
+    if (p === undefined) return null
+    // Either rewrite the curve that is there, or INSERT one where the scanner
+    // says it belongs. A zero-length range makes those the same operation:
+    // the first write inserts, and the writer re-tracks so the next replaces.
+    const span = p.curveSpan ?? (p.curveInsert !== undefined
+      ? { from: p.curveInsert.at, to: p.curveInsert.at }
+      : undefined)
+    if (span === undefined) return null
+    const prefix = p.curveSpan !== undefined ? '' : (p.curveInsert?.prefix ?? '')
+    buzz()
+    wrap.classList.add('active')
+    const writer = new MultiLiveWriter(view, [span])
+    const c0 = curves[i] ?? this.scan.curve ?? 0
+    const startY = e.clientY
+    return {
+      onMove: (ev) => {
+        // up = MORE positive = fast-then-slow, which bulges the line upward,
+        // so the shape follows the finger rather than opposing it
+        const c = clamp(c0 + (startY - ev.clientY) / 14, -8, 8)
+        const text = formatNumber(c, { step: 0.1, min: -8 })
+        if (!writer.writeEach([`${prefix}${text}`])) return
+        curves[i] = Number(text)
+        render()
+        this.hooks.requestEval(false)
+      },
+      onEnd: () => {
+        this.drag.ended = true
+        wrap.classList.remove('active')
+        view.dispatch({})
+        this.hooks.requestEval(false)
+      },
+    }
   }
 
   ignoreEvent(): boolean { return true }

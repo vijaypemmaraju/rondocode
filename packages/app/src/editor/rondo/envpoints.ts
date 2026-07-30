@@ -28,6 +28,11 @@ export interface EnvPoint {
   levelSpan: Span
   /** span of the curve number, when present. */
   curveSpan?: Span
+  /** Where to WRITE a curve when the point has none yet, and the glue that
+   *  must precede it. rondo spells it `1:3` and JS `[0.15, 0.4, 3]` — the same
+   *  number, different punctuation — so the scanner supplies the punctuation
+   *  and the drag stays language-agnostic, like every other writer here. */
+  curveInsert?: { at: number; prefix: string }
 }
 
 /** One `env …` call found in the document. */
@@ -104,6 +109,7 @@ export function scanEnvPoints(text: string): EnvPointsScan[] {
         const l = nums[k + 1]!
         const p: EnvPoint = { time: t.v, level: l.v, timeSpan: t.span, levelSpan: l.span }
         if (l.curve !== undefined) { p.curve = l.curve; p.curveSpan = l.curveSpan! }
+        else p.curveInsert = { at: l.span.to, prefix: ':' }
         points.push(p)
       }
       const wide = /\bcurve[ \t]*:[ \t]*(-?\d*\.?\d+)/.exec(line)
@@ -125,6 +131,43 @@ export function scanEnvPoints(text: string): EnvPointsScan[] {
  *  attack should look like it. Levels are drawn against a fixed 0..1 range
  *  rather than the envelope's own maximum, so raising one point does not
  *  silently rescale every other point under the cursor. */
+/** The engine's easing, so a curve number looks like what it sounds like. */
+const ease = (f: number, c: number): number =>
+  c === 0 ? f : (1 - Math.exp(-c * f)) / (1 - Math.exp(-c))
+
+/** SVG path for a breakpoint list, with each segment BENT by its own curve.
+ *
+ *  Straight lines would be a lie the moment curves became draggable: you would
+ *  be moving a number and watching nothing happen. Segments with no bend emit
+ *  a single `L`, so an ordinary envelope is the same path it always was. */
+export function envPath(
+  points: readonly EnvPoint[],
+  w: number,
+  h: number,
+  pad = 4,
+  globalCurve = 0,
+  steps = 12,
+): string {
+  const g = envGeometry(points, w, h, pad)
+  let d = `M ${g[0]!.x.toFixed(1)} ${g[0]!.y.toFixed(1)}`
+  for (let i = 0; i < points.length; i++) {
+    const a = g[i]!
+    const b = g[i + 1]!
+    const c = points[i]!.curve ?? globalCurve
+    if (c === 0) {
+      d += ` L ${b.x.toFixed(1)} ${b.y.toFixed(1)}`
+      continue
+    }
+    for (let k = 1; k <= steps; k++) {
+      const f = k / steps
+      const x = a.x + (b.x - a.x) * f
+      const y = a.y + (b.y - a.y) * ease(f, c)
+      d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`
+    }
+  }
+  return d
+}
+
 export function envGeometry(
   points: readonly EnvPoint[],
   w: number,

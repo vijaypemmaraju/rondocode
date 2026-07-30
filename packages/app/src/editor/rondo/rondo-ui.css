@@ -181,6 +181,15 @@
 }
 .rondo-envpts .fill { fill: color-mix(in srgb, var(--c-accent-alt, #8fd0ff) 26%, transparent); }
 .rondo-envpts .base { stroke: var(--c-border, #2a2e37); stroke-width: 1; }
+/* the bend grab zone: invisible, but thick enough to catch a finger. Painted
+   AFTER the curve and BEFORE the handles, so grabbing a point still moves the
+   point and only the span between them bends. */
+.rondo-envpts .seg {
+  stroke: transparent;
+  stroke-width: 12;
+  stroke-linecap: round;
+  cursor: ns-resize;
+}
 .rondo-envpts .h {
   fill: var(--c-bg, #16181d);
   stroke: currentColor;

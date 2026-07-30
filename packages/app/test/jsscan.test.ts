@@ -286,3 +286,29 @@ describe('scanEnvPointsJs: env(gate, [[t, l], …]) becomes a shape', () => {
     expect(scanEnvPointsJs('env(gate, [[0.1, 1]])')[0]!.points).toHaveLength(1)
   })
 })
+
+describe('curve insertion, JavaScript side', () => {
+  it('inserts `, 3` as a third array element', () => {
+    const src = 'env(gate, [[0.1, 1], [0.3, 0.2]])'
+    const [s] = scanEnvPointsJs(src)
+    const ins = s!.points[0]!.curveInsert!
+    expect(ins.prefix).toBe(', ')
+    expect(src.slice(0, ins.at) + `${ins.prefix}3` + src.slice(ins.at))
+      .toBe('env(gate, [[0.1, 1, 3], [0.3, 0.2]])')
+  })
+
+  it('rewrites an existing one instead — same as rondo', () => {
+    const [s] = scanEnvPointsJs('env(gate, [[0.1, 1, 4]])')
+    expect(s!.points[0]!.curveSpan).toBeDefined()
+    expect(s!.points[0]!.curveInsert).toBeUndefined()
+  })
+
+  it('the two languages agree on WHICH point takes the curve', () => {
+    // the drag is shared, so a disagreement here would bend a different
+    // segment depending on the language
+    const j = scanEnvPointsJs('env(gate, [[0.1, 1], [0.3, 0.2]])')[0]!
+    const r = scanEnvPoints('  e = env .1 1 .3 .2\n')[0]!
+    expect(j.points.map((p) => p.curveInsert !== undefined))
+      .toEqual(r.points.map((p) => p.curveInsert !== undefined))
+  })
+})

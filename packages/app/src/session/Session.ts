@@ -202,8 +202,16 @@ export class Session {
    *  unchanged send isn't resent and a dropped one resets to 0. */
   private liveSends = new Map<string, number>()
   /** Slide notes whose release is deferred until the synth's next note lands
-   *  (adaptive 303 slide): synth name -> the held slide note. */
-  private readonly pendingSlide = new Map<string, number>()
+   *  (adaptive 303 slide): synth name -> the held note and the frame past
+   *  which it is released anyway.
+   *
+   *  The deadline is CHECKED each tick rather than pre-sent as a scheduled
+   *  noteOff. Pre-sending assumed "whichever fires first wins, the other is a
+   *  no-op" — untrue the moment the same pitch is re-triggered before the cap
+   *  expires, because the stale release then lands inside the NEW note and
+   *  cuts it. At a tempo whose loop divides the cap that is not a rare race:
+   *  it happens on exactly the same frame, every time round. */
+  private readonly pendingSlide = new Map<string, { note: number; deadlineFrame: number }>()
   /** Eval subset of the merged diagnostics (replaced by every eval). */
   private evalDiags: Diagnostic[] = []
   /** Runtime diagnostics keyed by `source message` for dedup. */
@@ -756,10 +764,17 @@ export class Session {
     if (opts?.cps !== undefined) this.requestCps(clampCps(opts.cps))
     this.syncCps()
     if (cmd === 'play') {
+      // The slide sweep rides the scheduler's OWN timer rather than a second
+      // one. It cannot live in dispatchEvents: the scheduler skips onEvents
+      // entirely on a tick with no events (`if (evs.length === 0) return`),
+      // and "no next event" is exactly the stuck-note case the deadline
+      // exists to catch.
+      const wrap = (si: SetIntervalImpl): SetIntervalImpl =>
+        (fn, ms) => si(() => { this.releaseExpiredSlides(); fn() }, ms)
       if (this.setIntervalImpl !== undefined && this.clearIntervalImpl !== undefined) {
-        this.scheduler.start(this.setIntervalImpl, this.clearIntervalImpl)
+        this.scheduler.start(wrap(this.setIntervalImpl), this.clearIntervalImpl)
       } else {
-        this.scheduler.start()
+        this.scheduler.start(wrap((fn, ms) => setInterval(fn, ms)), (h) => clearInterval(h as ReturnType<typeof setInterval>))
       }
       this.playing = true
     } else {
@@ -843,7 +858,7 @@ export class Session {
       // when its next note lands — bridging any gap, not just adjacent notes.
       const pending = this.pendingSlide.get(sound)
       if (pending !== undefined) {
-        this.audio.send({ kind: 'noteOff', synth: sound, note: pending, atFrame: atFrame + overlap })
+        this.audio.send({ kind: 'noteOff', synth: sound, note: pending.note, atFrame: atFrame + overlap })
         this.pendingSlide.delete(sound)
       }
       for (const [key, value] of Object.entries(ev.controls)) {
@@ -859,8 +874,7 @@ export class Session {
         // (resolved above). A safety noteOff far out prevents a stuck note if
         // no next note ever comes; whichever fires first wins, the other is a
         // no-op in the engine.
-        this.pendingSlide.set(sound, note)
-        this.audio.send({ kind: 'noteOff', synth: sound, note, atFrame: atFrame + Math.round(MAX_SLIDE_HOLD_SEC * sr) })
+        this.pendingSlide.set(sound, { note, deadlineFrame: atFrame + Math.round(MAX_SLIDE_HOLD_SEC * sr) })
       } else {
         // Gate gap: shorten the gate slightly so back-to-back events on the
         // SAME note leave a low-gate window between them, so the retriggered
@@ -869,6 +883,18 @@ export class Session {
         const gateSec = Math.max(GATE_GAP_SEC, ev.durSec - GATE_GAP_SEC)
         this.audio.send({ kind: 'noteOff', synth: sound, note, atFrame: Math.round((ev.timeSec + gateSec) * sr) })
       }
+    }
+  }
+
+  /** Release any slide note whose next note never came. Runs each tick, so
+   *  the release is sent only when it is actually needed — and never sits in
+   *  the engine's queue waiting to cut a note that has not been played yet. */
+  private releaseExpiredSlides(): void {
+    const now = this.audio.currentTimeFrames
+    for (const [sound, held] of this.pendingSlide) {
+      if (held.deadlineFrame > now) continue
+      this.audio.send({ kind: 'noteOff', synth: sound, note: held.note, atFrame: held.deadlineFrame })
+      this.pendingSlide.delete(sound)
     }
   }
 

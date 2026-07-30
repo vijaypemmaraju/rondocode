@@ -426,7 +426,7 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('gain', 'gain(x: number | string | Pattern)', 'Event loudness 0..1 (missing means full volume).', '.gain(0.7)'),
   pm('pan', 'pan(x: number | string | Pattern)', 'Stereo position 0..1, 0 left, 0.5 center, 1 right.', ".pan('0 1')"),
   pm('dur', 'dur(x: number | string | Pattern)', 'Note length as a share of the step: under 1 is staccato, near 1 legato.', '.dur(0.8)'),
-  pm('slide', 'slide(x: number | string | Pattern)', '303-style per-note slide: a note with slide > 0 ties into the NEXT note so it glides in (needs a mono + glide synth). Others retrigger cleanly.', ".slide('0 1 0 1')"),
+  pm('slide', 'slide(x: number | string | Pattern)', '303-style per-note slide: a note with slide > 0 ties into the NEXT note so it glides in; others retrigger cleanly, snapping to pitch. Needs `mono` AND a `glide` time on the synth -- glide supplies the bend and slide decides which steps get it, so neither does anything alone.', ".slide('0 1 0 1')"),
   pm('cutoff', 'cutoff(x: number | string | Pattern)', "Set the synth's 'cutoff' parameter per event, shorthand for .ctrl('cutoff', x).", '.cutoff(sine.range(200, 2400))'),
   pm('res', 'res(x: number | string | Pattern)', "Set the synth's 'res' (resonance) parameter per event, shorthand for .ctrl('res', x).", '.res(0.85)'),
   pm(

@@ -448,33 +448,42 @@ class Parser {
   }
 
   /**
-   * '<' term+ '>' — slowcat, one term per cycle. `!n` repetition adds copies
-   * to the rotation, and `@n` HOLDS a term for n cycles: `<0@3 4>` is three
-   * cycles of 0 then one of 4. (Weights used to be parsed and then silently
-   * dropped here, so `<0@3 4@1>` played exactly like `<0 4>` with nothing to
-   * see; inside a sequence the same `@` divides one cycle, which is what makes
-   * the silence confusing rather than merely limited.)
+   * '<' term+ '>' — one term per cycle. `!n` repetition adds copies to the
+   * rotation, and `@n` gives a term n cycles' WIDTH: `<0@3 4>` sustains 0
+   * across three cycles, then plays 4 for one.
+   *
+   * Weighted alternation is a `timecat` slowed to the total weight, which is
+   * what Strudel does and the only reading consistent with `@` elsewhere: in
+   * `[0@3 4]` the weight divides ONE cycle, so in `<0@3 4>` it divides the
+   * rotation, with a cycle as the unit. An earlier fix here pushed n COPIES
+   * into the rotation instead, which re-articulates the term every cycle —
+   * three separate notes where the notation asks for one long one, and no way
+   * at all to write a sustain. Unweighted alternations are unaffected: every
+   * weight is 1, and timecat over n equal parts slowed by n is exactly
+   * one-per-cycle.
    */
   private parseAlternation(): Pattern<MiniValue> {
     const open = this.next()! // '<'
     if (this.isPunct(this.peek(), '>')) this.err(`empty '<>'`, open.start)
-    const pats: Pattern<MiniValue>[] = []
+    const parts: [number, Pattern<MiniValue>][] = []
     for (;;) {
       const t = this.peek()
       if (t === undefined || !this.isTermStart(t)) break
       const at = t.start
       const { pat, weight, reps } = this.parseTerm()
-      // A cycle is the unit here, so a fractional hold has no meaning — say so
-      // rather than rounding to something the source does not read like.
-      if (!Number.isInteger(weight) || weight < 1) {
-        this.err(`'@${weight}' inside '<…>' must be a whole number of cycles`, at)
-      }
-      for (let k = 0; k < reps * weight; k++) pats.push(pat)
+      if (!(weight > 0)) this.err(`'@${weight}' must be greater than 0`, at)
+      // `!n` is repetition — n separate turns in the rotation — while `@n` is
+      // width. They compose: `0!2@3` takes two turns of three cycles each.
+      for (let k = 0; k < reps; k++) parts.push([weight, pat])
     }
-    if (pats.length === 0) this.errUnexpected()
+    if (parts.length === 0) this.errUnexpected()
     if (this.peek() === undefined) this.err(`unclosed '<'`, open.start)
     this.expectPunct('>', 'to close the alternation')
-    return Pattern.cat(...pats)
+    const total = parts.reduce((n, [w]) => n + w, 0)
+    // all-equal weights: timecat over n parts slowed by n IS cat, but go
+    // through cat anyway so the common path keeps its exact identity
+    if (parts.every(([w]) => w === 1)) return Pattern.cat(...parts.map(([, p]) => p))
+    return Pattern.timecat(parts).slow(total)
   }
 
   /**

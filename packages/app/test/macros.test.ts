@@ -272,3 +272,79 @@ describe('the fork name does not compound', () => {
     expect(forkName('two tabs')).toBe('two tabs (this tab)')
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Slide: the deferred release must not outlive its usefulness.
+ *
+ * A slide note holds until the NEXT note lands. The safety deadline for "no
+ * next note ever comes" used to be PRE-SENT as a scheduled noteOff on the
+ * assumption that "whichever fires first wins, the other is a no-op". That is
+ * untrue the moment the same pitch is re-triggered before the deadline: the
+ * stale release lands inside the NEW note and cuts it. At a tempo whose loop
+ * divides the 4s cap it collides on exactly the same frame every time round.
+ * ------------------------------------------------------------------------- */
+describe('slide releases', () => {
+  const rig = () => {
+    const sent: EngineMessage[] = []
+    const ints: { fn: () => void }[] = []
+    const audio = { send: (m: EngineMessage) => void sent.push(m), onEvent: undefined, currentTimeFrames: 0, sampleRate: 48000 }
+    const session = new Session({
+      audio, startLead: 0,
+      setIntervalImpl: (fn) => { const h = { fn }; ints.push(h); return h },
+      clearIntervalImpl: () => {},
+    })
+    const run = (ticks: number): void => {
+      for (let k = 0; k < ticks; k++) { for (const i of ints) i.fn(); audio.currentTimeFrames += 4800 }
+    }
+    const notes = () => sent.filter((m): m is Extract<EngineMessage, { kind: 'noteOn' | 'noteOff' }> =>
+      m.kind === 'noteOn' || m.kind === 'noteOff')
+    return { session, run, notes }
+  }
+  const SRC = [
+    `const bass = synth(({ note, gate, saw, adsr }) => saw(note.freq).mul(adsr(gate)), undefined, { mono: true, glide: 0.08 })`,
+    `p('b', n('0 3 5 7').scale('a minor').sound('bass').ctrl('slide', '0 1 0 1'))`,
+  ].join('\n')
+
+  it('holds a slide note PAST the next onset, which is what makes it glide', () => {
+    const { session, run, notes } = rig()
+    session.evalCode(SRC)
+    session.transport('play')
+    run(12)
+    const on = notes().find((m) => m.kind === 'noteOn' && m.note === 62)!
+    const off = notes().find((m) => m.kind === 'noteOff' && m.note === 62)!
+    const nextOn = notes().find((m) => m.kind === 'noteOn' && m.note === 65)!
+    expect(off.atFrame!).toBeGreaterThan(nextOn.atFrame!) // past the next note
+    expect(off.atFrame! - on.atFrame!).toBeLessThan(48000) // …but not by the cap
+  })
+
+  it('sends NO release that lands inside a later note of the same pitch', () => {
+    const { session, run, notes } = rig()
+    session.evalCode(SRC)
+    session.transport('play')
+    run(60)
+    const ons = notes().filter((m) => m.kind === 'noteOn')
+    for (const off of notes().filter((m) => m.kind === 'noteOff')) {
+      // the note this release actually belongs to is the NEAREST preceding
+      // onset of that pitch; a release far past it is one that outlived its
+      // note and is now sitting on top of a later one
+      const owner = ons.filter((o) => o.note === off.note && o.atFrame! <= off.atFrame!)
+        .sort((a, b) => b.atFrame! - a.atFrame!)[0]
+      expect(owner, `off ${off.note}@${off.atFrame} has no onset`).toBeDefined()
+      expect(off.atFrame! - owner!.atFrame!, `off ${off.note}@${off.atFrame} is stale`).toBeLessThan(96000)
+    }
+  })
+
+  it('STILL releases when no next note ever comes', () => {
+    // the case the deadline exists for — and the one a sweep inside
+    // dispatchEvents could never see, because a tick with no events never
+    // reaches it
+    const { session, run, notes } = rig()
+    session.evalCode([
+      `const bass = synth(({ note, gate, saw, adsr }) => saw(note.freq).mul(adsr(gate)), undefined, { mono: true, glide: 0.08 })`,
+      `p('b', n('0 ~ ~ ~').scale('a minor').sound('bass').ctrl('slide', 1).slow(40))`,
+    ].join('\n'))
+    session.transport('play')
+    run(80)
+    expect(notes().some((m) => m.kind === 'noteOff')).toBe(true)
+  })
+})

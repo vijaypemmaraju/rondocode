@@ -15,7 +15,10 @@ const LOG2_440 = Math.log2(440)
  *
  *  - `mono` — one reused voice cluster instead of polyphony; new notes reuse it
  *    (portamento). Default false (polyphonic — today's behavior).
- *  - `glide` — portamento time in SECONDS (mono only; ignored when poly). The
+ *  - `glide` — portamento time in SECONDS (mono only; ignored when poly).
+ *    Applies to LEGATO moves only — a note tied into the next by `slide`, or a
+ *    held keyboard line. A note that retriggers snaps to its pitch, so `slide`
+ *    is what decides whether a step bends. The
  *    pitch slides from the previous note toward the new one as a one-pole in
  *    LOG-FREQUENCY (semitone) space, so the perceived glide rate is constant
  *    across octaves; `glide` is the ~time-constant (≈63% of the way in `glide`
@@ -217,10 +220,20 @@ export class Voice {
       // non-unison voice, and `freq * 1 === freq`, so this stays byte-identical.
       g.noteFreq.fill(440 * 2 ** ((midiNote - 69) / 12) * this.detuneMul * this.humanizeMul)
     } else {
-      // Gliding: set the target; snap current on the very first note (no slide
-      // from silence). process() fills notefreq per sample from here on.
+      // A RETRIGGER SNAPS (303 model). noteOn means a new note with its own
+      // attack; glideTo() is the legato path and the only one that bends
+      // pitch. This used to snap only when the voice had no previous pitch,
+      // which is almost never: a voice is not reclaimed until its RELEASE
+      // finishes, and the scheduler leaves a 5 ms gate gap, so any patch whose
+      // release outlasts that (`adsr .01 .15 0 .1` — an ordinary pluck) kept
+      // the old pitch and glided EVERY note regardless of `slide`.
+      //
+      // That contradicted slide's contract, which is that a non-slide note
+      // retriggers cleanly. It also made `slide` nearly decorative: it removed
+      // the re-attack and nothing else. Always-glide is still available by
+      // sliding every note (`slide: 1`), which is the honest way to ask for it.
       const baseLog = LOG2_440 + (midiNote - 69) / 12
-      if (!this.hasPitch) this.curLog = baseLog
+      this.curLog = baseLog
       this.tgtLog = baseLog
       this.hasPitch = true
     }

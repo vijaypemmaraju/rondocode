@@ -22,7 +22,7 @@
  * ------------------------------------------------------------------------- */
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
-import type { EnvMatch, KnobMatch, WidgetScan } from '../rondo/widgets'
+import type { EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import type { UnisonScan } from '../rondo/unison'
@@ -294,6 +294,134 @@ export function scanEnvPointsJs(text: string): EnvPointsScan[] {
   return out
 }
 
+/* ---- the roll family: n('0 3 5') inside p(…) ----------------------------- */
+
+/** A string literal's INTERIOR span. That is the whole trick for this family:
+ *  hand the widget a range between the quotes and its existing writer cannot
+ *  leave them — no writer change, exactly as with the two envelope editors. */
+function strTok(doc: string, n: SyntaxNode): { value: string; from: number; to: number } | null {
+  if (n.name !== 'String') return null
+  const raw = slice(doc, n)
+  const q = raw[0]
+  if (q !== "'" && q !== '"') return null
+  const body = raw.slice(1, -1)
+  // an escape would make the interior offsets lie about the text
+  if (body.includes('\\')) return null
+  return { value: body, from: n.from + 1, to: n.to - 1 }
+}
+
+/** The METHOD a `x.foo(…)` call invokes. calleeName only answers for a bare
+ *  identifier, which is right for `n('…')` and useless for the `.sound()` and
+ *  `.scale()` that carry the rest of what a roll needs. */
+function methodName(doc: string, call: SyntaxNode): string | null {
+  if (call.name !== 'CallExpression') return null
+  const callee = call.firstChild
+  if (callee === null || callee.name !== 'MemberExpression') return null
+  let last: SyntaxNode | null = null
+  for (const c of kids(callee)) last = c
+  return last !== null && last.name === 'PropertyName' ? slice(doc, last) : null
+}
+
+/** Walk a `n('…').scale(…).sound(…)` chain, collecting every call by the name
+ *  it invokes — bare or method. */
+function chainCalls(doc: string, root: SyntaxNode): Map<string, SyntaxNode[]> {
+  const out = new Map<string, SyntaxNode[]>()
+  for (const n of walk(root)) {
+    const name = calleeName(doc, n) ?? methodName(doc, n)
+    if (name === null) continue
+    const list = out.get(name)
+    if (list === undefined) out.set(name, [n])
+    else list.push(n)
+  }
+  return out
+}
+
+/** rondo hands the widget its own short scale spelling (`a-min`), which
+ *  rollPreviewMidi expands. JS writes `.scale('a minor')`, and expandScale
+ *  reads a dashless string as "root + major" — so it has to be dashed here or
+ *  every preview note would come out of the wrong scale. */
+const dashScale = (s: string): string => s.trim().replace(/\s+/g, '-')
+
+/** Everything the roll family needs from one `p(name, chain)` call. */
+function playChain(doc: string, call: SyntaxNode): {
+  entry: SyntaxNode
+  text: { value: string; from: number; to: number }
+  synth?: string
+  scale?: string
+} | null {
+  const args = callArgs(call)
+  if (args.length < 2 || args[1] === undefined) return null
+  const calls = chainCalls(doc, args[1])
+  // the note source: n('…') for degrees. note()/s() are other families.
+  const entry = calls.get('n')?.[0]
+  if (entry === undefined) return null
+  const eArgs = callArgs(entry)
+  if (eArgs.length !== 1 || eArgs[0] === undefined) return null
+  const text = strTok(doc, eArgs[0])
+  if (text === null) return null
+  const out: ReturnType<typeof playChain> = { entry, text }
+  const sound = calls.get('sound')?.[0]
+  if (sound !== undefined) {
+    const sa = callArgs(sound)
+    const sv = sa[0] !== undefined ? strVal(doc, sa[0]) : null
+    if (sv !== null) out.synth = sv
+  }
+  const scale = calls.get('scale')?.[0]
+  if (scale !== undefined) {
+    const sa = callArgs(scale)
+    const sv = sa[0] !== undefined ? strVal(doc, sa[0]) : null
+    if (sv !== null) out.scale = dashScale(sv)
+  }
+  return out
+}
+
+/** `p('bass', n('0 3 5 7')…)` → the editable step grid, when the notation is
+ *  nothing but degrees and rests. Same rule as rondo, including negatives. */
+export function scanPlaysJs(text: string): PlayRoll[] {
+  const root = parse(text)
+  const out: PlayRoll[] = []
+  for (const n of walk(root)) {
+    if (calleeName(text, n) !== 'p') continue
+    const c = playChain(text, n)
+    if (c === null) continue
+    const toks = c.text.value.trim().split(/\s+/).filter(Boolean)
+    if (toks.length === 0) continue
+    if (!toks.every((tk) => tk === '~' || /^-?\d+$/.test(tk))) continue
+    const roll: PlayRoll = {
+      from: c.text.from,
+      to: c.text.to,
+      content: c.text.value,
+      steps: toks.map((tk) => (tk === '~' ? null : Number(tk))),
+    }
+    if (c.synth !== undefined) roll.synth = c.synth
+    if (c.scale !== undefined) roll.scale = c.scale
+    out.push(roll)
+  }
+  return out
+}
+
+/** Notation too rich for the grid but still pure degree-mini — the read-only
+ *  overview. The predicate mirrors the rondo scan exactly: structure required,
+ *  letters excluded, and the editable polymeter form left to scanPlaysJs. */
+export function scanRichPlaysJs(text: string): RichPlay[] {
+  const root = parse(text)
+  const out: RichPlay[] = []
+  for (const n of walk(root)) {
+    if (calleeName(text, n) !== 'p') continue
+    const c = playChain(text, n)
+    if (c === null) continue
+    const notation = c.text.value
+    if (notation.length === 0) continue
+    if (!/^[0-9~\s<>[\]{}%*/!@?,.()-]+$/.test(notation)) continue
+    if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
+    if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue
+    const rich: RichPlay = { content: notation, from: c.text.from, to: c.text.to }
+    if (c.synth !== undefined) rich.synth = c.synth
+    out.push(rich)
+  }
+  return out
+}
+
 /* ---- unison fan: synth(fn, opts) / synth(fn, post, opts) ----------------- */
 
 /** Voice-spread glyphs on a `synth(…, { unison, detune, spread })`. Display
@@ -412,23 +540,22 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
 
 /** JavaScript's widget scanners.
  *
- * The roll family is the one still on rondo-only: its write-back rewrites
- * mini-notation, which rondo carries unquoted and JS carries inside a string
- * literal. It is reachable — `n('0 3 5')` is right there — it just needs the
- * writer taught to stay inside the quotes. Until then it returns nothing here
- * rather than half-working, so a JS doc simply shows the widgets that fully
- * function.
+ * Every family is here now, and none of them needed a writer change. They all
+ * edit character ranges: a number inside an options object, a number inside an
+ * array literal, and — for the roll family — the INTERIOR of a string. Hand
+ * the widget a span between the quotes and its existing writer cannot leave
+ * them. The work was always reading the spans out of the tree.
  *
- * The two envelope editors came across the same way, and it is the pattern to
- * copy: nothing about either WRITER changed. Both edit character ranges, and a
- * number inside a JS options object or array literal is a range like any
- * other — the work was reading the spans out of the tree. */
+ * `beat` blocks remain rondo-shaped rather than unavailable: a rondo beat
+ * block is several word rows edited as one grid, and the JS equivalent is
+ * several separate p(…, s('…')) calls, so the mapping is a design question
+ * rather than a missing scanner. */
 export const JS_SCAN: WidgetScan = {
   knobs: scanKnobsJs,
   envs: scanEnvsJs,
   envPoints: scanEnvPointsJs,
-  plays: () => [],
-  richPlays: () => [],
+  plays: scanPlaysJs,
+  richPlays: scanRichPlaysJs,
   beats: () => [],
   wavedefs: scanWavedefsJs,
   // array elements, not space-joined: `[1, 0.5]` gains `, 0`

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
-import { scanEnvs } from '../src/editor/rondo/widgets'
+import { scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanPlaysJs, scanRichPlaysJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
+import { scanEnvs, scanPlays, rollPreviewMidi } from '../src/editor/rondo/widgets'
 import { scanEnvPoints } from '../src/editor/rondo/envpoints'
 
 /* The JavaScript half of the widget scanners. They must produce EXACTLY the
@@ -310,5 +310,69 @@ describe('curve insertion, JavaScript side', () => {
     const r = scanEnvPoints('  e = env .1 1 .3 .2\n')[0]!
     expect(j.points.map((p) => p.curveInsert !== undefined))
       .toEqual(r.points.map((p) => p.curveInsert !== undefined))
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The roll family, in JavaScript.
+ *
+ * rondo carries mini-notation unquoted; JS carries it inside a string literal.
+ * That was the whole reason this stayed rondo-only — and it turns out to need
+ * no writer change either, because handing the widget the string's INTERIOR
+ * span means its existing writer cannot leave the quotes.
+ * ------------------------------------------------------------------------- */
+describe('scanPlaysJs: the editable step grid', () => {
+  const JS = [
+    `p('bass', n('0 3 5 7').scale('a minor').sound('acid'))`,
+    `p('neg', n('-1 0 ~ 3').sound('acid'))`,
+    `p('rich', n('<0 3> 5 [7,9]').sound('acid'))`,
+    `p('names', note('c4 e4').sound('acid'))`,
+  ].join('\n')
+
+  it('spans the string INTERIOR, so a rewrite stays inside the quotes', () => {
+    const [r] = scanPlaysJs(JS)
+    expect(JS.slice(r!.from, r!.to)).toBe('0 3 5 7')
+    expect(JS[r!.from - 1]).toBe("'")
+    expect(JS[r!.to]).toBe("'")
+  })
+
+  it('reads the steps, the synth and the scale off the chain', () => {
+    const [r] = scanPlaysJs(JS)
+    expect(r!.steps).toEqual([0, 3, 5, 7])
+    expect(r!.synth).toBe('acid')
+    expect(r!.scale).toBe('a-minor')
+  })
+
+  it('previews the same NOTE rondo does, despite spelling the scale differently', () => {
+    // rondo says `a-min`, JS says `a minor`; expandScale reads a dashless
+    // string as "root + major", so the dash is load-bearing
+    const js = scanPlaysJs(JS)[0]!
+    const rd = scanPlays('play bass\n  0 3 5 7  scale:a-min\n')[0]!
+    expect(rollPreviewMidi(js.scale, 3)).toBe(rollPreviewMidi(rd.scale, 3))
+  })
+
+  it('takes negatives and rests, exactly as rondo does', () => {
+    expect(scanPlaysJs(JS)[1]!.steps).toEqual([-1, 0, null, 3])
+  })
+
+  it('leaves richer notation to the read-only overview', () => {
+    expect(scanPlaysJs(JS).map((r) => r.content)).not.toContain('<0 3> 5 [7,9]')
+    expect(scanRichPlaysJs(JS).map((r) => r.content)).toEqual(['<0 3> 5 [7,9]'])
+  })
+
+  it('ignores note NAMES — n() is degrees, note() is another family', () => {
+    expect(scanPlaysJs(JS).some((r) => r.content.includes('c4'))).toBe(false)
+  })
+
+  it('declines a string with an escape, whose interior offsets would lie', () => {
+    expect(scanPlaysJs(`p('x', n('0 \\\\u0033'))`)).toEqual([])
+  })
+
+  it('agrees with the rondo scan on the same music', () => {
+    const js = scanPlaysJs(`p('bass', n('0 3 5 7').scale('a minor').sound('acid'))`)[0]!
+    const rd = scanPlays('play bass synth:acid\n  0 3 5 7  scale:a-min\n')[0]!
+    expect(js.steps).toEqual(rd.steps)
+    expect(js.content).toBe(rd.content)
+    expect(js.synth).toBe(rd.synth)
   })
 })

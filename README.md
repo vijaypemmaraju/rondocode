@@ -76,7 +76,13 @@ they are not making:
    changes a value rewrites the source (a few views, like the multi-bar clip
    overview and the unison fan, are there to be read rather than dragged); the
    source is always the whole truth, so anything you can touch you can also
-   type, undo, diff and share. The two languages convert both ways: the editor
+   type, undo, diff and share. The controls read the source rather than the
+   language, so they work in **both**: a dial, an envelope, a breakpoint shape,
+   a step grid and a tap-to-cycle enum all appear over JavaScript as readily as
+   over rondo, writing back inside the string or array literal they came from.
+   A differential test compiles a rondo program and requires both scanners to
+   find the same widgets, so the two cannot quietly drift (the filter response
+   curve is the one view still rondo-only). The two languages convert both ways: the editor
    decompiles JavaScript into rondo, and whatever the terse syntax cannot
    express is preserved verbatim inside a `js` block, so nothing is lost on the
    way in and choosing rondo never locks you out of the full API. The

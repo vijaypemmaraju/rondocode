@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { compile, expandScale } from '@rondocode/rondo'
 import { RONDO_SCAN } from '../src/editor/rondo/widgets'
@@ -120,5 +122,27 @@ describe('which families are still rondo-only', () => {
       return r.length > 0 && j.length === 0
     })
     expect(stubbed).toEqual(['filters'])
+  })
+})
+
+describe('the README says which view is still rondo-only', () => {
+  /* A PR claimed full coverage while two families were stubs, and the README
+   * now makes the same kind of claim. Pinning it to the actual scan tables is
+   * what stops the prose outliving the code — the failure this session
+   * produced twice. */
+  const readme = readFileSync(join(__dirname, '../../../README.md'), 'utf8')
+
+  it('claims widget parity in both languages', () => {
+    expect(readme).toMatch(/controls read the source rather than the\s*\n?\s*language/)
+  })
+
+  it('names the filter curve as the exception, and it still IS the exception', () => {
+    expect(readme).toMatch(/filter response\s*\n?\s*curve is the one view still rondo-only/)
+    const src = 'synth a\n  saw note\n  svf 900 res:.4 mode:lp\n'
+    const c = compile(src)
+    expect(c.ok).toBe(true)
+    if (!c.ok) return
+    expect(RONDO_SCAN.filters(src, RONDO_SCAN.knobs(src)).length).toBeGreaterThan(0)
+    expect(JS_SCAN.filters(c.code, JS_SCAN.knobs(c.code))).toEqual([])
   })
 })

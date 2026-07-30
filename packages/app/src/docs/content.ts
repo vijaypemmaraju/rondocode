@@ -1613,15 +1613,17 @@ bpm 132`,
     group: 'the rondo language',
     blocks: [
       p('Rondo code grows CONTROL SURFACES inline. Nothing is hidden in a panel: the widget sits on the line that made it.'),
+      note("The controls are not a rondo feature -- they read the SOURCE, so they work in JavaScript too, on the same code they always described. `param('cut', 900, { min: 100, max: 8000 })` grows a dial, `adsr(gate, { a: 0.005, ... })` and `env(gate, [[0.005, 1], ...])` grow envelopes, `n('0 3 5 7')` a grid, `stack(s('kick ~ kick ~'), ...)` a step sequencer, and a quoted enum like `{ mode: 'lp' }` cycles on a tap. A gesture writes back inside the string or the array literal it came from. The one still missing in JavaScript is the filter response curve. A test compiles a rondo program and requires both scanners to find the same widgets, so the two cannot drift apart quietly."),
       table(
         'The inventory: what you write, and what it becomes.',
         ['in the code', 'the control it grows'],
         [
           ['a `knob` binding', 'a dial. Drag to set it. A pattern-driven dial glides with the sweep and shows a live readout, and grabbing it overrides the drive until you let go.'],
           ['an `adsr` binding', 'a full-width draggable envelope: pull the attack, the decay and sustain, the release.'],
+          ['an `env` breakpoint list', 'a shape with a handle per point. Drag a handle to move that point in time and level; drag the SEGMENT between two of them to bend it, up for fast-then-slow. Bending writes the third number, adding it if the point had none.'],
           ['a simple degree line', 'a tappable piano-roll grid.'],
           ['a `{…}%n` figure', 'the same grid, scoped to the braces, with the `%n` left as a scrubbable number.'],
-          ['`beat` rows', 'a step sequencer: paint across cells and rows, tap an active step to cycle its velocity, drag one up and down to scrub velocity.'],
+          ['`beat` rows', 'a step sequencer: paint across cells and rows, tap an active step to cycle its velocity, drag one up and down to scrub velocity. In JavaScript the same grid comes from `stack(s(\'kick ~ kick ~\'), ...)`, and velocity is written into the parallel `.gain()` pattern rather than inline.'],
           ['a single-euclid line', 'a preview roll that takes drags: up and down for pulses, sideways to rotate the hits.'],
           ['a multi-cycle line', 'a full-width clip overview below it, every bar of the figure side by side, the playhead riding the right one.'],
           ["a preview roll's left edge", 'a grab strip: drag it up or down to transpose the whole pattern, written back into the block as an `add N` line.'],

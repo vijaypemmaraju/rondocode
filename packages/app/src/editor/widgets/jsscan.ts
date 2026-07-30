@@ -279,6 +279,7 @@ export function scanEnvPointsJs(text: string): EnvPointsScan[] {
         levelSpan: { from: l.from, to: l.to },
       }
       if (c !== undefined) { p.curve = c.value; p.curveSpan = { from: c.from, to: c.to } }
+      else p.curveInsert = { at: l.to, prefix: ', ' }
       points.push(p)
     }
     if (!ok || points.length === 0) continue

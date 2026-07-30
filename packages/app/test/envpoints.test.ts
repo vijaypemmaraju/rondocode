@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { envGeometry, scanEnvPoints } from '../src/editor/rondo/envpoints'
+import { envGeometry, envPath, scanEnvPoints } from '../src/editor/rondo/envpoints'
 import type { EnvPoint } from '../src/editor/rondo/envpoints'
 
 /* ------------------------------------------------------------------------- *
@@ -98,5 +98,55 @@ describe('envGeometry', () => {
   it('survives a zero-length envelope without dividing by zero', () => {
     const g = envGeometry([pt(0, 1)], 100, 40, 4)
     expect(g.every((q) => Number.isFinite(q.x) && Number.isFinite(q.y))).toBe(true)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Bending a segment.
+ *
+ * The gesture lives on the SEGMENT rather than behind a modifier, because that
+ * is where the bend visually is — and a modifier key is not reachable with a
+ * thumb. What makes it work across both languages is that the SCANNER supplies
+ * the punctuation: rondo spells a curve `1:3` and JS `[0.1, 1, 3]`, the same
+ * number with different glue.
+ * ------------------------------------------------------------------------- */
+describe('curve insertion points', () => {
+  it('rondo inserts `:3` right after the level', () => {
+    const src = '  e = env .1 1 .3 .2\n'
+    const [s] = scanEnvPoints(src)
+    const ins = s!.points[0]!.curveInsert!
+    expect(ins.prefix).toBe(':')
+    expect(src.slice(0, ins.at) + `${ins.prefix}3` + src.slice(ins.at)).toBe('  e = env .1 1:3 .3 .2\n')
+  })
+
+  it('a point that ALREADY has one is rewritten, not re-inserted', () => {
+    const [s] = scanEnvPoints('  e = env .1 1:4 .3 .2\n')
+    expect(s!.points[0]!.curveSpan).toBeDefined()
+    expect(s!.points[0]!.curveInsert).toBeUndefined()
+  })
+})
+
+describe('envPath: a curve you can drag is a curve you can see', () => {
+  const pt = (time: number, level: number, curve?: number): EnvPoint =>
+    ({ time, level, ...(curve !== undefined ? { curve } : {}), timeSpan: { from: 0, to: 0 }, levelSpan: { from: 0, to: 0 } })
+
+  it('emits ONE line per straight segment, so an ordinary envelope is unchanged', () => {
+    expect(envPath([pt(0.1, 1), pt(0.3, 0.2)], 100, 40)).toBe('M 4.0 36.0 L 27.0 4.0 L 96.0 29.6')
+  })
+
+  it('samples a bent segment, and bends it the right way', () => {
+    const d = envPath([pt(0.1, 1, 4), pt(0.3, 0.2)], 100, 40)
+    expect(d.split(' L ').length).toBeGreaterThan(5) // sampled, not a straight L
+    // a positive curve rises FAST: a quarter of the way along, well past half
+    // way up (y counts down from the floor at 36 to the ceiling at 4)
+    const first = d.split(' L ')[3]!.split(' ').map(Number)
+    expect(first[1]!).toBeLessThan(20)
+  })
+
+  it('falls back to the envelope-wide curve for points without their own', () => {
+    const bent = envPath([pt(0.1, 1)], 100, 40, 4, 4)
+    const flat = envPath([pt(0.1, 1)], 100, 40, 4, 0)
+    expect(bent).not.toBe(flat)
+    expect(flat).toBe('M 4.0 36.0 L 96.0 4.0')
   })
 })

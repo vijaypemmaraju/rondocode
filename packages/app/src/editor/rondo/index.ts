@@ -11,6 +11,8 @@ import './rondo-ui.css'
 import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { hoverTooltip } from '@codemirror/view'
+import { renderDocBlock, renderDocBlocks } from '../docblock'
+import type { DocBlock } from '../docblock'
 import { autocompletion } from '@codemirror/autocomplete'
 import { rondoMode } from '../langflag'
 import { makeRondoCompletionSource } from './complete'
@@ -107,21 +109,28 @@ export function rondoLanguage(hooks?: RondoWidgetHooks): LanguageSupport {
 
 /* ---- autocomplete -------------------------------------------------------- */
 
-const c = (label: string, type: string, detail: string, info: string): Completion => ({ label, type, detail, info })
+/** One vocabulary entry. `detail` is the signature shown beside the label and
+ *  at the top of the doc card; `info` is the prose; `example` is a line you
+ *  could paste. Kept as plain DATA — the DOM rendering happens once, in
+ *  docblock.ts, so hover and the completion panel cannot look different. */
+export type RondoOption = Completion & { example?: string }
+
+const c = (label: string, type: string, detail: string, info: string, example?: string): RondoOption =>
+  example === undefined ? { label, type, detail, info } : { label, type, detail, info, example }
 
 /** The vocabulary table: the one place each rondo word is DESCRIBED.
  *  complete.ts decides which of them belong at the cursor. */
-export const OPTIONS: Completion[] = [
-  c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings. Header opts: mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, humanize:, voices:.'),
-  c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.'),
-  c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.'),
+export const OPTIONS: RondoOption[] = [
+  c('synth', 'keyword', 'synth NAME', 'Define a synth: a signal pipeline (one stage per line) + `name = …` bindings. Header opts: mono, glide:, unison:, detune:, spread:, curve:, blend:, octaves:, humanize:, voices:.', 'synth lead unison:5 detune:18\n  saw note\n  ladder 1800 res:.4\n  * adsr .01 .2 .6 .3'),
+  c('play', 'keyword', 'play NAME', 'Play a pattern through a synth. Notation on the first line, modifiers below.', 'play lead\n  0 3 5 7  scale:a-min\n  every 4: rev'),
+  c('beat', 'keyword', 'beat [NAME]', 'A drum line: notation words ARE synth names; `kick:.6` accents that step.', 'beat\n  kick ~ kick ~\n  ~ hat:.6 ~ hat'),
   c('sing', 'keyword', 'sing NAME voice:barbara', 'A neural vocal: LYRIC lines above MELODY lines (pairs), one syllable per note.'),
-  c('irand', 'keyword', 'irand N seg:M', 'Random scale degrees 0..N−1, M steps per cycle — a deterministic improviser.'),
-  c('post', 'keyword', 'post', 'A post FX chain over the summed voices (reverb/eq/…), folded from `input`.'),
-  c('bpm', 'keyword', 'bpm 128', 'Set the tempo in beats per minute, 4 beats to the bar.'),
-  c('cps', 'keyword', 'cps N', 'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so .5333 cps is 128 bpm.'),
-  c('sidechain', 'keyword', 'sidechain kick depth:.7 lead:.5', 'The pump: every kick ducks the other channels. Extra name:amount pairs are per-channel duck.'),
-  c('master', 'keyword', 'master threshold:-6 ratio:2', 'Master-bus glue compressor.'),
+  c('irand', 'keyword', 'irand N seg:M', 'Random scale degrees 0..N−1, M steps per cycle — a deterministic improviser.', 'play lead\n  irand 8 seg:16  scale:d-dor'),
+  c('post', 'keyword', 'post', 'A post FX chain over the summed voices (reverb/eq/…), folded from `input`.', 'post\n  reverb input room:.7\n  eq hp 80'),
+  c('bpm', 'keyword', 'bpm 128', 'Set the tempo in beats per minute, 4 beats to the bar.', 'bpm 128'),
+  c('cps', 'keyword', 'cps N', 'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so .5333 cps is 128 bpm.', 'cps .5333'),
+  c('sidechain', 'keyword', 'sidechain kick depth:.7 lead:.5', 'The pump: every kick ducks the other channels. Extra name:amount pairs are per-channel duck.', 'sidechain kick depth:.7 lead:.5'),
+  c('master', 'keyword', 'master threshold:-6 ratio:2', 'Master-bus glue compressor.', 'master threshold:-6 ratio:2'),
   c('scaledef', 'keyword', 'scaledef pelog 0 1.2 2.7 5.4 6.7', 'Define a custom tuning: step offsets in semitones from the root (floats welcome), then `scale: c-pelog`. `Nedo` scales (`scale: c-19edo`) need no scaledef.'),
   c('wavedef', 'keyword', 'wavedef vox 1 .3 / .5 1 .6', 'Define a custom wavetable: `/`-separated frames of harmonic partial amplitudes, then `wavetable note pos table:vox`. The inline editor draws the morph; drag the bars to shape it.'),
   c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),
@@ -191,35 +200,35 @@ export const OPTIONS: Completion[] = [
   c('curvedef', 'keyword', 'curvedef NAME frac lvl frac lvl', "Name a curve SHAPE. Fractions are relative segment lengths, not durations — the shape is scaled where it is used, so one definition serves both a synth's env (seconds) and a lane (cycles). A level may carry its own bend as `1:3`, exactly as in env."),
   c('curve', 'keyword', 'curve cyc lvl cyc lvl', 'A breakpoint automation lane on a play modifier, measured in CYCLES: `cut: curve 8 1 8 .2 300..6000` opens over 8 bars and falls over 8. Takes the same range/slow/fast suffixes every signal value does.'),
   c('shape', 'keyword', 'shape NAME cycles', 'A named curvedef scaled to a length in cycles, as a modifier value: `cut: shape swell 16 300..6000`.'),
-  c('slide', 'keyword', 'slide: 0 1 0 1', "303-style slide: a step with slide > 0 TIES into the next note so it glides in; others snap to pitch. The bend comes from the synth, so it needs `mono glide:.08` on the header — glide supplies the slide and this decides which steps get one. For a line that glides throughout, slide every step."),
-  c('add', 'keyword', 'add N', 'Transpose the block by N scale degrees. The roll widget writes this line when you drag its left edge.'),
-  c('overchord', 'keyword', 'overchord: <Am7 F>', 'Read the degrees as CHORD degrees, re-voiced by the progression underneath.'),
-  c('off', 'keyword', 'off .25: <comb>', 'Layer a shifted copy: `off .25: gain .3` plays the pattern again a quarter cycle later.'),
-  c('jux', 'keyword', 'jux: <comb>', 'Hard-pan the original left and a transformed copy right.'),
+  c('slide', 'keyword', 'slide: 0 1 0 1', "303-style slide: a step with slide > 0 TIES into the next note so it glides in; others snap to pitch. The bend comes from the synth, so it needs `mono glide:.08` on the header — glide supplies the slide and this decides which steps get one. For a line that glides throughout, slide every step.", 'play bass\n  0 0 3 5\n  slide: 0 1 0 1'),
+  c('add', 'keyword', 'add N', 'Transpose the block by N scale degrees. The roll widget writes this line when you drag its left edge.', 'add 7'),
+  c('overchord', 'keyword', 'overchord: <Am7 F>', 'Read the degrees as CHORD degrees, re-voiced by the progression underneath.', 'play pad\n  overchord Am7 D9 Gmaj7'),
+  c('off', 'keyword', 'off .25: <comb>', 'Layer a shifted copy: `off .25: gain .3` plays the pattern again a quarter cycle later.', 'off .125: add 7'),
+  c('jux', 'keyword', 'jux: <comb>', 'Hard-pan the original left and a transformed copy right.', 'jux: rev'),
   c('degrade', 'keyword', 'degrade', 'Randomly drop about half the events (degradeby N for a set share).'),
-  c('palindrome', 'keyword', 'palindrome', 'Play the cycle forwards, then backwards.'),
-  c('sometimes', 'keyword', 'sometimes: <comb>', 'Apply a combinator to a random half of the cycles (also often / rarely / always).'),
-  c('iter', 'keyword', 'iter N', 'Rotate the pattern one step further each cycle, over N cycles.'),
-  c('ply', 'keyword', 'ply N', 'Repeat every event N times in its own slot.'),
-  c('segment', 'keyword', 'segment N', 'Sample a continuous signal into N discrete steps per cycle.'),
-  c('sub', 'keyword', 'sub N', 'Transpose DOWN by N scale degrees — the companion to add.'),
-  c('degradeby', 'keyword', 'degradeby 0.3', 'Randomly drop that share of the events (degrade alone drops about half).'),
-  c('often', 'keyword', 'often: <comb>', 'Apply a combinator on about 3 cycles in 4 (see also sometimes / rarely / always).'),
-  c('rarely', 'keyword', 'rarely: <comb>', 'Apply a combinator on about 1 cycle in 4.'),
-  c('always', 'keyword', 'always: <comb>', 'Apply a combinator on every cycle — the readable way to say "no dice roll".'),
-  c('superimpose', 'keyword', 'superimpose: <comb>', 'Layer a transformed copy OVER the original, both sounding.'),
-  c('chunk', 'keyword', 'chunk N: <comb>', 'Apply a combinator to a different 1/N of the cycle each time round.'),
-  c('rand', 'keyword', 'rand', 'A continuous 0..1 random signal, as a modifier value: `gain: rand 0.4..1`.'),
-  c('perlin', 'keyword', 'perlin', 'Smooth 0..1 noise — drifts rather than jumping, unlike rand.'),
-  c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.'),
-  c('every', 'keyword', 'every N: <comb>', 'Apply a combinator every Nth cycle (e.g. `every 4: rev`).'),
-  c('gain', 'keyword', 'gain: v', 'Note velocity (0..1).'),
-  c('dur', 'keyword', 'dur: v', 'Gate length / legato.'),
-  c('struct', 'keyword', 'struct <mini>', 'Impose a rhythm from a mini-notation boolean pattern.'),
-  c('rev', 'keyword', 'rev', 'Reverse the pattern.'),
-  c('fast', 'keyword', 'fast N', 'Speed the pattern up N×.'),
-  c('slow', 'keyword', 'slow N', 'Slow the pattern down N×.'),
-  c('euclid', 'keyword', 'euclid p s', 'Euclidean rhythm: p pulses over s steps.'),
+  c('palindrome', 'keyword', 'palindrome', 'Play the cycle forwards, then backwards.', 'palindrome'),
+  c('sometimes', 'keyword', 'sometimes: <comb>', 'Apply a combinator to a random half of the cycles (also often / rarely / always).', 'sometimes: fast 2'),
+  c('iter', 'keyword', 'iter N', 'Rotate the pattern one step further each cycle, over N cycles.', 'iter 4'),
+  c('ply', 'keyword', 'ply N', 'Repeat every event N times in its own slot.', 'ply 2'),
+  c('segment', 'keyword', 'segment N', 'Sample a continuous signal into N discrete steps per cycle.', 'segment 16'),
+  c('sub', 'keyword', 'sub N', 'Transpose DOWN by N scale degrees — the companion to add.', 'sub 5'),
+  c('degradeby', 'keyword', 'degradeby 0.3', 'Randomly drop that share of the events (degrade alone drops about half).', 'degradeby 0.3'),
+  c('often', 'keyword', 'often: <comb>', 'Apply a combinator on about 3 cycles in 4 (see also sometimes / rarely / always).', 'often: add 12'),
+  c('rarely', 'keyword', 'rarely: <comb>', 'Apply a combinator on about 1 cycle in 4.', 'rarely: ply 2'),
+  c('always', 'keyword', 'always: <comb>', 'Apply a combinator on every cycle — the readable way to say "no dice roll".', 'always: rev'),
+  c('superimpose', 'keyword', 'superimpose: <comb>', 'Layer a transformed copy OVER the original, both sounding.', 'superimpose: add 7'),
+  c('chunk', 'keyword', 'chunk N: <comb>', 'Apply a combinator to a different 1/N of the cycle each time round.', 'chunk 4: fast 2'),
+  c('rand', 'keyword', 'rand', 'A continuous 0..1 random signal, as a modifier value: `gain: rand 0.4..1`.', 'gain: rand 0.4..1'),
+  c('perlin', 'keyword', 'perlin', 'Smooth 0..1 noise — drifts rather than jumping, unlike rand.', 'pan: perlin 0..1'),
+  c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.', 'scale:a-min'),
+  c('every', 'keyword', 'every N: <comb>', 'Apply a combinator every Nth cycle (e.g. `every 4: rev`).', 'every 4: rev'),
+  c('gain', 'keyword', 'gain: v', 'Note velocity (0..1).', 'gain: .8'),
+  c('dur', 'keyword', 'dur: v', 'Gate length / legato.', 'dur: .25'),
+  c('struct', 'keyword', 'struct <mini>', 'Impose a rhythm from a mini-notation boolean pattern.', 'struct 1 ~ 1 1'),
+  c('rev', 'keyword', 'rev', 'Reverse the pattern.', 'rev'),
+  c('fast', 'keyword', 'fast N', 'Speed the pattern up N×.', 'fast 2'),
+  c('slow', 'keyword', 'slow N', 'Slow the pattern down N×.', 'slow 4'),
+  c('euclid', 'keyword', 'euclid p s', 'Euclidean rhythm: p pulses over s steps.', 'euclid 3 8'),
 ]
 
 /* ---- hover docs ---------------------------------------------------------- *
@@ -229,7 +238,7 @@ export const OPTIONS: Completion[] = [
  * Accurate about JavaScript, and about nothing you can type here. dslHover
  * now stands down in rondo documents (see langflag.ts), so these do not
  * stack. */
-const HOVER_DOCS = new Map<string, Completion>(OPTIONS.map((o) => [o.label as string, o]))
+const HOVER_DOCS = new Map<string, RondoOption>(OPTIONS.map((o) => [o.label as string, o]))
 
 export const rondoHover = hoverTooltip((view, pos) => {
   const line = view.state.doc.lineAt(pos)
@@ -245,25 +254,37 @@ export const rondoHover = hoverTooltip((view, pos) => {
     pos: line.from + a,
     end: line.from + b,
     above: true,
-    create: () => {
-      const dom = document.createElement('div')
-      dom.className = 'cm-rondo-hover'
-      const sig = document.createElement('div')
-      sig.className = 'cm-rondo-hover-sig'
-      sig.textContent = String(doc.detail ?? doc.label)
-      const body = document.createElement('div')
-      body.textContent = String(doc.info ?? '')
-      dom.append(sig, body)
-      return { dom }
-    },
+    // the SAME card the JS hover and both completion panels draw. This used to
+    // be a pair of bare divs under class names the theme had never heard of,
+    // which is why rondo's docs looked like a plain tooltip next to
+    // JavaScript's formatted one — same words, no styling.
+    create: () => ({ dom: renderDocBlocks([docBlockFor(doc)]) }),
   }
 })
+
+/** A vocabulary entry as a doc card. */
+export const docBlockFor = (o: RondoOption): DocBlock => {
+  const { example } = o
+  return {
+    signature: String(o.detail ?? o.label),
+    summary: String(o.info ?? ''),
+    ...(example !== undefined ? { example } : {}),
+  }
+}
+
+/** Give every option the rich info panel. CodeMirror renders a STRING `info`
+ *  as a bare text node inside `.cm-completionInfo`, which carries no padding of
+ *  its own — so Cmd-Space over rondo showed unpadded prose with no signature
+ *  and no example, while the same key over JavaScript showed a card. The
+ *  vocabulary table stays plain data; the renderer is attached here. */
+export const withDocPanel = (o: RondoOption): Completion =>
+  o.info === undefined ? o : { ...o, info: () => renderDocBlock(docBlockFor(o)) }
 
 /** Context-aware: what may go HERE, not the whole vocabulary. OPTIONS stays
  *  the single place words are DESCRIBED; complete.ts decides which of them
  *  belong at the cursor (and adds the ones only the document knows — this
  *  block's bindings, the project's macros, a call's named args). */
-export const rondoCompletionSource = makeRondoCompletionSource(OPTIONS)
+export const rondoCompletionSource = makeRondoCompletionSource(OPTIONS.map(withDocPanel))
 
 /** The prebuilt rondo autocomplete extension (main editor + docs share it). */
 export const rondoAutocomplete = autocompletion({

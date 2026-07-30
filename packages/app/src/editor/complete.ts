@@ -4,6 +4,7 @@ import { syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import type { DocEntry } from '../docs/dsl-docs'
 import { docsOfKind } from '../docs/dsl-docs'
+import { renderDocBlock } from './docblock'
 import { SCALES } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
@@ -124,25 +125,14 @@ const signatureDetail = (e: DocEntry): string => {
   return paren === -1 ? '' : e.signature.slice(paren)
 }
 
-/** The one DOM-touching part: a small info panel (summary + example). */
-const renderInfo = (e: DocEntry): Node => {
-  const root = document.createElement('div')
-  root.className = 'cm-dsl-doc'
-  const sig = document.createElement('div')
-  sig.className = 'cm-dsl-doc-signature'
-  sig.textContent = e.signature
-  const summary = document.createElement('div')
-  summary.className = 'cm-dsl-doc-summary'
-  summary.textContent = e.summary
-  root.append(sig, summary)
-  if (e.example !== undefined) {
-    const ex = document.createElement('code')
-    ex.className = 'cm-dsl-doc-example'
-    ex.textContent = e.example
-    root.append(ex)
-  }
-  return root
-}
+/** The one DOM-touching part, and it is shared with the hover tooltip and with
+ *  rondo — see docblock.ts for why that matters. */
+const renderInfo = (e: DocEntry): Node =>
+  renderDocBlock({
+    signature: e.signature,
+    summary: e.summary,
+    ...(e.example !== undefined ? { example: e.example } : {}),
+  })
 
 // Option lists are static — build each once.
 const build = (kinds: DocEntry['kind'][], boost?: (e: DocEntry) => number | undefined): Completion[] =>

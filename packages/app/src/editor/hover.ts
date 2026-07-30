@@ -4,6 +4,7 @@ import type { EditorState, Extension } from '@codemirror/state'
 import type { DocEntry } from '../docs/dsl-docs'
 import { docsByName } from '../docs/dsl-docs'
 import { syntacticContext } from './complete'
+import { renderDocBlocks } from './docblock'
 
 /* ------------------------------------------------------------------------- *
  * Hover documentation: identifier under the cursor → its dsl-docs entries;
@@ -103,29 +104,12 @@ export const hoverDocsAt = (state: EditorState, pos: number): HoverDocs | null =
 
 // ------------------------------------------------------------- DOM render
 
-const renderTooltip = (entries: DocEntry[]): HTMLElement => {
-  const root = document.createElement('div')
-  root.className = 'cm-dsl-hover'
-  for (const e of entries) {
-    const block = document.createElement('div')
-    block.className = 'cm-dsl-doc'
-    const sig = document.createElement('div')
-    sig.className = 'cm-dsl-doc-signature'
-    sig.textContent = e.signature
-    const summary = document.createElement('div')
-    summary.className = 'cm-dsl-doc-summary'
-    summary.textContent = e.summary
-    block.append(sig, summary)
-    if (e.example !== undefined) {
-      const ex = document.createElement('code')
-      ex.className = 'cm-dsl-doc-example'
-      ex.textContent = e.example
-      block.append(ex)
-    }
-    root.append(block)
-  }
-  return root
-}
+const renderTooltip = (entries: DocEntry[]): HTMLElement =>
+  renderDocBlocks(entries.map((e) => ({
+    signature: e.signature,
+    summary: e.summary,
+    ...(e.example !== undefined ? { example: e.example } : {}),
+  })))
 
 /** The hover extension mountEditor installs. */
 export const dslHover: Extension = hoverTooltip((view, pos) => {

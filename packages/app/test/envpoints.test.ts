@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { envGeometry, envPath, scanEnvPoints } from '../src/editor/rondo/envpoints'
+import { envGeometry, envPath, scanEnvPoints, BEND_LIMIT, BEND_TRAVEL, bendCurve, bendPixels } from '../src/editor/rondo/envpoints'
 import type { EnvPoint } from '../src/editor/rondo/envpoints'
 
 /* ------------------------------------------------------------------------- *
@@ -148,5 +148,71 @@ describe('envPath: a curve you can drag is a curve you can see', () => {
     const flat = envPath([pt(0.1, 1)], 100, 40, 4, 0)
     expect(bent).not.toBe(flat)
     expect(flat).toBe('M 4.0 36.0 L 96.0 4.0')
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The bend gesture's pixel law.
+ *
+ * A curve exponent is not perceptually linear — the first two units carry
+ * half the visible change and the last six carry the other half — so a
+ * straight px/unit drag spent most of itself on differences you cannot see.
+ * The total reach is about what it was; the pixels are distributed better.
+ * ------------------------------------------------------------------------- */
+describe('bendCurve / bendPixels', () => {
+  /** The engine's easing, sampled at the segment midpoint: the one number that
+   *  says how bent a segment LOOKS. */
+  const mid = (c: number): number =>
+    c === 0 ? 0.5 : (1 - Math.exp(-c * 0.5)) / (1 - Math.exp(-c))
+
+  it('is flat at rest and hits the limit at exactly one travel', () => {
+    expect(bendCurve(0)).toBe(0)
+    expect(bendCurve(BEND_TRAVEL)).toBeCloseTo(BEND_LIMIT, 10)
+    expect(bendCurve(-BEND_TRAVEL)).toBeCloseTo(-BEND_LIMIT, 10)
+  })
+
+  it('clamps past the ends instead of running away', () => {
+    expect(bendCurve(BEND_TRAVEL * 4)).toBe(BEND_LIMIT)
+    expect(bendCurve(-BEND_TRAVEL * 4)).toBe(-BEND_LIMIT)
+  })
+
+  it('round-trips, which is what makes the gesture absolute', () => {
+    // drag up then back down has to land on the curve you started from
+    for (const c of [-8, -3.4, -0.5, 0, 0.1, 1, 2.5, 6, 8]) {
+      expect(bendCurve(bendPixels(c))).toBeCloseTo(c, 10)
+    }
+  })
+
+  it('is symmetric — a downward drag bends by as much as an upward one', () => {
+    for (const px of [10, 37, 80, 119]) expect(bendCurve(-px)).toBeCloseTo(-bendCurve(px), 10)
+  })
+
+  it('tracks the VISIBLE bend far better than a linear px/unit law would', () => {
+    // the property that motivated the change: equal pixel fractions should
+    // produce equal fractions of the visible travel
+    const span = mid(BEND_LIMIT) - mid(0)
+    const seen = (c: number): number => (mid(c) - mid(0)) / span
+    const linear = (x: number): number => BEND_LIMIT * x // the old law, normalised
+    let warped = 0
+    let straight = 0
+    for (const x of [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]) {
+      warped = Math.max(warped, Math.abs(seen(bendCurve(x * BEND_TRAVEL)) - x))
+      straight = Math.max(straight, Math.abs(seen(linear(x)) - x))
+    }
+    expect(straight).toBeGreaterThan(0.28) // the old law was off by ~0.29
+    expect(warped).toBeLessThan(0.13)
+    expect(warped).toBeLessThan(straight / 2)
+  })
+
+  it('reaches full bend in about the same drag as the law it replaced', () => {
+    // NOT a reachability fix: 8 units at the old 14 px/unit was 112 px and
+    // this is 120. Claiming otherwise would be claiming a benefit that is not
+    // there — the benefit is entirely in the distribution, checked below.
+    expect(Math.abs(bendPixels(BEND_LIMIT) - 8 * 14)).toBeLessThan(16)
+  })
+
+  it('hands the useful 0..3 region most of the drag, where the old law gave it a third', () => {
+    expect(bendPixels(3) / bendPixels(BEND_LIMIT)).toBeGreaterThan(0.6) // 74 of 120 px
+    expect(3 / BEND_LIMIT).toBeLessThan(0.4) // the old law: 42 of 112 px
   })
 })

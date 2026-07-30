@@ -713,6 +713,53 @@ play lead
     ],
   },
   {
+    id: 'curves',
+    group: 'patterns & form',
+    title: 'Curves',
+    blocks: [
+      p("A curve is a shape over time, and there are two clocks to draw it against. INSIDE a synth, env() runs on the note: breakpoints in seconds, retriggered by every gate. On the TIMELINE, curve() runs on the transport: breakpoints in cycles, for what a DAW calls an automation lane. Same tuple, same easing numbers, two clocks -- so `curve 4` bends identically in both and you only learn it once."),
+      p("adsr covers the common shape in four numbers. env() is for everything else: `env(gate, [[0.005, 1], [0.15, 0.4], [0.5, 0.6]])` rises, falls to a plateau, then swells -- and with `loop` it repeats while the gate is held, which makes it an LFO of any shape you like."),
+      p("Each breakpoint can carry its OWN bend as a third number. One exponent for the whole envelope makes every joint curve the same way, which is not how a curve gets drawn: an attack usually wants to snap and its tail to ease. `[0.005, 1, 4]` shapes that segment alone; a positive number is fast-then-slow, a negative one slow-then-fast, and 0 is a straight line. In rondo the level carries it, as `1:4`."),
+      code(
+        'A shaped attack against a linear decay -- one exponent could not say this.',
+        `const pluck = synth(({ gate, note, saw, svf, env }) => {
+  // snap up, then fall in a straight line
+  const amp = env(gate, [[0.004, 1, 5], [0.4, 0]], { release: 0.2 })
+  return svf(saw(note.freq), 3000, { res: 0.3 }).mul(amp)
+})
+p('x', n('0 3 5 7').scale('a minor').sound('pluck'))`,
+      ),
+      p("On the timeline, curve() takes the same list in cycles: `curve([[8, 1], [4, 0.3], [16, 1]])` opens over eight bars, sags over four, and comes back over sixteen. Past the end it holds the last level, or repeats with `loop`. rise and fall are its two-point linear special cases -- reach for them when that is all you need, and for curve() when it is not."),
+      rondo(
+        'The same lane, on a play block.',
+        `synth pad
+  saw note
+  svf cut res:.2
+  cut = knob 900 100..8000
+
+play pad
+  <Am F>
+  cut: curve 8 1 8 .2 300..6000`,
+      ),
+      p("A shape you want twice gets a name. curvedef stores it NORMALISED -- the numbers are relative segment lengths, not durations -- and it is scaled where you use it, which is what lets one definition serve both clocks: `shape('swell', 0.8)` is eight tenths of a second for an env, `shape('swell', 16)` is sixteen bars for a lane. The trade is that a named curve cannot carry an absolute timing. It is a shape; how long it takes belongs to the call."),
+      rondo(
+        'One shape, both clocks.',
+        `curvedef swell .25 1 .75 .2
+
+synth pad
+  saw note
+  svf cut res:.2
+  cut = knob 900 100..8000
+
+play pad
+  <Am F>
+  cut: shape swell 16 300..6000`,
+      ),
+      note("A lane is sampled ONCE PER EVENT, like every pattern signal: moving it changes the next notes, not ones already scheduled. A control that has to move WITHIN one note belongs inside the synth, where env and lfo run per sample."),
+      p("Both kinds of breakpoint list are editable in place. An `env` draws as a shape with a handle per point: drag a handle to move that point in time and level, or drag the SEGMENT between two of them to bend it -- up for fast-then-slow. Dragging a segment writes the third number, adding it if the point did not have one."),
+    ],
+  },
+  {
     id: 'generative',
     group: 'patterns & form',
     title: 'Generative',

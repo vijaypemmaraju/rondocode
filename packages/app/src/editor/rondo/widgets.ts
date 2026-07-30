@@ -268,6 +268,36 @@ function envRanges(m: RegExpExecArray, base: number): { from: number; to: number
   return out
 }
 
+/** Most cells an editable grid may render.
+ *
+ *  The grid is rows x cols DOM nodes and it has no other cost model: a
+ *  64-step line spanning twenty degrees is 1280 elements for ONE widget,
+ *  built synchronously the moment it scrolls into view. A few of those in the
+ *  lower half of a file is the difference between scrolling smoothly and not
+ *  — which is exactly how it was reported.
+ *
+ *  Rows cannot be compressed to only the degrees in use, the way the READ-ONLY
+ *  overview does: a grid you can drag into has to offer the degrees you have
+ *  not used yet. So the budget is the lever. 640 keeps every ordinary line
+ *  (a 16-step is 128, a 32-step spanning fourteen degrees is 448) and drops
+ *  the ones that were never really editable at a few pixels per cell. */
+export const MAX_ROLL_CELLS = 640
+
+/** Rows a step list needs: the degrees it spans, floored at 0 and ceilinged at
+ *  7 so an ordinary line always gets the familiar octave. Exported because the
+ *  scan and the widget must agree — a budget the widget disagreed with would
+ *  drop the grid and leave a hole. */
+export function rollRows(steps: readonly (number | null)[]): { rows: number; minDeg: number } {
+  let maxDeg = 7
+  let minDeg = 0
+  for (const s of steps) {
+    if (s === null) continue
+    if (s > maxDeg) maxDeg = s
+    if (s < minDeg) minDeg = s
+  }
+  return { rows: maxDeg - minDeg + 1, minDeg }
+}
+
 /** Find every `adsr A D S R` in `text` (pure — unit tested). */
 export function scanEnvs(text: string): EnvMatch[] {
   const out: EnvMatch[] = []
@@ -920,6 +950,9 @@ class QueryRollWidget extends WidgetType {
         anchor = null
         this.raf = 0
       }
+      // touched only when a cell actually flips (see syncLit)
+      const lit = new Set<number>()
+      const lastLeft = { v: '' }
       const frame = (): void => {
         if (anchor === null) { this.raf = 0; return }
         const tNow = now()
@@ -930,10 +963,8 @@ class QueryRollWidget extends WidgetType {
         if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) { stopSweep(); return }
         const phase = (anchor.phase + (tNow - anchor.t) * cps()) % 1
         head.style.opacity = '1'
-        head.style.left = `${(phase * 100).toFixed(2)}%`
-        for (const { el, c } of cellEls) {
-          el.classList.toggle('on', phase >= c.x0 && phase < c.x1)
-        }
+        moveHead(head, `${(phase * 100).toFixed(2)}%`, lastLeft)
+        syncLit(cellEls, lit, phase)
         this.raf = requestAnimationFrame(frame)
       }
       this.unsub = this.hooks.onNoteEvents((evs) => {
@@ -1108,6 +1139,9 @@ export class RollOverviewWidget extends WidgetType {
         anchor = null
         this.raf = 0
       }
+      // touched only when a cell actually flips (see syncLit)
+      const lit = new Set<number>()
+      const lastLeft = { v: '' }
       const frame = (): void => {
         if (anchor === null) { this.raf = 0; return }
         const tNow = now()
@@ -1117,10 +1151,8 @@ export class RollOverviewWidget extends WidgetType {
         if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) { stopSweep(); return }
         const pos = (anchor.pos + (tNow - anchor.t) * cps()) % period
         head.style.opacity = '1'
-        head.style.left = `${((pos / period) * 100).toFixed(2)}%`
-        for (const { el, c } of cellEls) {
-          el.classList.toggle('on', pos >= c.x0 && pos < c.x1)
-        }
+        moveHead(head, `${((pos / period) * 100).toFixed(2)}%`, lastLeft)
+        syncLit(cellEls, lit, pos)
         this.raf = requestAnimationFrame(frame)
       }
       this.unsub = this.hooks.onNoteEvents((evs) => {
@@ -1939,14 +1971,7 @@ class PianoRollWidget extends WidgetType {
     // The grid spans minDeg..maxDeg, not 0..maxDeg: a degree used to BE its
     // row index, which silently had no room for a negative one. The default
     // floor stays 0 so an ordinary line looks exactly as it did.
-    let maxDeg = 7
-    let minDeg = 0
-    for (const s of this.steps) {
-      if (s === null) continue
-      if (s > maxDeg) maxDeg = s
-      if (s < minDeg) minDeg = s
-    }
-    const rows = maxDeg - minDeg + 1
+    const { rows, minDeg } = rollRows(this.steps)
     const grid = document.createElement('span')
     grid.className = 'rondo-roll'
     grid.setAttribute('role', 'group')
@@ -2354,6 +2379,37 @@ function envWidth(view: EditorView): number {
 
 /** The enum tap-cycler's mark (see enums.ts — a tap on the word cycles it). */
 const enumMark = Decoration.mark({ class: 'cm-rondo-enum' })
+
+/** Light the cells the playhead is over, touching ONLY the ones that changed.
+ *
+ *  These run inside a per-widget rAF loop, so `classList.toggle` on every cell
+ *  meant invalidating style for the whole row sixty times a second — per roll
+ *  on screen. With several play blocks visible at once that is enough to
+ *  starve the WGSL visualiser's own frame, and it showed up as the editor
+ *  being smooth at the top of a file and not at the bottom, because that is
+ *  where the play blocks were. Writing the head's position is guarded the same
+ *  way: an identical string still dirties layout. */
+function syncLit(
+  cells: readonly { el: HTMLElement; c: { x0: number; x1: number } }[],
+  lit: Set<number>,
+  pos: number,
+): void {
+  for (let i = 0; i < cells.length; i++) {
+    const { el, c } = cells[i]!
+    const on = pos >= c.x0 && pos < c.x1
+    if (on === lit.has(i)) continue
+    el.classList.toggle('on', on)
+    if (on) lit.add(i)
+    else lit.delete(i)
+  }
+}
+
+/** Move a playhead without dirtying layout when it has not actually moved. */
+function moveHead(head: HTMLElement, pct: string, last: { v: string }): void {
+  if (last.v === pct) return
+  last.v = pct
+  head.style.left = pct
+}
 
 /** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */
 /* ------------------------------------------------------------------------- *

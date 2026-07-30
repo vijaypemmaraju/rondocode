@@ -7,8 +7,8 @@ import { compile } from '@rondocode/rondo'
 /* The guide teaches macros in both languages, and a sample that does not run
  * is worse than no sample: it is the first thing a reader copies. */
 
-describe('the macros guide section', () => {
-  const sec = SECTIONS.find((s) => s.id === 'macros')!
+describe.each(['macros', 'curves'])('the %s guide section', (id) => {
+  const sec = SECTIONS.find((s) => s.id === id)!
   const blocks = sec.blocks.filter((b): b is Extract<typeof b, { kind: 'code' }> => b.kind === 'code')
 
   it('every JS sample it shows actually evals', () => {

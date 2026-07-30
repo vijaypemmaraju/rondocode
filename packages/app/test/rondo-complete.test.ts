@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { localBindings, macroNames, optionsFor, rondoPositionAt } from '../src/editor/rondo/complete'
-import { OPTIONS } from '../src/editor/rondo'
+import { KEYWORDS, MODIFIERS, OPTIONS } from '../src/editor/rondo'
 import type { Completion } from '@codemirror/autocomplete'
 
 /* ------------------------------------------------------------------------- *
@@ -165,5 +165,30 @@ describe('rondo hover speaks rondo', () => {
   it('so they are offered in a synth body too', () => {
     const got = labels({ kind: 'synth', block: 'synth' }, 'synth s\n  saw note\n', 0)
     expect(got).toEqual(expect.arrayContaining(['max', 'floor', 'abs']))
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Highlighting and documentation must agree.
+ *
+ * `slide:` was documented, completed, and hovering — and rendered as a plain
+ * identifier, because the stream language's MODIFIERS set never learned it.
+ * Sitting next to a coloured `gain:` that reads as "this one isn't real",
+ * which is how it was reported. Eleven words were in that state.
+ * ------------------------------------------------------------------------- */
+describe('every documented word is highlighted', () => {
+  it('has no OPTIONS keyword the tokenizer treats as a bare identifier', () => {
+    const documented = OPTIONS.filter((o) => o.type === 'keyword').map((o) => String(o.label))
+    const known = new Set([...KEYWORDS, ...MODIFIERS])
+    // `scale:a-min` and friends are written with the colon in the label
+    const missing = documented.filter((w) => !known.has(w.replace(/:$/, '')))
+    expect(missing).toEqual([])
+  })
+
+  it('has no highlighted modifier that is undocumented — the other direction', () => {
+    // a word that colours but has no hover or completion is just as confusing
+    const documented = new Set(OPTIONS.map((o) => String(o.label).replace(/:$/, '')))
+    const undocumented = [...MODIFIERS].filter((w) => !documented.has(w))
+    expect(undocumented).toEqual([])
   })
 })

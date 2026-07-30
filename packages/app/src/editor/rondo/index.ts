@@ -20,8 +20,8 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
-/** Block keywords. */
-const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'bpm', 'post', 'bus', 'send', 'sidechain', 'master', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song'])
+/** Block keywords — the words that open a top-level block. */
+export const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'bpm', 'post', 'bus', 'send', 'sidechain', 'master', 'macro', 'curvedef', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song'])
 /** Synth-ctx builtins (oscillators, filters, envelopes, effects, sources) —
  *  keep in sync with @rondocode/rondo src/builtins.ts. */
 const BUILTINS = new Set([
@@ -33,10 +33,17 @@ const BUILTINS = new Set([
   'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'width', 'transient', 'flanger', 'exciter', 'ott',
   'tanh', 'clip', 'fold', 'mix',
 ])
-/** Pattern modifiers / combinators on play lines. */
-const MODIFIERS = new Set([
+/** Pattern modifiers / combinators on play lines. Kept in step with the
+ *  OPTIONS table by a test: anything documented has to be highlighted. */
+export const MODIFIERS = new Set([
   'scale', 'gain', 'dur', 'pan', 'every', 'struct', 'fast', 'slow', 'rev',
   'euclid', 'degradeby', 'degrade', 'add', 'sub', 'ply', 'segment', 'rand', 'perlin',
+  // These were documented and completed but never highlighted, so `slide:`
+  // read as a plain identifier sitting next to a coloured `gain:` — the
+  // inconsistency is what makes it look like the feature is not real. The
+  // test below keeps this set and the docs table from drifting again.
+  'slide', 'overchord', 'off', 'jux', 'iter', 'palindrome', 'sometimes',
+  'often', 'rarely', 'always', 'superimpose', 'chunk', 'irand', 'curve', 'shape',
 ])
 
 const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
@@ -195,6 +202,15 @@ export const OPTIONS: Completion[] = [
   c('iter', 'keyword', 'iter N', 'Rotate the pattern one step further each cycle, over N cycles.'),
   c('ply', 'keyword', 'ply N', 'Repeat every event N times in its own slot.'),
   c('segment', 'keyword', 'segment N', 'Sample a continuous signal into N discrete steps per cycle.'),
+  c('sub', 'keyword', 'sub N', 'Transpose DOWN by N scale degrees — the companion to add.'),
+  c('degradeby', 'keyword', 'degradeby 0.3', 'Randomly drop that share of the events (degrade alone drops about half).'),
+  c('often', 'keyword', 'often: <comb>', 'Apply a combinator on about 3 cycles in 4 (see also sometimes / rarely / always).'),
+  c('rarely', 'keyword', 'rarely: <comb>', 'Apply a combinator on about 1 cycle in 4.'),
+  c('always', 'keyword', 'always: <comb>', 'Apply a combinator on every cycle — the readable way to say "no dice roll".'),
+  c('superimpose', 'keyword', 'superimpose: <comb>', 'Layer a transformed copy OVER the original, both sounding.'),
+  c('chunk', 'keyword', 'chunk N: <comb>', 'Apply a combinator to a different 1/N of the cycle each time round.'),
+  c('rand', 'keyword', 'rand', 'A continuous 0..1 random signal, as a modifier value: `gain: rand 0.4..1`.'),
+  c('perlin', 'keyword', 'perlin', 'Smooth 0..1 noise — drifts rather than jumping, unlike rand.'),
   c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.'),
   c('every', 'keyword', 'every N: <comb>', 'Apply a combinator every Nth cycle (e.g. `every 4: rev`).'),
   c('gain', 'keyword', 'gain: v', 'Note velocity (0..1).'),

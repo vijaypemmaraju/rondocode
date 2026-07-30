@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanPlaysJs, scanRichPlaysJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
-import { scanEnvs, scanPlays, rollPreviewMidi } from '../src/editor/rondo/widgets'
+import { scanBeatsJs, scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanPlaysJs, scanRichPlaysJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
+import { scanEnvs, scanPlays, scanBeats, beatSplitTokens, rollPreviewMidi } from '../src/editor/rondo/widgets'
+import { compile as compileRondo } from '@rondocode/rondo'
 import { scanEnvPoints } from '../src/editor/rondo/envpoints'
 
 /* The JavaScript half of the widget scanners. They must produce EXACTLY the
@@ -374,5 +375,56 @@ describe('scanPlaysJs: the editable step grid', () => {
     expect(js.steps).toEqual(rd.steps)
     expect(js.content).toBe(rd.content)
     expect(js.synth).toBe(rd.synth)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * beat blocks, in JavaScript.
+ *
+ * What a rondo `beat` block COMPILES TO answers what the JS equivalent is —
+ * `p(name, stack(s(…), s(…)))` — so this is not a guess about mapping, it is
+ * the same program written the other way round. The strongest test available
+ * is therefore: scan the compiled output and get the rows the rondo scan gets
+ * from the source.
+ * ------------------------------------------------------------------------- */
+describe('scanBeatsJs', () => {
+  const RD = 'synth kick\n  sine 60\n\nbeat\n  kick ~ kick ~\n  ~ ~ snare ~\n  ~ hat:.6 ~ hat\n'
+
+  it('gets the SAME rows from the compiled JS as rondo gets from the source', () => {
+    const c = compileRondo(RD)
+    expect(c.ok).toBe(true)
+    if (!c.ok) return
+    const js = scanBeatsJs(c.code)[0]!.rows
+    const rd = scanBeats(RD)[0]!.rows
+    expect(js.map((r) => [r.word, r.steps])).toEqual(rd.map((r) => [r.word, r.steps]))
+  })
+
+  it('reports where the velocities live, since JS keeps them in their own pattern', () => {
+    const src = `p('d', stack(s('~ hat ~ hat').gain('~ 0.6 ~ 1')))`
+    const [row] = scanBeatsJs(src)[0]!.rows
+    expect(src.slice(row!.gainSpan!.from, row!.gainSpan!.to)).toBe('~ 0.6 ~ 1')
+    expect(row!.steps).toEqual([null, 0.6, null, 1])
+  })
+
+  it('a row with no gain pattern is all full-velocity, and has no gain span', () => {
+    const [row] = scanBeatsJs(`p('d', s('kick ~ kick ~'))`)[0]!.rows
+    expect(row!.steps).toEqual([1, null, 1, null])
+    expect(row!.gainSpan).toBeUndefined()
+  })
+
+  it('DECLINES a gain pattern that does not line up step for step', () => {
+    // writing into it would silently retime the row it belongs to
+    const [row] = scanBeatsJs(`p('d', s('kick ~ kick ~').gain('1 0.5'))`)[0]!.rows
+    expect(row!.gainSpan).toBeUndefined()
+    expect(row!.steps).toEqual([1, null, 1, null])
+  })
+
+  it('needs a single instrument per row, like rondo', () => {
+    expect(scanBeatsJs(`p('d', s('kick snare kick ~'))`)).toEqual([])
+    expect(scanBeatsJs(`p('d', s('kick'))`)).toEqual([]) // one step is not a sequencer
+  })
+
+  it('beatSplitTokens is the inverse — what a write puts back', () => {
+    expect(beatSplitTokens([1, null, 0.6, 1], 'hat')).toEqual(['hat ~ hat hat', '1 ~ 0.6 1'])
   })
 })

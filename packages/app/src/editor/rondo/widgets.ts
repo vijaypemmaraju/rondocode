@@ -391,6 +391,14 @@ export interface BeatRow {
   /** the line already ends in a `# …` comment — the widget must not add its
    *  own word-keeper comment after erasing the row. */
   hadComment: boolean
+  /** Where the row's VELOCITIES live, when they are not inline.
+   *
+   *  rondo writes them into the notation itself (`kick:0.6`), so one span
+   *  carries the whole row. JS carries a PARALLEL `.gain('1 ~ 0.6 ~')`
+   *  pattern, so the row is two strings and a write has to move both. When
+   *  this is set the widget writes note words here and velocities there;
+   *  when it is absent it writes the combined inline form. */
+  gainSpan?: { from: number; to: number }
 }
 
 export interface BeatBlock {
@@ -2057,6 +2065,16 @@ export function beatTokens(steps: (number | null)[], word: string): string {
   return steps.map((v) => (v === null ? '~' : v === 1 ? word : `${word}:${Number(v)}`)).join(' ')
 }
 
+/** The same row SPLIT, for a language that keeps velocity in its own pattern:
+ *  `[kick ~ kick ~, 1 ~ 0.6 ~]`. The inverse of splitBeatVelocities, and the
+ *  reason a beat row can be written into two strings as easily as one. */
+export function beatSplitTokens(steps: (number | null)[], word: string): [string, string] {
+  return [
+    steps.map((v) => (v === null ? '~' : word)).join(' '),
+    steps.map((v) => (v === null ? '~' : String(Number(v)))).join(' '),
+  ]
+}
+
 /** Vertical velocity scrub: dy pixels up from the gesture start maps onto the
  *  starting velocity, full range over ~80px, snapped to 2 decimals (keeps the
  *  written `word:v` suffixes tidy). Floor .05 — a scrub thins a hit, it never
@@ -2166,6 +2184,10 @@ class BeatBlockWidget extends WidgetType {
     // row's slice differs at commit time (any concurrent edit), the whole
     // write is dropped and a rebuild resyncs the cells from the text
     const raw0 = this.rows.map((row) => view.state.doc.sliceString(row.from, row.to))
+    // a language that keeps velocity in its own pattern needs BOTH originals
+    // verified, or a stale gain string could be overwritten from a stale read
+    const rawGain0 = this.rows.map((row) =>
+      row.gainSpan !== undefined ? view.state.doc.sliceString(row.gainSpan.from, row.gainSpan.to) : null)
     attachGesture(wrap, this.drag, 'element', (e) => {
       const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
       if (!el0) return null
@@ -2243,13 +2265,22 @@ class BeatBlockWidget extends WidgetType {
           }
           if (dirty.size === 0) return // nothing changed — ranges are still valid
           this.drag.ended = true // the write's own transaction triggers ONE rebuild
-          const changes = [...dirty].map((r) => {
+          const changes = [...dirty].flatMap((r) => {
             const row = this.rows[r]!
+            // SPLIT languages (JS: `s('kick ~').gain('1 ~')`) write two
+            // strings; rondo writes the velocities inline and writes one
+            if (row.gainSpan !== undefined) {
+              const [notes, gains] = beatSplitTokens(steps[r]!, row.word)
+              return [
+                { from: row.from, to: row.to, expected: raw0[r]!, insert: notes },
+                { from: row.gainSpan.from, to: row.gainSpan.to, expected: rawGain0[r]!, insert: gains },
+              ]
+            }
             let insert = beatTokens(steps[r]!, row.word)
             // an erased row keeps its instrument as a `# word` comment — that's
             // what lets the scanner (and the next session) rebuild this row
             if (!steps[r]!.some((v) => v !== null) && !row.hadComment) insert += `  # ${row.word}`
-            return { from: row.from, to: row.to, expected: raw0[r]!, insert }
+            return [{ from: row.from, to: row.to, expected: raw0[r]!, insert }]
           })
           dirty.clear()
           if (!verifiedChanges(view, changes)) {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
 import { Session } from '../src/session/Session'
+import { MemoryDb, ProjectStore } from '../src/session/projects'
+import { forkName } from '../src/editor/library'
 
 /* ------------------------------------------------------------------------- *
  * Project-wide macros, over a real Session.
@@ -208,5 +210,65 @@ describe('macro errors are the user’s errors, reported not thrown', () => {
     expect(session.evalCode(`macro('bright', 99, { min: 0, max: 1 })\nthrow new Error('boom')`).ok).toBe(false)
     // the previous program is still live and still holds the OLD declaration
     expect(session.macroTargets()[0]).toMatchObject({ default: 1480, min: 500, max: 7300 })
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A tab must not fork over its OWN writes.
+ *
+ * Reported as a project called "language (this tab) (this tab) (this tab)".
+ * The name was the symptom; the cause was that setProjectLang and
+ * renameProject move `updatedAt` without telling the caller, so a tab that
+ * toggled js/rondo made its own next autosave look like a foreign write and
+ * forked the project it was editing. Every toggle.
+ * ------------------------------------------------------------------------- */
+describe('own writes move the base version', () => {
+  const store = (): ProjectStore => {
+    let clock = 1000
+    return new ProjectStore(new MemoryDb(), { now: () => ++clock, uid: (() => { let n = 0; return () => `id${++n}` })() })
+  }
+
+  it('setProjectLang hands back the new version', async () => {
+    const s = store()
+    const p = await s.createProject('language', 'saw', 'rondocode')
+    const at = await s.setProjectLang(p.id, 'rondo')
+    expect(at).toBeDefined()
+    expect((await s.getProject(p.id))!.updatedAt).toBe(at)
+    // and a save against THAT version is not a conflict
+    expect((await s.saveCode(p.id, 'saw note', at)).kind).toBe('saved')
+  })
+
+  it('a save against the PRE-toggle version is what used to fork', async () => {
+    const s = store()
+    const p = await s.createProject('language', 'saw', 'rondocode')
+    await s.setProjectLang(p.id, 'rondo')
+    expect((await s.saveCode(p.id, 'saw note', p.updatedAt)).kind).toBe('conflict')
+  })
+
+  it('an unchanged language is not a write at all', async () => {
+    const s = store()
+    const p = await s.createProject('language', 'saw', 'rondo')
+    expect(await s.setProjectLang(p.id, 'rondo')).toBeUndefined()
+    expect((await s.saveCode(p.id, 'x', p.updatedAt)).kind).toBe('saved')
+  })
+
+  it('renameProject hands back its version too', async () => {
+    const s = store()
+    const p = await s.createProject('language', 'saw')
+    const at = await s.renameProject(p.id, 'tune')
+    expect((await s.saveCode(p.id, 'y', at)).kind).toBe('saved')
+  })
+})
+
+describe('the fork name does not compound', () => {
+  it('numbers instead of stacking suffixes', () => {
+    expect(forkName('language')).toBe('language (this tab)')
+    expect(forkName('language (this tab)')).toBe('language (this tab 2)')
+    expect(forkName('language (this tab 2)')).toBe('language (this tab 3)')
+    expect(forkName('language (this tab 9)')).toBe('language (this tab 10)')
+  })
+
+  it('leaves a name that merely mentions tabs alone', () => {
+    expect(forkName('two tabs')).toBe('two tabs (this tab)')
   })
 })

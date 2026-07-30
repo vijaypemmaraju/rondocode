@@ -18,7 +18,7 @@ const SVF_MODES = ['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'] as const
 /** Built-in wavetable names — wavetable.ts WAVETABLE_TABLES. Doc wavedefs
  *  are appended at scan time (they are the doc's own truth, fresh while
  *  typing). */
-const WT_TABLES = ['basic', 'harmonic', 'pwm'] as const
+export const WT_TABLES = ['basic', 'harmonic', 'pwm'] as const
 
 interface EnumArgLists {
   /** legal values per positional slot (index-aligned with the registry's

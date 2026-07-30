@@ -107,17 +107,28 @@ export class ProjectStore {
     return project
   }
 
-  /** Record which language a project is written in (the editor's toggle). */
-  async setProjectLang(id: string, lang: 'rondocode' | 'rondo'): Promise<void> {
+  /** Record which language a project is written in (the editor's toggle).
+   *
+   *  Returns the new `updatedAt`, or undefined when nothing was written. EVERY
+   *  method that moves updatedAt has to hand it back: a caller tracking a base
+   *  version for compare-and-set (see saveCode) would otherwise be stale the
+   *  moment it renames or re-languages its own project, and its next autosave
+   *  would read as a foreign write. */
+  async setProjectLang(id: string, lang: 'rondocode' | 'rondo'): Promise<number | undefined> {
     const p = await this.getProject(id)
-    if (!p || p.lang === lang) return
-    await this.db.put('projects', { ...p, lang, updatedAt: this.now() })
+    if (!p || p.lang === lang) return undefined
+    const updatedAt = this.now()
+    await this.db.put('projects', { ...p, lang, updatedAt })
+    return updatedAt
   }
 
-  async renameProject(id: string, name: string): Promise<void> {
+  /** Rename in place. Returns the new `updatedAt` (see setProjectLang). */
+  async renameProject(id: string, name: string): Promise<number | undefined> {
     const p = await this.getProject(id)
-    if (!p) return
-    await this.db.put('projects', { ...p, name, updatedAt: this.now() })
+    if (!p) return undefined
+    const updatedAt = this.now()
+    await this.db.put('projects', { ...p, name, updatedAt })
+    return updatedAt
   }
 
   /** Copy a project (code + a fresh "copy" name) into a new one. History is
@@ -193,9 +204,15 @@ export class ProjectStore {
     const target = versions.find((v) => v.id === versionId)
     if (!target) return undefined
     if (p.code !== target.code) await this.snapshot(id, p.code)
-    await this.db.put('projects', { ...p, code: target.code, updatedAt: this.now() })
+    this.lastRestoreAt = this.now()
+    await this.db.put('projects', { ...p, code: target.code, updatedAt: this.lastRestoreAt })
     return target.code
   }
+
+  /** The `updatedAt` the last restoreVersion wrote — restoreVersion returns the
+   *  CODE, so this is how a caller tracking a base version picks up its own
+   *  write without a re-read. */
+  lastRestoreAt: number | undefined
 }
 
 /* ---- in-memory backend (tests, and a safe fallback if IDB is unavailable) --- */

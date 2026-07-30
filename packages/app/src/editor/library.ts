@@ -51,6 +51,18 @@ const writeDocOwner = (id: string): void => {
   tabSet(DOC_OWNER_KEY, id)
 }
 
+/** The name a conflicted tab forks under.
+ *
+ *  Numbered rather than suffixed again, because the suffix used to compound:
+ *  a project that forked three times became "language (this tab) (this tab)
+ *  (this tab)", which is both ugly and useless for telling the copies apart.
+ *  Pure, so the naming is testable without a database. */
+export function forkName(base: string): string {
+  const m = /^(.*?) \(this tab(?: (\d+))?\)$/.exec(base)
+  if (m === null) return `${base} (this tab)`
+  return `${m[1]} (this tab ${m[2] === undefined ? 2 : Number(m[2]) + 1})`
+}
+
 /** May the shared buffer be reconciled into `projectId`?
  *
  *  Only when the buffer is known to belong to it. An UNKNOWN owner is treated
@@ -232,7 +244,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     const r = await store.saveCode(id, code, baseVersion)
     if (r.kind === 'saved' || r.kind === 'unchanged') { baseVersion = r.updatedAt; return }
     if (r.kind === 'gone') return // deleted in another tab: nothing to write to
-    const forked = await store.createProject(`${r.theirs.name} (this tab)`, code, r.theirs.lang)
+    const forked = await store.createProject(forkName(r.theirs.name), code, r.theirs.lang)
     activeId = forked.id
     baseVersion = forked.updatedAt
     setActiveId(activeId)
@@ -468,7 +480,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     const commitName = async (): Promise<void> => {
       const name = nameInput.value.trim() || 'untitled'
       nameInput.value = name
-      await store.renameProject(current.id, name)
+      const at = await store.renameProject(current.id, name)
+      // our own write: adopt it, or the next autosave sees a moved record and
+      // forks the project we just renamed
+      if (at !== undefined && current.id === activeId) baseVersion = at
       setLabel(name)
     }
     nameInput.addEventListener('blur', () => void commitName())
@@ -833,7 +848,13 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // the active project remembers its language: persist on every toggle (this
   // also migrates legacy no-lang records the first time switchTo sniffs them)
   const offLang = editor.onLang((lang) => {
-    void store.setProjectLang(activeId, lang)
+    // …and the same for the language toggle, which is the one that bit: every
+    // js/rondo switch moved updatedAt, so the next autosave forked. Toggle
+    // three times and you had "language (this tab) (this tab) (this tab)".
+    const id = activeId
+    void store.setProjectLang(id, lang).then((at) => {
+      if (at !== undefined && id === activeId) baseVersion = at
+    })
   })
 
   const onKey = (e: KeyboardEvent): void => {

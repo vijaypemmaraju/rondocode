@@ -70,7 +70,7 @@ describe('mono glide (portamento)', () => {
     }
   })
 
-  it('staccato (gap): amplitude dips during the gap (retrigger) yet still glides from the previous pitch', () => {
+  it('staccato (gap): a RETRIGGER snaps to its pitch — only legato glides', () => {
     const def = sineSynth({ mono: true, glide: 0.1 })
     const A = 45 // 110
     const B = 57 // 220
@@ -81,11 +81,26 @@ describe('mono glide (portamento)', () => {
     expect(rms(win(r, 0.28, 0.33))).toBeLessThan(0.02)
     // re-attacks after the gap
     expect(rms(win(r, 0.45, 0.5))).toBeGreaterThan(0.1)
-    // still glides from A (110) up toward B (220): right after B onset it is
-    // well below 220, and reaches 220 by the end
+    // THE 303 MODEL: a note with its own attack starts AT its pitch. This used
+    // to glide up from A, and did so on every note of every mono+glide patch,
+    // because a voice is not reclaimed until its release ends — so `slide`
+    // decided nothing about pitch and a non-slide note did not "retrigger
+    // cleanly" as documented. Always-glide is now written as slide on every
+    // step, which is at least what it says.
     const early = zcFreq(win(r, 0.36, 0.4), SR)
-    expect(early).toBeLessThan(205)
+    expect(early).toBeGreaterThan(200) // already at B (220), not climbing from A (110)
     expect(zcFreq(win(r, 0.65, 0.73), SR)).toBeGreaterThan(200)
+  })
+
+  it('LEGATO still glides — the tie is what bends, and it still does', () => {
+    // the companion to the staccato case: overlap the notes (no gap) and the
+    // pitch must travel, or `slide` would do nothing at all
+    const def = sineSynth({ mono: true, glide: 0.1 })
+    const events: RenderEvent[] = [on(0, 45), on(0.2, 57), off(0.75, 57), off(0.76, 45)]
+    const r = renderOffline(def, events, 0.8)
+    const mid = zcFreq(win(r, 0.22, 0.26), SR)
+    expect(mid).toBeGreaterThan(120)
+    expect(mid).toBeLessThan(210) // between A (110) and B (220): still travelling
   })
 
   it('glide 0 (mono default): pitch changes instantly, no slide', () => {

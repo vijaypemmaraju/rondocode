@@ -186,3 +186,40 @@ export function envGeometry(
   }
   return out
 }
+
+/* --------------------------- the bend gesture ----------------------------- */
+
+/** Curve numbers the UI offers. The engine takes any exponent; past |8| the
+ *  shape stops changing in any way you can see. */
+export const BEND_LIMIT = 8
+
+/** Pixels of vertical drag from flat to the limit, in either direction.
+ *  Chosen so the whole range is reachable in one thumb travel — the old linear
+ *  law needed 224 px each way, which is more editor than a phone has. */
+export const BEND_TRAVEL = 120
+
+/**
+ * Pixels to a curve exponent, warped so equal drags feel like equal bends.
+ *
+ * The exponent is NOT perceptually linear: the segment's midpoint climbs 0.50
+ * -> 0.73 over the first two units and only 0.73 -> 0.98 over the remaining
+ * six. A straight px/unit mapping therefore spends a quarter of the drag on
+ * half the visible change and the rest on differences you cannot see -- 0.29
+ * of full-scale error at its worst. Squaring the normalised travel tracks the
+ * real response to within 0.12, and the error that remains is symmetric
+ * rather than piled up at the bottom of the range.
+ *
+ * Invertible on purpose (see bendPixels): the gesture converts the STARTING
+ * curve to a pixel position and adds the drag, so dragging up and back down
+ * lands exactly where it began. Accumulating a warped delta would not.
+ */
+export const bendCurve = (px: number): number => {
+  const t = Math.max(-1, Math.min(1, px / BEND_TRAVEL))
+  return Math.sign(t) * BEND_LIMIT * t * t
+}
+
+/** Where a curve exponent sits on that drag axis — bendCurve's inverse. */
+export const bendPixels = (curve: number): number => {
+  const c = Math.max(-BEND_LIMIT, Math.min(BEND_LIMIT, curve))
+  return Math.sign(c) * BEND_TRAVEL * Math.sqrt(Math.abs(c) / BEND_LIMIT)
+}

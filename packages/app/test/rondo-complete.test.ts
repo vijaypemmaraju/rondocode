@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { localBindings, macroNames, optionsFor, rondoPositionAt } from '../src/editor/rondo/complete'
-import { KEYWORDS, MODIFIERS, OPTIONS } from '../src/editor/rondo'
+import { KEYWORDS, MODIFIERS, OPTIONS, docBlockFor, withDocPanel } from '../src/editor/rondo'
 import type { Completion } from '@codemirror/autocomplete'
 
 /* ------------------------------------------------------------------------- *
@@ -190,5 +190,66 @@ describe('every documented word is highlighted', () => {
     const documented = new Set(OPTIONS.map((o) => String(o.label).replace(/:$/, '')))
     const undocumented = [...MODIFIERS].filter((w) => !documented.has(w))
     expect(undocumented).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Hover and Cmd-Space must show the same CARD as JavaScript does.
+ *
+ * Both surfaces had the words and neither had the wrapper: hover built two
+ * bare divs under class names the theme had never heard of, and completions
+ * handed CodeMirror a plain string, which lands as a text node inside
+ * `.cm-completionInfo` — a container deliberately given no padding of its own,
+ * because `.cm-dsl-doc` is what supplies it. Same documentation, no styling.
+ * ------------------------------------------------------------------------- */
+describe('rondo docs render as the shared card', () => {
+  it('turns a vocabulary entry into a signature, a summary and an example', () => {
+    const play = OPTIONS.find((o) => o.label === 'play')!
+    expect(docBlockFor(play)).toEqual({
+      signature: 'play NAME',
+      summary: expect.stringContaining('pattern'),
+      example: expect.stringContaining('scale:a-min'),
+    })
+  })
+
+  it('omits example rather than emitting an empty one', () => {
+    // renderDocBlock skips the <code> element when there is no example, so a
+    // wordless entry must not claim one
+    const block = docBlockFor({ label: 'x', detail: 'x', info: 'a word' })
+    expect('example' in block).toBe(false)
+  })
+
+  it('falls back to the label when an entry has no signature', () => {
+    expect(docBlockFor({ label: 'bare' }).signature).toBe('bare')
+  })
+
+  it('gives every completion a rendered info panel, not a bare string', () => {
+    // this is the Cmd-Space fix: a string info renders unpadded and drops both
+    // the signature and the example
+    const wrapped = OPTIONS.filter((o) => o.info !== undefined).map(withDocPanel)
+    expect(wrapped.length).toBeGreaterThan(50)
+    expect(wrapped.every((o) => typeof o.info === 'function')).toBe(true)
+  })
+
+  it('leaves an option with nothing to say alone', () => {
+    const plain = { label: 'kick', type: 'variable', detail: 'a drum' }
+    expect(withDocPanel(plain)).toBe(plain)
+  })
+
+  it('carries examples on the words most likely to be hovered', () => {
+    const withEx = OPTIONS.filter((o) => o.example !== undefined).map((o) => o.label)
+    for (const w of ['synth', 'play', 'beat', 'every', 'slide', 'euclid', 'scale']) {
+      expect(withEx, `${w} has no example`).toContain(w)
+    }
+  })
+
+  it('writes every example in rondo, never in JavaScript', () => {
+    // the whole reason rondoHover exists is that dslHover answered rondo words
+    // with the JS call shape. An example that slipped into `svf(x, 900)` form
+    // would reintroduce exactly that.
+    for (const o of OPTIONS) {
+      if (o.example === undefined) continue
+      expect(o.example, `${String(o.label)}: example looks like JS`).not.toMatch(/\w\(/)
+    }
   })
 })

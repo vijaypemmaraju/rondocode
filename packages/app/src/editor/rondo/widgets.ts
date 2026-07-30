@@ -32,7 +32,7 @@ import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
-import { envGeometry, envPath, scanEnvPoints } from './envpoints'
+import { BEND_LIMIT, bendCurve, bendPixels, envGeometry, envPath, scanEnvPoints } from './envpoints'
 import type { EnvPointsScan } from './envpoints'
 import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
@@ -1915,13 +1915,16 @@ class EnvPointsWidget extends WidgetType {
     wrap.classList.add('active')
     const writer = new MultiLiveWriter(view, [span])
     const c0 = curves[i] ?? this.scan.curve ?? 0
+    // start from where c0 already sits on the drag axis, so the gesture is
+    // absolute: up and back down returns to exactly the curve you began with
+    const px0 = bendPixels(c0)
     const startY = e.clientY
     return {
       onMove: (ev) => {
         // up = MORE positive = fast-then-slow, which bulges the line upward,
         // so the shape follows the finger rather than opposing it
-        const c = clamp(c0 + (startY - ev.clientY) / 14, -8, 8)
-        const text = formatNumber(c, { step: 0.1, min: -8 })
+        const c = bendCurve(px0 + (startY - ev.clientY))
+        const text = formatNumber(c, { step: 0.1, min: -BEND_LIMIT })
         if (!writer.writeEach([`${prefix}${text}`])) return
         curves[i] = Number(text)
         render()

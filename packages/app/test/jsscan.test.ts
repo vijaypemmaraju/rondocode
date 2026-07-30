@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanBeatsJs, scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanPlaysJs, scanRichPlaysJs, scanUnisonHeadersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
+import { scanBeatsJs, scanEnumSpansJs, scanEnvPointsJs, scanEnvsJs, scanKnobsJs, scanPlaysJs, scanRichPlaysJs, scanUnisonHeadersJs, scanFiltersJs, scanWavedefsJs, scanWavetableCallsJs } from '../src/editor/widgets/jsscan'
 import { scanEnvs, scanPlays, scanBeats, beatSplitTokens, rollPreviewMidi } from '../src/editor/rondo/widgets'
 import { compile as compileRondo } from '@rondocode/rondo'
 import { scanEnvPoints } from '../src/editor/rondo/envpoints'
@@ -426,5 +426,136 @@ describe('scanBeatsJs', () => {
 
   it('beatSplitTokens is the inverse — what a write puts back', () => {
     expect(beatSplitTokens([1, null, 0.6, 1], 'hat')).toEqual(['hat ~ hat hat', '1 ~ 0.6 1'])
+  })
+})
+
+
+/* ------------------------------------------------------------------------- *
+ * Filter response curves — the last family to reach JavaScript.
+ *
+ * The maths, the handles and the write-verify are shared and untouched; only
+ * the reading is new. Two things here cannot be checked by the differential
+ * test in scan-parity.test.ts, because they only exist in JS-shaped source:
+ * the res default (compiled rondo always writes res out) and a cutoff that is
+ * a plain expression rather than a spine line.
+ * ------------------------------------------------------------------------- */
+describe('scanFiltersJs', () => {
+  it('reads the cutoff from the SECOND argument, because JS spells the input', () => {
+    const src = `const a = synth(({ note, saw, svf }) => svf(saw(note.freq), 900, { res: 0.4, mode: 'notch' }))`
+    const [f] = scanFiltersJs(src)
+    expect(f?.kind).toBe('svf')
+    expect(f?.cutoffs.map((c) => c.value)).toEqual([900])
+    expect(f?.mode).toBe('notch')
+    expect(f?.res.value).toBe(0.4)
+    // the handle writes into the literal it read, and nothing else
+    expect(at(src, f!.cutoffs[0]!.range!.from, f!.cutoffs[0]!.range!.to)).toBe('900')
+    expect(at(src, f!.res.range!.from, f!.res.range!.to)).toBe('0.4')
+  })
+
+  it('defaults res to the ENGINE 0, not rondo 0.5, on a bare JS ladder', () => {
+    // rondo's codegen injects `res: 0.5` into every ladder; JavaScript's own
+    // default is the port table's 0. Drawing a resonant peak over a JS ladder
+    // that has none is the exact lie the honesty rules exist to prevent.
+    const [f] = scanFiltersJs(`const a = synth(({ note, saw, ladder }) => ladder(saw(note.freq), 1200))`)
+    expect(f?.res.value).toBe(0)
+    expect(f?.res.range).toBeUndefined() // nothing written means nothing to drag
+  })
+
+  it('gives a knob-bound cutoff its DEF as a value but no handle', () => {
+    // the signal owns the value; the text is the only write surface
+    const src = `const a = synth(({ note, saw, svf, param }) => {
+  const cut = param('cutoff', 640, { min: 80, max: 9000, curve: 'log' })
+  return svf(saw(note.freq), cut)
+})`
+    const [f] = scanFiltersJs(src)
+    expect(f?.cutoffs[0]?.value).toBe(640)
+    expect(f?.cutoffs[0]?.range).toBeUndefined()
+  })
+
+  it('resolves the BINDING name, which JS can spell apart from the param name', () => {
+    // rondo's `cutoff = knob 640 …` makes the two words the same; JS need not
+    const src = `const a = synth(({ note, saw, ladder, param }) => {
+  const fc = param('cutoff', 2200)
+  return ladder(saw(note.freq), fc)
+})`
+    expect(scanFiltersJs(src)[0]?.cutoffs[0]?.value).toBe(2200)
+  })
+
+  it('draws nothing for a cutoff that is an expression', () => {
+    const src = `const a = synth(({ note, saw, ladder, param, adsr, gate }) => {
+  const cut = param('cutoff', 900)
+  const e = adsr(gate, { a: 0.01 })
+  return ladder(saw(note.freq), cut.mul(e))
+})`
+    expect(scanFiltersJs(src)).toEqual([])
+  })
+
+  it('keeps the default res when res is signal-driven, and still draws', () => {
+    const src = `const a = synth(({ note, saw, svf, lfo }) => svf(saw(note.freq), 800, { res: lfo(2) }))`
+    const [f] = scanFiltersJs(src)
+    expect(f?.cutoffs[0]?.value).toBe(800) // the cutoff is still honest
+    expect(f?.res.value).toBe(0)
+    expect(f?.res.range).toBeUndefined()
+  })
+
+  it('reads both dualsvf cutoffs and the per-stage modes', () => {
+    const src = `const a = synth(({ note, saw, dualsvf }) =>
+  dualsvf(saw(note.freq), 400, 4000, { res: 0.3, mode: 'parallel', a: 'lp', b: 'hp' }))`
+    const [f] = scanFiltersJs(src)
+    expect(f?.cutoffs.map((c) => c.value)).toEqual([400, 4000])
+    expect(f?.routing).toBe('parallel')
+    expect([f?.a, f?.b]).toEqual(['lp', 'hp'])
+  })
+
+  it('reads eq bands, defaulting an omitted type to the engine peak', () => {
+    const src = `const a = synth(({ note, saw, eq }) =>
+  eq(saw(note.freq), [{ type: 'hp', freq: 120 }, { freq: 800, gain: 6, q: 1.2 }]))`
+    const [f] = scanFiltersJs(src)
+    expect(f?.bands.map((b) => [b.type, b.freq.value])).toEqual([['hp', 120], ['peak', 800]])
+    expect(f?.bands[1]?.gain?.value).toBe(6)
+    expect(f?.bands[0]?.gain).toBeUndefined()
+  })
+
+  it('drops the whole eq when a band freq is not literal — freq is required', () => {
+    const src = `const a = synth(({ note, saw, eq, param }) => {
+  const f = param('f', 800)
+  return eq(saw(note.freq), [{ type: 'peak', freq: f }])
+})`
+    expect(scanFiltersJs(src)).toEqual([])
+  })
+
+  it('orders a nested chain by signal flow, the way the rondo spine reads', () => {
+    // eq(dualsvf(svf(ladder(…)))) is written outermost-first but SOUNDS
+    // innermost-first, which is the order the four rondo lines are written in
+    const src = `const a = synth(({ note, saw, eq, dualsvf, svf, ladder }) =>
+  eq(dualsvf(svf(ladder(saw(note.freq), 300), 900), 400, 4000), [{ type: 'peak', freq: 800 }]))`
+    expect(scanFiltersJs(src).map((f) => f.kind)).toEqual(['ladder', 'svf', 'dualsvf', 'eq'])
+  })
+
+  it('anchors at the end of the line, not mid-expression', () => {
+    // the curve is a ~420px block; hanging it off the closing paren would drop
+    // it into the middle of `.mul(env)`
+    const src = `const a = synth(({ note, saw, svf, adsr, gate }) => svf(saw(note.freq), 900).mul(adsr(gate)))`
+    expect(scanFiltersJs(src)[0]?.at).toBe(src.length)
+  })
+
+  it('names the enclosing synth, so the curve follows the right voice', () => {
+    const src = `const bass = synth(({ note, saw, ladder }) => ladder(saw(note.freq), 500))`
+    expect(scanFiltersJs(src)[0]?.synth).toBe('bass')
+  })
+})
+
+describe('scanEnumSpansJs reaches eq band types', () => {
+  it('cycles a band type WITHIN its arity group, never across', () => {
+    // hp/lp read their numbers as freq q; peak/shelf as freq gain q. Crossing
+    // the groups would silently re-key every number that follows.
+    const src = `const a = synth(({ note, saw, eq }) =>
+  eq(saw(note.freq), [{ type: 'hp', freq: 120 }, { type: 'peak', freq: 800, gain: 6 }]))`
+    const spans = scanEnumSpansJs(src).filter((s) => s.word === 'hp' || s.word === 'peak')
+    expect(spans.map((s) => s.word)).toEqual(['hp', 'peak'])
+    expect(spans[0]?.values).toEqual(['hp', 'lp'])
+    expect(spans[1]?.values).toEqual(['peak', 'lowshelf', 'highshelf'])
+    // the span is the string INTERIOR, so a cycle keeps the quotes
+    expect(at(src, spans[0]!.from, spans[0]!.to)).toBe('hp')
   })
 })

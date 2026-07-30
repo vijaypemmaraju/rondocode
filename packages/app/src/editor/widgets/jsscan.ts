@@ -22,7 +22,7 @@
  * ------------------------------------------------------------------------- */
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
-import type { EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
+import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import type { UnisonScan } from '../rondo/unison'
@@ -422,6 +422,83 @@ export function scanRichPlaysJs(text: string): RichPlay[] {
   return out
 }
 
+/* ---- beat blocks: p(name, stack(s('…'), s('…'))) ------------------------ */
+
+/** A drum row: `s('kick ~ kick ~')`, optionally `.gain('1 ~ 0.6 ~')`.
+ *
+ *  What a rondo `beat` block COMPILES TO is the answer to what the JS
+ *  equivalent is — `p(name, stack(s(…), s(…)))` — so this is not a guess about
+ *  mapping, it is the same program written the other way round. A lone
+ *  `p(name, s(…))` is a one-row block, which is what a single rondo row
+ *  compiles to as well.
+ *
+ *  The one real difference: rondo puts velocity inline (`kick:0.6`) and JS
+ *  keeps it in a parallel pattern, so the row reports where its gains live and
+ *  the widget writes both strings (see BeatRow.gainSpan). */
+function beatRowFrom(doc: string, call: SyntaxNode, gain: SyntaxNode | undefined): BeatRow | null {
+  const args = callArgs(call)
+  if (args.length !== 1 || args[0] === undefined) return null
+  const text = strTok(doc, args[0])
+  if (text === null) return null
+  const toks = text.value.trim().split(/\s+/).filter(Boolean)
+  if (toks.length < 2) return null // a 1-step row is not a sequencer
+  // a JS row carries no `:v` suffixes — the words are bare
+  if (!toks.every((tk) => tk === '~' || /^[a-zA-Z_]\w*$/.test(tk))) return null
+  const words = new Set(toks.filter((tk) => tk !== '~'))
+  if (words.size !== 1) return null // no single instrument to label the row
+  const word = [...words][0]!
+
+  // velocities, when a sibling .gain('…') supplies them, aligned by position
+  let gains: number[] | null = null
+  let gainSpan: { from: number; to: number } | undefined
+  if (gain !== undefined) {
+    const ga = callArgs(gain)
+    const gt = ga.length === 1 && ga[0] !== undefined ? strTok(doc, ga[0]) : null
+    if (gt !== null) {
+      const gtoks = gt.value.trim().split(/\s+/).filter(Boolean)
+      // a gain pattern that does not line up step-for-step is NOT this row's
+      // velocities — writing into it would silently retime the whole line
+      if (gtoks.length === toks.length && gtoks.every((g) => g === '~' || /^\d*\.?\d+$/.test(g))) {
+        gains = gtoks.map((g) => (g === '~' ? 1 : Number(g)))
+        gainSpan = { from: gt.from, to: gt.to }
+      }
+    }
+  }
+  const row: BeatRow = {
+    from: text.from,
+    to: text.to,
+    content: text.value,
+    word,
+    steps: toks.map((tk, i) => (tk === '~' ? null : gains !== null ? gains[i]! : 1)),
+    hadComment: false,
+  }
+  if (gainSpan !== undefined) row.gainSpan = gainSpan
+  return row
+}
+
+export function scanBeatsJs(text: string): BeatBlock[] {
+  const root = parse(text)
+  const out: BeatBlock[] = []
+  for (const n of walk(root)) {
+    if (calleeName(text, n) !== 'p') continue
+    const args = callArgs(n)
+    if (args.length < 2 || args[1] === undefined) continue
+    const body = args[1]
+    // a stack() is a multi-row block; a bare chain is a single row
+    const heads = calleeName(text, body) === 'stack' ? callArgs(body) : [body]
+    const rows: BeatRow[] = []
+    for (const head of heads) {
+      const calls = chainCalls(text, head)
+      const src = calls.get('s')?.[0]
+      if (src === undefined) continue
+      const row = beatRowFrom(text, src, calls.get('gain')?.[0])
+      if (row !== null) rows.push(row)
+    }
+    if (rows.length > 0) out.push({ rows })
+  }
+  return out
+}
+
 /* ---- unison fan: synth(fn, opts) / synth(fn, post, opts) ----------------- */
 
 /** Voice-spread glyphs on a `synth(…, { unison, detune, spread })`. Display
@@ -546,17 +623,18 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
  * the widget a span between the quotes and its existing writer cannot leave
  * them. The work was always reading the spans out of the tree.
  *
- * `beat` blocks remain rondo-shaped rather than unavailable: a rondo beat
- * block is several word rows edited as one grid, and the JS equivalent is
- * several separate p(…, s('…')) calls, so the mapping is a design question
- * rather than a missing scanner. */
+ * The one place a WRITER did have to learn something: a beat row's velocity is
+ * inline in rondo (`kick:0.6`) and a parallel `.gain('1 ~ 0.6')` pattern in
+ * JS, so a row can be one string or two. The row says which (BeatRow.gainSpan)
+ * and the widget writes accordingly — the languages genuinely differ there,
+ * which is the only reason it is not hidden behind a span. */
 export const JS_SCAN: WidgetScan = {
   knobs: scanKnobsJs,
   envs: scanEnvsJs,
   envPoints: scanEnvPointsJs,
   plays: scanPlaysJs,
   richPlays: scanRichPlaysJs,
-  beats: () => [],
+  beats: scanBeatsJs,
   wavedefs: scanWavedefsJs,
   // array elements, not space-joined: `[1, 0.5]` gains `, 0`
   wavedefDialect: { sep: ', ', scan: scanWavedefsJs },

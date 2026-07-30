@@ -623,11 +623,22 @@ describe('MiniError', () => {
   }
 })
 
-describe("'@' inside an alternation holds for whole CYCLES", () => {
-  /* `<0@3 4@1>` used to play exactly like `<0 4>`: the weights parsed fine and
-   * were then dropped, so nothing in the source hinted that the numbers did
-   * nothing. Inside a SEQUENCE the same `@` divides one cycle, which is what
-   * made the silence confusing rather than merely a missing feature. */
+describe("'@' inside an alternation is WIDTH in cycles", () => {
+  /* Two bugs in sequence here, and the second is the subtle one.
+   *
+   * First `<0@3 4@1>` played exactly like `<0 4>`: the weights parsed and were
+   * dropped, so nothing hinted the numbers did nothing.
+   *
+   * The fix then pushed n COPIES into the rotation, which puts the right value
+   * in each cycle — every test below except the last passes either way — while
+   * RE-ARTICULATING it every cycle. Three notes where the notation asks for
+   * one long one, and no way to write a sustain at all. Reported as "it chops
+   * everything into single length notes", and as a divergence from Strudel.
+   *
+   * The reading that is right, and matches Strudel: a weighted alternation is
+   * a timecat slowed to the total weight. `@` then means the same thing
+   * everywhere — relative width — with a cycle as the unit inside `<>` and a
+   * cycle as the WHOLE inside `[]`. */
   const cycle = (src: string, c: number): unknown[] => q(mini(src), c, c + 1).map((t) => t[2])
 
   it('holds each term for its weight in cycles', () => {
@@ -650,12 +661,33 @@ describe("'@' inside an alternation holds for whole CYCLES", () => {
     expect(q(mini('0@3 4@1'), 0, 1).map((t) => t[1])).toEqual([0.75, 1])
   })
 
-  it('composes with ! repetition', () => {
-    // two copies of a 2-cycle hold, then one of 4
+  it('composes with ! repetition — `!` is turns, `@` is width', () => {
+    // two TURNS of a 2-cycle-wide 0, then one of 4
     expect([0, 1, 2, 3, 4].map((c) => cycle('<0@2!2 4>', c))).toEqual([[0], [0], [0], [0], [4]])
   })
 
-  it('rejects a fractional hold rather than rounding it', () => {
-    expect(() => mini('<0@1.5 4>')).toThrow(/whole number of cycles/)
+  it('SUSTAINS: one event of n cycles, not n events of one', () => {
+    // The assertion the copies-in-the-rotation version failed, and the whole
+    // point of the notation — a held note is unwritable without it. Queried
+    // through the WHOLE: a query splits a hap at cycle boundaries, so the
+    // parts alone cannot tell a 3-cycle note from three 1-cycle notes, which
+    // is exactly why the regression went unnoticed.
+    const wholes = [...new Set(qw(mini('<0@3 4>'), 0, 4).map((h) => JSON.stringify([h.whole, h.value])))]
+    expect(wholes.map((w) => JSON.parse(w))).toEqual([[[0, 3], 0], [[3, 4], 4]])
+  })
+
+  it('takes a FRACTIONAL width, which width allows and a cycle count did not', () => {
+    const wholes = [...new Set(qw(mini('<0@1.5 4>'), 0, 2.5).map((h) => JSON.stringify([h.whole, h.value])))]
+    expect(wholes.map((w) => JSON.parse(w))).toEqual([[[0, 1.5], 0], [[1.5, 2.5], 4]])
+  })
+
+  it('leaves an UNWEIGHTED alternation byte-identical', () => {
+    // the common case must not move: timecat over n equal parts slowed by n is
+    // exactly one-per-cycle, but this pins it rather than trusting the algebra
+    for (const src of ['<0 4>', '<0 4 7>', '<0 4 7 9>']) {
+      const n = src.split(' ').length
+      expect(q(mini(src), 0, n).map((t) => [t[0], t[1], t[2]]))
+        .toEqual(Array.from({ length: n }, (_, i) => [i, i + 1, Number(src.replace(/[<>]/g, '').split(' ')[i])]))
+    }
   })
 })

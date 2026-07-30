@@ -25,6 +25,8 @@ import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
+import { ENUM_VALUE_TABLE, WT_TABLES } from '../rondo/enums'
+import type { EnumSpan } from '../rondo/enums'
 import type { UnisonScan } from '../rondo/unison'
 
 type Tree = ReturnType<typeof javascriptLanguage.parser.parse>
@@ -613,6 +615,57 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
   return out
 }
 
+/* ---- enum words: the tap-cycler ------------------------------------------ */
+
+/** Enum arguments in a JS call: `{ mode: 'lp' }` and the positional word slots.
+ *
+ *  rondo writes these bare (`svf 900 mode:lp`) and JS quotes them, which is
+ *  the only difference that matters — the span is the string's INTERIOR, so
+ *  the cycler rewrites `lp` and leaves the quotes alone. Same trick as the
+ *  roll family.
+ *
+ *  The value LISTS come from ENUM_VALUE_TABLE, which is the engine's accepted
+ *  values, so both languages cycle through exactly the same set. */
+export function scanEnumSpansJs(text: string): EnumSpan[] {
+  const root = parse(text)
+  const out: EnumSpan[] = []
+  const tables: readonly string[] = (() => {
+    const custom = scanWavedefsJs(text).map((w) => w.name)
+    return custom.length > 0 ? [...WT_TABLES, ...custom] : WT_TABLES
+  })()
+  for (const n of walk(root)) {
+    const name = calleeName(text, n) ?? methodName(text, n)
+    if (name === null) continue
+    const spec = ENUM_VALUE_TABLE[name]
+    if (spec === undefined) continue
+    const args = callArgs(n)
+    // positional enum slots, index-aligned with the registry's `pos`
+    spec.pos?.forEach((values, i) => {
+      const a = args[i]
+      if (values === null || values === undefined || a === undefined) return
+      const tok = strTok(text, a)
+      if (tok === null || !values.includes(tok.value)) return
+      out.push({ from: tok.from, to: tok.to, word: tok.value, values })
+    })
+    // named enum args, wherever the options object happens to sit
+    if (spec.named === undefined) continue
+    for (const a of args) {
+      if (a.name !== 'ObjectExpression') continue
+      const props = objProps(text, a)
+      for (const [key, values] of Object.entries(spec.named)) {
+        const node = props.get(key)
+        if (node === undefined) continue
+        const tok = strTok(text, node)
+        // `table:` accepts any registered wavedef, not just the built-ins
+        const list = key === 'table' ? tables : values
+        if (tok === null || !list.includes(tok.value)) continue
+        out.push({ from: tok.from, to: tok.to, word: tok.value, values: list })
+      }
+    }
+  }
+  return out.sort((a, b) => a.from - b.from)
+}
+
 /* ---- the scanner set ----------------------------------------------------- */
 
 /** JavaScript's widget scanners.
@@ -641,5 +694,5 @@ export const JS_SCAN: WidgetScan = {
   wavetableCalls: scanWavetableCallsJs,
   unisonHeaders: scanUnisonHeadersJs,
   filters: () => [],
-  enumSpans: () => [],
+  enumSpans: scanEnumSpansJs,
 }

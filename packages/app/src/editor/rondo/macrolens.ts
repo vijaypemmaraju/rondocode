@@ -265,7 +265,30 @@ export function macroReadouts(
   const env: Record<string, number> = {}
   for (const d of decls) env[d.name] = values[d.name] ?? d.value
   const out: { at: number; label: string; value: number; deps: string[] }[] = []
-  for (const block of blocks(text)) {
+
+  // Scan ONCE and index the uses by block. This used to re-scan the whole
+  // document inside the block loop and then find each use's block with a
+  // linear .some() — quadratic, and measurably so: 0.45ms at four synths but
+  // 39ms at forty-eight. It runs on every decoration rebuild AND on every
+  // pointer move of a macro drag, on the same thread the WGSL visualiser
+  // renders on, so it showed up as dropped frames rather than as a slow
+  // editor.
+  const uses = scanMacroUses(text, decls)
+  if (uses.length === 0) return out
+  const blockList = blocks(text)
+  const blockAt = new Map<number, number>()
+  blockList.forEach((b, i) => { for (const l of b.lines) blockAt.set(l.at, i) })
+  const usesByBlock = new Map<number, typeof uses>()
+  for (const use of uses) {
+    const i = blockAt.get(use.at)
+    if (i === undefined) continue
+    const list = usesByBlock.get(i)
+    if (list === undefined) usesByBlock.set(i, [use])
+    else list.push(use)
+  }
+
+  for (const [bi, blockUses] of usesByBlock) {
+    const block = blockList[bi]!
     const locals: Record<string, string> = {}
     for (const { line } of block.lines) {
       const m = BINDING_RE.exec(line)
@@ -291,8 +314,7 @@ export function macroReadouts(
       },
       has: () => true,
     })
-    for (const use of scanMacroUses(text, decls)) {
-      if (use.synth !== block.synth || !block.lines.some((l) => l.at === use.at)) continue
+    for (const use of blockUses) {
       const v = evalMacroExpr(use.expr, scope)
       if (v === undefined) continue
       out.push({ at: use.at, label: use.label, value: v, deps: use.deps })

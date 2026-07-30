@@ -2636,7 +2636,15 @@ export function codeWidgets(hooks: Hooks, scan: WidgetScan): Extension {
           widthChanged = envW !== this.lastEnvW
           this.lastEnvW = envW
         }
-        if (u.docChanged || u.viewportChanged || widthChanged) this.decos = build(u.view, hooks, drag, scan)
+        // NOT on viewportChanged. build() scans the WHOLE document by design
+        // (see its comment) and depends on nothing but the text and the
+        // content width, so a scroll cannot change its output — but
+        // viewportChanged fires every scroll frame, and rebuilding meant
+        // re-scanning every line and re-allocating every decoration in the
+        // file to arrive at the same set. On a large project that is the
+        // difference between a smooth visualiser and a stuttering one, since
+        // the rAF loop shares this thread.
+        if (u.docChanged || widthChanged) this.decos = build(u.view, hooks, drag, scan)
       }
     },
     {

@@ -27,7 +27,8 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 72px; /* clears the sticky header on anchor jumps */
+  /* clears the sticky header AND the route tabs on anchor jumps */
+  scroll-padding-top: calc(var(--doc-top-h, 52px) + var(--doc-tabs-h, 44px) + var(--sp-2));
 }
 
 body {
@@ -109,11 +110,12 @@ a:hover {
 }
 .doc-nav {
   position: sticky;
-  top: 80px;
+  /* below the header AND the route tabs; both are measured at runtime */
+  top: calc(var(--doc-top-h, 52px) + var(--doc-tabs-h, 44px) + var(--sp-3));
   align-self: start;
   font-family: var(--mono);
   font-size: var(--fs-ctrl);
-  max-height: calc(100dvh - 100px);
+  max-height: calc(100dvh - var(--doc-top-h, 52px) - var(--doc-tabs-h, 44px) - var(--sp-6));
   overflow-y: auto;
 }
 .doc-nav a {
@@ -181,7 +183,7 @@ a:hover {
   font-size: 24px;
   font-weight: 600;
   margin: 0 0 var(--sp-3);
-  scroll-margin-top: 72px;
+  scroll-margin-top: calc(var(--doc-top-h, 52px) + var(--doc-tabs-h, 44px) + var(--sp-2));
 }
 .doc-section > h2::before {
   content: '';
@@ -756,4 +758,80 @@ a:hover {
   .doc-copy {
     display: none; /* the header is tight on phones; /llms.txt still works */
   }
+}
+
+/* --- route tabs (docs / cookbook / troubleshooting / reference) ---
+   A scrolling strip, not a wrapping row: on a phone these must stay on one
+   line and stay thumb-reachable. Scroll snap so a half-scrolled tab settles. */
+.doc-tabs {
+  position: sticky;
+  top: var(--doc-top-h, 52px);
+  z-index: 8;
+  display: flex;
+  gap: 2px;
+  padding: 0 var(--sp-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+  -webkit-overflow-scrolling: touch;
+}
+.doc-tabs::-webkit-scrollbar { display: none; }
+.doc-tab {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  padding: 10px 14px;
+  color: var(--c-dim);
+  text-decoration: none;
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  /* a comfortable tap target even though the text is small */
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+}
+.doc-tab:hover { color: var(--c-text); }
+.doc-tab.on {
+  color: var(--c-accent);
+  border-bottom-color: var(--c-accent);
+}
+
+/* a non-landing route says what it is without the full pitch */
+.doc-hero.compact { padding-top: var(--sp-4); }
+.doc-hero.compact h1 {
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  font-family: var(--mono);
+  color: var(--c-accent);
+}
+
+/* --- cross-route search hits --- */
+.doc-elsewhere {
+  margin: var(--sp-6) 0;
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--c-border);
+}
+.doc-elsewhere-head {
+  color: var(--c-faint);
+  font-size: var(--fs-meta);
+  font-family: var(--mono);
+  margin-bottom: var(--sp-2);
+}
+.doc-elsewhere-hit {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: 9px 0;
+  color: var(--c-text);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--c-border) 50%, transparent);
+}
+.doc-elsewhere-hit:hover { color: var(--c-accent); }
+.doc-elsewhere-where {
+  flex: 0 0 auto;
+  color: var(--c-accent-alt);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
 }

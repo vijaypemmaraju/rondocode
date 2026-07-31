@@ -749,7 +749,13 @@ describe('positioned diagnostics', () => {
   })
 
   it('malformed sidechain/master name:number pairs point at the bad pair', () => {
-    failsAt('synth kick\n  sine 60\n\nsidechain kick depth:fast\n', 'sidechain args are `name:number` pairs', 4, 16)
+    // a bare word is now allowed HERE — it names a project control — so the
+    // error moved from "not a number" to "no such control", which is the more
+    // useful thing to be told. It must stay an error either way: resolving an
+    // unknown name to 0 would be a pump silently switched off by a typo.
+    failsAt('synth kick\n  sine 60\n\nsidechain kick depth:fast\n', "no macro or switch named 'fast'", 4, 1)
+    // ...and a DECLARED one compiles
+    expect(compile('macro x 1 0..2\n\nsynth kick\n  sine 60\n\nsidechain kick depth:x\n').ok).toBe(true)
     failsAt('sidechain\n', 'sidechain needs a source synth', 1, 1)
     failsAt('synth s\n  saw\n\nmaster threshold:x\n', 'master args are `name:number` pairs', 4, 8)
   })

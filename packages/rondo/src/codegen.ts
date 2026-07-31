@@ -5,7 +5,7 @@
  * `p('NAME', n('…')…)`, tempo as `setCps(x)`. We collect which synth-ctx
  * members each synth uses and emit exactly that destructure. */
 
-import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem } from './ast'
+import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue } from './ast'
 import { BUILTINS } from './builtins'
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
@@ -689,12 +689,36 @@ function cgSection(item: Extract<TopItem, { t: 'section' }>, errors: RondoError[
   return `const __sec_${item.name} = ${body}`
 }
 
-function cgSidechain(item: Extract<TopItem, { t: 'sidechain' }>): string {
+/** A sidechain amount: a literal, or `macroNum('x')` when it follows a macro.
+ *  sidechain() takes plain NUMBERS (the duck depth is captured at eval, not
+ *  read per sample), so a macro reference resolves at eval time — which is
+ *  exactly when a switch tap re-runs the program. */
+const scNum = (v: ScValue): string => (typeof v === 'number' ? num(v) : `macroNum('${v.macro}')`)
+
+function cgSidechain(
+  item: Extract<TopItem, { t: 'sidechain' }>,
+  errors: RondoError[],
+  macroNames: ReadonlySet<string>,
+): string {
+  // A bare word here must NAME a declared macro or switch. Accepting an
+  // unknown one would resolve to 0 at eval — a pump silently turned off by a
+  // typo, which is worse than the syntax error this used to be.
+  const check = (v: ScValue, key: string): ScValue => {
+    if (typeof v !== 'number' && !macroNames.has(v.macro)) {
+      const known = [...macroNames].sort().join(', ')
+      errors.push({
+        message: `\`${key}:${v.macro}\` — no macro or switch named '${v.macro}'${known === '' ? '' : ` (have: ${known})`}. sidechain amounts are numbers, or the name of a project control.`,
+        line: item.pos.line,
+        col: item.pos.col,
+      })
+    }
+    return v
+  }
   const parts: string[] = []
-  if (item.depth !== undefined) parts.push(`depth: ${num(item.depth)}`)
-  if (item.release !== undefined) parts.push(`release: ${num(item.release)}`)
+  if (item.depth !== undefined) parts.push(`depth: ${scNum(check(item.depth, 'depth'))}`)
+  if (item.release !== undefined) parts.push(`release: ${scNum(check(item.release, 'release'))}`)
   const duckEntries = Object.entries(item.duck)
-  if (duckEntries.length > 0) parts.push(`duck: { ${duckEntries.map(([k, v]) => `${k}: ${num(v)}`).join(', ')} }`)
+  if (duckEntries.length > 0) parts.push(`duck: { ${duckEntries.map(([k, v]) => `${k}: ${scNum(check(v, k))}`).join(', ')} }`)
   return `sidechain('${item.source}'${parts.length > 0 ? `, { ${parts.join(', ')} }` : ''})`
 }
 
@@ -782,7 +806,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'play') return cgPlay(item, errors, macroNames)
     if (item.t === 'sing') return cgSing(item, errors, macroNames)
     if (item.t === 'raw') return item.code // escape hatch, verbatim
-    if (item.t === 'sidechain') return cgSidechain(item)
+    if (item.t === 'sidechain') return cgSidechain(item, errors, macroNames)
     if (item.t === 'master') return cgMaster(item)
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)

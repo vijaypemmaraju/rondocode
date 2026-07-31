@@ -1,4 +1,4 @@
-import { synth, defineWavetable, macro } from '@rondocode/engine'
+import { synth, defineWavetable, macro, lookupMacro } from '@rondocode/engine'
 import {
   Pattern,
   reify,
@@ -57,6 +57,11 @@ import {
  *  call as a draggable slider and rewrites the literal. Values flow through
  *  unchanged here. */
 const slider = (v: number, _min?: number, _max?: number, _step?: number): number => v
+
+/** A macro's declared value as a number. 0 for an unknown name, matching
+ *  macroval's choice: NaN would spread through whatever arithmetic follows and
+ *  take the whole sidechain with it. */
+const macroNum = (name: string): number => lookupMacro(name)?.default ?? 0
 
 /** xy(x, y) — 2D-pad widget placeholder; evaluates to [x, y]. */
 const xy = (x: number, y: number): [number, number] => [x, y]
@@ -121,6 +126,12 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   // .dur(macroval('bright').div(7300)). `dur`/`gain`/`pan` are structural —
   // the scheduler consumes them per event and they never reach the engine —
   // so a synth param could not drive them. This mirrors the value across.
+  // the same macro as a plain NUMBER, for the places that capture a value at
+  // eval rather than reading a signal per sample. sidechain()'s duck depth is
+  // the one that matters: the pump was the only project control a macro could
+  // not reach. Resolves to the DECLARED value, so it follows a switch tap (which
+  // rewrites the source and re-evals) but not a knob mid-drag.
+  macroNum,
   macroval,
   // continuous signals
   sine,

@@ -12,7 +12,7 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock } from './ast'
+import type { Binding, Comb, CpsItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
 import type { BuiltinSpec } from './builtins'
@@ -729,11 +729,13 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       const item: TopItem = { t: 'sidechain', source, duck: {}, pos: head.pos }
       for (let k = 2; k + 2 < ln.toks.length + 1; k += 3) {
         const nameT = ln.toks[k], colonT = ln.toks[k + 1], valT = ln.toks[k + 2]
-        if (!nameT || nameT.k !== 'ident' || colonT?.k !== 'colon' || valT?.k !== 'num') {
-          if (nameT) errors.push({ message: 'sidechain args are `name:number` pairs (depth: / release: / <synth>:duck)', line: nameT.pos.line, col: nameT.pos.col })
+        if (!nameT || nameT.k !== 'ident' || colonT?.k !== 'colon' || (valT?.k !== 'num' && valT?.k !== 'ident')) {
+          if (nameT) errors.push({ message: 'sidechain args are `name:number` pairs, or `name:macro` to follow a project control (depth: / release: / <synth>:duck)', line: nameT.pos.line, col: nameT.pos.col })
           break
         }
-        const v = (valT as Tok & { v: number }).v
+        // a bare word here is a macro or switch NAME: the pump follows it, and
+        // updates on the eval that a knob move or a switch tap triggers
+        const v: ScValue = valT.k === 'num' ? (valT as Tok & { v: number }).v : { macro: valT.v }
         if (nameT.v === 'depth') item.depth = v
         else if (nameT.v === 'release') item.release = v
         else item.duck[nameT.v] = v

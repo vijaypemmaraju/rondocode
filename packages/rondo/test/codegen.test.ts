@@ -97,3 +97,45 @@ describe('switch round-trips', () => {
     expect(decompile("macro('x', 5, { values: [1, 9] })")).toContain('js')
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * The pump was the one project control a macro could not reach.
+ *
+ * `sidechain` took `name:number` pairs only, so the most obvious thing to want
+ * to switch off — the ducking — could not follow a switch. It now accepts a
+ * bare macro name wherever it accepts a number.
+ *
+ * It resolves through macroNum(), not macroval(): sidechain() captures its
+ * duck depth as a plain number at eval, it does not read a signal per sample.
+ * That is exactly right for a switch, whose tap rewrites the source and
+ * re-evals; a knob mid-drag will not move the pump until the drag ends.
+ * ------------------------------------------------------------------------- */
+describe('sidechain follows a project control', () => {
+  const drums = (line: string): string =>
+    cg(`switch drums 1 0\n\nsynth kick\n  sine 60\n\nsynth lead\n  saw note\n\nplay kick\n  c2 c2\n\nplay lead\n  0 3\n\n${line}\n\ncps .5\n`)
+
+  it('reads a bare name as a macro for depth', () => {
+    expect(drums('sidechain kick depth:drums')).toContain("depth: macroNum('drums')")
+  })
+
+  it('does the same for release and for a per-channel duck', () => {
+    const out = drums('sidechain kick depth:.9 release:drums lead:drums')
+    expect(out).toContain("release: macroNum('drums')")
+    expect(out).toContain("lead: macroNum('drums')")
+  })
+
+  it('still takes plain numbers, unchanged', () => {
+    expect(drums('sidechain kick depth:.99 release:.5 lead:.6'))
+      .toContain("sidechain('kick', { depth: 0.99, release: 0.5, duck: { lead: 0.6 } })")
+  })
+
+  it('round-trips back to the bare name, not to macroNum(…)', () => {
+    expect(decompile(drums('sidechain kick depth:drums release:.5')))
+      .toContain('sidechain kick depth:drums release:0.5')
+  })
+
+  it('keeps a hand-written JS sidechain as JS when rondo cannot say it', () => {
+    // an expression is not a name, so there is no bare-word spelling for it
+    expect(decompile("sidechain('kick', { depth: x * 2 })")).toContain('js')
+  })
+})

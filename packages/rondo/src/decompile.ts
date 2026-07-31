@@ -72,6 +72,20 @@ const numPair = (n: Node): [number, number] | undefined => {
   return a === undefined || b === undefined ? undefined : [a, b]
 }
 
+/** A sidechain amount as rondo text: a literal, or the bare macro name behind
+ *  a `macroNum('x')` call. Anything else has no rondo spelling and keeps the
+ *  whole block as JavaScript rather than round-tripping to something else. */
+const scText = (n: Node): string | undefined => {
+  const v = numValue(n)
+  if (v !== undefined) return num(v)
+  if (n.type !== 'CallExpression') return undefined
+  const callee = n['callee'] as Node
+  if (callee.type !== 'Identifier' || callee['name'] !== 'macroNum') return undefined
+  const a = (n['arguments'] as Node[])[0]
+  const name = a === undefined ? undefined : strValue(a)
+  return name !== undefined && /^[a-zA-Z_]\w*$/.test(name) ? name : undefined
+}
+
 const strValue = (n: Node): string | undefined =>
   n.type === 'Literal' && typeof n['value'] === 'string' ? n['value'] : undefined
 
@@ -1147,14 +1161,14 @@ function decompileStaging(stmt: Node): string | null {
           const duck = objEntries(vn)
           if (duck === undefined) return null
           for (const [dk, dv] of Object.entries(duck)) {
-            const v = numValue(dv)
-            if (v === undefined) return null
-            out += ` ${dk}:${num(v)}`
+            const t = scText(dv)
+            if (t === undefined) return null
+            out += ` ${dk}:${t}`
           }
         } else {
-          const v = numValue(vn)
-          if (v === undefined) return null
-          out += ` ${k}:${num(v)}`
+          const t = scText(vn)
+          if (t === undefined) return null
+          out += ` ${k}:${t}`
         }
       }
     }

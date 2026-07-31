@@ -230,6 +230,12 @@ const GLOBALS: DocEntry[] = [
     "p('lead', n('0 3 5').sound('lead').dur(macroval('bright').div(7300)))",
   ),
   g(
+    'macroNum',
+    'macroNum(name: string)',
+    "A project-wide macro or switch as a plain NUMBER, read once at eval. For the places that capture a value rather than reading a signal per sample -- sidechain()'s duck depth is the one that matters, since the pump was the only project control a macro could not reach. It resolves the DECLARED value, so it follows a switch tap (which rewrites the source and re-evals) but not a knob mid-drag. Use macroval where a signal will do: that one is live. In rondo, write the control's name where a number goes: sidechain kick depth:drums.",
+    "sidechain('kick', { depth: macroNum('drums'), release: 0.5 })",
+  ),
+  g(
     'setCps',
     'setCps(cps: number)',
     'Set the tempo in cycles per second, the engine unit: one cycle is one bar, so 0.5 cps is a two-second bar, which at 4 beats to the bar is 120 bpm. setBpm is the same tempo in the unit you count in.',

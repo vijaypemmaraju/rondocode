@@ -128,11 +128,17 @@ export interface RawItem {
 export interface SidechainItem {
   t: 'sidechain'
   source: string
-  depth?: number
-  release?: number
-  duck: Record<string, number>
+  depth?: ScValue
+  release?: ScValue
+  duck: Record<string, ScValue>
   pos: Pos
 }
+
+/** A sidechain amount: a literal, or the NAME of a project-wide macro or
+ *  switch. The pump is the one place a project control could not reach, which
+ *  made "one knob, everything" untrue for the most obvious thing to want to
+ *  switch off. */
+export type ScValue = number | { macro: string }
 
 /** `master threshold:-6 ratio:2 …` → masterCompress(opts). */
 export interface MasterItem {

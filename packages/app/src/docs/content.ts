@@ -5,6 +5,9 @@
  * dsl-docs.ts.
  * ------------------------------------------------------------------------- */
 
+import { RECIPES } from './cookbook'
+import type { Recipe } from './cookbook'
+
 /* Block kinds. Prose that TEACHES stays a paragraph; enumerations a reader
  * SCANS become a table or a list, and the handful of real warnings become
  * notes. Every kind renders on the docs page (docs.ts), in the LLM-facing
@@ -109,6 +112,9 @@ export const GROUP_ORDER: readonly string[] = [
   'patterns & form',
   'voice & visuals',
   'the rondo language',
+  // The cookbook sits AFTER the guide: it answers "how do I say X", which is
+  // the question you have once you already know what the pieces are.
+  'cookbook',
 ]
 
 /** SECTIONS grouped and ordered for display: groups in GROUP_ORDER, sections
@@ -1687,3 +1693,24 @@ cps .5`,
     ],
   },
 ]
+
+/* ---- the cookbook -------------------------------------------------------- *
+ * Recipes become ordinary Sections rather than a parallel content type, so
+ * they inherit the nav, the search index, the "open in editor" deep link and
+ * the llms.txt export without any of it being written twice. What makes them
+ * recipes is the SHAPE, which cookbook.ts owns and cookbook.test.ts enforces:
+ * one complete program that is proven to run, plus the single move that makes
+ * it work.
+ * -------------------------------------------------------------------------- */
+
+/** One recipe as a guide section: the code first, because that is what you
+ *  came for, then the one move as a callout. The tags ride in the caption so
+ *  the search index finds a recipe by words its title never uses. */
+export const recipeSection = (r: Recipe): Section => ({
+  id: `recipe-${r.id}`,
+  group: 'cookbook',
+  title: r.title,
+  blocks: [rondo(r.tags.join(' \u00b7 '), r.code), note(r.why)],
+})
+
+for (const r of RECIPES) SECTIONS.push(recipeSection(r))

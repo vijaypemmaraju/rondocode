@@ -208,7 +208,7 @@ export const OPTIONS: RondoOption[] = [
   c('note', 'function', 'note', 'The note being played, as a frequency in Hz. `saw note` is an oscillator at pitch; `note/2` is an octave down.', 'saw + square note/2'),
   c('gate', 'function', 'gate', 'The note gate: 1 while the note is held, 0 after. What an envelope reads. Usually implicit — `adsr` takes it for you.', 'env = adsr .003 .2 .3 .1'),
   c('velocity', 'function', 'velocity', "The note's 0..1 velocity, from the pattern's `gain:`. Multiply by it to make accents shape the sound, not just its volume.", '* velocity ^ .5'),
-  c('input', 'function', 'input', 'The summed signal arriving at a `post` or `bus` block. The thing you are processing.', 'post\n  reverb input room:.7'),
+  c('input', 'function', 'input', 'The summed signal arriving at a `post` or `bus` block. Only needed in a BINDING: on an ordinary chain line the running signal is already implicit, so `reverb room:.7` is the whole line and `reverb input room:.7` is one argument too many.', 'post\n  rv = reverb input room:.7\n  mix rv .3'),
   c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.', 'scale:a-min'),
   c('every', 'keyword', 'every N: <comb>', 'Apply a combinator every Nth cycle (e.g. `every 4: rev`).', 'every 4: rev'),
   c('gain', 'keyword', 'gain: v', 'Note velocity (0..1).', 'gain: .8'),

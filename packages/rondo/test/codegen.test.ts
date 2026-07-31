@@ -163,3 +163,61 @@ describe('accidental degrees pick n(), not note()', () => {
       .toContain('0 2# 4 3b')
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Unknown names are a rondo error, at a rondo position.
+ *
+ * Asked whether one synth can feed another. `vocoder pad bands:32` COMPILED —
+ * rondo emitted any bare identifier as a raw JavaScript reference, so `pad`
+ * became the SynthDef object and the engine said "expected a Sig or number,
+ * got object ([object Object])". A JavaScript complaint about a rondo
+ * mistake, with no line to point at.
+ *
+ * The same hole swallowed every typo: `envv` became `envv is not defined`.
+ * ------------------------------------------------------------------------- */
+describe('names are checked where they are written', () => {
+  const err = (src: string): string => {
+    const r = compile(src)
+    expect(r.ok, 'expected a compile error').toBe(false)
+    return r.ok ? '' : r.errors[0]!.message
+  }
+
+  it('says a synth is not a signal, and what to do instead', () => {
+    // the reason is structural, not a typo: a synth runs per VOICE, so there
+    // is no single output for a line to read
+    const m = err('synth pad\n  supersaw note\n\nsynth x\n  vocoder pad bands:32\n')
+    expect(m).toMatch(/`pad` is a synth, not a signal/)
+    expect(m).toMatch(/per voice/i)
+    expect(m).toMatch(/bus/)
+  })
+
+  it('catches a typo in a binding name and suggests the binding', () => {
+    expect(err('synth x\n  saw note\n  * envv\n  env = adsr .01 .1 .5 .1\n'))
+      .toMatch(/unknown name `envv`.*did you mean `env`\?/)
+  })
+
+  it('reports an unknown name with no near miss, without inventing one', () => {
+    const m = err('synth x\n  saw note\n  * zzz\n')
+    expect(m).toMatch(/unknown name `zzz`/)
+    expect(m).not.toMatch(/did you mean/)
+  })
+
+  it('points at the name, not at the block', () => {
+    const r = compile('synth x\n  saw note\n  * zzz\n')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.errors[0]!.line).toBe(3)
+  })
+
+  it('leaves the js{ } escape hatch alone — its names are in scope', () => {
+    // checking unknown names has to know about the escape hatch, or the
+    // escape hatch stops working
+    expect(compile('js\n  const boost = 3\n\nsynth x\n  saw note\n  * boost\n').ok).toBe(true)
+  })
+
+  it('still accepts macros, bindings and the implicit signals', () => {
+    expect(compile('macro b 1 0..2\n\nsynth x\n  saw note\n  * b\n').ok).toBe(true)
+    expect(compile('synth x\n  saw note\n  * e\n  e = adsr .01 .1 .5 .1\n').ok).toBe(true)
+    expect(compile('synth x\n  saw note\n  * velocity\n').ok).toBe(true)
+  })
+})

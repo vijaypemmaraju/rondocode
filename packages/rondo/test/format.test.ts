@@ -66,11 +66,11 @@ describe('blank lines and trailing whitespace', () => {
 
 describe('interior spacing', () => {
   it('collapses runs of 3+ spaces on token-parsed lines, keeping 2-space runs', () => {
-    const src = 'synth a\n  ladder    cutoff  res:.5\n  saw\n'
-    // note: the compiler reads tokens here, so this is byte-safe
-    expect(fmt('synth a\n  saw\n  ladder    cutoff  res:.5\n'))
-      .toBe('synth a\n  saw\n  ladder cutoff  res:.5\n')
-    void src
+    // `cutoff` needs a binding: an undeclared name is a compile error now
+    // (it used to fall through to a bare JS identifier and die at eval), and
+    // the formatter only reformats a document that parses.
+    expect(fmt('synth a\n  saw\n  ladder    cutoff  res:.5\n  cutoff = knob 900 80..8000\n'))
+      .toBe('synth a\n  saw\n  ladder cutoff  res:.5\n  cutoff = knob 900 80..8000\n')
   })
 
   it('normalizes binding lines to name = expr', () => {

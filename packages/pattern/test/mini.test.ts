@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { F, MiniError, m, mini, miniLoc, n, timeHash } from '../src/index'
 import { q, qw, span } from './helpers'
+import { miniParse } from '../src/mini'
 
 /** Parse src expecting a MiniError; return it for pos/message assertions. */
 const errOf = (src: string): MiniError => {
@@ -689,5 +690,48 @@ describe("'@' inside an alternation is WIDTH in cycles", () => {
       expect(q(mini(src), 0, n).map((t) => [t[0], t[1], t[2]]))
         .toEqual(Array.from({ length: n }, (_, i) => [i, i + 1, Number(src.replace(/[<>]/g, '').split(' ')[i])]))
     }
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Accidentals on degrees: `0 2# 4`.
+ *
+ * A degree indexes a scale, so it cannot name a pitch the scale does not
+ * contain. The near-miss spelling was the dangerous part: `0 2.5 4` ROUNDS to
+ * degree 3 rather than failing, so a half-step looked like it worked.
+ *
+ * Postfix, not prefix, and that is forced: rondo strips a `#` comment from a
+ * line when it follows whitespace, so `0 #2 4` would lose everything after the
+ * `0`. Glued to its digits, `2#` is safe in both languages.
+ * ------------------------------------------------------------------------- */
+describe('degree accidentals', () => {
+  const first = (src: string) => miniParse(src).atoms
+
+  it('reads a sharp and a flat as semitone offsets beside the degree', () => {
+    expect(first('0 2# 4b').map((a) => [a.value, a.acc]))
+      .toEqual([[0, undefined], [2, 1], [4, -1]])
+  })
+
+  it('stacks them: ## is a whole tone up', () => {
+    expect(first('2## 3bb').map((a) => a.acc)).toEqual([2, -2])
+  })
+
+  it('takes an accidental on a NEGATIVE degree', () => {
+    expect(first('-1b').map((a) => [a.value, a.acc])).toEqual([[-1, -1]])
+  })
+
+  it('leaves a sample name alone: 2bd is the number 2 and the word bd', () => {
+    // the guard that keeps this from breaking every drum pattern with a `b`
+    expect(first('2bd hh').map((a) => [a.value, a.acc]))
+      .toEqual([[2, undefined], ['bd', undefined], ['hh', undefined]])
+  })
+
+  it('keeps a standalone b a word, not an accidental with no degree', () => {
+    expect(first('2 b').map((a) => [a.value, a.acc])).toEqual([[2, undefined], ['b', undefined]])
+  })
+
+  it('carries the accidental into the token span, so the editor flashes it whole', () => {
+    const [a] = miniParse('0 2#').atoms.slice(1)
+    expect(a!.loc.end - a!.loc.start).toBe(2)
   })
 })

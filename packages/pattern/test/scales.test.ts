@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { F, TimeSpan, hasOnset, n } from '../src/index'
 import {
   SCALES,
   clearCustomScales,
@@ -262,5 +263,38 @@ describe('diatonic mode names all resolve', () => {
     expect(SCALES['harmonicMinor']).toEqual([0, 2, 3, 5, 7, 8, 11]) // raised 7th
     expect(SCALES['wholeTone']).toHaveLength(6)
     expect(SCALES['blues']).toEqual([0, 3, 5, 6, 7, 10]) // minor pent + b5
+  })
+})
+
+describe('an accidental resolves AFTER the scale lookup', () => {
+  const notes = (src: string, scale: string): (number | undefined)[] =>
+    n(src).scale(scale).query(new TimeSpan(F(0), F(1))).filter(hasOnset).map((h) => h.value.note)
+
+  it('raises and lowers the degree it is attached to, in semitones', () => {
+    expect(notes('0 2 4', 'c major')).toEqual([60, 64, 67])
+    expect(notes('0 2# 4', 'c major')).toEqual([60, 65, 67])
+    expect(notes('0 2b 4', 'c major')).toEqual([60, 63, 67])
+  })
+
+  it('means "that degree, raised" whatever the degree is in THIS scale', () => {
+    // the reason it is applied after the lookup rather than folded into the
+    // degree: degree 2 is a different interval in minor, and `2#` has to
+    // follow it there rather than land on a fixed semitone
+    expect(notes('2', 'c minor')).toEqual([63])
+    expect(notes('2#', 'c minor')).toEqual([64])
+  })
+
+  it('reaches a pitch the scale simply does not contain', () => {
+    // the raised fourth: not in C major at all, and the whole point
+    expect(notes('3# ', 'c major')).toEqual([66])
+  })
+
+  it('stacks, and works below the root', () => {
+    expect(notes('2##', 'c major')).toEqual([66])
+    expect(notes('-1b', 'c major')).toEqual([58])
+  })
+
+  it('leaves a plain degree untouched', () => {
+    expect(notes('0 1 2 3 4 5 6 7', 'c major')).toEqual([60, 62, 64, 65, 67, 69, 71, 72])
   })
 })

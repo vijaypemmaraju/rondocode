@@ -80,6 +80,11 @@ export interface Loc {
 export interface MiniValue {
   readonly value: string | number
   readonly loc: Loc
+  /** Semitones from a trailing accidental on a NUMBER: `2#` is +1, `2b` is -1,
+   *  `2##` is +2. Degrees are positions in a scale, so this is the only way to
+   *  name a pitch the scale does not contain; see the note on `nAcc` in
+   *  controls.ts for why it stays separate from the degree. */
+  readonly acc?: number
 }
 
 /** Quote a source string for the error header, truncated for huge inputs. */
@@ -146,6 +151,8 @@ interface Tok {
   readonly value: number
   readonly start: number
   readonly end: number
+  /** Semitones from a trailing accidental run (`2#` → 1, `2b` → -1). */
+  readonly acc?: number
 }
 
 const PUNCT = new Set('[]<>{}(),|*/!@?%~_')
@@ -191,8 +198,15 @@ function tokenize(src: string): Tok[] {
         throw new MiniError('malformed number (extra decimal point)', j, src)
       }
       const text = src.slice(i, j)
-      toks.push({ kind: 'number', text, value: parseFloat(text), start: i, end: j })
-      i = j
+      // A trailing `#`/`b` run is an ACCIDENTAL on this degree: `2#`, `2bb`.
+      // Only when nothing word-ish follows, so `2bd` stays the number 2 and
+      // the sample name `bd` rather than becoming a flat and a stray `d`.
+      let acc = 0
+      let k = j
+      while (src[k] === '#' || src[k] === 'b') { acc += src[k] === '#' ? 1 : -1; k++ }
+      if (k > j && isWordChar(src[k] ?? '')) { acc = 0; k = j }
+      toks.push({ kind: 'number', text: src.slice(i, k), value: parseFloat(text), start: i, end: k, acc })
+      i = k
       continue
     }
     if (PUNCT.has(c)) {
@@ -405,11 +419,12 @@ class Parser {
   }
 
   /** Record an atom (the `n` tag validates against the list) and build its pattern. */
-  private mkAtom(value: string | number, loc: Loc): Pattern<MiniValue> {
+  private mkAtom(value: string | number, loc: Loc, acc = 0): Pattern<MiniValue> {
     // Stamp the source so the editor can flash exactly this literal (see Loc).
     const located: Loc = { start: loc.start, end: loc.end, src: this.src }
-    this.atoms.push({ value, loc: located })
-    return Pattern.pure({ value, loc: located })
+    const v: MiniValue = acc === 0 ? { value, loc: located } : { value, loc: located, acc }
+    this.atoms.push(v)
+    return Pattern.pure(v)
   }
 
   /** atom := word | number | '~' | '[' ... | '<' ... | '{' ... */
@@ -421,7 +436,7 @@ class Parser {
       return this.mkAtom(t.kind === 'word' ? t.text : t.value, {
         start: t.start,
         end: t.end,
-      })
+      }, t.acc ?? 0)
     }
     if (t.text === '~') {
       this.next()

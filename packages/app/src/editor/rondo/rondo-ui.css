@@ -651,3 +651,16 @@
 @media (prefers-reduced-motion: reduce) {
   .rondo-switch.flipped .rs-dot { animation: none; }
 }
+
+/* An accidental degree sits on its own degree's ROW — the rows are scale
+   degrees and there is no row between them — so it is marked rather than
+   moved. Without the mark, `2#` and `2` would be the same cell. */
+.rondo-roll .rc.acc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--c-bg, #10131a);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}

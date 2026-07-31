@@ -139,3 +139,27 @@ describe('sidechain follows a project control', () => {
     expect(decompile("sidechain('kick', { depth: x * 2 })")).toContain('js')
   })
 })
+
+describe('accidental degrees pick n(), not note()', () => {
+  it('a flattened degree does not flip the line to note names', () => {
+    // `3b` contains a `b`, and the note-name heuristic used to take that as
+    // the note B — flipping the whole line to note(), which then read `0` as a
+    // note name and IGNORED the scale, silently, because note() accepts a
+    // .scale() call and does nothing with it
+    expect(cg('synth a\n  saw note\n\nplay a\n  0 2# 4 3b\n  scale:c-maj\n\ncps .5\n'))
+      .toContain("n('0 2# 4 3b').scale('c major')")
+  })
+
+  it('still picks note() for real note names', () => {
+    expect(cg('synth a\n  saw note\n\nplay a\n  c4 e4 g4\n\ncps .5\n')).toContain("note('c4 e4 g4')")
+  })
+
+  it('still picks chord() for an uppercase root', () => {
+    expect(cg('synth a\n  saw note\n\nplay a\n  Am F C G\n\ncps .5\n')).toContain('chord(')
+  })
+
+  it('round-trips the accidentals back into the rondo line', () => {
+    expect(decompile(cg('synth a\n  saw note\n\nplay a\n  0 2# 4 3b\n  scale:c-maj\n\ncps .5\n')))
+      .toContain('0 2# 4 3b')
+  })
+})

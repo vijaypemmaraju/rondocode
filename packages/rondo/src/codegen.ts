@@ -578,7 +578,11 @@ function cgMod(m: Mod, errors: RondoError[], macros: ReadonlySet<string>): strin
  *  (`c4 e4`); bare digits/rests mean scale degrees. */
 function entryFor(notation: string): 'chord' | 'note' | 'n' {
   if (/(^|[\s<[(])[A-G][#b]?[A-Za-z0-9]*/.test(notation)) return 'chord'
-  if (/[a-g]/.test(notation)) return 'note'
+  // A `b` glued to DIGITS is an accidental on a scale degree (`3b`), not the
+  // note B. Without this, one flattened degree flipped the whole line to
+  // note(), which then read `0` as a note name and dropped the scale on the
+  // floor — silently, since note() accepts a `.scale()` call and ignores it.
+  if (/[a-g]/.test(notation.replace(/(?<=\d)[#b]+/g, ''))) return 'note'
   return 'n'
 }
 

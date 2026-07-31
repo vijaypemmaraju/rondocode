@@ -111,6 +111,20 @@ export const buzz = (ms = 8): void => {
 /** Resolve a grid degree to a MIDI note through a SHORT scale name
  *  ('a-min'). Returns undefined when there is no scale (a scale-less degree
  *  pattern is silent anyway) or the name doesn't parse. */
+/** A degree step, with an optional accidental: `4`, `-1`, `2#`, `3bb`. */
+export const STEP_RE = /^(-?\d+)(#+|b+)?$/
+
+/** Semitones for an accidental suffix (`#` +1 each, `b` -1 each). */
+export const accValue = (suffix: string | undefined): number | undefined =>
+  suffix === undefined || suffix === '' ? undefined : suffix[0] === '#' ? suffix.length : -suffix.length
+
+/** Spell a step back out, accidental included — the one place the grid writes
+ *  a degree, so a drag cannot silently drop a `#` someone typed. */
+export const stepText = (v: number | null, acc: number | undefined): string =>
+  v === null ? '~' : acc === undefined || acc === 0
+    ? String(v)
+    : `${v}${(acc > 0 ? '#' : 'b').repeat(Math.abs(acc))}`
+
 export function rollPreviewMidi(scaleShort: string | undefined, degree: number): number | undefined {
   if (scaleShort === undefined) return undefined
   try {
@@ -332,6 +346,11 @@ export interface PlayRoll {
   content: string
   /** one entry per step: a scale degree, or null for a rest (`~`). */
   steps: (number | null)[]
+  /** semitone accidentals, index-aligned with `steps`: `2#` is +1. Kept beside
+   *  the degree rather than folded into it because the grid's ROWS are degrees
+   *  — an accidental note still belongs on its degree's row, marked, not
+   *  floating between two rows that mean something else. */
+  accs?: (number | undefined)[]
   /** POLYMETER figure: the grid edits only the inside of `{…}%n`, so events
    *  match the FULL notation and locs shift by the figure's offset in it. */
   srcFull?: string
@@ -379,12 +398,13 @@ export function scanPlays(text: string): PlayRoll[] {
       const inner = pm[1]!.replace(/\s+$/, '')
       const innerStart = notation.indexOf(inner)
       const ptoks = inner.trim().split(/\s+/).filter(Boolean)
-      if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || /^-?\d+$/.test(tk))) {
+      if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || STEP_RE.test(tk))) {
         const roll: PlayRoll = {
           from: lineFrom + innerStart,
           to: lineFrom + innerStart + inner.length,
           content: inner,
-          steps: ptoks.map((tk) => (tk === '~' ? null : Number(tk))),
+          steps: ptoks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
+          accs: ptoks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
           srcFull: notation,
           srcOffset: innerStart,
         }
@@ -399,9 +419,15 @@ export function scanPlays(text: string): PlayRoll[] {
     // NEGATIVE degrees are legal — they reach below the scale root, and
     // .overChord documents them reaching below the chord. Rejecting them made
     // the whole widget vanish from a line that was perfectly valid.
-    if (!toks.every((tk) => tk === '~' || /^-?\d+$/.test(tk))) continue // simple degrees/rests only
+    if (!toks.every((tk) => tk === '~' || STEP_RE.test(tk))) continue // simple degrees/rests only
     const from = lineFrom
-    const roll: PlayRoll = { from, to: from + notation.length, content: notation, steps: toks.map((tk) => (tk === '~' ? null : Number(tk))) }
+    const roll: PlayRoll = {
+      from,
+      to: from + notation.length,
+      content: notation,
+      steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
+      accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+    }
     roll.synth = ph[3] ?? ph[2]!
     if (scale) roll.scale = scale[0]!.slice('scale:'.length)
     out.push(roll)
@@ -2024,6 +2050,8 @@ class PianoRollWidget extends WidgetType {
     readonly to: number,
     readonly content: string,
     readonly steps: (number | null)[],
+    /** accidentals, index-aligned with steps (see PlayRoll.accs). */
+    readonly accsIn: (number | undefined)[],
     readonly synth: string | undefined,
     readonly scale: string | undefined,
     readonly hooks: Hooks,
@@ -2054,6 +2082,7 @@ class PianoRollWidget extends WidgetType {
     grid.setAttribute('aria-label', 'notation grid: tap or drag to write the melody')
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
     const steps = this.steps.slice()
+    const accs = this.accsIn.slice()
     const cellEls: HTMLElement[][] = Array.from({ length: rows }, () => [])
     // rows top (high degree) → bottom (low), so pitch goes up the screen
     for (let dr = rows - 1; dr >= 0; dr--) {
@@ -2098,7 +2127,19 @@ class PianoRollWidget extends WidgetType {
       })
     }
     const refresh = (c: number): void => {
-      for (let r = 0; r < rows; r++) cellEls[r]?.[c]?.classList.toggle('on', steps[c] !== null && steps[c]! - minDeg === r)
+      for (let r = 0; r < rows; r++) {
+        const el = cellEls[r]?.[c]
+        if (el === undefined) continue
+        const lit = steps[c] !== null && steps[c]! - minDeg === r
+        el.classList.toggle('on', lit)
+        // An accidental note still belongs on its degree's ROW — the rows mean
+        // scale degrees, and there is no row between them for it to sit on. So
+        // it is marked instead: without this, `2#` and `2` are the same cell
+        // and the grid quietly disagrees with the source.
+        const acc = lit ? accs[c] : undefined
+        el.classList.toggle('acc', acc !== undefined && acc !== 0)
+        el.textContent = acc === undefined || acc === 0 ? '' : acc > 0 ? '\u266f' : '\u266d'
+      }
     }
     attachGesture(grid, this.drag, 'element', (e) => {
       const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
@@ -2108,10 +2149,14 @@ class PianoRollWidget extends WidgetType {
       const set = (r: number, c: number): void => {
         // r is a ROW; the degree it stands for is offset by the grid's floor
         const next = mode === 'draw' ? r + minDeg : null
-        if (steps[c] === next) return // no-op: don't spam identical rewrites/evals mid-drag
+        if (steps[c] === next && accs[c] === undefined) return // no-op: don't spam identical rewrites mid-drag
         steps[c] = next
+        // drawing places a PLAIN degree: the row you dropped it on is what you
+        // asked for, so a `#` left over from the note that used to be here
+        // would put it somewhere you did not click
+        accs[c] = undefined
         refresh(c)
-        if (writer.write(steps.map((v) => (v === null ? '~' : String(v))).join(' '))) {
+        if (writer.write(steps.map((v, i) => stepText(v, accs[i])).join(' '))) {
           this.hooks.requestEval(false)
         }
         buzz()
@@ -2120,7 +2165,7 @@ class PianoRollWidget extends WidgetType {
         if (next !== null && this.synth !== undefined && this.hooks.previewNote !== undefined &&
             !(this.hooks.isPlaying?.() ?? false)) {
           const midi = rollPreviewMidi(this.scale, next)
-          if (midi !== undefined) this.hooks.previewNote(this.synth, midi)
+          if (midi !== undefined) this.hooks.previewNote(this.synth, midi + (accs[c] ?? 0))
         }
       }
       const r0 = Number(el0.dataset.r), c0 = Number(el0.dataset.c)
@@ -2580,7 +2625,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
     items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag, e.ranges), side: 1 }).range(e.to))
   }
   for (const p of scan.plays(text)) {
-    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
+    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
     // HONESTY: only a TRUE single-cycle figure earns the compact inline roll.

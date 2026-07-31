@@ -180,6 +180,9 @@ class SynthGen {
       case 'curved':
         this.errors.push({ message: '`level:curve` is only for an env breakpoint (`env .005 1:3 .15 .4`)', line: e.pos.line, col: e.pos.col })
         return this.expr(e.level)
+      case 'switch':
+        this.errors.push({ message: 'switch can only appear on a binding (`fat = switch 1 9`) or at the top level (`switch fat 1 9`)', line: e.pos.line, col: e.pos.col })
+        return '0'
       case 'knob':
         this.errors.push({ message: 'knob can only appear on a binding (`cutoff = knob …`)', line: e.pos.line, col: e.pos.col })
         return '0'
@@ -318,6 +321,12 @@ class SynthGen {
   }
 
   bindingRHS(b: Binding): string {
+    if (b.expr.t === 'switch') {
+      // the same param() a knob emits — a switch IS a param with two values,
+      // so setParam, MIDI mapping and both editor scanners need no new case
+      this.uses.add('param')
+      return `param('${b.name}', ${num(b.expr.a)}, { values: [${num(b.expr.a)}, ${num(b.expr.b)}] })`
+    }
     if (b.expr.t === 'knob') {
       this.uses.add('param')
       const k = b.expr
@@ -338,6 +347,7 @@ function orderBindings(bindings: Binding[], errors: RondoError[]): Binding[] {
       case 'map': return [...refs(e.x), ...refs(e.lo), ...refs(e.hi)]
       case 'call': return [...e.args.flatMap(refs), ...Object.values(e.named).flatMap(refs)]
       case 'curved': return [...refs(e.level), ...refs(e.curve)]
+      case 'switch': return [] // two literals; nothing to order against
       case 'knob': return [...refs(e.def), ...refs(e.lo), ...refs(e.hi)]
       case 'js': return []
       default: return []
@@ -726,6 +736,10 @@ function cgBus(item: Extract<TopItem, { t: 'bus' }>, errors: RondoError[], macro
 
 /** `macro bright 1480 500..7300 log` → macro('bright', 1480, { … }). */
 function cgMacro(item: Extract<TopItem, { t: 'macro' }>): string {
+  if (item.values !== undefined) {
+    const [a, b] = item.values
+    return `macro('${item.name}', ${num(a)}, { values: [${num(a)}, ${num(b)}] })`
+  }
   const parts: string[] = []
   if (item.lo !== undefined) parts.push(`min: ${num(item.lo)}`)
   if (item.hi !== undefined) parts.push(`max: ${num(item.hi)}`)

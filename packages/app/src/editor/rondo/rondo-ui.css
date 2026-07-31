@@ -607,3 +607,47 @@
   color: var(--c-accent-alt, #6ea8fe);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent);
 }
+
+/* --- the switch: a knob with two values, tapped rather than dragged --- */
+.rondo-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 0 8px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent);
+  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 12%, transparent);
+  color: var(--c-accent, #6ea8fe);
+  font-size: var(--fs-meta, 11px);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  line-height: 1.5;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  vertical-align: middle;
+  touch-action: manipulation;
+}
+.rondo-switch:hover,
+.rondo-switch:focus-visible {
+  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 22%, transparent);
+  outline: none;
+  border-color: var(--c-accent, #6ea8fe);
+}
+.rondo-switch .rs-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 5px currentColor;
+}
+/* the flip is the only feedback a tap gets, so it has to be visible */
+.rondo-switch.flipped .rs-dot { animation: rs-pop 220ms ease-out; }
+@keyframes rs-pop {
+  0% { transform: scale(0.4); opacity: 0.4; }
+  60% { transform: scale(1.35); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rondo-switch.flipped .rs-dot { animation: none; }
+}

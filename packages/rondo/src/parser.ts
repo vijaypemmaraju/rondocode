@@ -172,6 +172,7 @@ function parseApp(c: Cursor): Expr {
       return { t: 'call', name, args, named: {}, pos: t.pos }
     }
     if (name === 'knob') return parseKnob(c)
+    if (name === 'switch') return parseSwitch(c)
     if (name === 'env') {
       // breakpoint envelope: variadic time/level pairs, then named args.
       // Bare `env` stays an ident — it's a reference to a binding named env.
@@ -224,6 +225,28 @@ function parseApp(c: Cursor): Expr {
   c.err(`unexpected ${t.k}`)
   c.next()
   return { t: 'num', v: 0, pos: t.pos }
+}
+
+/** `switch 1 9` — two literals, nothing else.
+ *
+ *  Both must be plain numbers rather than expressions: the widget writes the
+ *  pair back into the source when you tap it, so a value the source cannot
+ *  spell is a value the switch could never return to. */
+function parseSwitch(c: Cursor): Expr {
+  const kw = c.next()! // 'switch'
+  const read = (which: string): number => {
+    const t = c.peek()
+    if (!t || t.k !== 'num') {
+      c.err(`switch needs two numbers, e.g. \`fat = switch 1 9\` (missing the ${which})`)
+      return 0
+    }
+    c.next()
+    return t.v
+  }
+  const a = read('first value')
+  const b = read('second value')
+  if (a === b) c.err(`switch needs two DIFFERENT values (both are ${a})`)
+  return { t: 'switch', a, b, pos: kw.pos }
 }
 
 function parseKnob(c: Cursor): Expr {
@@ -721,6 +744,31 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     // `macro bright 1480 500..7300 log` → macro('bright', 1480, {…}):
     // a project-wide control. Same shape as a `knob` binding, except it lives
     // at the top level and is referenced BARE from any synth or post chain.
+    // `switch NAME A B` — a project-wide switch. Same registry as `macro`,
+    // because it IS a macro: one control, every destination that names it.
+    else if (head.v === 'switch') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      const aTok = ln.toks[2]
+      const bTok = ln.toks[3]
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'switch needs a name (`switch fat 1 9`)', line: ln.line, col: ln.rawCol })
+      }
+      if (!aTok || aTok.k !== 'num' || !bTok || bTok.k !== 'num') {
+        errors.push({ message: 'switch needs two numbers (`switch fat 1 9`)', line: ln.line, col: ln.rawCol })
+        items.push({ t: 'macro', name, def: 0, values: [0, 1], pos: head.pos })
+        i++
+        continue
+      }
+      if (aTok.v === bTok.v) {
+        errors.push({ message: `switch needs two DIFFERENT values (both are ${aTok.v})`, line: ln.line, col: ln.rawCol })
+      }
+      if (ln.toks.length > 4) {
+        errors.push({ message: 'switch takes exactly two values — a switch has no range or curve', line: ln.toks[4]!.pos.line, col: ln.toks[4]!.pos.col })
+      }
+      items.push({ t: 'macro', name, def: aTok.v, values: [aTok.v, bTok.v], pos: head.pos })
+      i++
+    }
     else if (head.v === 'macro') {
       const nameTok = ln.toks[1]
       const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
@@ -969,7 +1017,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / macro / curvedef / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / macro / switch / curvedef / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

@@ -152,4 +152,4 @@ export const isTransform = (name: string): boolean => {
  *  the synth to a js block instead). */
 export const isReservedBinding = (name: string): boolean =>
   name === 'note' || name === 'gate' || name === 'input' || name === 'velocity' ||
-  name === 'adsr' || name === 'knob'
+  name === 'adsr' || name === 'knob' || name === 'switch'

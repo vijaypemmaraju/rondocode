@@ -34,6 +34,11 @@ export interface ParamSpec {
    *  TOGETHER. Absent means an ordinary per-synth param, which two synths may
    *  both name `cutoff` while meaning two different controls. */
   macro?: true
+  /** A SWITCH: the two values this param may hold, instead of a range.
+   *  Present means every other consumer should offer a toggle rather than a
+   *  dial, and setParam snaps to the nearer of the pair rather than clamping
+   *  into the gap between them — a switch has no in-between to land on. */
+  values?: readonly [number, number]
 }
 
 export interface GraphSpec {
@@ -89,4 +94,22 @@ export function validateGraph(g: GraphSpec): void {
   for (const n of g.nodes) {
     if ((color.get(n.id) ?? WHITE) === WHITE) visit(n.id)
   }
+}
+
+/**
+ * The value a param will actually hold when something asks for `value`.
+ *
+ * A ranged param clamps. A SWITCH snaps to whichever of its two values is
+ * nearer, because the numbers between them are not positions the control can
+ * be in — clamping a switch would leave it resting somewhere it can never be
+ * written back as, and the source would stop describing what you hear.
+ *
+ * Lives here, beside the spec, so the audio thread and every UI that predicts
+ * a value agree by construction rather than by two matching implementations.
+ */
+export function resolveParamValue(spec: ParamSpec, value: number): number {
+  const v = Number.isFinite(value) ? value : spec.default
+  const pair = spec.values
+  if (pair === undefined) return v < spec.min ? spec.min : v > spec.max ? spec.max : v
+  return Math.abs(v - pair[0]) <= Math.abs(v - pair[1]) ? pair[0] : pair[1]
 }

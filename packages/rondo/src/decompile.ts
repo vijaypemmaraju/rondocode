@@ -59,6 +59,19 @@ const numValue = (n: Node): number | undefined => {
   return undefined
 }
 
+/** A `[a, b]` array literal of two plain numbers, or undefined. Anything else
+ *  — a spread, a variable, three entries — has no `switch` spelling, so the
+ *  caller keeps it as JavaScript rather than emitting something that is not
+ *  what was written. */
+const numPair = (n: Node): [number, number] | undefined => {
+  if (n.type !== 'ArrayExpression') return undefined
+  const els = n['elements'] as (Node | null)[]
+  if (els.length !== 2) return undefined
+  const a = els[0] == null ? undefined : numValue(els[0])
+  const b = els[1] == null ? undefined : numValue(els[1])
+  return a === undefined || b === undefined ? undefined : [a, b]
+}
+
 const strValue = (n: Node): string | undefined =>
   n.type === 'Literal' && typeof n['value'] === 'string' ? n['value'] : undefined
 
@@ -353,6 +366,19 @@ function rExpr(n: Node): R | null {
 
 /** A binding RHS: full rondo expression, or a js{ … } inline fallback. */
 function bindingRHS(n: Node): string {
+/** A `[a, b]` array literal of two plain numbers, or undefined. Anything else
+ *  — a spread, a variable, three entries — has no `switch` spelling, so the
+ *  caller keeps it as JavaScript rather than emitting something that is not
+ *  what was written. */
+function numPair(n: Node): [number, number] | undefined {
+  if (n.type !== 'ArrayExpression') return undefined
+  const els = n['elements'] as (Node | null)[]
+  if (els.length !== 2) return undefined
+  const a = els[0] === null || els[0] === undefined ? undefined : numValue(els[0])
+  const b = els[1] === null || els[1] === undefined ? undefined : numValue(els[1])
+  return a === undefined || b === undefined ? undefined : [a, b]
+}
+
   // param('x', d, { min, max, curve }) is handled by the caller (knob needs
   // the binding name); everything else goes through rExpr
   const r = rExpr(n)
@@ -558,6 +584,15 @@ function decompileChainFn(fn: Node, indent: string, fromInput = false): string[]
             // here — the bare `bright` in the spine IS the rondo source.
             if (pname === bname && def === undefined && pa.length === 1) continue
             if (pname !== bname || def === undefined || po === undefined) return null
+            // a SWITCH: two values, no range. Must come before the knob path —
+            // the omitted min/max would otherwise default to 0..1 and emit a
+            // knob with an invented range, losing the switch silently.
+            const pair = po['values'] !== undefined ? numPair(po['values']) : undefined
+            if (po['values'] !== undefined) {
+              if (pair === undefined) return null
+              bindings.push(`${bname} = switch ${num(pair[0])} ${num(pair[1])}`)
+              continue
+            }
             const min = po['min'] !== undefined ? numValue(po['min']) : 0
             const max = po['max'] !== undefined ? numValue(po['max']) : 1
             const curve = po['curve'] !== undefined ? strValue(po['curve']) : undefined
@@ -1022,6 +1057,14 @@ function decompileStaging(stmt: Node): string | null {
     if (mname === undefined || mdef === undefined || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(mname)) return null
     const o = args[2] !== undefined ? objEntries(args[2]) : {}
     if (o === undefined) return null
+    if (o['values'] !== undefined) {
+      const pair = numPair(o['values'])
+      // the pair must be the ONLY option, and the default must be one of it,
+      // or this is not something `switch NAME A B` can say
+      if (pair === undefined || Object.keys(o).length !== 1) return null
+      if (mdef !== pair[0]) return null
+      return `switch ${mname} ${num(pair[0])} ${num(pair[1])}`
+    }
     for (const k of Object.keys(o)) if (k !== 'min' && k !== 'max' && k !== 'curve') return null
     const lo = o['min'] !== undefined ? numValue(o['min']) : undefined
     const hi = o['max'] !== undefined ? numValue(o['max']) : undefined

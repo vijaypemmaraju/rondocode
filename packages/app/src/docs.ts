@@ -178,6 +178,8 @@ async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<
       now: () => player?.now() ?? 0,
       holdParam: (sy, nm, v) => player?.holdParam(sy, nm, v),
       releaseParam: (sy, nm) => player?.releaseParam(sy, nm),
+      holdMacro: (nm, v) => player?.holdMacro(nm, v),
+      releaseMacro: (nm) => player?.releaseMacro(nm),
     },
   )
   await refreshEditLink(src)

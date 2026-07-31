@@ -77,6 +77,16 @@ export class PreviewPlayer {
     this.session?.releaseParam(synth, name)
   }
 
+  /** The same override for a project-wide macro. Separate from holdParam
+   *  because a macro has no single synth: it moves every destination that
+   *  names it, which is the whole point of one. */
+  holdMacro(name: string, value: number): void {
+    this.session?.holdMacro(name, value)
+  }
+  releaseMacro(name: string): void {
+    this.session?.releaseMacro(name)
+  }
+
   now(): number {
     return this.audio ? this.audio.currentTimeFrames / this.audio.sampleRate : 0
   }

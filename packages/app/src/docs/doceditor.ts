@@ -58,6 +58,12 @@ export function createDocEditor(
     now(): number
     holdParam(synth: string, name: string, value: number): void
     releaseParam(synth: string, name: string): void
+    /** A macro moves every destination at once, so it cannot go through
+     *  holdParam, which is keyed by synth. Without these a macro knob drags
+     *  and rewrites the text while making no sound, so it reads as broken
+     *  next to an ordinary knob that works. */
+    holdMacro(name: string, value: number): void
+    releaseMacro(name: string): void
   },
 ): DocEditor {
   let lastGood = doc
@@ -74,6 +80,8 @@ export function createDocEditor(
         now: () => rondoLive.now(),
         holdParam: (sy: string, nm: string, v: number) => rondoLive.holdParam(sy, nm, v),
         releaseParam: (sy: string, nm: string) => rondoLive.releaseParam(sy, nm),
+        holdMacro: (nm: string, v: number) => rondoLive.holdMacro(nm, v),
+        releaseMacro: (nm: string) => rondoLive.releaseMacro(nm),
         onNoteEvents: (fn: (notes: NoteEv[]) => void): (() => void) => {
           const wrap = (evs: SchedulerEvent[]): void => {
             const notes = toNoteEvs(evs)

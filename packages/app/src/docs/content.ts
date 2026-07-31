@@ -6,6 +6,8 @@
  * ------------------------------------------------------------------------- */
 
 import { RECIPES } from './cookbook'
+import { GOTCHAS } from './gotchas'
+import type { Gotcha } from './gotchas'
 import type { Recipe } from './cookbook'
 
 /* Block kinds. Prose that TEACHES stays a paragraph; enumerations a reader
@@ -115,6 +117,9 @@ export const GROUP_ORDER: readonly string[] = [
   // The cookbook sits AFTER the guide: it answers "how do I say X", which is
   // the question you have once you already know what the pieces are.
   'cookbook',
+  // Troubleshooting is LAST on purpose: you arrive at it from a symptom, via
+  // search, rather than by reading down the page.
+  'troubleshooting',
 ]
 
 /** SECTIONS grouped and ordered for display: groups in GROUP_ORDER, sections
@@ -1714,3 +1719,20 @@ export const recipeSection = (r: Recipe): Section => ({
 })
 
 for (const r of RECIPES) SECTIONS.push(recipeSection(r))
+
+/** One troubleshooting entry as a section: the symptom as the heading you
+ *  scan for, then the PAIR (because the diff is the explanation), then the
+ *  mechanism. The broken block is captioned rather than merely shown, so a
+ *  reader skimming code blocks cannot mistake it for the answer. */
+export const gotchaSection = (g: Gotcha): Section => ({
+  id: `fix-${g.id}`,
+  group: 'troubleshooting',
+  title: g.symptom,
+  blocks: [
+    rondo(`this looks right and is not  ·  ${g.tags.join(' · ')}`, g.broken),
+    rondo('this does what you meant', g.fixed),
+    note(g.why),
+  ],
+})
+
+for (const g of GOTCHAS) SECTIONS.push(gotchaSection(g))

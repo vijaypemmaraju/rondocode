@@ -32,6 +32,8 @@ import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
+import { scanSwitches, toggled } from './switches'
+import type { SwitchMatch } from './switches'
 import { BEND_LIMIT, bendCurve, bendPixels, envGeometry, envPath, scanEnvPoints } from './envpoints'
 import type { EnvPointsScan } from './envpoints'
 import type { EffectiveOpt } from './clamps'
@@ -1942,6 +1944,77 @@ class EnvPointsWidget extends WidgetType {
   ignoreEvent(): boolean { return true }
 }
 
+
+/* ------------------------------ the switch -------------------------------- *
+ * A knob with two values. Tapping SWAPS them in the source, so the resting
+ * value is always the one written first and there is no second place for the
+ * state to live. The live value is pushed straight away, because the source
+ * rewrite only reaches the engine on the next (debounced) eval and a control
+ * that answers 120 ms late does not feel like a switch.
+ * -------------------------------------------------------------------------- */
+class SwitchWidget extends WidgetType {
+  constructor(
+    readonly m: SwitchMatch,
+    readonly key: string,
+    readonly hooks: Hooks,
+  ) { super() }
+
+  override eq(o: SwitchWidget): boolean { return o.key === this.key }
+
+  override toDOM(view: EditorView): HTMLElement {
+    const m = this.m
+    const wrap = document.createElement('span')
+    wrap.className = 'rondo-switch'
+    wrap.setAttribute('role', 'switch')
+    const label = (v: number): string => formatNumber(v, { step: 0.001 })
+    // ARIA needs an on/off reading; the SECOND value is arbitrarily "off",
+    // which is honest for a control whose two states have no inherent order
+    const sync = (): void => {
+      wrap.setAttribute('aria-checked', String(this.m.values[0] === m.values[0]))
+      wrap.title = `switch: ${label(m.values[0])} / ${label(m.values[1])} — tap to swap`
+    }
+    const dot = document.createElement('span')
+    dot.className = 'rs-dot'
+    const txt = document.createElement('span')
+    txt.className = 'rs-val'
+    txt.textContent = label(m.values[0])
+    wrap.append(dot, txt)
+    sync()
+
+    const flip = (): void => {
+      const next = toggled(m)
+      // ascending order, because MultiLiveWriter sorts its ranges and
+      // writeEach pairs texts to them positionally
+      const ordered = [...m.writes].sort((a, b) => a.from - b.from)
+      const writer = new MultiLiveWriter(view, ordered)
+      if (!writer.writeEach(ordered.map((w) => formatNumber(next[w.holds], { step: 0.001 })))) return
+      buzz()
+      txt.textContent = label(next[0])
+      wrap.classList.add('flipped')
+      // audible NOW; the eval that follows makes the new default permanent
+      if (m.macro === true) {
+        this.hooks.holdMacro?.(m.name, next[0])
+        setMacroLive(view, m.name, next[0])
+        this.hooks.releaseMacro?.(m.name)
+      } else if (m.synth !== undefined) {
+        this.hooks.holdParam?.(m.synth, m.name, next[0])
+        this.hooks.releaseParam?.(m.synth, m.name)
+      }
+      this.hooks.requestEval(false)
+    }
+
+    wrap.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation() })
+    wrap.addEventListener('click', (e) => { e.preventDefault(); flip() })
+    wrap.tabIndex = 0
+    wrap.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip() }
+    })
+    return wrap
+  }
+
+  ignoreEvent(): boolean { return true }
+}
+
 class PianoRollWidget extends WidgetType {
   private unsub?: () => void
   private readonly timers = new Timers()
@@ -2439,6 +2512,8 @@ export interface WidgetScan {
   wavetableCalls(text: string): WavetableCallScan[]
   unisonHeaders(text: string): UnisonScan[]
   filters(text: string, knobs: KnobMatch[]): FilterScan[]
+  /** two-valued params — a knob with a toggle instead of a range. */
+  switches(text: string): SwitchMatch[]
   enumSpans(text: string): EnumSpan[]
 }
 
@@ -2455,6 +2530,7 @@ export const RONDO_SCAN: WidgetScan = {
   wavetableCalls: scanWavetableCalls,
   unisonHeaders: scanUnisonHeaders,
   filters: scanFilters,
+  switches: scanSwitches,
   enumSpans: scanEnumSpans,
 }
 
@@ -2563,6 +2639,12 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
         widget: new FilterCurveWidget(fs, `${JSON.stringify(fs)}`, fcW, hooks, drag),
         side: 1,
       }).range(fs.at),
+    )
+  }
+  // switches: a two-valued param, tapped rather than dragged
+  for (const sw of scan.switches(text)) {
+    items.push(
+      Decoration.widget({ widget: new SwitchWidget(sw, JSON.stringify(sw), hooks), side: 1 }).range(sw.at),
     )
   }
   // enum words carry the tap-cycler mark (the tap handler lives on the plugin)

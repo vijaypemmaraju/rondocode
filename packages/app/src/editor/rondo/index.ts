@@ -197,6 +197,7 @@ export const OPTIONS: RondoOption[] = [
   c('chunk', 'keyword', 'chunk N: <comb>', 'Apply a combinator to a different 1/N of the cycle each time round.', 'chunk 4: fast 2'),
   c('rand', 'keyword', 'rand', 'A continuous 0..1 random signal, as a modifier value: `gain: rand 0.4..1`.', 'gain: rand 0.4..1'),
   c('perlin', 'keyword', 'perlin', 'Smooth 0..1 noise — drifts rather than jumping, unlike rand.', 'pan: perlin 0..1'),
+  c('switch', 'keyword', 'switch fat 1 9', 'A knob with two fixed values instead of a range. Tapping it swaps them in the source, so the first value is always the one it is resting on. Project-wide at the top level; on a binding (`fat = switch 1 9`) it is that synth\'s own.', 'switch fat 1 9'),
   c('macro', 'keyword', 'macro bright 1480 500..7300 log', 'A project-wide knob. One control, any number of destinations at any ratio: read it by name wherever a number goes, and arithmetic on it comes free.', 'macro bright 1480 500..7300 log'),
   c('section', 'keyword', 'section drop 8', 'A named span of N cycles holding `play` and `beat` blocks. Sequence them with `song`.', 'section drop 8\n  play lead\n    0 3 5 7'),
   c('song', 'keyword', 'song intro drop drop', 'The arrangement: the order sections play in. Repeat a name to repeat the section.', 'song intro drop drop outro'),

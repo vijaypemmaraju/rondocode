@@ -46,6 +46,8 @@ export interface MacroSpec {
   min: number
   max: number
   curve?: 'lin' | 'log'
+  /** A SWITCH macro: two values, no range. See ParamSpec.values. */
+  values?: readonly [number, number]
 }
 
 export type MacroSnapshot = ReadonlyMap<string, MacroSpec>
@@ -65,7 +67,7 @@ const macros = new Map<string, MacroSpec>()
 export function macro(
   name: string,
   def: number,
-  opts?: { min?: number; max?: number; curve?: 'lin' | 'log' },
+  opts?: { min?: number; max?: number; curve?: 'lin' | 'log'; values?: readonly number[] },
 ): void {
   if (typeof name !== 'string' || !/^[A-Za-z_]\w*$/.test(name)) {
     throw new GraphError(`macro(): name must be an identifier (letters, digits, _), got '${String(name)}'`)
@@ -76,8 +78,13 @@ export function macro(
     )
   }
   if (!Number.isFinite(def)) throw new GraphError(`macro '${name}': default must be a finite number`)
-  if (def < 0 && opts?.min === undefined) {
+  if (def < 0 && opts?.min === undefined && opts?.values === undefined) {
     throw new GraphError(`macro '${name}': negative default (${def}) requires an explicit min (omitted min defaults to 0)`)
+  }
+  const pair = validateSwitchValues(`macro '${name}'`, def, opts)
+  if (pair !== undefined) {
+    macros.set(name, { name, default: def, min: Math.min(...pair), max: Math.max(...pair), values: pair })
+    return
   }
   const min = opts?.min ?? 0
   const max = opts?.max ?? (def > 0 ? def * 4 : 1)
@@ -116,4 +123,48 @@ export function restoreMacros(snap: MacroSnapshot): void {
  *  macro. Read only — a copy, so a caller cannot mutate the registry. */
 export function getMacros(): ReadonlyMap<string, MacroSpec> {
   return new Map(macros)
+}
+
+/**
+ * Validate a switch declaration, returning the pair (or undefined when this is
+ * an ordinary ranged control).
+ *
+ * Shared by param() and macro() because a switch means the same thing at both
+ * scopes, and two copies of these rules would be two chances to disagree about
+ * what a legal switch is.
+ *
+ * The strict bits and why:
+ *  - exactly two values: a "switch" with three is a picker, and the widget,
+ *    the tap gesture and the write-back are all built for a pair.
+ *  - distinct: equal values give a control that cannot do anything.
+ *  - the default must BE one of them: a switch resting on a third value could
+ *    not be written back to the source, since the source only holds the pair.
+ *  - no min/max/curve: a switch has no range to bound or to warp, and quietly
+ *    ignoring them would hide a real misunderstanding.
+ */
+export function validateSwitchValues(
+  what: string,
+  def: number,
+  opts?: { min?: number; max?: number; curve?: 'lin' | 'log'; values?: readonly number[] },
+): [number, number] | undefined {
+  const values = opts?.values
+  if (values === undefined) return undefined
+  if (!Array.isArray(values) || values.length !== 2) {
+    throw new GraphError(`${what}: a switch takes exactly two values, got ${Array.isArray(values) ? values.length : typeof values}`)
+  }
+  const [a, b] = values as [number, number]
+  if (!Number.isFinite(a) || !Number.isFinite(b)) {
+    throw new GraphError(`${what}: switch values must be finite numbers`)
+  }
+  if (a === b) throw new GraphError(`${what}: a switch needs two DIFFERENT values (both are ${a})`)
+  if (def !== a && def !== b) {
+    throw new GraphError(`${what}: default ${def} is not one of the switch values (${a}, ${b}) — a switch can only rest on a value it can be written back as`)
+  }
+  if (opts?.min !== undefined || opts?.max !== undefined) {
+    throw new GraphError(`${what}: a switch has no range, so min/max mean nothing here — the two values ARE the bounds`)
+  }
+  if (opts?.curve !== undefined) {
+    throw new GraphError(`${what}: a switch has no range to warp, so curve means nothing here`)
+  }
+  return [a, b]
 }

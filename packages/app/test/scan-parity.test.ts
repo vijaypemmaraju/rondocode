@@ -31,6 +31,12 @@ const POSITIONAL = new Set([
   'from', 'to', 'at', 'defFrom', 'defTo',
   'timeSpan', 'levelSpan', 'curveSpan', 'ranges', 'gainSpan', 'curveInsert',
   'srcOffset', 'srcFull', 'hadComment',
+  // A switch's writes are WHERE the language spells its two values, and the
+  // two languages spell a different NUMBER of them: JS repeats the resting
+  // value as both the default and the first array element, rondo writes it
+  // once. Excluded here and checked directly in switches.test.ts, the same
+  // split `ranges` and `gainSpan` already use.
+  'writes',
 ])
 
 const semantic = (v: unknown): unknown => {
@@ -56,7 +62,7 @@ const semantic = (v: unknown): unknown => {
  *  exists to keep honest. */
 const FAMILIES = [
   'knobs', 'envs', 'envPoints', 'plays', 'richPlays', 'beats',
-  'unisonHeaders', 'wavetableCalls', 'wavedefs', 'enumSpans', 'filters',
+  'unisonHeaders', 'wavetableCalls', 'wavedefs', 'enumSpans', 'filters', 'switches',
 ] as const
 
 /** `filters` is the one scanner that takes a second argument (knob DEFs, for a
@@ -86,6 +92,10 @@ const CASES: Record<string, string> = {
   'a wavetable call': 'synth a\n  wavetable note .3 table:basic\n',
   'a custom wavetable': 'wavedef vox 1 .3 / .5 1\n\nsynth a\n  wavetable note .2 table:vox\n',
   'a filter mode': 'synth a\n  saw note\n  svf 900 res:.4 mode:lp\n',
+  // switches: a synth-local one, a project-wide one, and a negative pair
+  'a switch binding': 'synth a\n  saw note\n  * d\n  d = switch .2 .9\n',
+  'a switch macro': 'switch fat 1 9\n\nsynth a\n  saw note\n  * fat / 9\n',
+  'a negative switch': 'synth a\n  saw note\n  * b\n  b = switch -1 1\n',
   // filter curves: literal cutoff, knob-bound cutoff (value but no handle),
   // a rich expression (no curve at all), dual routing, and eq bands
   'a written res': 'synth a\n  saw note\n  ladder 1200 res:.7\n',

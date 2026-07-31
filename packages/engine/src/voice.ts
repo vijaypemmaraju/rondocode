@@ -2,6 +2,7 @@ import { BLOCK } from './compile'
 import type { CompiledGraph } from './compile'
 import { compileGraph } from './compile'
 import type { GraphSpec } from './graph'
+import { resolveParamValue } from './graph'
 import type { DspContext } from './dsp/types'
 import { clamp } from './dsp/util'
 
@@ -285,7 +286,7 @@ export class Voice {
   setParam(name: string, value: number): void {
     const p = this.graph.params.get(name)
     if (!p) return
-    p.buf.fill(clamp(value, p.spec.min, p.spec.max))
+    p.buf.fill(resolveParamValue(p.spec, value))
   }
 
   /** Owned constant buffers for live-patched input ports, keyed "id:port".

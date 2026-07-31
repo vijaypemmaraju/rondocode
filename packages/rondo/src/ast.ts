@@ -27,6 +27,10 @@ export type Expr =
   | { t: 'map'; x: Expr; lo: Expr; hi: Expr; pos: Pos }
   /** a live control declared on a binding: `knob DEF lo..hi curve`. */
   | { t: 'knob'; def: Expr; lo: Expr; hi: Expr; curve?: string; pos: Pos }
+  /** A SWITCH: a knob with two fixed values instead of a range. `a` is the
+   *  value it rests on, which is why tapping the widget REORDERS the pair
+   *  rather than writing a third number somewhere. */
+  | { t: 'switch'; a: number; b: number; pos: Pos }
   /** `LEVEL:CURVE` on an env breakpoint — that segment's own shape, where the
    *  envelope-wide `curve:` would bend every joint the same way. Only legal in
    *  an `env` argument list. */
@@ -221,6 +225,10 @@ export interface MacroItem {
   lo?: number
   hi?: number
   curve?: string
+  /** Present when this was written `switch NAME A B`. A switch macro is still
+   *  a macro — same registry, same one-control-many-destinations behaviour —
+   *  so it shares this node rather than forking the whole top-level path. */
+  values?: [number, number]
   pos: Pos
 }
 

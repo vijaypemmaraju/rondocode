@@ -28,6 +28,7 @@ import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, WT_TABLES } from '../rondo/enums'
 import type { EnumSpan } from '../rondo/enums'
 import type { UnisonScan } from '../rondo/unison'
+import type { SwitchMatch, SwitchWrite } from '../rondo/switches'
 import type { EqBandTypeName, FilterScan, StaticArg, SvfModeName } from '../rondo/filtercurve'
 
 type Tree = ReturnType<typeof javascriptLanguage.parser.parse>
@@ -173,6 +174,10 @@ export function scanKnobsJs(text: string): KnobMatch[] {
     const def = args[1] !== undefined ? numTok(text, args[1]) : null
     if (name === null || def === null) continue
     const props = args[2] !== undefined ? objProps(text, args[2]) : new Map<string, SyntaxNode>()
+    // a SWITCH is a param too, and min/max default to 0..1 here — so without
+    // this it would grow a dial reading 0..1 as well as its toggle, two
+    // controls fighting over one value. scanSwitchesJs owns these.
+    if (props.get('values') !== undefined) continue
     const minN = props.get('min') !== undefined ? numTok(text, props.get('min')!) : null
     const maxN = props.get('max') !== undefined ? numTok(text, props.get('max')!) : null
     const curveNode = props.get('curve')
@@ -616,6 +621,65 @@ export function scanWavedefsJs(text: string): WavedefScan[] {
   return out
 }
 
+/* ---- switches: param(name, a, { values: [a, b] }) ------------------------ */
+
+/** Every switch in a JS document, from both scopes.
+ *
+ *  Three spans rather than rondo's two: JavaScript spells the resting value
+ *  TWICE — once as the default and once as the first array element — so a
+ *  toggle has to move both or the two would disagree about which value the
+ *  control is on. That is the whole reason SwitchMatch reports writes instead
+ *  of a value; see switches.ts.
+ *
+ *  A default that is not one of the pair yields no widget. The engine rejects
+ *  it too, but a widget would be worse than the error: it would offer a tap
+ *  that writes a state the source cannot spell. */
+export function scanSwitchesJs(text: string): SwitchMatch[] {
+  const root = parse(text)
+  const out: SwitchMatch[] = []
+  for (const n of walk(root)) {
+    const fn = calleeName(text, n)
+    if (fn !== 'param' && fn !== 'macro') continue
+    const args = callArgs(n)
+    const name = args[0] !== undefined ? strVal(text, args[0]) : null
+    const def = args[1] !== undefined ? numTok(text, args[1]) : null
+    if (name === null || def === null || args[2] === undefined) continue
+    const props = objProps(text, args[2])
+    const arr = props.get('values')
+    if (arr === undefined || arr.name !== 'ArrayExpression') continue
+    const els: NumTok[] = []
+    let ok = true
+    for (const el of kids(arr)) {
+      if (el.name === '[' || el.name === ']' || el.name === ',') continue
+      const t = numTok(text, el)
+      if (t === null) { ok = false; break }
+      els.push(t)
+    }
+    if (!ok || els.length !== 2) continue
+    const [a, b] = els as [NumTok, NumTok]
+    if (a.value === b.value) continue
+    // which element the default is resting on decides the pair's ORDER, so
+    // that `values` written the other way round still reads correctly
+    const restsOnFirst = def.value === a.value
+    if (!restsOnFirst && def.value !== b.value) continue
+    const values: [number, number] = restsOnFirst ? [a.value, b.value] : [b.value, a.value]
+    // ONE write. In JavaScript the default is what says where the switch is
+    // resting and `values` is just the set it may hold, so a toggle only moves
+    // the default -- reordering the array as well would be a diff that changes
+    // nothing. rondo has no separate default, which is why it swaps instead.
+    const writes: SwitchWrite[] = [{ from: def.from, to: def.to, holds: 0 }]
+    const synth = enclosingSynth(text, root, n.from)
+    out.push({
+      values,
+      writes,
+      at: n.to,
+      name,
+      ...(fn === 'macro' ? { macro: true as const } : synth !== undefined ? { synth } : {}),
+    })
+  }
+  return out
+}
+
 /* ---- filter response curves: svf / ladder / dualsvf / eq ----------------- */
 
 /** rondo's `ladder 900` and JS's `ladder(x, 900)` do NOT resonate the same.
@@ -898,5 +962,6 @@ export const JS_SCAN: WidgetScan = {
   wavetableCalls: scanWavetableCallsJs,
   unisonHeaders: scanUnisonHeadersJs,
   filters: scanFiltersJs,
+  switches: scanSwitchesJs,
   enumSpans: scanEnumSpansJs,
 }

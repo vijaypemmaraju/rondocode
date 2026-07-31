@@ -1,9 +1,19 @@
 import { GraphError, validateGraph } from './graph'
 import type { GraphSpec, InputSource, NodeSpec, NodeType, ParamSpec } from './graph'
-import { RESERVED_PARAM_NAMES, lookupMacro } from './macro'
+import { RESERVED_PARAM_NAMES, lookupMacro, validateSwitchValues } from './macro'
 import { compileGraph, compilePost } from './compile'
 import type { VoiceOpts } from './voice'
 import type { EqBand } from './dsp/eq'
+
+/** What param() accepts. `values` makes it a SWITCH — two fixed values instead
+ *  of a range — and is mutually exclusive with min/max/curve (see
+ *  validateSwitchValues, which owns that rule for params and macros alike). */
+export interface ParamOpts {
+  min?: number
+  max?: number
+  curve?: 'lin' | 'log'
+  values?: readonly number[]
+}
 import type { Math2Op, MathOp } from './dsp/math'
 import type { EnvPoint } from './dsp/env'
 
@@ -129,7 +139,7 @@ export interface SynthCtx {
   velocity: Sig
   /** Declare a live-controllable parameter. Omitted bounds default to
    *  min = 0, max = def > 0 ? def*4 : 1. */
-  param(name: string, def?: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
+  param(name: string, def?: number, opts?: ParamOpts): Sig
   sine(freq: SigIn): Sig
   saw(freq: SigIn): Sig
   square(freq: SigIn): Sig
@@ -329,7 +339,7 @@ export interface SynthCtx {
 export interface PostCtx {
   /** The summed-voices signal to process (a businput source). */
   input: Sig
-  param(name: string, def?: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig
+  param(name: string, def?: number, opts?: ParamOpts): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -655,7 +665,7 @@ const definedConfig = (obj: Record<string, unknown>): Record<string, unknown> | 
 const makeShared = (b: Builder) => {
   const src = (x: SigIn, what: string): InputSource => b.src(x, what)
   return {
-    param: (name: string, def?: number, opts?: { min?: number; max?: number; curve?: 'lin' | 'log' }): Sig => {
+    param: (name: string, def?: number, opts?: ParamOpts): Sig => {
       if (RESERVED_PARAM_NAMES.has(name)) {
         throw new GraphError(
           `param '${name}' shadows a structural control key — it can never be driven by .ctrl('${name}', …) (those are consumed as note/gain/pan/dur/…). Rename the param.`,
@@ -676,7 +686,15 @@ const makeShared = (b: Builder) => {
       if (mac !== undefined) {
         const spec: ParamSpec = { name, default: mac.default, min: mac.min, max: mac.max, macro: true }
         if (mac.curve !== undefined) spec.curve = mac.curve
+        // a switch macro stays a switch at every use site — otherwise the
+        // project-wide toggle would render as a dial inside the synth
+        if (mac.values !== undefined) spec.values = mac.values
         b.params.push(spec)
+        return b.node('param', {}, { name })
+      }
+      const pair = validateSwitchValues(`param '${name}'`, def!, opts)
+      if (pair !== undefined) {
+        b.params.push({ name, default: def!, min: Math.min(...pair), max: Math.max(...pair), values: pair })
         return b.node('param', {}, { name })
       }
       if (def! < 0 && opts?.min === undefined) {

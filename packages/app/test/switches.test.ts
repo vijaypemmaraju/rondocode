@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { compile } from '@rondocode/rondo'
 import { scanSwitches, toggled } from '../src/editor/rondo/switches'
 import { scanSwitchesJs, scanPlaysJs } from '../src/editor/widgets/jsscan'
-import { STEP_RE, accValue, scanPlays, stepText } from '../src/editor/rondo/widgets'
+import { STEP_RE, accValue, scanPlays, scanRichPlays, stepText } from '../src/editor/rondo/widgets'
+import { RESERVED_PARAM_NAMES } from '@rondocode/engine'
+import { stageCode } from '../../server/src/render-runner'
 import type { SwitchMatch } from '../src/editor/rondo/switches'
 
 /* ------------------------------------------------------------------------- *
@@ -192,5 +194,38 @@ describe('accidental degrees in the piano roll', () => {
   it('leaves a plain line with no accidentals at all', () => {
     const [r] = scanPlays('synth a\n  saw note\n\nplay a\n  0 3 5 7\n')
     expect(r?.accs).toEqual([undefined, undefined, undefined, undefined])
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The bug report: `<[-3 0 2 0]*4 … [-4# -1# 1 -1#]*4>` errored.
+ *
+ * The pattern layer and the rondo compiler both accepted it. It died at
+ * STAGING, because `nAcc` was not in evalCode's structural-key list — a second
+ * copy of the engine's RESERVED_PARAM_NAMES — so the accidental staged as
+ * ctrl('nAcc') against a synth that could never declare it. Two lists, one
+ * updated. The list is derived now.
+ * ------------------------------------------------------------------------- */
+describe('accidentals in nested notation stage and draw', () => {
+  const NOTATION = '<[-3 0 2 0]*4 [-2 0 2 0]*4 [-4 -1 1 -1]*4 [-4# -1# 1 -1#]*4>'
+  const src = `synth a\n  saw note\n\nplay a\n  ${NOTATION}\n  scale:c-maj\n\ncps .5\n`
+
+  it('compiles, and stages without a phantom ctrl param', () => {
+    const c = compile(src)
+    expect(c.ok, JSON.stringify(c.ok ? [] : c.errors)).toBe(true)
+    if (!c.ok) return
+    const st = stageCode(c.code)
+    const errs = st.ok ? [] : st.diagnostics.filter((d) => d.severity === 'error').map((d) => d.message)
+    expect(errs, errs.join(' | ')).toEqual([])
+  })
+
+  it('nAcc is structural, so no synth is ever asked to declare it', () => {
+    expect(RESERVED_PARAM_NAMES.has('nAcc')).toBe(true)
+  })
+
+  it('still draws a read-only roll — accidentals must not hide the widget', () => {
+    expect(scanRichPlays(src)).toHaveLength(1)
+    // and the same line without accidentals behaves identically
+    expect(scanRichPlays(src.replace(/#/g, ''))).toHaveLength(1)
   })
 })

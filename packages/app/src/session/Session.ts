@@ -1,6 +1,6 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import type { SchedulerEvent } from '@rondocode/pattern'
-import { diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
+import { RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -153,7 +153,12 @@ export interface SessionOpts {
 }
 
 /** Control keys that are NOT synth params (mirrors scripts/demo-render.ts). */
-const NON_PARAM_KEYS = new Set(['n', 'note', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc'])
+/** Structural keys, DERIVED not restated. This was the THIRD copy of the
+ *  engine's list (evalCode had the second, fixed in #199) and it was the one
+ *  that survived: a degree accidental sends `nAcc` per event, so an otherwise
+ *  working patch logged `unknown param 'nAcc'` on exactly the notes that
+ *  carried one — which reads as random. */
+const NON_PARAM_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
 
 /** See dispatchEvents: guaranteed low-gate window between back-to-back
  *  same-note events so envelopes re-attack. */

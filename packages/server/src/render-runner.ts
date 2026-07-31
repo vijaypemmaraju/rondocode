@@ -30,13 +30,17 @@
 import { evalCode } from '../../app/src/session/evalCode'
 import type { BusDef, Diagnostic, SendSpec, SingRequest } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
+import { RESERVED_PARAM_NAMES } from '../../engine/src/macro'
 import { Scheduler } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
 import { BLOCK, DEFAULT_CPS, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
 import type { RenderEvent, SynthDef } from '../../engine/src/index'
 
 /** Control keys that are NOT synth params (mirrors Session.ts / demo-render). */
-const NON_PARAM_KEYS = new Set(['n', 'note', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc'])
+/** Structural keys, DERIVED not restated — the fourth copy of this list, and
+ *  the offline renderer must agree with the live one or a render and a
+ *  playback disagree about what reaches the engine. */
+const NON_PARAM_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
 
 /** Guaranteed low-gate window between back-to-back same-note events so
  *  envelopes re-attack — copied from Session.ts (GATE_GAP_SEC there; a

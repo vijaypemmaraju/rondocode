@@ -433,6 +433,9 @@ a:hover {
 .tok-kw {
   color: var(--c-accent);
 }
+.tok-fn {
+  color: var(--c-accent-alt);
+}
 
 /* --- reference --- */
 

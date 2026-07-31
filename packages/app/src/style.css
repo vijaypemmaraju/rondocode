@@ -1267,6 +1267,27 @@ body {
   border-color: var(--c-accent);
 }
 
+/* Syntax tokens for the synth library's code preview. These rules existed
+   only in docs.css, which the main page never loads -- so highlightDsl was
+   emitting spans that rendered as flat monochrome text here. Same colours as
+   the docs page, so a preset reads the same in both places. */
+.tok-com {
+  color: var(--c-faint);
+  font-style: italic;
+}
+.tok-str {
+  color: var(--c-accent-alt);
+}
+.tok-num {
+  color: var(--c-warn);
+}
+.tok-kw {
+  color: var(--c-accent);
+}
+.tok-fn {
+  color: var(--c-accent-alt);
+}
+
 .synthlib-code {
   margin: 0;
   padding: var(--sp-2) var(--sp-3);

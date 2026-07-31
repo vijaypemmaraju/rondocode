@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
 import { compile, decompile } from '@rondocode/rondo'
-import { presetFor } from '../src/editor/synthlib'
+import { SYNTHS, presetFor } from '../src/editor/synthlib'
+import { highlightFor } from '../src/docs/highlight'
 
 /* Every preset in the synth library must EVAL and SOUND.
  *
@@ -98,5 +99,57 @@ describe('a rondo project gets rondo', () => {
     const out = presetFor({ code: js }, 'rondo')
     expect(out).not.toBe(js)
     expect(compile(out).ok).toBe(true)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The card must show what INSERT will hand you.
+ *
+ * It rendered `sy.code` unconditionally, so a rondo project previewed every
+ * preset in a dialect it would never receive — while presetFor, right beside
+ * it, already knew the answer.
+ * ------------------------------------------------------------------------- */
+describe('the preview matches the insert, in both languages', () => {
+  it('previews rondo for a rondo project and JS for a JS one', () => {
+    for (const sy of SYNTHS) {
+      expect(highlightFor('rondo')(presetFor(sy, 'rondo'))).toContain('synth')
+      // the JS form is the one with a paren-call; the rondo form never is
+      expect(presetFor(sy, 'js')).toBe(sy.code)
+    }
+  })
+
+  it('has a readable rondo form for EVERY preset, hand-written or decompiled', () => {
+    // seven presets have no hand-written rondo. That is fine only while the
+    // decompiler produces something worth reading — a `js{ … }` blob on a
+    // library card is a preset you cannot learn from.
+    for (const sy of SYNTHS) {
+      const r = presetFor(sy, 'rondo')
+      expect(r, `${sy.name} decompiled to a js{} blob`).not.toContain('js{')
+      expect(r, `${sy.name} is not rondo`).toMatch(/^synth /)
+    }
+  })
+
+  it('colours rondo with rondo words, not JavaScript ones', () => {
+    // `const`/`return` are JS keywords and must not light up; `synth`/`ladder`
+    // must, and they come from the tokenizer's own list
+    const html = highlightFor('rondo')('synth a\n  ladder 900 res:.4  # a comment\n')
+    expect(html).toContain('<span class="tok-kw">synth</span>')
+    expect(html).toContain('<span class="tok-fn">ladder</span>') // a builtin, not a block word
+    expect(html).toContain('<span class="tok-com"># a comment</span>')
+    expect(html).toContain('<span class="tok-num">900</span>')
+  })
+
+  it('treats # as the comment marker, not //', () => {
+    expect(highlightFor('rondo')('# hi')).toContain('tok-com')
+    expect(highlightFor('js')('// hi')).toContain('tok-com')
+    // a rondo doc has no strings to find, so a bare word stays a bare word
+    expect(highlightFor('rondo')('0 3 5 7')).not.toContain('tok-str')
+  })
+
+  it('escapes before it colours, in both languages', () => {
+    for (const lang of ['rondo', 'js']) {
+      expect(highlightFor(lang)('<script>')).not.toContain('<script>')
+      expect(highlightFor(lang)('<script>')).toContain('&lt;script&gt;')
+    }
   })
 })

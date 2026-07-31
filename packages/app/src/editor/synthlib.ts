@@ -1,7 +1,7 @@
 import type { EditorHandle, EditorLang } from './editor'
 import { decompile } from '@rondocode/rondo'
 import { PreviewPlayer } from '../docs/player'
-import { highlightDsl } from '../docs/highlight'
+import { highlightFor } from '../docs/highlight'
 import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
@@ -27,7 +27,8 @@ interface LibrarySynth {
   rondo?: string
 }
 
-const SYNTHS: LibrarySynth[] = [
+/** The shelf. Exported so tests can hold every entry to the same bar. */
+export const SYNTHS: LibrarySynth[] = [
   {
     name: 'acid',
     title: 'Acid bass',
@@ -397,6 +398,7 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
   }
   const open = (): void => {
     overlayOpened(close) // close any other open sheet
+    render(search.value) // pick up a language change made since it last opened
     backdrop.classList.remove('hidden')
     btn.setAttribute('aria-expanded', 'true')
     search.focus()
@@ -420,6 +422,10 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
 
   const render = (query = ''): void => {
     list.replaceChildren()
+    // read the language per render, not per build: the shelf outlives any
+    // number of language toggles, and a stale dialect on the card is the bug
+    // this whole change is about
+    const lang = editor.getLang()
     const q = query.trim().toLowerCase()
     const matches = SYNTHS.filter(
       (sy) => q === '' || `${sy.name} ${sy.title} ${sy.tags}`.toLowerCase().includes(q),
@@ -478,9 +484,13 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
       top.append(actions)
       row.append(top)
 
+      // The card shows what INSERT will actually give you. It used to show the
+      // JavaScript unconditionally, so a rondo project was previewed in a
+      // dialect it would never receive — and the one preset property a shelf
+      // like this has is that you can read an entry before taking it.
       const pre = el('pre', 'synthlib-code')
       const codeEl = el('code')
-      codeEl.innerHTML = highlightDsl(sy.code)
+      codeEl.innerHTML = highlightFor(lang)(presetFor(sy, lang))
       pre.append(codeEl)
       row.append(pre)
 

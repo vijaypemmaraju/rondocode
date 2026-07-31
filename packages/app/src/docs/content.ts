@@ -1736,3 +1736,31 @@ export const gotchaSection = (g: Gotcha): Section => ({
 })
 
 for (const g of GOTCHAS) SECTIONS.push(gotchaSection(g))
+
+/** Caption marking a snippet that is deliberately broken. Troubleshooting
+ *  shows one beside its fix, so it is the one place on the page where "every
+ *  snippet runs" cannot hold. */
+export const BROKEN_ON_PURPOSE = 'this looks right and is not'
+
+/** Every code block that carries the runs-clean guarantee.
+ *
+ *  Exported because TWO suites assert that guarantee — the app's content test
+ *  and the server's staging test — and they were separate copies of the same
+ *  flatMap. The troubleshooting page broke the server one only, in CI, because
+ *  the app copy had been taught the exclusion and the server copy had not.
+ *  One definition, beside the sections it describes.
+ *
+ *  Per BLOCK, not per section: a troubleshooting entry's FIXED half still has
+ *  to meet the same bar as the rest of the page. */
+export function runnableCodeBlocks(sections: readonly Section[] = SECTIONS): {
+  id: string
+  text: string
+  lang?: 'rondo'
+  caption?: string
+}[] {
+  return sections.flatMap((s) =>
+    s.blocks
+      .filter((b): b is CodeBlock => b.kind === 'code' && !(b.caption ?? '').startsWith(BROKEN_ON_PURPOSE))
+      .map((b) => ({ id: s.id, text: b.text, ...(b.lang !== undefined ? { lang: b.lang } : {}), ...(b.caption !== undefined ? { caption: b.caption } : {}) })),
+  )
+}

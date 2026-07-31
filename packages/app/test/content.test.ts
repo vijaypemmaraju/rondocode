@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GOTCHAS } from '../src/docs/gotchas'
+import { BROKEN_ON_PURPOSE, runnableCodeBlocks } from '../src/docs/content'
 import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
 import { compile } from '@rondocode/rondo'
 import { SECTIONS } from '../src/docs/content'
@@ -24,13 +25,7 @@ import { baseScope } from '../src/session/scope'
  * rest of the page. And the broken half is not merely skipped — gotchas.test.ts
  * asserts it still fails, in the exact way its entry claims, so nothing can
  * quietly rot behind this caption. */
-const BROKEN_ON_PURPOSE = 'this looks right and is not'
-
-const codeBlocks = SECTIONS.flatMap((s) =>
-  s.blocks
-    .filter((b) => b.kind === 'code' && !(b.caption ?? '').startsWith(BROKEN_ON_PURPOSE))
-    .map((b) => ({ id: s.id, text: b.text, lang: b.lang })),
-)
+const codeBlocks = runnableCodeBlocks()
 
 /** Section ids whose snippets legitimately produce no sounding events (none
  *  today — every current snippet sounds; add an id here WITH a reason if a

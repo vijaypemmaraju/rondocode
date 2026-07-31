@@ -34,4 +34,10 @@ export const BUILTINS = new Set([
   'ladder', 'svf', 'dualsvf', 'onepole', 'delay', 'comb', 'shape', 'formant', 'pan',
   'bitcrush', 'compress', 'phaser', 'reverb', 'chorus', 'width', 'transient', 'flanger', 'exciter', 'ott',
   'tanh', 'clip', 'fold', 'mix',
+  // These 17 were documented and completed but not highlighted — the same
+  // state `slide` was in before #191, which only closed the KEYWORD half of
+  // the gap. The reference panel's "other" bucket is what surfaced them.
+  'mic', 'env', 'eq', 'vocoder',
+  'abs', 'ceil', 'floor', 'round', 'sign', 'sqrt', 'exp', 'log', 'sin', 'cos',
+  'min', 'max', 'mod',
 ])

@@ -38,6 +38,7 @@ import { EditorView, WidgetType } from '@codemirror/view'
 import { formatNumber } from '../widgets/rewrite'
 import { LiveWriter, attachGesture } from './gesture'
 import type { Drag } from './gesture'
+import { inkOf, paintOnAttach } from './paint'
 import { buzz } from './widgets'
 import type { Hooks, KnobMatch } from './widgets'
 
@@ -467,7 +468,7 @@ export class FilterCurveWidget extends WidgetType {
       if (canvas.width !== W * dpr) { canvas.width = W * dpr; canvas.height = H * dpr }
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
       g.clearRect(0, 0, W, H)
-      const color = getComputedStyle(canvas).color
+      const color = inkOf(canvas)
       // grid: decades + the 0 dB line
       g.strokeStyle = color
       g.globalAlpha = 0.14
@@ -502,7 +503,9 @@ export class FilterCurveWidget extends WidgetType {
         g.globalAlpha = 1
       }
     }
-    draw()
+    // toDOM runs BEFORE CodeMirror inserts this node, and a detached element
+    // computes to black — see paint.ts
+    paintOnAttach(draw)
 
     // any writable literal makes the surface a control
     const writable = handles.some((h) => h.fRange !== undefined || h.vRange !== undefined)

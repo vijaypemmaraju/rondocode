@@ -3,7 +3,8 @@ import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
 import { DSL_DOCS } from '../docs/dsl-docs'
-import type { DocEntry } from '../docs/dsl-docs'
+import { OPTIONS } from './rondo'
+import { filterGroups, referenceGroups } from './reference'
 
 /* ------------------------------------------------------------------------- *
  * In-app DSL reference: a "?" button opens a searchable panel generated from
@@ -21,13 +22,6 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   if (text !== undefined) node.textContent = text
   return node
 }
-
-const GROUPS: { title: string; kinds: DocEntry['kind'][] }[] = [
-  { title: 'globals', kinds: ['global'] },
-  { title: 'pattern methods', kinds: ['pattern-method'] },
-  { title: 'synth builder', kinds: ['synth-ctx', 'sig-method'] },
-  { title: 'mini-notation', kinds: ['mini-syntax'] },
-]
 
 export interface DocsHandle {
   dispose(): void
@@ -58,6 +52,7 @@ export function mountDocs(editor: EditorHandle): DocsHandle {
   }
   const open = (): void => {
     overlayOpened(close) // close any other open sheet
+    render(search.value) // pick up a language change made since it last opened
     backdrop.classList.remove('hidden')
     btn.setAttribute('aria-expanded', 'true')
     search.focus()
@@ -93,14 +88,12 @@ export function mountDocs(editor: EditorHandle): DocsHandle {
 
   const render = (query = ''): void => {
     body.replaceChildren()
-    const q = query.trim().toLowerCase()
-    for (const grp of GROUPS) {
-      const entries = DSL_DOCS.filter((e) => grp.kinds.includes(e.kind)).filter(
-        (e) => q === '' || `${e.name} ${e.signature} ${e.summary}`.toLowerCase().includes(q),
-      )
-      if (entries.length === 0) continue
+    // per render, not per mount: the panel outlives language toggles, and
+    // answering a rondo document with JavaScript call shapes is the bug
+    const groups = filterGroups(referenceGroups(editor.getLang(), OPTIONS, DSL_DOCS), query)
+    for (const grp of groups) {
       body.append(el('h3', 'lib-subtitle docs-group', grp.title))
-      for (const e of entries) {
+      for (const e of grp.entries) {
         const row = el('div', 'docs-entry')
         row.append(el('div', 'docs-signature', e.signature))
         row.append(el('div', 'docs-summary', e.summary))

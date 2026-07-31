@@ -39,6 +39,7 @@ import { LiveWriter, attachGesture, verifiedChanges } from './gesture'
 import type { Drag } from './gesture'
 import { buzz } from './widgets'
 import type { Hooks } from './widgets'
+import { inkOf, paintOnAttach } from './paint'
 
 const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? b : v)
 
@@ -396,7 +397,7 @@ const drawRibbon = (
   }
   g.setTransform(dpr, 0, 0, dpr, 0, 0)
   g.clearRect(0, 0, RIBBON.w, RIBBON.h)
-  const color = getComputedStyle(canvas).color
+  const color = inkOf(canvas)
   const last = Math.max(frames.length - 1, 1)
   const dx = (RIBBON.w - RIBBON.waveW - 2 * RIBBON.pad) / last
   const dy = (RIBBON.h - RIBBON.waveH - 2 * RIBBON.pad) / last
@@ -475,7 +476,8 @@ export class WavetableRibbonWidget extends WidgetType {
     canvas.style.height = `${RIBBON.h}px`
     wrap.appendChild(canvas)
     const idle = (): void => drawRibbon(canvas, this.frames, this.posLiteral)
-    idle()
+    // detached at toDOM time, so the first paint would be black — see paint.ts
+    paintOnAttach(idle)
 
     // LIVE SCAN CURSOR: each of this synth's notes sweeps the bright morph
     // wave across the stack over the note's duration. For a literal pos the
@@ -609,7 +611,7 @@ export class WavedefWidget extends WidgetType {
       if (c.width !== THUMB.w * dpr) { c.width = THUMB.w * dpr; c.height = THUMB.h * dpr }
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
       g.clearRect(0, 0, THUMB.w, THUMB.h)
-      g.strokeStyle = getComputedStyle(c).color
+      g.strokeStyle = inkOf(c)
       g.lineWidth = 1.2
       drawWave(g, partialWave(values, 64), 2, THUMB.h / 2, THUMB.w - 4, THUMB.h - 6)
     }

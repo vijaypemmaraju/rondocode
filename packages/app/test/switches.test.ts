@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '@rondocode/rondo'
 import { scanSwitches, toggled } from '../src/editor/rondo/switches'
-import { scanSwitchesJs } from '../src/editor/widgets/jsscan'
+import { scanSwitchesJs, scanPlaysJs } from '../src/editor/widgets/jsscan'
+import { STEP_RE, accValue, scanPlays, stepText } from '../src/editor/rondo/widgets'
 import type { SwitchMatch } from '../src/editor/rondo/switches'
 
 /* ------------------------------------------------------------------------- *
@@ -137,5 +138,59 @@ describe('scanSwitchesJs', () => {
     if (!code.ok) return
     const sw = scanSwitchesJs(code.code)
     expect(sw).toHaveLength(1)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * Accidentals on degrees: `n('0 2# 4')`.
+ *
+ * A degree indexes a scale, so before this the only way to name a pitch the
+ * scale does not contain was to abandon degree notation for note names. Worse,
+ * the near-miss spelling was silent: `n('0 2.5 4')` ROUNDED to degree 3 rather
+ * than failing, so a half-step looked like it worked and was not.
+ *
+ * The grid's rows are degrees, so an accidental note stays on its degree's row
+ * and is MARKED. That is why steps and accs are separate arrays.
+ * ------------------------------------------------------------------------- */
+describe('accidental degrees in the piano roll', () => {
+  it('reads the degree and the accidental apart, in rondo', () => {
+    const src = 'synth a\n  saw note\n\nplay a\n  0 2# 4 3b\n  scale:c-maj\n'
+    const [r] = scanPlays(src)
+    expect(r?.steps).toEqual([0, 2, 4, 3])
+    expect(r?.accs).toEqual([undefined, 1, undefined, -1])
+  })
+
+  it('reads the same notation the same way in JavaScript', () => {
+    const [r] = scanPlaysJs(`p('a', n('0 2# 4 3b').scale('c major').sound('a'))`)
+    expect(r?.steps).toEqual([0, 2, 4, 3])
+    expect(r?.accs).toEqual([undefined, 1, undefined, -1])
+  })
+
+  it('spells a step back out with its accidental, so a drag cannot drop it', () => {
+    expect(stepText(2, 1)).toBe('2#')
+    expect(stepText(3, -1)).toBe('3b')
+    expect(stepText(2, 2)).toBe('2##')
+    expect(stepText(-1, -2)).toBe('-1bb')
+    expect(stepText(4, undefined)).toBe('4')
+    expect(stepText(null, 1)).toBe('~')
+  })
+
+  it('round-trips every step of a line unchanged', () => {
+    // the property that matters: rewriting a line you did not edit must give
+    // back the same text, or a stray drag rewrites notes you never touched
+    const toks = '0 2# 4 ~ 3b -1 2##'.split(' ')
+    const steps = toks.map((t) => (t === '~' ? null : Number(STEP_RE.exec(t)![1])))
+    const accs = toks.map((t) => (t === '~' ? undefined : accValue(STEP_RE.exec(t)![2])))
+    expect(steps.map((v, i) => stepText(v, accs[i])).join(' ')).toBe('0 2# 4 ~ 3b -1 2##')
+  })
+
+  it('does not mistake a sample name for an accidental', () => {
+    // `2bd` is the number 2 and the word `bd`, not a flat and a stray d
+    expect(STEP_RE.test('2bd')).toBe(false)
+  })
+
+  it('leaves a plain line with no accidentals at all', () => {
+    const [r] = scanPlays('synth a\n  saw note\n\nplay a\n  0 3 5 7\n')
+    expect(r?.accs).toEqual([undefined, undefined, undefined, undefined])
   })
 })

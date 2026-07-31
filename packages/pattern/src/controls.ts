@@ -34,6 +34,11 @@ import './combinators'
 export interface ControlMap {
   /** Scale degree (pre-scale, relative). Set by `n()`; consumed by `.scale()`. */
   n?: number
+  /** Semitones from an accidental on that degree: `n('0 2# 4')`. Separate from
+   *  `n` because a degree indexes the scale — there is no fractional degree to
+   *  fold it into — and applied after the lookup, so `2#` means "the third
+   *  degree, raised", whatever that degree happens to be in this scale. */
+  nAcc?: number
   /** Absolute midi note (post-scale resolution, or set directly by `note()`). */
   note?: number
   /** Synth name the scheduler routes the event to. */
@@ -70,7 +75,7 @@ const numericMini = (src: string, what: string) => {
       throw new MiniError(`${what} requires numbers, got '${a.value}'`, a.loc.start, src)
     }
   }
-  return pattern as Pattern<{ value: number; loc: Loc }>
+  return pattern as Pattern<{ value: number; loc: Loc; acc?: number }>
 }
 
 /**
@@ -104,7 +109,8 @@ export function note(x: number | string | Pattern<number>): Pattern<ControlMap> 
 /** Function form of `n`: degrees are numbers only (use `note()` for names). */
 const nCtrl = (x: number | string | Pattern<number>): Pattern<ControlMap> => {
   if (typeof x === 'string') {
-    return numericMini(x, 'n()').withValue((v) => ({ n: v.value, loc: v.loc }))
+    return numericMini(x, 'n()').withValue((v) =>
+      v.acc === undefined ? { n: v.value, loc: v.loc } : { n: v.value, nAcc: v.acc, loc: v.loc })
   }
   return reify(x).withValue((v): ControlMap => ({ n: v }))
 }
@@ -288,7 +294,15 @@ Pattern.prototype.scale = function (
   // note through this scale, instead of moving by raw semitones.
   return this.withValue((c) =>
     typeof c.n === 'number'
-      ? { ...c, note: root + scaleDegree(intervals, Math.round(c.n), period), scale: name }
+      ? {
+          ...c,
+          // The accidental is added AFTER the degree resolves, in semitones.
+          // It cannot be folded into the degree: degrees index a scale, so
+          // `2 + 0.5` would just round back to a degree, which is exactly the
+          // silent wrong answer `n('0 2.5 4')` gives today.
+          note: root + scaleDegree(intervals, Math.round(c.n), period) + (c.nAcc ?? 0),
+          scale: name,
+        }
       : c,
   )
 }

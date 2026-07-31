@@ -760,7 +760,10 @@ export function scanRichPlays(text: string): RichPlay[] {
     if (notation.length === 0) continue
     // pure degree-mini with structure: digits + mini punctuation, at least one
     // structural char (otherwise the editable flat grid already handles it)
-    if (!/^[0-9~\s<>[\]{}%*/!@?,.()-]+$/.test(notation)) continue
+    // `#`/`b` are accidentals on a degree (`-4#`, `3b`), not note names — a
+    // read-only roll that refuses them would vanish from a line the compiler
+    // and the scheduler both accept
+    if (!/^[0-9~\s<>[\]{}%*/!@?,.()#b-]+$/.test(notation)) continue
     if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
     if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
     const from = offs[i + 1]! + indent

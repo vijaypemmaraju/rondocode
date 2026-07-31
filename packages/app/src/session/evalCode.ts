@@ -3,7 +3,7 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
 import type { ControlMap } from '@rondocode/pattern'
-import { busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
+import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -304,7 +304,11 @@ const mapRuntimeError = (e: unknown, sourceLineCount: number): Diagnostic => {
  *  never reach setParam). MUST mirror Session.NON_PARAM_KEYS — the dispatch
  *  loop sends every OTHER numeric control key as a setParam, so those are the
  *  ones a synth must actually declare. */
-const NON_PARAM_CTRL_KEYS = new Set(['n', 'note', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc'])
+/** Structural keys, DERIVED rather than restated. This was a second copy of
+ *  the engine's list, and it drifted the moment `nAcc` was added: a scale
+ *  degree with an accidental staged as `ctrl('nAcc')` against a synth that
+ *  could never declare it, so an entirely valid line failed to run. */
+const NON_PARAM_CTRL_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
 
 /** How many cycles to sample when discovering which (sound, param) controls a
  *  pattern actually drives. Covers `<a b>` alternations and typical

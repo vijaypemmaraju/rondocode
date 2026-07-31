@@ -99,6 +99,13 @@ class SynthGen {
     readonly errors: RondoError[],
     readonly bound: ReadonlySet<string> = new Set(),
     readonly declaredMacros: ReadonlySet<string> = new Set(),
+    /** Top-level `synth NAME` blocks. A synth is NOT a signal, so naming one
+     *  in an expression is always a mistake — and one worth its own message,
+     *  because the reason is structural rather than a typo. */
+    readonly declaredSynths: ReadonlySet<string> = new Set(),
+    /** Names a `js{ }` block brings into scope. Unknown-name checking has to
+     *  know about these or the escape hatch stops working. */
+    readonly jsNames: ReadonlySet<string> = new Set(),
   ) {}
 
   expr(e: Expr): string {
@@ -126,7 +133,30 @@ class SynthGen {
           this.errors.push({ message: msg, line: e.pos.line, col: e.pos.col })
           return '0'
         }
-        return e.name // a binding-local const
+        if (this.bound.has(e.name)) return e.name // a binding-local const
+        if (this.declaredSynths.has(e.name)) {
+          this.errors.push({
+            message: `\`${e.name}\` is a synth, not a signal. A synth runs once PER VOICE, so it has no single output a line here could read — route it through a bus instead (\`bus fx\` + \`send ${e.name} 1\`, then process \`input\` there).`,
+            line: e.pos.line,
+            col: e.pos.col,
+          })
+          return '0'
+        }
+        if (!this.jsNames.has(e.name)) {
+          // Everything else fell through to a bare JS identifier, so a typo'd
+          // binding surfaced as `foo is not defined` at eval — a JavaScript
+          // error, with no rondo position, for a rondo mistake.
+          const known = [...this.bound].sort()
+          const near = known.filter((k) => k.startsWith(e.name.slice(0, 2)))
+          const hint = near.length > 0 ? ` (did you mean ${near.map((k) => `\`${k}\``).join(' or ')}?)` : ''
+          this.errors.push({
+            message: `unknown name \`${e.name}\` — no binding, macro or builtin here${hint}`,
+            line: e.pos.line,
+            col: e.pos.col,
+          })
+          return '0'
+        }
+        return e.name
       case 'enum':
         return `'${e.name}'`
       case 'bin': {
@@ -374,9 +404,20 @@ function cgChain(
   spine: Expr,
   headOrder: string[],
   errors: RondoError[],
-  opts: { macros?: ReadonlySet<string>; noMacros?: { why: string; pos: Pos } } = {},
+  opts: {
+    macros?: ReadonlySet<string>
+    noMacros?: { why: string; pos: Pos }
+    synths?: ReadonlySet<string>
+    jsNames?: ReadonlySet<string>
+  } = {},
 ): string {
-  const g = new SynthGen(errors, new Set(bindings.map((b) => b.name)), opts.macros)
+  const g = new SynthGen(
+    errors,
+    new Set(bindings.map((b) => b.name)),
+    opts.macros,
+    opts.synths,
+    opts.jsNames,
+  )
   const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
   const spineStr = g.expr(spine)
@@ -402,14 +443,19 @@ function cgChain(
   return `({ ${destructure} }) => {\n${body}\n}`
 }
 
-function cgSynth(block: SynthBlock, errors: RondoError[], macros: ReadonlySet<string>): string {
-  const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors, { macros })
+function cgSynth(
+  block: SynthBlock,
+  errors: RondoError[],
+  macros: ReadonlySet<string>,
+  scope: { synths: ReadonlySet<string>; jsNames: ReadonlySet<string> },
+): string {
+  const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors, { macros, ...scope })
   // header voice options: `synth acid mono glide:.08` → the synth() opts arg
   const opts = block.voiceOpts !== undefined
     ? `{ ${Object.entries(block.voiceOpts).map(([k, v]) => `${k}: ${v === true ? 'true' : num(v as number)}`).join(', ')} }`
     : undefined
   if (block.post) {
-    const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors, { macros })
+    const post = cgChain(block.postBindings ?? [], block.post, ['input', 'param'], errors, { macros, ...scope })
     return `const ${block.name} = synth(${voice}, ${post}${opts !== undefined ? `, ${opts}` : ''})`
   }
   return `const ${block.name} = synth(${voice}${opts !== undefined ? `, ${opts}` : ''})`
@@ -796,6 +842,19 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const macroNames = new Set(
     program.items.filter((it): it is Extract<TopItem, { t: 'macro' }> => it.t === 'macro').map((it) => it.name),
   )
+  const synthNames = new Set(
+    program.items.filter((it): it is SynthBlock => it.t === 'synth').map((it) => it.name),
+  )
+  // `js{ }` blocks bring their own names into scope; unknown-name checking has
+  // to know about them or the escape hatch stops working
+  const jsNames = new Set<string>()
+  for (const it of program.items) {
+    if (it.t !== 'raw') continue
+    for (const m of it.code.matchAll(/(?:^|\n)\s*(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)) {
+      jsNames.add(m[1]!)
+    }
+  }
+  const scope = { synths: synthNames, jsNames }
   for (const it of program.items) {
     if (it.t !== 'macro') continue
     if (BUILTINS[it.name] !== undefined) {
@@ -806,7 +865,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     it.t === 'scaledef' || it.t === 'wavedef' || it.t === 'macro' || it.t === 'curvedef'
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
   const parts = items.map((item: TopItem) => {
-    if (item.t === 'synth') return cgSynth(item, errors, macroNames)
+    if (item.t === 'synth') return cgSynth(item, errors, macroNames, scope)
     if (item.t === 'play') return cgPlay(item, errors, macroNames)
     if (item.t === 'sing') return cgSing(item, errors, macroNames)
     if (item.t === 'raw') return item.code // escape hatch, verbatim

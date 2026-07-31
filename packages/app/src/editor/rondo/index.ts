@@ -197,6 +197,17 @@ export const OPTIONS: RondoOption[] = [
   c('chunk', 'keyword', 'chunk N: <comb>', 'Apply a combinator to a different 1/N of the cycle each time round.', 'chunk 4: fast 2'),
   c('rand', 'keyword', 'rand', 'A continuous 0..1 random signal, as a modifier value: `gain: rand 0.4..1`.', 'gain: rand 0.4..1'),
   c('perlin', 'keyword', 'perlin', 'Smooth 0..1 noise — drifts rather than jumping, unlike rand.', 'pan: perlin 0..1'),
+  c('macro', 'keyword', 'macro bright 1480 500..7300 log', 'A project-wide knob. One control, any number of destinations at any ratio: read it by name wherever a number goes, and arithmetic on it comes free.', 'macro bright 1480 500..7300 log'),
+  c('section', 'keyword', 'section drop 8', 'A named span of N cycles holding `play` and `beat` blocks. Sequence them with `song`.', 'section drop 8\n  play lead\n    0 3 5 7'),
+  c('song', 'keyword', 'song intro drop drop', 'The arrangement: the order sections play in. Repeat a name to repeat the section.', 'song intro drop drop outro'),
+  c('mini', 'function', 'mini "<0 3>*2"', 'Mini-notation as a signal, where a bare pattern will not fit — inside an expression or a modifier value.', 'struct mini "1 ~ 1 1"'),
+  // the implicit signals: highlighted since the tokenizer shipped, and until
+  // now impossible to look up. A word that colours but has no hover is the
+  // same confusion as one that hovers but does not colour.
+  c('note', 'function', 'note', 'The note being played, as a frequency in Hz. `saw note` is an oscillator at pitch; `note/2` is an octave down.', 'saw + square note/2'),
+  c('gate', 'function', 'gate', 'The note gate: 1 while the note is held, 0 after. What an envelope reads. Usually implicit — `adsr` takes it for you.', 'env = adsr .003 .2 .3 .1'),
+  c('velocity', 'function', 'velocity', "The note's 0..1 velocity, from the pattern's `gain:`. Multiply by it to make accents shape the sound, not just its volume.", '* velocity ^ .5'),
+  c('input', 'function', 'input', 'The summed signal arriving at a `post` or `bus` block. The thing you are processing.', 'post\n  reverb input room:.7'),
   c('scale', 'keyword', 'scale:a-min', 'Resolve degree notation to notes in a scale.', 'scale:a-min'),
   c('every', 'keyword', 'every N: <comb>', 'Apply a combinator every Nth cycle (e.g. `every 4: rev`).', 'every 4: rev'),
   c('gain', 'keyword', 'gain: v', 'Note velocity (0..1).', 'gain: .8'),

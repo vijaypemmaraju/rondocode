@@ -748,3 +748,12 @@ export const docsByName: Map<string, DocEntry[]> = (() => {
 /** All entries of one kind, completion sources build their option lists here. */
 export const docsOfKind = (kind: DocEntry['kind']): DocEntry[] =>
   DSL_DOCS.filter((e) => e.kind === kind)
+
+/** How the reference groups the JavaScript vocabulary. Lives here, beside the
+ *  entries it groups, so the in-editor panel and the reference builder cannot
+ *  disagree about what a group contains. */
+export const BUILDER_GROUPS: { title: string; kinds: DocEntry['kind'][] }[] = [
+  { title: 'globals', kinds: ['global'] },
+  { title: 'pattern methods', kinds: ['pattern-method'] },
+  { title: 'synth builder', kinds: ['synth-ctx', 'sig-method'] },
+]

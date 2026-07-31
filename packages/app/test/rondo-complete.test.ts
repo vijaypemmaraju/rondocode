@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { localBindings, macroNames, optionsFor, rondoPositionAt } from '../src/editor/rondo/complete'
-import { KEYWORDS, MODIFIERS, OPTIONS, docBlockFor, withDocPanel } from '../src/editor/rondo'
+import { BUILTINS, KEYWORDS, MODIFIERS, OPTIONS, docBlockFor, withDocPanel } from '../src/editor/rondo'
 import type { Completion } from '@codemirror/autocomplete'
 
 /* ------------------------------------------------------------------------- *
@@ -185,11 +185,23 @@ describe('every documented word is highlighted', () => {
     expect(missing).toEqual([])
   })
 
-  it('has no highlighted modifier that is undocumented — the other direction', () => {
+  it('has no highlighted word that is undocumented — the other direction', () => {
     // a word that colours but has no hover or completion is just as confusing
     const documented = new Set(OPTIONS.map((o) => String(o.label).replace(/:$/, '')))
-    const undocumented = [...MODIFIERS].filter((w) => !documented.has(w))
+    const undocumented = [...KEYWORDS, ...MODIFIERS, ...BUILTINS].filter((w) => !documented.has(w))
     expect(undocumented).toEqual([])
+  })
+
+  it('checks BUILTINS too, which the first version of this test did not', () => {
+    // The keyword half was closed in #191 and the builtin half was not, so
+    // `mic`, `env`, `eq`, `vocoder` and thirteen math functions stayed
+    // unhighlighted for another two PRs. The reference panel's "other" bucket
+    // is what eventually surfaced them; this is the check that should have.
+    const known = new Set([...KEYWORDS, ...MODIFIERS, ...BUILTINS])
+    const missing = OPTIONS.filter((o) => o.type === 'function')
+      .map((o) => String(o.label))
+      .filter((w) => !known.has(w))
+    expect(missing).toEqual([])
   })
 })
 

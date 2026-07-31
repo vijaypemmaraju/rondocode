@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { GOTCHAS } from '../src/docs/gotchas'
+import { BROKEN_ON_PURPOSE, runnableCodeBlocks } from '../src/docs/content'
 import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
 import { compile } from '@rondocode/rondo'
 import { SECTIONS } from '../src/docs/content'
@@ -17,16 +19,31 @@ import { baseScope } from '../src/session/scope'
  * a sound naming a synth the same snippet defines — because a docs snippet
  * that runs silently is as broken to a reader as one that throws. */
 
-const codeBlocks = SECTIONS.flatMap((s) =>
-  s.blocks.filter((b) => b.kind === 'code').map((b) => ({ id: s.id, text: b.text, lang: b.lang })),
-)
+/* Troubleshooting sections show a DELIBERATELY broken snippet beside its fix,
+ * so "every snippet on this page runs" cannot hold there. The exclusion is per
+ * BLOCK, not per section: the fixed half still has to meet the same bar as the
+ * rest of the page. And the broken half is not merely skipped — gotchas.test.ts
+ * asserts it still fails, in the exact way its entry claims, so nothing can
+ * quietly rot behind this caption. */
+const codeBlocks = runnableCodeBlocks()
 
 /** Section ids whose snippets legitimately produce no sounding events (none
  *  today — every current snippet sounds; add an id here WITH a reason if a
  *  purely visual / mic-only snippet ever lands). */
 const SILENT_OK = new Set<string>([])
 
+/* The caption is load-bearing now, so pin that it still matches something.
+ * A renamed caption would silently re-include every broken snippet — or, if
+ * the match got looser, silently EXCLUDE working ones from the guarantee. */
+const excluded = SECTIONS.flatMap((s) => s.blocks).filter(
+  (b) => b.kind === 'code' && (b.caption ?? '').startsWith(BROKEN_ON_PURPOSE),
+)
+
 describe('docs guide snippets', () => {
+  it('excludes exactly the deliberately-broken snippets, one per gotcha', () => {
+    expect(excluded).toHaveLength(GOTCHAS.length)
+  })
+
   it('has code blocks in both languages', () => {
     expect(codeBlocks.filter((b) => b.lang === undefined).length).toBeGreaterThan(10)
     expect(codeBlocks.filter((b) => b.lang === 'rondo').length).toBeGreaterThanOrEqual(8)

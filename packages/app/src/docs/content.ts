@@ -6,6 +6,8 @@
  * ------------------------------------------------------------------------- */
 
 import { RECIPES } from './cookbook'
+import { GOTCHAS } from './gotchas'
+import type { Gotcha } from './gotchas'
 import type { Recipe } from './cookbook'
 
 /* Block kinds. Prose that TEACHES stays a paragraph; enumerations a reader
@@ -115,6 +117,9 @@ export const GROUP_ORDER: readonly string[] = [
   // The cookbook sits AFTER the guide: it answers "how do I say X", which is
   // the question you have once you already know what the pieces are.
   'cookbook',
+  // Troubleshooting is LAST on purpose: you arrive at it from a symptom, via
+  // search, rather than by reading down the page.
+  'troubleshooting',
 ]
 
 /** SECTIONS grouped and ordered for display: groups in GROUP_ORDER, sections
@@ -1714,3 +1719,48 @@ export const recipeSection = (r: Recipe): Section => ({
 })
 
 for (const r of RECIPES) SECTIONS.push(recipeSection(r))
+
+/** One troubleshooting entry as a section: the symptom as the heading you
+ *  scan for, then the PAIR (because the diff is the explanation), then the
+ *  mechanism. The broken block is captioned rather than merely shown, so a
+ *  reader skimming code blocks cannot mistake it for the answer. */
+export const gotchaSection = (g: Gotcha): Section => ({
+  id: `fix-${g.id}`,
+  group: 'troubleshooting',
+  title: g.symptom,
+  blocks: [
+    rondo(`this looks right and is not  ·  ${g.tags.join(' · ')}`, g.broken),
+    rondo('this does what you meant', g.fixed),
+    note(g.why),
+  ],
+})
+
+for (const g of GOTCHAS) SECTIONS.push(gotchaSection(g))
+
+/** Caption marking a snippet that is deliberately broken. Troubleshooting
+ *  shows one beside its fix, so it is the one place on the page where "every
+ *  snippet runs" cannot hold. */
+export const BROKEN_ON_PURPOSE = 'this looks right and is not'
+
+/** Every code block that carries the runs-clean guarantee.
+ *
+ *  Exported because TWO suites assert that guarantee — the app's content test
+ *  and the server's staging test — and they were separate copies of the same
+ *  flatMap. The troubleshooting page broke the server one only, in CI, because
+ *  the app copy had been taught the exclusion and the server copy had not.
+ *  One definition, beside the sections it describes.
+ *
+ *  Per BLOCK, not per section: a troubleshooting entry's FIXED half still has
+ *  to meet the same bar as the rest of the page. */
+export function runnableCodeBlocks(sections: readonly Section[] = SECTIONS): {
+  id: string
+  text: string
+  lang?: 'rondo'
+  caption?: string
+}[] {
+  return sections.flatMap((s) =>
+    s.blocks
+      .filter((b): b is CodeBlock => b.kind === 'code' && !(b.caption ?? '').startsWith(BROKEN_ON_PURPOSE))
+      .map((b) => ({ id: s.id, text: b.text, ...(b.lang !== undefined ? { lang: b.lang } : {}), ...(b.caption !== undefined ? { caption: b.caption } : {}) })),
+  )
+}

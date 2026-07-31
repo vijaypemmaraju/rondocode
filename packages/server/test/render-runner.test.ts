@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GATE_GAP_SEC, renderMix, runPatterns, stageCode } from '../src/render-runner'
 import { SECTIONS } from '../../app/src/docs/content'
+import { runnableCodeBlocks } from '../../app/src/docs/content'
 import { compile as compileRondo } from '../../rondo/src/index'
 
 /* Unit tests for the headless code→audio pipeline, hitting the pure
@@ -28,9 +29,11 @@ describe('docs guide snippets', () => {
   // it must stage cleanly against the exact browser vocabulary. This guards the
   // guide against DSL drift (a renamed global, a changed signature). RONDO
   // blocks take the docs page's path: compile to rondocode first.
-  const snippets = SECTIONS.flatMap((s) =>
-    s.blocks.filter((b) => b.kind === 'code').map((b) => ({ id: s.id, code: b.text, lang: b.lang })),
-  )
+  // runnableCodeBlocks, not a second flatMap: this WAS a separate copy, and
+  // the troubleshooting page's deliberately-broken snippets failed here and
+  // only here, because the app's copy had learned the exclusion and this one
+  // had not.
+  const snippets = runnableCodeBlocks().map((b) => ({ id: b.id, code: b.text, lang: b.lang }))
   it.each(snippets)('section "$id" snippet stages ok', ({ code, lang }) => {
     let source = code
     if (lang === 'rondo') {

@@ -528,16 +528,21 @@ export function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolea
 /** Extract notation text (before an inline `scale:`) from a body line.
  *  The name char class includes uppercase + underscore so long mode names
  *  (`minorPentatonic`) and `scaledef` names round-trip whole. */
-function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: number; scale?: string } {
-  const m = /\bscale:([a-gA-G][a-zA-Z0-9#_-]*)/.exec(ln.raw)
-  const raw = m ? ln.raw.slice(0, m.index) : ln.raw
+function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: number; scale?: string; synth?: string } {
+  // `synth:NAME` is a per-LINE route, the same shape as the header's. Layers
+  // otherwise share the block's synth, which is right for a hand-built chord
+  // and wrong for a drum pattern where each layer is a different instrument.
+  const sy = /[ \t]synth:([a-zA-Z_]\w*)[ \t]*$/.exec(ln.raw)
+  const withoutSynth = sy ? ln.raw.slice(0, sy.index) : ln.raw
+  const m = /\bscale:([a-gA-G][a-zA-Z0-9#_-]*)/.exec(withoutSynth)
+  const raw = m ? withoutSynth.slice(0, m.index) : withoutSynth
   const notation = raw.replace(/\s+$/, '')
   // near-miss like `scale:minor` (no a–g root) doesn't match the extractor —
   // error rather than silently shipping "scale:minor" inside the notation
   if (/\bscale:/.test(notation)) {
     errors.push({ message: 'bad scale — write it like `scale:a-min` (root + mode)', line: ln.line, col: ln.rawCol })
   }
-  return { notation, from: ln.offset, scale: m?.[1] }
+  return { notation, from: ln.offset, scale: m?.[1], synth: sy?.[1] }
 }
 
 /** `irand N [seg:M]` as a notation line — random scale degrees. */
@@ -579,18 +584,27 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   let notationFrom = body[0]?.offset ?? 0
   let scale: string | undefined
   let scalePos: Pos | undefined
-  let voices: { notation: string; notationFrom: number }[] | undefined
+  let voices: { notation: string; notationFrom: number; synthName?: string }[] | undefined
+  let lineSynth: string | undefined
   const noteInfos: { text: string; pos: Pos }[] = []
   for (let v = 0; v < noteLines.length; v++) {
     const ln = noteLines[v]!
     const parsed = notationOf(ln, errors)
     if (parsed.scale !== undefined) { scale = parsed.scale; scalePos = { line: ln.line, col: ln.rawCol } }
+    if (parsed.synth !== undefined && kind === 'beat') {
+      errors.push({ message: "a beat block's words are already synth names — `synth:` doesn't apply", line: ln.line, col: ln.rawCol })
+    }
     noteInfos.push({ text: parsed.notation, pos: { line: ln.line, col: ln.rawCol } })
     if (v === 0) {
       notation = parsed.notation
       notationFrom = parsed.from
+      lineSynth = parsed.synth
     } else {
-      ;(voices ??= []).push({ notation: parsed.notation, notationFrom: parsed.from })
+      ;(voices ??= []).push({
+        notation: parsed.notation,
+        notationFrom: parsed.from,
+        ...(parsed.synth !== undefined ? { synthName: parsed.synth } : {}),
+      })
     }
   }
   const mods: Mod[] = []
@@ -614,7 +628,10 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   }
   const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
   if (kind === 'beat') block.entry = 'sound'
+  // a `synth:` on the FIRST notation line is the same thing the header says,
+  // so it settles into synthName rather than needing a second place to look
   if (synthName !== undefined) block.synthName = synthName
+  else if (lineSynth !== undefined) block.synthName = lineSynth
   if (voices !== undefined) block.voices = voices
   return { block, next }
 }

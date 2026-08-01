@@ -90,6 +90,32 @@ describe('rondo → rondocode codegen', () => {
     )
   })
 
+  it('a notation line can route itself with `synth:`', () => {
+    // layers share the block synth, which is right for a chord and wrong for
+    // a drum pattern: one channel, several instruments
+    const out = ok(`synth kick\n  sine 60\n\nsynth hat\n  noise\n\nplay drums\n  c1 ~ c1 ~ synth:kick\n  c5*8 synth:hat\n`)
+    expect(out).toContain("stack(note('c1 ~ c1 ~').sound('kick'), note('c5*8').sound('hat'))")
+    // and no second .sound() on the stack itself
+    expect(out).not.toContain(".sound('drums')")
+  })
+
+  it('layers with no route of their own still share ONE .sound()', () => {
+    // the ordinary stacked chord must not grow a .sound() per line
+    const out = ok(`synth pad\n  saw\n\nplay pad\n  0 4\n  2 7\n  scale: c-maj\n`)
+    expect(out).toContain("stack(n('0 4'), n('2 7'))")
+    expect(out.match(/\.sound\(/g)).toHaveLength(1)
+  })
+
+  it('a line-level synth: on the FIRST line is the block route', () => {
+    const out = ok(`synth lead\n  saw\n\nplay riff\n  0 4 7 synth:lead\n  scale: c-maj\n`)
+    expect(out).toContain(".sound('lead')")
+    expect(out).not.toContain('stack(')
+  })
+
+  it("a beat block's words are already synth names, so synth: is an error", () => {
+    failsAt(`beat drums\n  kick hat synth:x\n`, "`synth:` doesn't apply", 2, 3)
+  })
+
   it('scaledef takes the UNIT a tuning was published in, not just semitones', () => {
     // a pelog is published as cents and a Bohlen-Pierce as ratios; converting
     // either to semitones by hand is how a tuning gets typed in wrong

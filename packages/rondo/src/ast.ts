@@ -94,8 +94,12 @@ export interface PlayBlock {
   notation: string
   /** absolute char offset of `notation` in the source (for note-play flash). */
   notationFrom: number
-  /** additional stacked voice lines (multi-line play block → stack(...)). */
-  voices?: { notation: string; notationFrom: number }[]
+  /** additional stacked voice lines (multi-line play block → stack(...)).
+   *  A voice may name its OWN synth with a trailing `synth:NAME`, which is
+   *  what makes a layered drum pattern sayable: layers otherwise share the
+   *  block's synth, which is right for a hand-built chord and wrong when
+   *  each layer is a different instrument. */
+  voices?: { notation: string; notationFrom: number; synthName?: string }[]
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
   /** modifier lines under the notation, applied in order. */

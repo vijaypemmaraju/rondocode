@@ -1252,7 +1252,7 @@ function singEntry(n: Node): { header: string; name: string; body: string[] } | 
 }
 
 function chainToPlay(chainNode: Node):
-  { sound?: string; entry: 'notes' | 'sound' | 'sing'; header?: string; body: string[] } | null {
+  { sound?: string; entry: 'notes' | 'sound' | 'sing'; header?: string; perLine?: boolean; body: string[] } | null {
   // walk the method chain from the OUTSIDE in
   const mods: string[] = []
   let scale: string | undefined
@@ -1395,10 +1395,40 @@ function chainToPlay(chainNode: Node):
     return sv !== undefined && !sv.includes('\n') ? sv : null
   }
   const voices: string[] = []
+  let perLine = false
   if (isCall(cur) && calleeName(cur) === 'stack') {
-    for (const e of cur['arguments'] as Node[]) {
-      const nv = entryNotation(e)
+    // a stack member may carry its OWN .sound(): a layered drum pattern is
+    // one channel of several instruments. Peel it and write it back as the
+    // per-line `synth:` route, since rondo's layers otherwise share one.
+    // `stack(stack(a, b), c)` is `stack(a, b, c)` — stacking is associative,
+    // and an importer emits the nested form when it groups by track. Only a
+    // BARE nested stack flattens: one carrying its own methods
+    // (`stack(a, b).gain(.5)`) means something the flat form would not.
+    const flat = (nodes: Node[]): Node[] =>
+      nodes.flatMap((e) => (isCall(e) && calleeName(e) === 'stack' ? flat(e['arguments'] as Node[]) : [e]))
+    const members = flat(cur['arguments'] as Node[]).map((e) => {
+      const sm = methodCall(e)
+      if (sm !== undefined && sm.method === 'sound' && sm.args.length === 1) {
+        const sv = strValue(sm.args[0]!)
+        if (sv !== undefined && /^[a-zA-Z_]\w*$/.test(sv)) return { node: sm.obj, own: sv }
+      }
+      return { node: e, own: undefined }
+    })
+    // every member routed the same way is the block's route, not a per-line one
+    const owns = members.map((m) => m.own)
+    const uniform = owns.every((o) => o !== undefined && o === owns[0])
+    if (uniform && sound === undefined) sound = owns[0]
+    for (const m of members) {
+      const nv = entryNotation(m.node)
       if (nv === null) return null
+      // a member with no route of its own inside a routed stack has nothing
+      // to fall back to, so the whole play bails rather than inventing one
+      if (!uniform && owns.some((o) => o !== undefined)) {
+        if (m.own === undefined) return null
+        perLine = true
+        voices.push(`${nv} synth:${m.own}`)
+        continue
+      }
       voices.push(nv)
     }
   } else {
@@ -1411,8 +1441,10 @@ function chainToPlay(chainNode: Node):
     if (sound !== undefined || scale !== undefined) return null
     return { entry, body: [...voices, ...mods] }
   }
-  if (sound === undefined) return null
   const body = [...voices, ...(scale !== undefined ? [`scale: ${scale}`] : []), ...mods]
+  // every line names its own synth, so the header names none
+  if (perLine) return { entry: 'notes', perLine, body }
+  if (sound === undefined) return null
   return { sound, entry: 'notes', body }
 }
 
@@ -1435,8 +1467,12 @@ function decompilePlay(stmt: Node): string | null {
     // p('beat', s('…')) → a bare `beat`; any other name is kept on the header
     return [`beat${pname === 'beat' ? '' : ` ${pname}`}`, ...play.body.map((l) => `  ${l}`)].join('\n')
   }
-  if (play.sound === undefined) return null
-  const header = play.sound === pname ? `play ${pname}` : `play ${pname} synth:${play.sound}`
+  // perLine: each notation line carries its own `synth:`, so the header has
+  // no single route to name
+  if (play.sound === undefined && play.perLine !== true) return null
+  const header = play.perLine === true || play.sound === pname
+    ? `play ${pname}`
+    : `play ${pname} synth:${play.sound}`
   return [header, ...play.body.map((l) => `  ${l}`)].join('\n')
 }
 

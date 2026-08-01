@@ -673,10 +673,23 @@ function cgPlayPat(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<s
     if (ir) return `n(irand(${ir[1]}).segment(${ir[2] ?? '8'}))`
     return `${entryFor(notation)}(${q(notation)})`
   }
-  // multiple notation lines stack into voices, like the JS stack(n(…), n(…))
-  let pat = block.voices !== undefined && block.voices.length > 0
-    ? `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
-    : lineExpr(block.notation)
+  // multiple notation lines stack into voices, like the JS stack(n(…), n(…)).
+  // A voice that names its own synth carries `.sound()` ITSELF; the rest are
+  // routed together below, so the common case emits one `.sound()` as before.
+  const blockSound = block.synthName ?? block.name
+  // routed per voice only when a voice actually asks for a different synth,
+  // so the ordinary layered chord still emits ONE .sound() on the stack
+  const perVoice = (block.voices ?? []).some((v) => v.synthName !== undefined && v.synthName !== blockSound)
+  const routed = (notation: string, synth: string): string => `${lineExpr(notation)}.sound('${synth}')`
+  let pat: string
+  if (block.voices !== undefined && block.voices.length > 0) {
+    pat = perVoice
+      ? `stack(${[
+          routed(block.notation, blockSound),
+          ...block.voices.map((v) => routed(v.notation, v.synthName ?? blockSound)),
+        ].join(', ')})`
+      : `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
+  } else pat = lineExpr(block.notation)
   if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
   // `overchord: <Am7 F>` re-reads the degrees as CHORD degrees. It applies
   // BEFORE .sound(), like the JS twin: it rewrites the notes themselves, and
@@ -689,7 +702,7 @@ function cgPlayPat(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<s
       pat += `.overChord(chord(${q(over.value.text)}))`
     }
   }
-  if (block.entry !== 'sound') pat += `.sound('${block.synthName ?? block.name}')`
+  if (block.entry !== 'sound' && !perVoice) pat += `.sound('${blockSound}')`
   for (const m of orderMods(block.mods)) {
     if (m === over) continue // already emitted, ahead of .sound()
     pat += cgMod(m, errors, macros)

@@ -1333,6 +1333,7 @@ cps .5`,
       p('CUSTOM TUNINGS: a top-level `scaledef NAME steps...` line registers your own scale, steps in semitones from the root, floats welcome (`scaledef pelog 0 1.2 2.7 6.7 7.85`), and any `Nedo` mode divides the octave into N equal steps with no scaledef at all. Both work anywhere a scale name does: `scale: c-pelog`, `scale: c-19edo`.'),
       p('Real tunings are almost never published in semitones, so say which unit you have and skip the arithmetic: `scaledef pelog cents 0 120 270 670 785` takes cents, and `scaledef bp ratios 1 1.19 1.4 period:3` takes frequency ratios. `period:` is the interval the scale repeats at, in the same unit, for the scales that do not repeat at the octave.'),
       p('EXTRA notation lines before the modifiers stack as voices, one line per voice: a hand-built chord. Voices of different lengths cross-rhythm automatically, because every line spans exactly one cycle.'),
+      p('Voices share the block\'s synth, which is what you want for a chord and not what you want for a drum pattern. End a line with `synth:NAME` to route that voice on its own: `c1 ~ c1 ~ synth:kick` over `c5*8 synth:hat` is two instruments in one channel, so one gain, one sidechain and one mute reach both.'),
       p('`irand 8 seg:16` as a notation line plays random scale degrees 0..7, sixteen steps per cycle: a deterministic improviser (the same riff at the same spot every loop). The whole line pulses with the playhead while it sounds.'),
       rondo(
         'Three stacked voices, one chord progression.',

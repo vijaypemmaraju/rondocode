@@ -691,6 +691,48 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     expect(r).toContain('post')
   })
 
+  it('a stack whose layers have different sounds becomes per-line routes', () => {
+    const r = roundTrip(
+      `const kick = synth(({ sine }) => sine(60))\n` +
+        `const hat = synth(({ noise }) => noise())\n\n` +
+        `p('drums', stack(note('c1 ~ c1 ~').sound('kick'), note('c5*8').sound('hat')))\n`,
+    )
+    expect(r).toContain('play drums')
+    expect(r).toContain('c1 ~ c1 ~ synth:kick')
+    expect(r).toContain('c5*8 synth:hat')
+  })
+
+  it('a stack whose layers share one sound keeps ONE route on the header', () => {
+    const r = roundTrip(
+      `const keys = synth(({ note, tri }) => tri(note.freq))\n\n` +
+        `p('parts', stack(note('c4 e4').sound('keys'), note('g4 b4').sound('keys')))\n`,
+    )
+    expect(r).toContain('play parts synth:keys')
+    expect(r).not.toContain('synth:keys\n  g4')
+  })
+
+  it('flattens a nested stack, which is what stacking already means', () => {
+    // an importer groups by track and emits stack(stack(a, b), c)
+    const r = roundTrip(
+      `const keys = synth(({ note, tri }) => tri(note.freq))\n` +
+        `const bass = synth(({ note, saw }) => saw(note.freq))\n\n` +
+        `p('imported', stack(\n` +
+        `  stack(note('c4@8').sound('keys'), note('e4@8').sound('keys')),\n` +
+        `  note('c2@8').sound('bass'),\n` +
+        `))\n`,
+    )
+    expect(r).toContain('c4@8 synth:keys')
+    expect(r).toContain('e4@8 synth:keys')
+    expect(r).toContain('c2@8 synth:bass')
+  })
+
+  it('bails when a routed stack has a layer with no route', () => {
+    // inventing one would put the layer on a synth the source never named
+    expect(
+      decompile(`p('x', stack(note('c4').sound('keys'), note('e4')))\n`),
+    ).toContain('js')
+  })
+
   it('keeps a js block when a sung phrase is on another channel', () => {
     // rondo says the channel once; `p('a', sing(…{ name: 'b' }))` says it twice
     expect(decompile(`p('a', sing('hi', 'c4', { name: 'b' }))\n`)).toContain('js')

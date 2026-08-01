@@ -763,18 +763,29 @@ a:hover {
 /* --- route tabs (docs / cookbook / troubleshooting / reference) ---
    A scrolling strip, not a wrapping row: on a phone these must stay on one
    line and stay thumb-reachable. Scroll snap so a half-scrolled tab settles. */
-.doc-tabs {
+/* The BAR is sticky and does not scroll; the tabs scroll inside it, so the
+   language buttons stay put. They used to live in the scroller and vanished
+   off the right edge in portrait, where four tabs already fill the width. */
+.doc-tabbar {
   position: sticky;
   top: var(--doc-top-h, 52px);
   z-index: 8;
   display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+  padding-right: var(--sp-2);
+  background: var(--c-bg);
+  border-bottom: 1px solid var(--c-border);
+}
+.doc-tabs {
+  flex: 1 1 auto;
+  min-width: 0; /* or the flex item refuses to shrink and never scrolls */
+  display: flex;
   gap: 2px;
-  padding: 0 var(--sp-3);
+  padding: 0 0 0 var(--sp-3);
   overflow-x: auto;
   scrollbar-width: none;
   scroll-snap-type: x proximity;
-  background: var(--c-bg);
-  border-bottom: 1px solid var(--c-border);
   -webkit-overflow-scrolling: touch;
 }
 .doc-tabs::-webkit-scrollbar { display: none; }
@@ -869,13 +880,11 @@ a:hover {
 
 /* snippet language, in the tab strip. Pinned right on desktop; on a phone it
    scrolls with the tabs rather than stealing a line of its own. */
-.doc-tabs-spacer { flex: 1 0 8px; }
 .doc-langpick {
-  flex: 0 0 auto;
+  flex: 0 0 auto; /* never shrinks, never scrolls away */
   display: flex;
   gap: 2px;
   align-self: center;
-  margin-right: var(--sp-2);
 }
 .doc-langbtn {
   appearance: none;

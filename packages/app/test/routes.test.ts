@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { SECTIONS, runnableCodeBlocks } from '../src/docs/content'
+import { SECTIONS, blockText, runnableCodeBlocks } from '../src/docs/content'
 import { compile, decompile } from '@rondocode/rondo'
 import { DSL_DOCS } from '../src/docs/dsl-docs'
 import { OPTIONS } from '../src/editor/rondo'
@@ -202,5 +202,35 @@ describe('every snippet can be shown in either language', () => {
   it('falls back to the authored source rather than showing a js blob', () => {
     const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
     expect(src).toMatch(/if \(!d\.includes\('js\{'\)/)
+  })
+})
+
+describe('the rondo group is about rondo, not a second copy of the guide', () => {
+  it('documents how a line is READ, which nothing else did', () => {
+    // the arity and absorption rules cost three PRs to rediscover from the
+    // decompiler, and were nowhere in the docs
+    const syn = SECTIONS.find((s) => s.id === 'rondo-syntax')
+    expect(syn, 'no syntax section').toBeDefined()
+    const text = syn!.blocks.map(blockText).join(' ').toLowerCase()
+    for (const topic of ['positional', 'named', 'precedence', 'comment', 'reserved']) {
+      expect(text, `says nothing about ${topic}`).toContain(topic)
+    }
+  })
+
+  it('no longer files the widgets under rondo', () => {
+    // they read the SOURCE and work in both languages, and have since the
+    // scanners were ported; saying otherwise was untrue for JavaScript readers
+    const w = SECTIONS.find((s) => s.id === 'rondo-widgets')!
+    expect(w.group).not.toBe('the rondo language')
+    expect(blockText(w.blocks[0]!)).toContain('BOTH languages')
+  })
+
+  it('keeps every remaining section rondo-specific, in rondo', () => {
+    for (const s of SECTIONS.filter((x) => x.group === 'the rondo language')) {
+      expect(s.title.toLowerCase(), s.id).toContain('rondo')
+      for (const b of s.blocks) {
+        if (b.kind === 'code') expect((b as { lang?: string }).lang, `${s.id}`).toBe('rondo')
+      }
+    }
   })
 })

@@ -177,14 +177,24 @@ p('seq', note('c4 [e4 g4] <b4 a4> c5*2').sound('pluck'))`,
 p('seq', note('c4@2 ~ [e4,g4,b4] c5!3').sound('pluck'))`,
       ),
       p("Speed changes and randomness keep a loop alive: `*n` fits n repeats INTO a step, `/n` stretches a step over n cycles, `?` drops a step at random, and `a | b` picks one alternative each cycle. Note what `/n` implies: a stretched step only SOUNDS on the cycle its onset lands in; the other n-1 cycles hold the note's tail, so that slot is silent there. That silence is deterministic, not random. All true randomness is seeded per cycle, so a loop is different bar to bar but identical every time you replay it."),
+      p("The two kinds are on separate channels below for a reason. `speed` is fully deterministic: over four bars the g4 sounds on the first and third and its slot is empty on the second and fourth, and nothing else on the line moves, so you can count it. `chance` is the random half, kept apart because a line doing both at once is one you can only hear as noise. `pulse` is a plain four to count against."),
       code(
-        '*n / /n speed, ? maybe, | random choice.',
+        'Speed on one line, chance on another. Both at once and neither is audible: you cannot count a pattern that is also rolling dice.',
         `const pluck = synth(({ note, gate, adsr, tri }) =>
   tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.12, s: 0, r: 0.1 })))
+const tick = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.002, d: 0.05, s: 0, r: 0.03 })))
 
-// g4/2 sounds every OTHER cycle (its off-cycles are the stretched tail);
-// <g4 a4> alternates every cycle. Combining them compounds both rules.
-p('seq', note('c4*2 e4? g4/2 [c5 b4 | e5 d5]').scale('c major').sound('pluck'))`,
+// a steady four, purely so the line below has something to be counted against
+p('pulse', note('c6*4').sound('tick').gain(0.3))
+
+// SPEED, nothing random: c4*2 is two hits inside one step, and g4/2 stretches
+// one step over two cycles -- so the g4 sounds on every OTHER bar, and the
+// third slot is empty on the bars in between. Count four bars and hear it.
+p('speed', note('c4*2 e4 g4/2 a4').sound('pluck'))
+
+// CHANCE, seeded per cycle: different every bar, identical on every replay.
+p('chance', note('~ c5? ~ [e5 | g5]').sound('pluck').gain(0.55))`,
       ),
       p("Write a Euclidean rhythm inline with (pulses, steps): it spreads the pulses as evenly as it can, so (3,8) is the tresillo. And `{a b c, d e}%n` is polymeter, several voices running at n steps per cycle so they drift against each other."),
       code(

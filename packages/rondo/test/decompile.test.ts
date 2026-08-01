@@ -628,6 +628,56 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     expect(r).toContain('synth sub mono glide:0.05')
   })
 
+  it('a generated name never collides with a binding declared LATER', () => {
+    // `pitch` is declared first and its value hoists an operand; `amp` is
+    // declared two lines down. Claiming names as they are reached let the
+    // hoist take `amp` first, and two `amp =` lines is a compile error.
+    const r = roundTrip(
+      `const blip = synth(({ note, gate, env, saw, svf }) => {\n` +
+        `  const pitch = note.freq.mul(env(gate, [[0.03, 1]], { release: 0.05 }).range(2, 1))\n` +
+        `  const amp = env(gate, [[0.004, 1], [0.12, 0.5]], { release: 0.25, curve: 3 })\n` +
+        `  return svf(saw(pitch), 3500, { res: 0.3 }).mul(amp)\n` +
+        `})\n`,
+    )
+    const names = [...r.matchAll(/^\s*(\w+) = /gm)].map((m) => m[1]!)
+    expect(new Set(names).size, `duplicate binding in:\n${r}`).toBe(names.length)
+  })
+
+  it('a sig op called as a function is the same line as the method form', () => {
+    // the ctx offers `mix(a, b, t)` and `a.mix(b, t)`; rondo has one line, and
+    // reaching it lets the wet/dry recognizer see this for what it is
+    expect(
+      roundTrip(
+        `const s = synth(({ note, saw }) => saw(note.freq), ({ input, reverb, mix }) =>\n` +
+          `  mix(input, reverb(input), 0.22))\n`,
+      ),
+    ).toContain('reverb mix:0.22')
+    // a mix that is NOT wet/dry stays the sig-op line it is
+    expect(
+      roundTrip(
+        `const s = synth(({ note, saw, square, mix }) => mix(saw(note.freq), square(note.freq), 0.3))\n`,
+      ),
+    ).toContain('mix square note 0.3')
+  })
+
+  it('converts a sung phrase, post chain and all', () => {
+    const r = roundTrip(
+      `p('vox', sing('barbara',\n` +
+        `  'lo-ver come and sing with me',\n` +
+        `  'e4 e4 g4 g4 a4 g4 e4',\n` +
+        `  { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.22) }).gain(0.95))\n`,
+    )
+    expect(r).toContain('sing vox voice:barbara')
+    expect(r).toContain('lo-ver come and sing with me')
+    expect(r).toContain('gain: 0.95')
+    expect(r).toContain('post')
+  })
+
+  it('keeps a js block when a sung phrase is on another channel', () => {
+    // rondo says the channel once; `p('a', sing(…{ name: 'b' }))` says it twice
+    expect(decompile(`p('a', sing('hi', 'c4', { name: 'b' }))\n`)).toContain('js')
+  })
+
   it('keeps a js block when the operand itself is inexpressible', () => {
     // hoisting rescues an operand rondo cannot PLACE, never one it cannot SAY
     expect(decompile(`const k = synth(({ note, saw }) => saw(note.freq).mul(Math.random()))\n`))

@@ -205,7 +205,6 @@ describe('every snippet can be shown in either language', () => {
     notes: "defineScale's cents form — rondo's `scaledef` takes semitones only",
     arrange: 'a stack whose layers have DIFFERENT sounds — rondo layers share the block synth',
     'midi-import': 'a stack whose layers have DIFFERENT sounds',
-    singing: 'sing() as a decompiler statement — rondo has the surface, the decompiler has no handler',
   }
 
   it('converts every JS snippet to rondo, except the listed few', () => {
@@ -217,6 +216,18 @@ describe('every snippet can be shown in either language', () => {
       })
       .map((b) => b.id)
     expect(stuck.sort()).toEqual(Object.keys(NO_RONDO_FORM).sort())
+  })
+
+  it('and what it converts is rondo that COMPILES', () => {
+    // "no js blob" is not the same as "valid": a generated binding name that
+    // collides with one declared further down the same synth reads fine and
+    // is a duplicate-binding error. Only compiling it says so.
+    const broken = blocks
+      .filter((b) => b.lang === undefined && !(b.id in NO_RONDO_FORM))
+      .map((b) => ({ id: b.id, c: compile(decompile(b.text)) }))
+      .filter((x) => !x.c.ok)
+      .map((x) => `${x.id}: ${JSON.stringify(x.c.ok ? [] : x.c.errors)}`)
+    expect(broken).toEqual([])
   })
 
   it('every listed exception is still a real exception', () => {

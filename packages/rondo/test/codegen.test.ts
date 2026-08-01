@@ -221,3 +221,37 @@ describe('names are checked where they are written', () => {
     expect(compile('synth x\n  saw note\n  * velocity\n').ok).toBe(true)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Round trips: an example that cannot come back is only half a language.
+ *
+ * Five of the eighteen programs in the docs decompiled to a `js{ }` blob, so
+ * a JavaScript reader of the cookbook got a degraded version of nearly a
+ * third of it. This is the first of those gaps.
+ * ------------------------------------------------------------------------- */
+describe('an operator after adsr round-trips', () => {
+  const rt = (rhs: string): string => {
+    const r = compile(`synth a\n  saw note\n  * x\n  x = ${rhs}\n\nplay a\n  0\n\ncps .5\n`)
+    expect(r.ok, r.ok ? '' : JSON.stringify(r.errors)).toBe(true)
+    return r.ok ? decompile(r.code) : ''
+  }
+
+  it('brings back `^ n -> lo..hi`, which used to be a js block', () => {
+    // the kick-drop idiom, in two docs programs
+    expect(rt('adsr .001 .09 0 .05 ^ 3 -> 48..190')).toContain('x = adsr 0.001 0.09 0 0.05 ^ 3 -> 48..190')
+  })
+
+  it('brings back the other operators too', () => {
+    expect(rt('adsr .01 .1 .5 .1 * 2')).toContain('* 2')
+    expect(rt('adsr .01 .1 .5 .1 + 1')).toContain('+ 1')
+  })
+
+  it('still binds the operator to the CALL, not the last positional', () => {
+    // what makes closing adsr safe: its arity is fixed at four, so the parser
+    // finishes the call before reading the operator
+    const c = compile('synth a\n  saw note\n  * x\n  x = adsr .001 .09 0 .05 ^ 3\n\nplay a\n  0\n\ncps .5\n')
+    expect(c.ok).toBe(true)
+    if (!c.ok) return
+    expect(c.code).toContain('r: 0.05 }).pow(3)')
+  })
+})

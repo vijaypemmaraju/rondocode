@@ -664,3 +664,13 @@
   color: var(--c-bg, #10131a);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
+
+/* The sustain guide: the curve no longer touches sustain at the decay handle
+   (it is one time constant, 63.2% of the way), so the level needs its own
+   readable reference or a low sustain becomes unguessable. */
+.rondo-env .sus {
+  stroke: var(--c-accent-alt, #8fd0ff);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  opacity: 0.45;
+}

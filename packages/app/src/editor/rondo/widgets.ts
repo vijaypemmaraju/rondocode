@@ -32,6 +32,7 @@ import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
+import { POLE, poleAt, poleLeg } from './envpoints'
 import { scanSwitches, toggled } from './switches'
 import type { SwitchMatch } from './switches'
 import { BEND_LIMIT, bendCurve, bendPixels, envGeometry, envPath, scanEnvPoints } from './envpoints'
@@ -1638,6 +1639,7 @@ class EnvWidget extends WidgetType {
     wrap.innerHTML =
       `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
       '<line class="base" x1="0" y1="0" x2="0" y2="0"/>' +
+      '<line class="sus" x1="0" y1="0" x2="0" y2="0"/>' +
       '<path class="fill"/><path class="line" fill="none" stroke-linejoin="round" stroke-linecap="round"/>' +
       '<circle class="emark" r="4"/>' +
       '<circle class="h ha" r="5"/><circle class="h hd" r="5"/><circle class="h hr" r="5"/></svg>'
@@ -1645,6 +1647,7 @@ class EnvWidget extends WidgetType {
     const fill = wrap.querySelector('.fill') as SVGPathElement
     // the floor: a fixed reference so a low sustain reads as low rather than
     // as a curve floating somewhere in an unmarked box
+    const sus = wrap.querySelector('.sus') as SVGLineElement
     const baseLine = wrap.querySelector('.base') as SVGLineElement
     baseLine.setAttribute('x1', String(pad))
     baseLine.setAttribute('x2', String(W - pad))
@@ -1669,13 +1672,27 @@ class EnvWidget extends WidgetType {
     }
     const render = (a: number, d: number, s: number, r: number, holdOverride?: number): void => {
       const g = geom(a, d, s, r, holdOverride)
-      const p = `M ${pad} ${base} L ${g.ax.toFixed(1)} ${peak} L ${g.dx.toFixed(1)} ${g.sy.toFixed(1)} ` +
-        `L ${g.hx.toFixed(1)} ${g.sy.toFixed(1)} L ${g.rx.toFixed(1)} ${base}`
+      // Attack is LINEAR in the engine and reaches peak exactly at `a`, so it
+      // stays a straight line. Decay and release are one-pole: `d` and `r` are
+      // TIME CONSTANTS, so the curve is only 63.2% of the way at its handle
+      // and keeps converging past it. Drawn true rather than made to land.
+      const yD = poleAt(peak, g.sy, 1) // where the decay handle really sits
+      const yH = poleAt(peak, g.sy, (g.hx - g.ax) / Math.max(1, g.dx - g.ax))
+      const right = W - pad
+      const yR = poleAt(yH, base, 1)
+      const p = `M ${pad} ${base} L ${g.ax.toFixed(1)} ${peak}` +
+        poleLeg(g.ax, peak, g.dx, g.sy, g.hx) +
+        poleLeg(g.hx, yH, g.rx, base, right)
       line.setAttribute('d', p)
-      fill.setAttribute('d', `${p} L ${g.rx.toFixed(1)} ${base} L ${pad} ${base} Z`)
+      fill.setAttribute('d', `${p} L ${right.toFixed(1)} ${base} L ${pad} ${base} Z`)
       ha.setAttribute('cx', String(g.ax)); ha.setAttribute('cy', String(peak))
-      hd.setAttribute('cx', String(g.dx)); hd.setAttribute('cy', String(g.sy))
-      hr.setAttribute('cx', String(g.rx)); hr.setAttribute('cy', String(base))
+      // ON the curve, not on the sustain line: the handle marks one time
+      // constant, and that is not where sustain is reached
+      hd.setAttribute('cx', String(g.dx)); hd.setAttribute('cy', yD.toFixed(1))
+      hr.setAttribute('cx', String(g.rx)); hr.setAttribute('cy', yR.toFixed(1))
+      // sustain still needs to be readable, so it gets its own guide
+      sus.setAttribute('x1', String(g.dx)); sus.setAttribute('x2', String(right))
+      sus.setAttribute('y1', g.sy.toFixed(1)); sus.setAttribute('y2', g.sy.toFixed(1))
     }
     render(this.a, this.d, this.s, this.r)
 
@@ -1703,9 +1720,18 @@ class EnvWidget extends WidgetType {
           }
           let x: number, y: number
           if (t < a) { const u = t / a; x = pad + (g.ax - pad) * u; y = base + (peak - base) * u }
-          else if (t < a + d) { const u = (t - a) / (d || 1e-6); x = g.ax + (g.dx - g.ax) * u; y = peak + (g.sy - peak) * u }
-          else if (t < a + d + holdSec) { const u = (t - a - d) / holdSec; x = g.dx + (g.hx - g.dx) * u; y = g.sy }
-          else { const u = (t - a - d - holdSec) / (r || 1e-6); x = g.hx + (g.rx - g.hx) * u; y = g.sy + (base - g.sy) * u }
+          else if (t < a + d + holdSec) {
+            // one continuous one-pole from peak toward sustain: the marker has
+            // to agree with the curve it is riding
+            const u = (t - a) / (d || 1e-6)
+            x = g.ax + (g.dx - g.ax) * u
+            y = poleAt(peak, g.sy, u)
+          } else {
+            const u = (t - a - d - holdSec) / (r || 1e-6)
+            const yH = poleAt(peak, g.sy, (g.hx - g.ax) / Math.max(1, g.dx - g.ax))
+            x = g.hx + (g.rx - g.hx) * u
+            y = poleAt(yH, base, u)
+          }
           mark.setAttribute('cx', x.toFixed(1))
           mark.setAttribute('cy', y.toFixed(1))
           mark.style.opacity = '1'
@@ -1761,7 +1787,11 @@ class EnvWidget extends WidgetType {
           else if (which === 'ds') {
             const ax = pad + tx(a, AMAX)
             d = xt(mx - ax, DMAX)
-            s = clamp((base - my) / (base - peak), 0, 1)
+            // the handle sits at poleAt(peak, sy, 1), so read the sustain the
+            // pointer is asking for back OUT of that, or dragging would set a
+            // sustain 63% of what it looks like
+            const wantSy = (my - peak * POLE) / (1 - POLE)
+            s = clamp((base - wantSy) / (base - peak), 0, 1)
           } else {
             const hx = pad + tx(a, AMAX) + tx(d, DMAX) + holdFrozen
             r = xt(mx - hx, RMAX)

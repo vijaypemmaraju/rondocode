@@ -41,10 +41,10 @@ export const VIZ_GLOBALS: readonly VizGlobal[] = [
   { name: 'res', type: 'vec2f', detail: 'canvas resolution in px', group: 'canvas' },
   { name: 'pointer', type: 'vec2f', detail: 'pointer position in uv space, 0..1 (centre when untouched)', group: 'input' },
 
-  { name: 'time', type: 'f32', detail: 'audio clock, seconds', group: 'transport' },
-  { name: 'dt', type: 'f32', detail: 'seconds since the previous frame', group: 'transport' },
+  { name: 'time', type: 'f32', detail: 'a smooth, monotonic clock in seconds for animation; use `phase` or `cycle` for anything that must land with the music', group: 'transport' },
+  { name: 'dt', type: 'f32', detail: 'seconds since the previous frame, clamped to 0.1 so a backgrounded tab does not return with one enormous step', group: 'transport' },
   { name: 'cps', type: 'f32', detail: 'tempo, cycles per second', group: 'transport' },
-  { name: 'phase', type: 'f32', detail: 'position within the current cycle, 0..1', group: 'transport' },
+  { name: 'phase', type: 'f32', detail: 'position within the current cycle, 0..1, locked to the audio clock', group: 'transport' },
   { name: 'cycle', type: 'f32', detail: 'cycles elapsed since play, counting from 0; the whole number `phase` drops', group: 'transport' },
   { name: 'playing', type: 'f32', detail: '1 while the transport runs, 0 when stopped', group: 'transport' },
 

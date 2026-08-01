@@ -103,6 +103,37 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
     }
   }
 
+  /* `?fps=1` — a corner readout of frame pacing.
+   *
+   * Three separate performance "fixes" went into this renderer against a
+   * description rather than a number, and two of them were aimed at costs
+   * later measured at under 0.1 ms per frame. This is the missing instrument:
+   * `cpu` is what the render loop itself spends, so a large gap between `cpu`
+   * and the frame interval means the time is going to something ELSE on the
+   * main thread or to the GPU, and that distinction is the whole diagnosis. */
+  let fpsEl: HTMLElement | null = null
+  let fpsTimer = 0
+  const showFps = new URLSearchParams(location.search).get('fps') === '1'
+  const startFps = (v: boolean): void => {
+    if (!showFps) return
+    if (v && fpsEl === null) {
+      fpsEl = document.createElement('div')
+      fpsEl.className = 'shaderviz-fps'
+      document.body.append(fpsEl)
+      fpsTimer = window.setInterval(() => {
+        const s = renderer.stats()
+        if (fpsEl !== null) {
+          fpsEl.textContent =
+            `${s.fps} fps · p95 ${s.p95Ms}ms · worst ${s.worstMs}ms · cpu ${s.cpuMs}ms · ${s.drops} drops`
+        }
+      }, 400)
+    } else if (!v && fpsEl !== null) {
+      clearInterval(fpsTimer)
+      fpsEl.remove()
+      fpsEl = null
+    }
+  }
+
   let on = false
   const setOn = (v: boolean): void => {
     on = v
@@ -112,6 +143,7 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
     document.body.classList.toggle('shaderviz-on', v)
     if (!v) toast.classList.add('hidden')
     pointerOn(v)
+    startFps(v)
     renderer.setActive(v)
   }
   btn.addEventListener('click', () => setOn(!on))
@@ -119,6 +151,7 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
   return {
     dispose(): void {
       pointerOn(false)
+      startFps(false)
       unsubEngine()
       unsubState()
       unsubPat()

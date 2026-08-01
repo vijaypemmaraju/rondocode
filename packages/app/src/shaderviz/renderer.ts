@@ -130,6 +130,10 @@ export interface ShaderRenderer {
   pressPointer(): void
   /** Turn rendering on/off (lazily boots the GPU on first activation). */
   setActive(on: boolean): void
+  /** Frame pacing over the last ~2 s, for the `?fps=1` readout. `cpuMs` is
+   *  the time this loop itself spends; a gap between that and the frame
+   *  interval is someone else on the main thread, or the GPU. */
+  stats(): { fps: number; p95Ms: number; worstMs: number; cpuMs: number; drops: number }
   dispose(): void
 }
 
@@ -322,8 +326,17 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
   }
 
   let prevT = 0
+  /* Frame pacing, for `?fps=1`. Kept always-on and allocation-free: two small
+   * ring buffers. Without this the only way to describe a stutter is with an
+   * adjective, and three separate "fixes" went in against adjectives. */
+  const RING = 120
+  const gaps = new Float32Array(RING)
+  const cpus = new Float32Array(RING)
+  let ringAt = 0
+  let ringLen = 0
   const frame = (): void => {
     raf = 0
+    const cpu0 = performance.now()
     if (disposed || !on || !device || !ctx || !pipeline || !bindGroup || !uniformBuf) return
     resize()
 
@@ -533,6 +546,10 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     pass.end()
     device.queue.submit([encoder.finish()])
 
+    gaps[ringAt] = dt * 1000
+    cpus[ringAt] = performance.now() - cpu0
+    ringAt = (ringAt + 1) % RING
+    if (ringLen < RING) ringLen++
     raf = requestAnimationFrame(frame)
   }
 
@@ -628,6 +645,21 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
       if (names.length !== paramNames.length || names.some((n, i) => n !== paramNames[i])) {
         paramNames = names
         if (device) void buildPipeline(wantFrag, wantSynths)
+      }
+    },
+    stats(): { fps: number; p95Ms: number; worstMs: number; cpuMs: number; drops: number } {
+      if (ringLen === 0) return { fps: 0, p95Ms: 0, worstMs: 0, cpuMs: 0, drops: 0 }
+      const g = Array.from(gaps.subarray(0, ringLen)).sort((a, b) => a - b)
+      const mean = g.reduce((a, b) => a + b, 0) / g.length
+      const cpu = Array.from(cpus.subarray(0, ringLen)).reduce((a, b) => a + b, 0) / ringLen
+      const r1 = (x: number): number => Math.round(x * 10) / 10
+      return {
+        fps: r1(1000 / Math.max(0.001, mean)),
+        p95Ms: r1(g[Math.min(g.length - 1, Math.floor(g.length * 0.95))]!),
+        worstMs: r1(g[g.length - 1]!),
+        cpuMs: Math.round(cpu * 100) / 100,
+        // anything over 1.5x a 60 Hz frame is a dropped frame by any reading
+        drops: g.filter((x) => x > 25).length,
       }
     },
     setActive(v): void {

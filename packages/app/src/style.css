@@ -1328,13 +1328,25 @@ body.shaderviz-on .cm-scroller,
 body.shaderviz-on .cm-gutters {
   background: transparent !important;
 }
+/* NO BACKDROP-FILTER HERE. A backdrop blur samples what is behind it, and
+ * what is behind it is a shader repainting every frame — so the blur is
+ * recomputed every frame too, by construction, and it is one of the most
+ * expensive compositing operations there is. A more opaque solid bar reads
+ * almost the same and costs nothing. */
 body.shaderviz-on .topbar {
-  background: color-mix(in srgb, var(--c-bar) 62%, transparent);
-  backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--c-bar) 88%, transparent);
 }
+/* Keep code legible over bright visuals.
+ *
+ * This was two BLURRED shadows on every glyph. A blurred text-shadow is a
+ * per-glyph gaussian, re-rasterized whenever the text layer is invalidated —
+ * and the editor's widgets invalidate it constantly while playing, so the
+ * cost scaled with how much was on screen. A stroke under the fill gives
+ * better contrast over bright backgrounds anyway, and is a fill, not a blur. */
 body.shaderviz-on .cm-content {
-  /* keep code legible over bright visuals */
-  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 1px 2px rgba(0, 0, 0, 0.9);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 2.5px rgba(0, 0, 0, 0.82);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
 }
 
 .shaderviz-btn.active {

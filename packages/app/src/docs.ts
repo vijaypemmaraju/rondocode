@@ -1,6 +1,7 @@
 import './docs/docs.css'
 import { applyPalette } from './ui/palette'
 import { HERO, blockText, orderedSections } from './docs/content'
+import { ROUTES, crossRouteHits, routeFor, sectionsFor, viewForPath } from './docs/routes'
 import type { Block, Section } from './docs/content'
 import { blockHtml } from './docs/blocks'
 import { docsOfKind } from './docs/dsl-docs'
@@ -409,6 +410,42 @@ async function build(): Promise<void> {
   top.append(copyBtn, cta)
   document.body.append(top)
 
+  // WHICH ROUTE. One bundle serves all four; the path picks the view, so only
+  // this route's editors are ever mounted (the whole point of the split).
+  const view = viewForPath(location.pathname)
+  const route = routeFor(view)
+  label.textContent = route.label
+  // Tabs. A horizontally scrolling strip rather than a wrapping row, so on a
+  // phone they stay one line and stay reachable with a thumb.
+  const tabs = el('nav', 'doc-tabs')
+  tabs.setAttribute('aria-label', 'documentation sections')
+  for (const r of ROUTES) {
+    const a = el('a', 'doc-tab', r.label) as HTMLAnchorElement
+    a.href = r.path
+    if (r.view === view) {
+      a.classList.add('on')
+      a.setAttribute('aria-current', 'page')
+    }
+    tabs.append(a)
+  }
+  document.body.append(tabs)
+  // MEASURE, do not assume. The header has no fixed height: it wraps
+  // differently at small widths and with a larger system font, so a hard-coded
+  // offset would either overlap the tabs or leave a gap on exactly the devices
+  // hardest to check. The nav sits below both.
+  const syncStickyOffsets = (): void => {
+    const r = document.documentElement.style
+    r.setProperty('--doc-top-h', `${Math.round(top.getBoundingClientRect().height)}px`)
+    r.setProperty('--doc-tabs-h', `${Math.round(tabs.getBoundingClientRect().height)}px`)
+  }
+  syncStickyOffsets()
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(syncStickyOffsets)
+    ro.observe(top)
+    ro.observe(tabs)
+  }
+  window.addEventListener('orientationchange', syncStickyOffsets)
+
   const wrap = el('div', 'doc-wrap')
   const nav = el('nav', 'doc-nav')
   // Mobile contents toggle: hidden on desktop by CSS, where the nav is a
@@ -434,9 +471,17 @@ async function build(): Promise<void> {
 
   // hero
   const hero = el('div', 'doc-hero')
-  hero.append(el('h1', undefined, HERO.title))
-  hero.append(el('p', 'tagline', HERO.tagline))
-  hero.append(el('p', 'blurb', HERO.blurb))
+  if (view === 'guide') {
+    hero.append(el('h1', undefined, HERO.title))
+    hero.append(el('p', 'tagline', HERO.tagline))
+    hero.append(el('p', 'blurb', HERO.blurb))
+  } else {
+    // the landing pitch belongs on the landing route; the others say what
+    // they are and get out of the way
+    hero.classList.add('compact')
+    hero.append(el('h1', undefined, route.label))
+    hero.append(el('p', 'blurb', route.blurb))
+  }
   const search = el('input', 'doc-search') as HTMLInputElement
   search.type = 'search'
   search.placeholder = 'search the docs…'
@@ -447,7 +492,8 @@ async function build(): Promise<void> {
   // hero mini-demo: a compact, playable tune right at the top
   const demo = await codeBlock('a tiny loop, press play', HERO_DEMO)
   demo.classList.add('doc-hero-demo')
-  main.append(demo)
+  if (view === 'guide') main.append(demo)
+  else demo.style.display = 'none' // built but unused: keeps applySearch simple
 
   // nav + guide sections (capture text for search + first code for a deep link)
   const navLinks: { id: string; a: HTMLAnchorElement }[] = []
@@ -484,7 +530,7 @@ async function build(): Promise<void> {
     return row
   }
   let lastGroup = ''
-  for (const s of orderedSections()) {
+  for (const s of sectionsFor(view)) {
     if (s.group !== lastGroup) {
       startGroup(s.group)
       lastGroup = s.group
@@ -495,20 +541,31 @@ async function build(): Promise<void> {
     guide.push({ text: r.text, el: r.el, row })
   }
 
-  // reference + shortcuts
-  startGroup('reference')
+  // reference + shortcuts live on their own route now: they are looked up,
+  // not read, and together they were most of the page's weight
+  const onRef = view === 'reference'
   const ref = renderReference()
-  main.append(ref.section)
-  const refRow = addNav('reference', 'Reference')
+  let refRow: HTMLElement | undefined
   const shortcuts = renderShortcuts()
-  main.append(shortcuts)
-  const shortcutsRow = addNav('shortcuts', 'Shortcuts')
+  let shortcutsRow: HTMLElement | undefined
+  if (onRef) {
+    startGroup('reference')
+    main.append(ref.section)
+    refRow = addNav('reference', 'Reference')
+    main.append(shortcuts)
+    shortcutsRow = addNav('shortcuts', 'Shortcuts')
+  }
   main.append(renderFooter())
 
   // one search over guide + reference: hide non-matching sections/nav rows
-  const noHits = el('p', 'doc-nohits', 'no matches')
+  const noHits = el('p', 'doc-nohits', 'no matches on this page')
   noHits.style.display = 'none'
-  main.insertBefore(noHits, ref.section)
+  main.append(noHits)
+  // Hits on the OTHER routes. Splitting the page must not shrink the search:
+  // the index is plain strings for every route, so this costs no editors.
+  const elsewhere = el('div', 'doc-elsewhere')
+  elsewhere.style.display = 'none'
+  main.append(elsewhere)
   const applySearch = (): void => {
     const q = search.value.trim().toLowerCase()
     const searching = q !== ''
@@ -519,16 +576,31 @@ async function build(): Promise<void> {
       g.row.style.display = match ? '' : 'none'
       if (match) shown++
     }
-    const refCount = ref.filter(q)
-    const refShow = !searching || refCount > 0
-    ref.section.style.display = refShow ? '' : 'none'
-    refRow.style.display = refShow ? '' : 'none'
-    if (refShow) shown += refCount
-    // the demo + shortcuts are noise while searching
-    demo.style.display = searching ? 'none' : ''
-    shortcuts.style.display = searching ? 'none' : ''
-    shortcutsRow.style.display = searching ? 'none' : ''
-    noHits.style.display = shown === 0 ? '' : 'none'
+    if (onRef) {
+      const refCount = ref.filter(q)
+      const refShow = !searching || refCount > 0
+      ref.section.style.display = refShow ? '' : 'none'
+      if (refRow) refRow.style.display = refShow ? '' : 'none'
+      if (refShow) shown += refCount
+      shortcuts.style.display = searching ? 'none' : ''
+      if (shortcutsRow) shortcutsRow.style.display = searching ? 'none' : ''
+    }
+    // the demo is noise while searching
+    if (view === 'guide') demo.style.display = searching ? 'none' : ''
+
+    const others = searching ? crossRouteHits(q, view) : []
+    elsewhere.replaceChildren()
+    if (others.length > 0) {
+      elsewhere.append(el('div', 'doc-elsewhere-head', 'elsewhere in the docs'))
+      for (const h of others) {
+        const a = el('a', 'doc-elsewhere-hit') as HTMLAnchorElement
+        a.href = h.href
+        a.append(el('span', 'doc-elsewhere-where', routeFor(h.view).label), document.createTextNode(h.title))
+        elsewhere.append(a)
+      }
+    }
+    elsewhere.style.display = others.length > 0 ? '' : 'none'
+    noHits.style.display = shown === 0 && others.length === 0 ? '' : 'none'
   }
   search.addEventListener('input', applySearch)
 

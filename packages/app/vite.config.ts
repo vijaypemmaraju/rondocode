@@ -41,6 +41,12 @@ export default defineConfig(({ mode }) => ({
       input: {
         index: entry('index.html'),
         docs: entry('docs.html'),
+        // the docs split into four routes; all four load /src/docs.ts and the
+        // PATH picks the view, so they share one chunk and each page mounts
+        // only its own editors (see docs/routes.ts)
+        cookbook: entry('cookbook.html'),
+        troubleshooting: entry('troubleshooting.html'),
+        reference: entry('reference.html'),
         diag: entry('diag.html'),
       },
     },

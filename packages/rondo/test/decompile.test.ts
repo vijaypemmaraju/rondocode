@@ -533,3 +533,104 @@ p('s', n('0 2 4').scale('a minor').sound('s').ctrl('cutoff', sine.range(200, 240
     if (again.ok) expect(again.code).toBe(back.code)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Hand-written JavaScript, converted for the docs language toggle.
+ *
+ * These are the shapes real snippets are written in, and each was a `js{ }`
+ * blob before. rondo has NO PARENTHESES, so the answer to an operand that
+ * will not fit inline is the one a person writes: give it a name.
+ * ------------------------------------------------------------------------- */
+describe('decompile: hand-written JS that has no inline rondo spelling', () => {
+  /** Decompile, and assert the result is real rondo that means the same thing. */
+  const roundTrip = (js: string): string => {
+    const r = decompile(js)
+    expect(r, `left a js block:\n${r}`).not.toMatch(/js\{|^js$/m)
+    const back = compile(r)
+    expect(back.ok, `did not recompile:\n${r}`).toBe(true)
+    if (!back.ok) return r
+    // and it is STABLE, in the sense the decompiler guarantees: once through
+    // the compiler, decompile → compile is a fixed point. (The rondo TEXT is
+    // not guaranteed identical — the compiler orders named arguments its own
+    // way, so `root:60 pos:pos` comes back as `pos:pos root:60`.)
+    const again = compile(decompile(back.code))
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.code).toBe(back.code)
+    return r
+  }
+
+  it('names a modulator that cannot sit inside a call', () => {
+    // `sine adsr .001 .09 0 .05 -> 45..160` would apply the range to the
+    // whole sine call, so the envelope becomes a binding instead
+    const r = roundTrip(
+      `const kick = synth(({ gate, sine, adsr }) =>\n` +
+        `  sine(adsr(gate, { a: 0.001, d: 0.09, s: 0, r: 0.05 }).pow(2).range(45, 160)))\n`,
+    )
+    expect(r).toContain('-> 45..160')
+    expect(r).toMatch(/sine \w+/)
+  })
+
+  it('names an operand at the same precedence as its operator', () => {
+    // `* adsr … * 0.2` re-associates; only accidentally right for `*`
+    const r = roundTrip(
+      `const k = synth(({ note, gate, saw, adsr }) =>\n` +
+        `  saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.5, r: 0.2 }).mul(0.2)))\n`,
+    )
+    expect(r).toContain('amp = adsr 0.01 0.1 0.5 0.2 * 0.2')
+    expect(r).toContain('* amp')
+  })
+
+  it('names a modulated named argument', () => {
+    const r = roundTrip(
+      `const g = synth(({ gate, granular, lfo }) =>\n` +
+        `  granular(gate, 'pad', { root: 60, pos: lfo(0.05).range(0, 1), size: 0.12 }))\n`,
+    )
+    expect(r).toContain('-> 0..1')
+    expect(r).toMatch(/pos:\w+/)
+  })
+
+  it('a generated name never shadows a builtin', () => {
+    // the role name for a `^` operand is `exp`, which IS a builtin — a binding
+    // that shadows one is a compile error, so it has to step aside
+    const r = roundTrip(
+      `const k = synth(({ note, saw, noise }) => saw(note.freq).pow(noise('pink').add(2)))\n`,
+    )
+    expect(r).not.toMatch(/^\s*exp = /m)
+  })
+
+  it('an inline param becomes the knob it is', () => {
+    const r = roundTrip(
+      `const b = synth(({ note, gate, saw, svf, param, adsr }) =>\n` +
+        `  svf(saw(note.freq), param('cutoff', 900, { min: 80, max: 8000, curve: 'log' }), { res: 0.3 })\n` +
+        `    .mul(adsr(gate, { a: 0.004, d: 0.2, s: 0.6, r: 0.1 })))\n`,
+    )
+    expect(r).toContain('cutoff = knob 900 80..8000 log')
+    expect(r).toContain('svf cutoff res:0.3')
+  })
+
+  it('a post chain named partway through still folds from input', () => {
+    // a post spine starts at `input` implicitly and cannot start anywhere
+    // else, so a single-use `const` in the middle folds into its one use
+    const r = roundTrip(
+      `const s = synth(({ note, saw }) => saw(note.freq), ({ input, delay, reverb }) => {\n` +
+        `  const echo = input.add(delay(input, 0.375, 0.4))\n` +
+        `  return echo.mix(reverb(echo, { roomSize: 0.85, damp: 0.4 }), 0.35)\n` +
+        `})\n`,
+    )
+    expect(r).toContain('+ delay input 0.375 0.4')
+    expect(r).toContain('reverb room:0.85 damp:0.4 mix:0.35')
+  })
+
+  it('reads a skipped post slot as skipped, not as options', () => {
+    const r = roundTrip(
+      `const sub = synth(({ note, saw }) => saw(note.freq), undefined, { mono: true, glide: 0.05 })\n`,
+    )
+    expect(r).toContain('synth sub mono glide:0.05')
+  })
+
+  it('keeps a js block when the operand itself is inexpressible', () => {
+    // hoisting rescues an operand rondo cannot PLACE, never one it cannot SAY
+    expect(decompile(`const k = synth(({ note, saw }) => saw(note.freq).mul(Math.random()))\n`))
+      .toContain('js{')
+  })
+})

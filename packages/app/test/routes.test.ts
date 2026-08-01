@@ -191,6 +191,44 @@ describe('every snippet can be shown in either language', () => {
     expect(bad.map((b) => b.id)).toEqual([])
   })
 
+  /* THE DIRECTION THAT WAS NEVER CHECKED. Everything above tests snippets
+   * AUTHORED in rondo. The guide is mostly authored in JavaScript, and for
+   * those the toggle promises the other direction — which went untested, so
+   * 18 of 32 quietly stayed in JavaScript on `?lang=rondo` while the suite
+   * was green. The same rule asserted for one direction only is this repo's
+   * standing bug shape.
+   *
+   * The list below is what rondo genuinely cannot say yet, each with the
+   * reason. It is an ALLOWLIST: a new JS snippet that will not convert fails
+   * this test, and closing one of these means deleting its line. */
+  const NO_RONDO_FORM: Record<string, string> = {
+    notes: "defineScale's cents form — rondo's `scaledef` takes semitones only",
+    arrange: 'a stack whose layers have DIFFERENT sounds — rondo layers share the block synth',
+    'midi-import': 'a stack whose layers have DIFFERENT sounds',
+    singing: 'sing() as a decompiler statement — rondo has the surface, the decompiler has no handler',
+  }
+
+  it('converts every JS snippet to rondo, except the listed few', () => {
+    const stuck = blocks
+      .filter((b) => b.lang === undefined)
+      .filter((b) => {
+        const d = decompile(b.text)
+        return d.includes('js{') || /^js$/m.test(d)
+      })
+      .map((b) => b.id)
+    expect(stuck.sort()).toEqual(Object.keys(NO_RONDO_FORM).sort())
+  })
+
+  it('every listed exception is still a real exception', () => {
+    // an entry that has quietly started working must be DELETED, or the list
+    // becomes a record of problems that no longer exist
+    const ids = new Set(blocks.map((b) => b.id))
+    for (const [id, why] of Object.entries(NO_RONDO_FORM)) {
+      expect(ids.has(id), `${id} is no longer a docs section`).toBe(true)
+      expect(why.length, `${id} needs a reason`).toBeGreaterThan(20)
+    }
+  })
+
   it('wires a language toggle that persists and travels', () => {
     const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
     expect(src).toContain('doc-langpick')

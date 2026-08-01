@@ -463,14 +463,117 @@ export function checkFixedPoint(src: string): FuzzFailure | null {
   }
   const c2 = compile(rondo2)
   if (!c2.ok) return { kind: 'recompile', errors: JSON.stringify(c2.errors), rondo2 }
-  if (c2.code !== c1.code) {
-    const a = c1.code.split('\n')
-    const b = c2.code.split('\n')
+  const a0 = normalizedProgram(c1.code)
+  const b0 = normalizedProgram(c2.code)
+  if (a0 !== b0) {
+    const a = a0.split('\n')
+    const b = b0.split('\n')
     let i = 0
     while (i < a.length && i < b.length && a[i] === b[i]) i++
-    return { kind: 'mismatch', rondo2, diff: `line ${i + 1}:\n  first:  ${a[i] ?? '<end>'}\n  second: ${b[i] ?? '<end>'}` }
+    return { kind: 'mismatch', rondo2, diff: `at ${i + 1}:\n  first:  ${a[i] ?? '<end>'}\n  second: ${b[i] ?? '<end>'}` }
   }
   return null
+}
+
+/* ---- naming-insensitive comparison ------------------------------------------ *
+ * The contract is "the same program", and it USED to be checkable as byte
+ * identity because anything the decompiler could not say inline it kept as a
+ * verbatim `js{ ... }` blob -- which round-trips as itself, trivially.
+ *
+ * Now that a blob is a last resort rather than a first one, an operand rondo
+ * has no inline spelling for (it has no parentheses) comes back as a binding:
+ *
+ *   sine(tri(110).mix(220, 5200).add(4))
+ *   const sig = tri(110); const sum = sig.mix(220, 5200); ... sine(sum.add(4))
+ *
+ * Same program, different text. So both sides are compared as ASTs with every
+ * single-use `const` folded back into its one use -- which normalizes exactly
+ * the freedom the decompiler now has, and nothing else. A binding used twice,
+ * a renamed binding, a changed argument: all still differ.
+ *
+ * On the AST rather than the text because SCOPE decides what "used once"
+ * means: two synths may each bind `amp`, and a voice and its post chain may
+ * each bind `amp`, inside one `const x = synth(voice, post)` statement. Every
+ * text-level attempt at this counted one scope's uses against another's.
+ */
+type AstNode = Record<string, unknown>
+
+export function normalizedProgram(js: string): string {
+  const tree = parse(js, { ecmaVersion: 2022, sourceType: 'script' }) as unknown as AstNode
+  foldFunctions(tree)
+  return JSON.stringify(tree, (k, v) => (k === 'start' || k === 'end' ? undefined : v), 1)
+}
+
+/** Fold single-use consts in every function body, innermost first. */
+function foldFunctions(n: unknown): void {
+  if (n === null || typeof n !== 'object') return
+  if (Array.isArray(n)) {
+    for (const x of n) foldFunctions(x)
+    return
+  }
+  const node = n as AstNode
+  for (const k of Object.keys(node)) if (k !== 'type') foldFunctions(node[k])
+  const body = node['body']
+  if (
+    (node['type'] === 'ArrowFunctionExpression' || node['type'] === 'FunctionExpression') &&
+    body !== null && typeof body === 'object' && (body as AstNode)['type'] === 'BlockStatement'
+  ) foldBody(body as AstNode)
+}
+
+function foldBody(block: AstNode): void {
+  for (let pass = 0; pass < 50; pass++) {
+    const stmts = block['body'] as AstNode[]
+    let folded = false
+    for (let i = 0; i < stmts.length && !folded; i++) {
+      const s = stmts[i]!
+      if (s['type'] !== 'VariableDeclaration' || s['kind'] !== 'const') continue
+      const decls = s['declarations'] as AstNode[]
+      if (decls.length !== 1) continue
+      const d = decls[0]!
+      const id = d['id'] as AstNode
+      const init = d['init'] as AstNode | null
+      if (id['type'] !== 'Identifier' || init === null) continue
+      const refs: { holder: AstNode | AstNode[]; key: string | number }[] = []
+      collectRefs(block, id['name'] as string, id, refs)
+      if (refs.length !== 1) continue
+      const r = refs[0]!
+      ;(r.holder as Record<string | number, unknown>)[r.key] = init
+      stmts.splice(i, 1)
+      folded = true
+    }
+    if (!folded) return
+  }
+}
+
+/** Every REFERENCE to `name` under `n`: not the declaration id, not a
+ *  non-computed member property (`x.freq`), not a non-computed object key. */
+function collectRefs(
+  n: unknown,
+  name: string,
+  declId: AstNode,
+  out: { holder: AstNode | AstNode[]; key: string | number }[],
+  holder?: AstNode | AstNode[],
+  key?: string | number,
+): void {
+  if (n === null || typeof n !== 'object') return
+  if (Array.isArray(n)) {
+    for (let i = 0; i < n.length; i++) collectRefs(n[i], name, declId, out, n as AstNode[], i)
+    return
+  }
+  const node = n as AstNode
+  if (node === declId) return
+  if (node['type'] === 'Identifier') {
+    if (node['name'] === name && holder !== undefined && key !== undefined) out.push({ holder, key })
+    return
+  }
+  const skip =
+    node['type'] === 'MemberExpression' && node['computed'] !== true ? 'property'
+    : node['type'] === 'Property' && node['computed'] !== true ? 'key'
+    : ''
+  for (const k of Object.keys(node)) {
+    if (k === 'type' || k === 'start' || k === 'end' || k === skip) continue
+    collectRefs(node[k], name, declId, out, node, k)
+  }
 }
 
 /** Greedy structural shrink: drop whole blocks, then single lines, as long as

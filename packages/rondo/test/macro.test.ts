@@ -136,9 +136,10 @@ describe('macro: decompile round-trips', () => {
     expect(ok(decompile(code))).toBe(code)
   })
 
-  it('a renamed local stays a js block rather than round-tripping wrong', () => {
-    // `const b = param('bright')` cannot become a bare `bright` — the spine
-    // refers to `b`. Bailing keeps the fixed point honest.
+  it('a local under a different name is RENAMED to its param, not bailed on', () => {
+    // `const b = param('bright')` has no rondo spelling as `b`: in rondo the
+    // binding name IS the param name. Renaming the local to `bright` says the
+    // same thing, so this converts instead of falling back to a js block.
     const js = [
       `macro('bright', 1000, { min: 0, max: 2000 })`,
       `const lead = synth(({ note, saw, param }) => {`,
@@ -146,10 +147,26 @@ describe('macro: decompile round-trips', () => {
       `  return saw(note.freq).mul(b)`,
       `})`,
     ].join('\n')
-    // the whole synth falls back to a verbatim js block, which still compiles
     const back = decompile(js)
-    expect(back).toContain("param('bright')")
+    expect(back, 'no js escape hatch left').not.toContain('js')
     expect(back).toContain('macro bright 1000 0..2000')
-    expect(ok(back)).toContain("const b = param('bright')")
+    // a macro reference needs no binding line at all — the bare name is it
+    expect(back).toContain('* bright')
+    // and it is the SAME program: the local is back, under the param's name
+    expect(ok(back)).toContain("const bright = param('bright')")
+    expect(ok(back)).toContain('saw(note.freq).mul(bright)')
+  })
+
+  it('a rename that would collide is left alone', () => {
+    // `cut` is already a binding here, so renaming `c` to `cut` would merge
+    // two different values into one name. The synth keeps its js block.
+    const js = [
+      `const lead = synth(({ note, saw, svf, param }) => {`,
+      `  const cut = param('cut', 800, { min: 100, max: 9000 })`,
+      `  const c = param('cut')`,
+      `  return svf(saw(note.freq), cut).mul(c)`,
+      `})`,
+    ].join('\n')
+    expect(decompile(js)).toContain('js')
   })
 })

@@ -137,6 +137,11 @@ const OP_INFO: Record<string, { op: string; prec: number }> = {
   pow: { op: '^', prec: 4 },
 }
 
+/** What a hoisted operand of each operator is FOR, used to name it. Nothing in
+ *  the JavaScript says, so the position is all there is to go on — and a name
+ *  is better than `x1` in a snippet somebody is reading to learn from. */
+const OP_ROLE: Record<string, string> = { mul: 'amp', div: 'amp', add: 'sum', sub: 'sum', pow: 'exp' }
+
 const ALIAS_INV: Record<string, string> = { roomSize: 'room', maxTime: 'maxtime', warpAmt: 'warpamt' }
 
 function namedArgs(spec: (typeof BUILTINS)[string], opts: Node | undefined): string | null {
@@ -157,25 +162,141 @@ function namedArgs(spec: (typeof BUILTINS)[string], opts: Node | undefined): str
       parts.push(`${rname}:${val['value'] === true ? '1' : '0'}`)
     } else {
       const r = rExpr(val)
-      if (r === null || r.prec < 3) return null // emit tight values only
-      // the value must be fully CLOSED: an open tail could absorb the next
-      // pair (an inner call declaring the same named key), and an arity-open
-      // call would swallow juxtaposed tokens
-      if (r.openPrec !== undefined || r.arityOpen) return null
-      parts.push(`${rname}:${r.s}`)
+      if (r === null) return null
+      // the value must be tight AND fully CLOSED: an open tail could absorb
+      // the next pair (an inner call declaring the same named key), and an
+      // arity-open call would swallow juxtaposed tokens. A modulated named
+      // arg (`pos: lfo(.05).range(0, 1)`) is neither, so it gets a name.
+      const tight = r.prec >= 3 && r.openPrec === undefined && !r.arityOpen
+      if (!tight && !hoist.on) return null
+      parts.push(`${rname}:${tight ? r.s : hoistAs(rname, r)}`)
     }
   }
   return parts.length > 0 ? ' ' + parts.join(' ') : ''
 }
 
+/* ---- hoisting -------------------------------------------------------------- *
+ * rondo has NO PARENTHESES, so an operand that renders looser than its
+ * position accepts cannot be written inline at all. `sine(adsr(…).range(45,
+ * 160))` has no one-line spelling: `sine adsr .001 .09 0 .05 -> 45..160`
+ * re-parses with the range applied to the whole sine call.
+ *
+ * The rondo answer is the one a person writes by hand — name it:
+ *
+ *   sine pitch
+ *   pitch = adsr .001 .09 0 .05 -> 45..160
+ *
+ * which is exactly how the cookbook's kick is authored. So an operand that
+ * RENDERS but will not FIT becomes a generated binding instead of collapsing
+ * the whole line to a js{ } blob. This is the single biggest reason a
+ * JS-authored snippet refused to convert: the range-into-an-oscillator shape
+ * is how nearly every drum in the docs is built.
+ *
+ * Names come from the operand's ROLE, because nothing in the JS says what it
+ * means, and a bare `x1` in a documentation example reads as machine output.
+ * A numeric suffix appears only on collision.
+ */
+const hoist: { out: string[]; used: Set<string>; params: Map<string, string>; on: boolean } =
+  { out: [], used: new Set(), params: new Map(), on: false }
+
+/** Reset the hoist collector for one chain, returning the previous state so
+ *  nested chains (a post inside a synth) restore rather than clobber. */
+function hoistBegin(on: boolean): typeof hoist {
+  const prev = { out: hoist.out, used: hoist.used, params: hoist.params, on: hoist.on }
+  hoist.out = []
+  hoist.used = new Set()
+  hoist.params = new Map()
+  hoist.on = on
+  return prev
+}
+const hoistEnd = (prev: typeof hoist): string[] => {
+  const out = hoist.out
+  hoist.out = prev.out
+  hoist.used = prev.used
+  hoist.params = prev.params
+  hoist.on = prev.on
+  return out
+}
+
+/** The rondo declaration for a `param(name, default, opts)` call's arguments:
+ *  `knob 900 80..8000 log`, or `switch .9 .15`. ONE definition — the binding
+ *  path and the inline path must not drift, which is exactly how a switch
+ *  written inline would have come back as a knob with an invented range. */
+function paramDecl(pargs: Node[], want: string): string | null {
+  const pname = pargs[0] !== undefined ? strValue(pargs[0]) : undefined
+  const def = pargs[1] !== undefined ? numValue(pargs[1]) : undefined
+  const po = pargs[2] !== undefined ? objEntries(pargs[2]) : {}
+  if (pname !== want || def === undefined || po === undefined) return null
+  // a SWITCH: two values, no range. Must come before the knob path — the
+  // omitted min/max would otherwise default to 0..1 and emit a knob with an
+  // invented range, losing the switch silently.
+  if (po['values'] !== undefined) {
+    const pair = numPair(po['values'])
+    return pair === undefined ? null : `switch ${num(pair[0])} ${num(pair[1])}`
+  }
+  const min = po['min'] !== undefined ? numValue(po['min']) : 0
+  const max = po['max'] !== undefined ? numValue(po['max']) : 1
+  const curve = po['curve'] !== undefined ? strValue(po['curve']) : undefined
+  if (min === undefined || max === undefined) return null
+  return `knob ${num(def)} ${num(min)}..${num(max)}${curve === 'log' ? ' log' : ''}`
+}
+
+/* Rendering is SPECULATIVE in several places — a value is rendered once to
+ * inspect it, or rendered again in its closed spelling and the first result
+ * thrown away. A hoist committed by a rendering nobody keeps leaves a binding
+ * with no reference, and the fuzz fixed-point check catches it immediately:
+ * `mix` rendered its operand twice and emitted `sig`/`sig2` for one operand.
+ * So every discarded rendering rolls its hoists back. */
+const hoistMark = (): number => hoist.out.length
+function hoistRollback(mark: number): void {
+  for (let i = mark; i < hoist.out.length; i++) {
+    const name = hoist.out[i]!.slice(0, hoist.out[i]!.indexOf(' '))
+    hoist.used.delete(name)
+    hoist.params.delete(name)
+  }
+  hoist.out.length = mark
+}
+/** Render `n`, keeping no hoists: for deciding ABOUT a rendering, not using it. */
+function peek(n: Node): R | null {
+  const mark = hoistMark()
+  const r = rExpr(n)
+  hoistRollback(mark)
+  return r
+}
+
+/** Bind `r` to a fresh `role`-derived name and return the name. */
+function hoistAs(role: string, r: R): string {
+  // A role name is a guess and may already mean something: `exp` is a builtin,
+  // so is `mix`, and a named argument's key (which is where some roles come
+  // from) can be either. A binding that shadows a builtin is a compile error,
+  // so the generated name has to clear the same bar the parser enforces.
+  const taken = (n: string): boolean =>
+    hoist.used.has(n) || isReservedBinding(n) || BUILTINS[n] !== undefined
+  let name = role
+  for (let i = 2; taken(name); i++) name = `${role}${i}`
+  hoist.used.add(name)
+  hoist.out.push(`${name} = ${r.s}`)
+  return name
+}
+
 /** A positional argument in a builtin application parses at prec ≥ 2.
  *  A NON-last positional must also be fully closed: an arity-open rendering
  *  (`saw` bare, `fm 100`) would swallow the next positional as its own. */
-function posArg(n: Node, last = true): string | null {
+function posArg(n: Node, last = true, role = 'sig'): string | null {
+  const fits = (x: R): boolean => x.prec >= 2 && (last || (!x.arityOpen && x.openPrec === undefined))
+  const mark = hoistMark()
   const r = rExpr(n)
-  if (r === null || r.prec < 2) return null
-  if (!last && (r.arityOpen || r.openPrec !== undefined)) return null
-  return r.s
+  if (r === null) return null
+  if (fits(r)) return r.s
+  // `mix saw .3` wants saw's CLOSED spelling before it wants a binding: the
+  // extra word is cheaper to read than a name for something already named
+  hoistRollback(mark)
+  const closed = rExpr(n, true)
+  if (closed !== null && fits(closed)) return closed.s
+  // renders, but will not fit HERE: give it a name rather than losing the line
+  hoistRollback(mark)
+  const again = rExpr(n)
+  return hoist.on && again !== null ? hoistAs(role, again) : null
 }
 
 /** eq band objects → rondo's word-then-numbers groups (`hp 170 peak 300 -3 2`),
@@ -225,10 +346,34 @@ function eqBands(n: Node): string | null {
  * The flag does NOT propagate into nested calls: only the argument that has to
  * be unambiguous pays the extra word.
  */
+/** Local `const`s this pass is folding into their single use. See
+ *  decompileChainFn: empty on the first attempt, populated on the second. */
+const inline: { map: ReadonlyMap<string, Node> } = { map: new Map() }
+
+/** Local names being rewritten to the param they read. In rondo a knob IS its
+ *  param — `cut = knob 1500 300..6000 log` declares the param `cut` — so
+ *  JavaScript that reads `param('cutoff')` into a variable called `cut` has no
+ *  rondo spelling under the variable's name. Renaming the variable to the
+ *  param is what makes it sayable, and it is the same knob either way. */
+const renames: { map: ReadonlyMap<string, string> } = { map: new Map() }
+
+/** THE INVARIANT: a rendering that fails leaves no hoists behind. Without it a
+ *  half-rendered call (first argument hoisted, second inexpressible) drops a
+ *  binding nothing references into a chain that then falls back to js{ }. */
 function rExpr(n: Node, closed = false): R | null {
+  const mark = hoistMark()
+  const r = rExprRaw(n, closed)
+  if (r === null) hoistRollback(mark)
+  return r
+}
+
+function rExprRaw(n: Node, closed = false): R | null {
   // identifiers + the special refs
   if (n.type === 'Identifier') {
-    return { s: n['name'] as string, prec: 5, arityOpen: false }
+    const name = n['name'] as string
+    const sub = inline.map.get(name)
+    if (sub !== undefined) return rExpr(sub, closed)
+    return { s: renames.map.get(name) ?? name, prec: 5, arityOpen: false }
   }
   const v = numValue(n)
   if (v !== undefined) return { s: num(v), prec: 5, arityOpen: false }
@@ -243,12 +388,19 @@ function rExpr(n: Node, closed = false): R | null {
     // Sig operators → infix (left-assoc; compose only when re-parse matches)
     const info = OP_INFO[m.method]
     if (info !== undefined && m.args.length === 1) {
-      const l = rExpr(m.obj)
-      const r = rExpr(m.args[0]!)
+      let l = rExpr(m.obj)
+      let r = rExpr(m.args[0]!)
       if (l === null || r === null) return null
-      if (l.prec < info.prec || r.prec <= info.prec) return null // would mis-associate
-      // `saw 2 + x` re-parses as saw(2 + x); `f k:v * x` extends the named value
-      if (l.openPrec !== undefined && info.prec >= l.openPrec) return null
+      // Either side may be too loose to sit here without parens rondo does not
+      // have. Naming it says the same thing and keeps the line.
+      if (l.prec < info.prec || (l.openPrec !== undefined && info.prec >= l.openPrec)) {
+        if (!hoist.on) return null
+        l = { s: hoistAs(OP_ROLE[m.method] ?? 'sig', l), prec: 5, arityOpen: false }
+      }
+      if (r.prec <= info.prec) {
+        if (!hoist.on) return null
+        r = { s: hoistAs(OP_ROLE[m.method] ?? 'sig', r), prec: 5, arityOpen: false }
+      }
       return { s: `${l.s} ${info.op} ${r.s}`, prec: info.prec, openPrec: r.openPrec, arityOpen: r.arityOpen }
     }
     // Sig-method builtins in EXPRESSION position: `floor wob`, `min wob .2`.
@@ -336,6 +488,30 @@ function rExpr(n: Node, closed = false): R | null {
       if (input === null || bands === null) return null
       return { s: `eq ${input} ${bands}`, prec: 5, openPrec: 2, arityOpen: true }
     }
+    // `param('x')` with no default is a MACRO REFERENCE. The numbers live on
+    // the `macro` line, so the bare name is the whole rondo source — the same
+    // rule decompileChainFn already applies to a `const x = param('x')`
+    // binding, which is why it only ever fired when a macro was read into a
+    // variable first and never when it was read inline.
+    if (name === 'param') {
+      const pn = args[0] !== undefined ? strValue(args[0]) : undefined
+      if (pn === undefined || !/^[a-zA-Z_]\w*$/.test(pn) || isReservedBinding(pn)) return null
+      if (args.length === 1) return { s: pn, prec: 5, arityOpen: false }
+      // With a default it is a KNOB, and in rondo a knob's numbers live on a
+      // binding. It already HAS a name — its own — so it needs no invented
+      // one, and writing the same knob twice is just the same binding.
+      const decl = paramDecl(args, pn)
+      if (decl === null || !hoist.on) return null
+      const seen = hoist.params.get(pn)
+      if (seen !== undefined && seen !== decl) return null
+      if (seen === undefined) {
+        if (hoist.used.has(pn)) return null
+        hoist.used.add(pn)
+        hoist.params.set(pn, decl)
+        hoist.out.push(`${pn} = ${decl}`)
+      }
+      return { s: pn, prec: 5, arityOpen: false }
+    }
     const spec = name !== undefined ? BUILTINS[name] : undefined
     if (spec === undefined) return null
     if (spec.kind === 'sigop') return null // no expression form
@@ -377,7 +553,10 @@ function rExpr(n: Node, closed = false): R | null {
             isIdent(rest[i]!['object'] as Node, 'note') && isIdent(rest[i]!['property'] as Node, 'freq')) {
           continue
         }
-        const p = posArg(rest[i]!, i === rest.length - 1)
+        // an oscillator's first positional IS its frequency, and that is a
+        // better name for a hoisted pitch envelope than a generic one
+        const role = spec.kind === 'osc' && i === 0 ? 'freq' : 'sig'
+        const p = posArg(rest[i]!, i === rest.length - 1, role)
         if (p === null) return null
         pos.push(p)
       }
@@ -388,7 +567,7 @@ function rExpr(n: Node, closed = false): R | null {
     // tail decides operator absorption; arity room decides token absorption
     // (named args seal the positional list: after `k:v`, a bare token errors
     // instead of becoming a positional)
-    const lastPos = rest.length > 0 && rest[rest.length - 1] !== undefined ? rExpr(rest[rest.length - 1]!) : null
+    const lastPos = rest.length > 0 && rest[rest.length - 1] !== undefined ? peek(rest[rest.length - 1]!) : null
     const arityOpen = named === '' && (pos.length < spec.pos.length || (lastPos !== null && lastPos.arityOpen))
     const openPrec = named !== '' || posStr !== '' || prefix !== '' ? (2 as const) : undefined
     return { s: `${name}${prefix}${posStr}${named}`, prec: 5, openPrec, arityOpen }
@@ -426,15 +605,47 @@ function numPair(n: Node): [number, number] | undefined {
  *   ((x) => x.mix(reverb(x,o), t))(inner) → reverb … mix:t
  * What remains is the source line. Any unpeelable layer bails the WHOLE
  * chain to a single js{ … } source line (still valid rondo). */
+/** Two references to the SAME running signal: the same node, or two mentions
+ *  of one identifier. What `x.mix(reverb(x, …), t)` needs to be sure of. */
+const sameSignal = (a: Node, b: Node): boolean =>
+  a === b || (a.type === 'Identifier' && b.type === 'Identifier' && a['name'] === b['name'])
+
+/** `dry.mix(reverb(dry, opts), t)` → the `reverb … mix:t` line, else null. */
+function wetDryReverb(dry: Node, wet: Node, amount: Node): string | null {
+  if (!isCall(wet) || calleeName(wet) !== 'reverb') return null
+  const rargs = wet['arguments'] as Node[]
+  if (rargs.length < 1 || rargs[0] === undefined || !sameSignal(dry, rargs[0])) return null
+  const t = rExpr(amount)
+  const named = namedArgs(BUILTINS['reverb']!, rargs[1])
+  if (t === null || t.prec < 3 || named === null) return null
+  return `reverb${named} mix:${t.s}`
+}
+
 function unfoldPipeline(n: Node, lines: string[]): boolean {
+  const mark = hoistMark()
+  const ok = unfoldPipelineRaw(n, lines)
+  if (!ok) hoistRollback(mark) // same invariant as rExpr: no orphan bindings
+  return ok
+}
+
+function unfoldPipelineRaw(n: Node, lines: string[]): boolean {
+  if (n.type === 'Identifier') {
+    const sub = inline.map.get(n['name'] as string)
+    if (sub !== undefined) return unfoldPipeline(sub, lines)
+  }
   const m = methodCall(n)
   if (m !== undefined) {
     const info = OP_INFO[m.method]
     if (info !== undefined && m.args.length === 1) {
       const arg = rExpr(m.args[0]!)
-      if (arg === null || arg.prec <= info.prec) return false
+      if (arg === null) return false
+      // `* adsr … * 0.2` re-associates as `(sig * adsr) * 0.2`, which is only
+      // accidentally right for `*` and wrong in general, so an operand at or
+      // below this operator's precedence gets a name instead.
+      const s = arg.prec > info.prec ? arg.s : hoist.on ? hoistAs(OP_ROLE[m.method] ?? 'sig', arg) : null
+      if (s === null) return false
       if (!unfoldPipeline(m.obj, lines)) return false
-      lines.push(`${info.op} ${arg.s}`)
+      lines.push(`${info.op} ${s}`)
       return true
     }
     // Zero-arg sigops (tanh, fold, abs, floor, sqrt, …) render as the bare
@@ -448,8 +659,12 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
     // One-arg sigops (min, max, mod): the operand must render CLOSED, or it
     // would swallow whatever follows it on the line.
     if (spec?.kind === 'sigop' && spec.pos.length === 1 && m.args.length === 1) {
+      const mk = hoistMark()
       let arg = rExpr(m.args[0]!)
-      if (arg !== null && arg.arityOpen) arg = rExpr(m.args[0]!, true)
+      if (arg !== null && arg.arityOpen) {
+        hoistRollback(mk)
+        arg = rExpr(m.args[0]!, true)
+      }
       if (arg === null || arg.prec < 2 || arg.arityOpen) return false
       if (!unfoldPipeline(m.obj, lines)) return false
       lines.push(`${m.method} ${arg.s}`)
@@ -463,11 +678,27 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
       return true
     }
     if (m.method === 'mix' && m.args.length === 2) {
+      // WET/DRY: `x.mix(reverb(x, opts), t)` is rondo's `reverb … mix:t`. The
+      // IIFE spelling of this is recognised further down; this is the spelling
+      // where the signal was given a NAME first, which is what a hand-written
+      // post chain looks like (`const wide = width(input, .7)` then
+      // `wide.mix(reverb(wide, …), .22)`). Same shape, and it has to be caught
+      // before the general mix path renders `reverb(x, …)` as an operand.
+      const wet = wetDryReverb(m.obj, m.args[0]!, m.args[1]!)
+      if (wet !== null) {
+        if (!unfoldPipeline(m.obj, lines)) return false
+        lines.push(wet)
+        return true
+      }
       // `mix a b` puts a bare token after `a`, so `a` must have no arity room
       // left. When the short form does (bare `saw` still wants a frequency),
       // ask for the closed spelling rather than giving up on the whole line.
+      const mk = hoistMark()
       let other = rExpr(m.args[0]!)
-      if (other !== null && other.arityOpen) other = rExpr(m.args[0]!, true)
+      if (other !== null && other.arityOpen) {
+        hoistRollback(mk)
+        other = rExpr(m.args[0]!, true)
+      }
       const t = rExpr(m.args[1]!)
       // arityOpen, NOT openPrec: line 377 draws the distinction -- openPrec is
       // operator absorption, arity room is TOKEN absorption, and a bare token
@@ -565,6 +796,11 @@ function decompileSynth(stmt: Node): string | null {
     if (args[1].type === 'ArrowFunctionExpression') {
       post = args[1]
       opts = args[2]
+    } else if (isIdent(args[1], 'undefined')) {
+      // `synth(voice, undefined, { mono: true })` — the post slot is SKIPPED,
+      // not filled with an options object. Read as opts it made objEntries
+      // fail and took the whole synth down to a js block.
+      opts = args[2]
     } else opts = args[1]
   }
   // header voice options
@@ -596,10 +832,161 @@ function decompileSynth(stmt: Node): string | null {
 
 /** Decompile a synth/post/sing-post BUILDER ARROW into rondo chain lines
  *  (spine + bindings), or null when inexpressible. `fromInput = true` drops
- *  the implicit leading `input` line of a post chain. */
+ *  the implicit leading `input` line of a post chain.
+ *
+ *  THREE ATTEMPTS, each a strict RESCUE of the one before. The plain pass is
+ *  the original behaviour, unchanged: render everything inline and keep every
+ *  local `const` as a named binding. Only when that leaves a `js{ }` blob do
+ *  the rescues run, so nothing that already round-tripped can start coming
+ *  back differently — which matters because the decompiler's contract is that
+ *  compile → decompile → compile is BYTE-IDENTICAL JS, and a binding is not
+ *  byte-identical to the expression it replaces even when it is the same
+ *  sound. The fuzzer catches that immediately; it is how this ordering was
+ *  found.
+ *
+ *    1. plain          — as authored, everything inline
+ *    2. + hoisting     — name an operand rondo cannot place inline
+ *    3. + inlining     — fold single-use `const`s into their one use, for a
+ *                        post chain like `const echo = input.add(delay(…));
+ *                        return reverb(echo, …)`, which has no spelling with
+ *                        `echo` still named: a post spine folds from `input`
+ *                        implicitly and cannot start anywhere else. Inlined
+ *                        it is `+ delay input .25 .4` then `reverb room:…`,
+ *                        which is how it would have been written by hand. */
 function decompileChainFn(fn: Node, indent: string, fromInput = false): string[] | null {
+  const prevRenames = renames.map
+  renames.map = paramRenames(fn)
+  try {
+    return chainAttempts(fn, indent, fromInput)
+  } finally {
+    renames.map = prevRenames
+  }
+}
+
+/** Local variables holding a `param('other')`, mapped to that param's name.
+ *  Skipped when the target is spoken for — by another binding here, by a
+ *  builtin, or by a keyword — because a rename that collides says something
+ *  different from what was written. */
+function paramRenames(fn: Node): Map<string, string> {
+  const out = new Map<string, string>()
+  const body = fn['body'] as Node
+  if (body.type !== 'BlockStatement') return out
+  const taken = new Set<string>()
+  const want: [string, string][] = []
+  for (const s of body['body'] as Node[]) {
+    if (s.type !== 'VariableDeclaration') continue
+    const bd = (s['declarations'] as Node[])[0]
+    if (bd === undefined || !isIdent(bd['id'] as Node)) continue
+    const bname = (bd['id'] as Node)['name'] as string
+    taken.add(bname)
+    const init = bd['init'] as Node | null
+    if (init === null || !isCall(init) || calleeName(init) !== 'param') continue
+    const pn = (init['arguments'] as Node[])[0]
+    const pname = pn === undefined ? undefined : strValue(pn)
+    if (pname !== undefined && pname !== bname) want.push([bname, pname])
+  }
+  for (const [from, to] of want) {
+    if (!/^[a-zA-Z_]\w*$/.test(to) || taken.has(to) || isReservedBinding(to) || BUILTINS[to] !== undefined) continue
+    out.set(from, to)
+    taken.add(to)
+  }
+  return out
+}
+
+function chainAttempts(fn: Node, indent: string, fromInput: boolean): string[] | null {
+  let best: string[] | null = null
+  for (const mode of [
+    { hoist: false, inline: false },
+    { hoist: true, inline: false },
+    { hoist: true, inline: true },
+  ]) {
+    const prevHoist = hoistBegin(mode.hoist)
+    const prevInline = inline.map
+    inline.map = mode.inline ? singleUseBindings(fn) : EMPTY_INLINE
+    const got = mode.inline && inline.map.size === 0 ? null : chainLines(fn, fromInput)
+    const hoisted = hoistEnd(prevHoist)
+    inline.map = prevInline
+    if (got === null) continue
+    const lines = [...got.spine, ...got.bindings, ...hoisted]
+    if (!lines.some((l) => l.includes('js{'))) return lines.map((l) => indent + l)
+    best ??= lines // a blob is the answer only if no later attempt does better
+  }
+  return best === null ? null : best.map((l) => indent + l)
+}
+
+const EMPTY_INLINE: ReadonlyMap<string, Node> = new Map()
+
+/** Local `const`s referenced exactly once, mapped to their value. Bindings the
+ *  rondo output NEEDS by name (a `param`, which becomes a knob or a switch)
+ *  are never inlined: the name is the wiring. */
+function singleUseBindings(fn: Node): Map<string, Node> {
+  const body = fn['body'] as Node
+  const out = new Map<string, Node>()
+  if (body.type !== 'BlockStatement') return out
+  const inits = new Map<string, Node>()
+  for (const s of body['body'] as Node[]) {
+    if (s.type !== 'VariableDeclaration') continue
+    const bd = (s['declarations'] as Node[])[0]
+    if (bd === undefined || !isIdent(bd['id'] as Node)) continue
+    const init = bd['init'] as Node | null
+    if (init === null || (isCall(init) && calleeName(init) === 'param')) continue
+    inits.set((bd['id'] as Node)['name'] as string, init)
+  }
+  if (inits.size === 0) return out
+  // count uses across the whole body, then subtract the declaration ids
+  const counts = new Map<string, number>()
+  countIdents(body, counts)
+  // A wet/dry mix mentions its signal TWICE (`wide.mix(reverb(wide, …), t)`)
+  // and rondo says it in one line, so those two mentions are one use.
+  for (const name of wetDryNames(body)) counts.set(name, (counts.get(name) ?? 0) - 1)
+  for (const [name, init] of inits) if ((counts.get(name) ?? 0) === 2) out.set(name, init)
+  return out
+}
+
+/** Identifiers appearing as the `x` of an `x.mix(reverb(x, …), t)` anywhere. */
+function wetDryNames(n: unknown, into = new Set<string>()): Set<string> {
+  if (n === null || typeof n !== 'object') return into
+  if (Array.isArray(n)) {
+    for (const x of n) wetDryNames(x, into)
+    return into
+  }
+  const node = n as Node
+  const m = methodCall(node)
+  if (m !== undefined && m.method === 'mix' && m.args.length === 2 && m.obj.type === 'Identifier') {
+    const rev = m.args[0]!
+    if (isCall(rev) && calleeName(rev) === 'reverb') {
+      const r0 = (rev['arguments'] as Node[])[0]
+      if (r0 !== undefined && sameSignal(m.obj, r0)) into.add(m.obj['name'] as string)
+    }
+  }
+  for (const k of Object.keys(node)) {
+    if (k === 'type' || k === 'start' || k === 'end') continue
+    wetDryNames(node[k], into)
+  }
+  return into
+}
+
+/** Tally every Identifier by name in an AST subtree. */
+function countIdents(n: unknown, into: Map<string, number>): void {
+  if (n === null || typeof n !== 'object') return
+  if (Array.isArray(n)) {
+    for (const x of n) countIdents(x, into)
+    return
+  }
+  const node = n as Node
+  if (node.type === 'Identifier') {
+    const name = node['name'] as string
+    into.set(name, (into.get(name) ?? 0) + 1)
+    return
+  }
+  for (const k of Object.keys(node)) {
+    if (k === 'type' || k === 'start' || k === 'end') continue
+    countIdents(node[k], into)
+  }
+}
+
+function chainLines(fn: Node, fromInput: boolean): { spine: string[]; bindings: string[] } | null {
     const body = fn['body'] as Node
-    const lines: string[] = []
     let ret: Node | undefined
     const bindings: string[] = []
     if (body.type === 'BlockStatement') {
@@ -613,33 +1000,23 @@ function decompileChainFn(fn: Node, indent: string, fromInput = false): string[]
           if (isReservedBinding(bname)) return null
           const bin = bd['init'] as Node | null
           if (bin === null) return null
+          // folded into its one use by this attempt — emitting it too would
+          // leave an unreferenced binding behind
+          if (inline.map.has(bname)) continue
+          const bound = renames.map.get(bname) ?? bname
+          hoist.used.add(bound) // a generated name must not collide with it
           // param('x', d, opts) → knob (name must match the binding)
           if (isCall(bin) && calleeName(bin) === 'param') {
             const pa = bin['arguments'] as Node[]
-            const pname = pa[0] !== undefined ? strValue(pa[0]) : undefined
-            const def = pa[1] !== undefined ? numValue(pa[1]) : undefined
-            const po = pa[2] !== undefined ? objEntries(pa[2]) : {}
             // param('bright') with NO default is a MACRO reference: the
             // numbers live on the macro line, so there is nothing to write
             // here — the bare `bright` in the spine IS the rondo source.
-            if (pname === bname && def === undefined && pa.length === 1) continue
-            if (pname !== bname || def === undefined || po === undefined) return null
-            // a SWITCH: two values, no range. Must come before the knob path —
-            // the omitted min/max would otherwise default to 0..1 and emit a
-            // knob with an invented range, losing the switch silently.
-            const pair = po['values'] !== undefined ? numPair(po['values']) : undefined
-            if (po['values'] !== undefined) {
-              if (pair === undefined) return null
-              bindings.push(`${bname} = switch ${num(pair[0])} ${num(pair[1])}`)
-              continue
-            }
-            const min = po['min'] !== undefined ? numValue(po['min']) : 0
-            const max = po['max'] !== undefined ? numValue(po['max']) : 1
-            const curve = po['curve'] !== undefined ? strValue(po['curve']) : undefined
-            if (min === undefined || max === undefined) return null
-            bindings.push(`${bname} = knob ${num(def)} ${num(min)}..${num(max)}${curve === 'log' ? ' log' : ''}`)
+            if (pa.length === 1 && strValue(pa[0]!) === bound) continue
+            const decl = paramDecl(pa, bound)
+            if (decl === null) return null
+            bindings.push(`${bound} = ${decl}`)
           } else {
-            bindings.push(`${bname} = ${bindingRHS(bin)}`)
+            bindings.push(`${bound} = ${bindingRHS(bin)}`)
           }
         } else if (s.type === 'ReturnStatement') {
           ret = (s['argument'] as Node | null) ?? undefined
@@ -659,7 +1036,7 @@ function decompileChainFn(fn: Node, indent: string, fromInput = false): string[]
       if (spine[0] !== 'input') return null
       spine.shift()
     }
-    return [...spine, ...bindings].map((l) => indent + l)
+    return { spine, bindings }
   }
 
 // Invert keeping the FIRST spelling per long name: SCALE_MODE lists the terse

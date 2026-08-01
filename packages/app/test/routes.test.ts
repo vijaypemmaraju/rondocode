@@ -198,15 +198,8 @@ describe('every snippet can be shown in either language', () => {
    * was green. The same rule asserted for one direction only is this repo's
    * standing bug shape.
    *
-   * The list below is what rondo genuinely cannot say yet, each with the
-   * reason. It is an ALLOWLIST: a new JS snippet that will not convert fails
-   * this test, and closing one of these means deleting its line. */
-  const NO_RONDO_FORM: Record<string, string> = {
-    arrange: 'a stack whose layers have DIFFERENT sounds — rondo layers share the block synth',
-    'midi-import': 'a stack whose layers have DIFFERENT sounds',
-  }
-
-  it('converts every JS snippet to rondo, except the listed few', () => {
+   * There is no allowlist any more: every one of them converts. */
+  it('converts every JS snippet to rondo', () => {
     const stuck = blocks
       .filter((b) => b.lang === undefined)
       .filter((b) => {
@@ -214,7 +207,7 @@ describe('every snippet can be shown in either language', () => {
         return d.includes('js{') || /^js$/m.test(d)
       })
       .map((b) => b.id)
-    expect(stuck.sort()).toEqual(Object.keys(NO_RONDO_FORM).sort())
+    expect(stuck).toEqual([])
   })
 
   it('and what it converts is rondo that COMPILES', () => {
@@ -222,21 +215,25 @@ describe('every snippet can be shown in either language', () => {
     // collides with one declared further down the same synth reads fine and
     // is a duplicate-binding error. Only compiling it says so.
     const broken = blocks
-      .filter((b) => b.lang === undefined && !(b.id in NO_RONDO_FORM))
+      .filter((b) => b.lang === undefined)
       .map((b) => ({ id: b.id, c: compile(decompile(b.text)) }))
       .filter((x) => !x.c.ok)
       .map((x) => `${x.id}: ${JSON.stringify(x.c.ok ? [] : x.c.errors)}`)
     expect(broken).toEqual([])
   })
 
-  it('every listed exception is still a real exception', () => {
-    // an entry that has quietly started working must be DELETED, or the list
-    // becomes a record of problems that no longer exist
-    const ids = new Set(blocks.map((b) => b.id))
-    for (const [id, why] of Object.entries(NO_RONDO_FORM)) {
-      expect(ids.has(id), `${id} is no longer a docs section`).toBe(true)
-      expect(why.length, `${id} needs a reason`).toBeGreaterThan(20)
+  it('and it is the SAME program, not merely a compiling one', () => {
+    // the toggle is only honest if the rondo plays what the JavaScript played.
+    // Once through the compiler both languages normalize, and from there the
+    // conversion is a fixed point — which is the decompiler's own contract.
+    const drifted: string[] = []
+    for (const b of blocks.filter((x) => x.lang === undefined)) {
+      const once = compile(decompile(b.text))
+      if (!once.ok) continue // the test above owns that failure
+      const twice = compile(decompile(once.code))
+      if (!twice.ok || twice.code !== once.code) drifted.push(b.id)
     }
+    expect(drifted).toEqual([])
   })
 
   it('wires a language toggle that persists and travels', () => {

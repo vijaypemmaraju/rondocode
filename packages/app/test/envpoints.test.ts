@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { envGeometry, envPath, scanEnvPoints, BEND_LIMIT, BEND_TRAVEL, bendCurve, bendPixels } from '../src/editor/rondo/envpoints'
+import { envGeometry, envPath, scanEnvPoints, BEND_LIMIT, BEND_TRAVEL, bendCurve, bendPixels, POLE, poleAt, poleLeg } from '../src/editor/rondo/envpoints'
 import type { EnvPoint } from '../src/editor/rondo/envpoints'
 
 /* ------------------------------------------------------------------------- *
@@ -214,5 +214,75 @@ describe('bendCurve / bendPixels', () => {
   it('hands the useful 0..3 region most of the drag, where the old law gave it a third', () => {
     expect(bendPixels(3) / bendPixels(BEND_LIMIT)).toBeGreaterThan(0.6) // 74 of 120 px
     expect(3 / BEND_LIMIT).toBeLessThan(0.4) // the old law: 42 of 112 px
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The ADSR widget must draw the envelope the ENGINE produces.
+ *
+ * It drew straight lines. The engine's decay and release are one-pole
+ * (`gD = 1 - exp(-1/(d*sr))`), so `d` is a time constant, not a duration:
+ * measured on the real kernel with a .05 d .2 s .4, the level at a+d is 0.620,
+ * not the sustain 0.4. The widget was claiming sustain arrived there.
+ *
+ * These pin the drawing against that measurement.
+ * ------------------------------------------------------------------------- */
+describe('poleAt matches the measured kernel', () => {
+  it('is 63.2% of the way after ONE time constant', () => {
+    // measured on the real kernel: peak 1.0, sustain 0.4, level at a+d =
+    // 0.6200. The analytic value is 0.62073; the measurement is sampled at a
+    // block boundary rather than exactly at a+d, hence the last digit.
+    expect(poleAt(1, 0.4, 1)).toBeCloseTo(0.6207, 4)
+    expect(Math.abs(poleAt(1, 0.4, 1) - 0.62)).toBeLessThan(0.001)
+  })
+
+  it('tracks the measured decay at 2, 3 and 6 time constants', () => {
+    expect(poleAt(1, 0.4, 2)).toBeCloseTo(0.4812, 3) // measured 0.4809
+    expect(poleAt(1, 0.4, 3)).toBeCloseTo(0.4299, 3) // measured 0.4298
+    expect(poleAt(1, 0.4, 6)).toBeCloseTo(0.4015, 3) // measured 0.4015
+  })
+
+  it('starts at the start and never reaches the target', () => {
+    expect(poleAt(1, 0.4, 0)).toBe(1)
+    expect(poleAt(1, 0.4, 30)).toBeGreaterThan(0.4)
+  })
+})
+
+describe('poleLeg', () => {
+  it('is still short of the target at one time constant', () => {
+    // y grows downward in the widget: peak=5, sustain=35
+    const d = poleLeg(10, 5, 30, 35, 30, 20)
+    const pts = [...d.matchAll(/L ([\d.]+) ([\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])])
+    const atHandle = pts.find(([x]) => Math.abs(x! - 30) < 0.6)!
+    expect(atHandle[1]).toBeCloseTo(5 + (35 - 5) * (1 - Math.exp(-1)), 0)
+    expect(atHandle[1]).toBeLessThan(35) // has NOT arrived
+  })
+
+  it('keeps converging past the handle, which is the point', () => {
+    const d = poleLeg(10, 5, 30, 35, 70, 20)
+    const pts = [...d.matchAll(/L ([\d.]+) ([\d.]+)/g)].map((m) => Number(m[2]))
+    expect(pts[pts.length - 1]).toBeGreaterThan(pts[Math.floor(pts.length / 2)]!)
+    expect(pts[pts.length - 1]).toBeLessThan(35)
+  })
+
+  it('is monotonic, so the drawn curve never doubles back', () => {
+    const ys = [...poleLeg(0, 5, 20, 35, 60).matchAll(/L [\d.]+ ([\d.]+)/g)].map((m) => Number(m[1]))
+    for (let i = 1; i < ys.length; i++) expect(ys[i]!).toBeGreaterThanOrEqual(ys[i - 1]!)
+  })
+
+  it('survives a zero-width first constant without producing NaN', () => {
+    expect(poleLeg(10, 5, 10, 35, 40)).not.toContain('NaN')
+  })
+})
+
+describe('the sustain drag inverts the handle position', () => {
+  it('round-trips: the y a sustain puts the handle at maps back to it', () => {
+    const base = 45, peak = 5
+    for (const s of [0, 0.25, 0.5, 0.75, 1]) {
+      const sy = base - s * (base - peak)
+      const handleY = poleAt(peak, sy, 1) // where the widget draws it
+      const wantSy = (handleY - peak * POLE) / (1 - POLE) // the widget's inverse
+      expect((base - wantSy) / (base - peak)).toBeCloseTo(s, 6)
+    }
   })
 })

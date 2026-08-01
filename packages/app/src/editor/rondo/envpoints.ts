@@ -132,7 +132,7 @@ export function scanEnvPoints(text: string): EnvPointsScan[] {
  *  rather than the envelope's own maximum, so raising one point does not
  *  silently rescale every other point under the cursor. */
 /** The engine's easing, so a curve number looks like what it sounds like. */
-const ease = (f: number, c: number): number =>
+export const ease = (f: number, c: number): number =>
   c === 0 ? f : (1 - Math.exp(-c * f)) / (1 - Math.exp(-c))
 
 /** SVG path for a breakpoint list, with each segment BENT by its own curve.
@@ -223,3 +223,49 @@ export const bendPixels = (curve: number): number => {
   const c = Math.max(-BEND_LIMIT, Math.min(BEND_LIMIT, curve))
   return Math.sign(c) * BEND_TRAVEL * Math.sqrt(Math.abs(c) / BEND_LIMIT)
 }
+
+/* --------------------------- the ADSR curve shape -------------------------- */
+
+/**
+ * A one-pole leg, drawn TRUE rather than normalised to land on its target.
+ *
+ * The engine's decay and release are one-pole (`gD = 1 - exp(-1/(d*sr))`), so
+ * `d` is a TIME CONSTANT, not a duration. Measured on the real kernel with
+ * a .05 d .2 s .4, the level at a+d is 0.620, not the sustain 0.4: it is 63.2%
+ * of the way, and takes roughly 6d to settle.
+ *
+ * The widget used to draw straight lines, which was wrong about the shape and
+ * also claimed sustain arrived at a+d. Bending the line while keeping it
+ * landing on target (what most DAWs draw) would fix only the first half. This
+ * draws what actually happens: the curve is still short of sustain at the
+ * decay handle and keeps converging across the hold.
+ *
+ * `x1` is where ONE time constant lands, and the leg is drawn to `xEnd`, which
+ * is normally further, so the tail is visible.
+ */
+export const POLE = Math.exp(-1)
+
+export function poleLeg(
+  x0: number,
+  y0: number,
+  x1: number,
+  yTarget: number,
+  xEnd: number,
+  steps = 20,
+): string {
+  let d = ''
+  const span = x1 - x0
+  for (let i = 1; i <= steps; i++) {
+    const x = x0 + (xEnd - x0) * (i / steps)
+    const t = span === 0 ? 30 : (x - x0) / span
+    d += ` L ${x.toFixed(1)} ${poleAt(y0, yTarget, t).toFixed(1)}`
+  }
+  return d
+}
+
+/** Level after `t` time constants, going from `from` toward `target`. */
+export const poleAt = (from: number, target: number, t: number): number =>
+  target + (from - target) * Math.exp(-t)
+
+/* --------------------------- the ADSR curve shape -------------------------- */
+

@@ -835,3 +835,34 @@ a:hover {
   font-family: var(--mono);
   font-size: var(--fs-meta);
 }
+
+/* --- reference language toggle (JavaScript / rondo) ---
+   rondo is not the JS API with different punctuation, so the reference has to
+   be able to say both. Sized as real tap targets: on a phone this is the
+   control that decides whether the whole page is useful to you. */
+.ref-langs {
+  display: inline-flex;
+  gap: 2px;
+  margin: var(--sp-3) 0 var(--sp-4);
+  padding: 2px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-surface);
+}
+.ref-lang {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--c-dim);
+  font-family: var(--mono);
+  font-size: var(--fs-ctrl);
+  padding: 8px 14px;
+  min-height: 38px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ref-lang:hover { color: var(--c-text); }
+.ref-lang.on {
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  color: var(--c-accent);
+}

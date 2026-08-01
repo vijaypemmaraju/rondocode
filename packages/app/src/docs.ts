@@ -2,9 +2,12 @@ import './docs/docs.css'
 import { applyPalette } from './ui/palette'
 import { HERO, blockText, orderedSections } from './docs/content'
 import { ROUTES, crossRouteHits, routeFor, sectionsFor, viewForPath } from './docs/routes'
+import { filterGroups, referenceGroups } from './editor/reference'
+import { OPTIONS } from './editor/rondo'
+import type { EditorLang } from './editor/editor'
 import type { Block, Section } from './docs/content'
 import { blockHtml } from './docs/blocks'
-import { docsOfKind } from './docs/dsl-docs'
+import { DSL_DOCS } from './docs/dsl-docs'
 import type { DocEntry } from './docs/dsl-docs'
 import type { PreviewPlayer } from './docs/player'
 import type { createShaderRenderer } from './shaderviz/renderer'
@@ -295,6 +298,21 @@ const REF_GROUPS: { title: string; kinds: DocEntry['kind'][] }[] = [
 /** The reference section. Its `filter(q)` re-renders matching entries and
  *  returns how many matched (0 lets the caller hide the section). The search
  *  box lives at the page top now and drives this + the guide together. */
+/** The reference, in BOTH languages.
+ *
+ *  rondo is not a subset of the JavaScript API with different punctuation: a
+ *  synth builtin is spelled `svf cutoff res:…` there and `svf(inp, cutoff,
+ *  opts?)` here, and a reference that only showed one was accurate about
+ *  JavaScript and about nothing a rondo user can type. That is the same
+ *  complaint that produced rondoHover and then the in-editor panel.
+ *
+ *  It reuses referenceGroups(), the one the `?` panel uses, rather than
+ *  growing a second grouping — the two would disagree about what a group
+ *  contains the first time either changed.
+ *
+ *  The choice rides in the URL (`?lang=rondo`) so a link lands on the language
+ *  it was written for, and is remembered so a rondo user is not re-toggling on
+ *  every visit. */
 function renderReference(): { section: HTMLElement; filter: (q: string) => number } {
   const wrap = el('section', 'doc-ref')
   wrap.id = 'reference'
@@ -302,20 +320,30 @@ function renderReference(): { section: HTMLElement; filter: (q: string) => numbe
   const p = el('p')
   p.textContent = 'Every function and symbol in the language.'
   wrap.append(p)
-  const list = el('div')
-  wrap.append(list)
 
-  const filter = (query = ''): number => {
+  const LANG_KEY = 'rondocode-ref-lang'
+  const fromUrl = new URLSearchParams(location.search).get('lang')
+  let lang: EditorLang =
+    fromUrl === 'rondo' || fromUrl === 'rondocode'
+      ? fromUrl
+      : localStorage.getItem(LANG_KEY) === 'rondo'
+        ? 'rondo'
+        : 'rondocode'
+
+  const pick = el('div', 'ref-langs')
+  pick.setAttribute('role', 'tablist')
+  pick.setAttribute('aria-label', 'reference language')
+  const buttons: { lang: EditorLang; btn: HTMLButtonElement }[] = []
+  let lastQuery = ''
+  const list = el('div')
+
+  const draw = (query = ''): number => {
+    lastQuery = query
     list.replaceChildren()
-    const q = query.trim().toLowerCase()
     let count = 0
-    for (const grp of REF_GROUPS) {
-      const entries = grp.kinds
-        .flatMap((k) => docsOfKind(k))
-        .filter((e) => q === '' || `${e.name} ${e.signature} ${e.summary}`.toLowerCase().includes(q))
-      if (entries.length === 0) continue
+    for (const grp of filterGroups(referenceGroups(lang, OPTIONS, DSL_DOCS), query)) {
       list.append(el('h3', 'ref-group', grp.title))
-      for (const e of entries) {
+      for (const e of grp.entries) {
         const row = el('div', 'ref-entry')
         row.append(el('div', 'ref-sig', e.signature))
         row.append(el('div', 'ref-sum', e.summary))
@@ -326,8 +354,35 @@ function renderReference(): { section: HTMLElement; filter: (q: string) => numbe
     }
     return count
   }
-  filter()
-  return { section: wrap, filter }
+
+  const sync = (): void => {
+    for (const b of buttons) {
+      const on = b.lang === lang
+      b.btn.classList.toggle('on', on)
+      b.btn.setAttribute('aria-selected', String(on))
+    }
+  }
+  for (const [value, label] of [['rondocode', 'JavaScript'], ['rondo', 'rondo']] as const) {
+    const btn = el('button', 'ref-lang', label) as HTMLButtonElement
+    btn.type = 'button'
+    btn.setAttribute('role', 'tab')
+    btn.addEventListener('click', () => {
+      if (lang === value) return
+      lang = value
+      try { localStorage.setItem(LANG_KEY, value) } catch { /* private mode */ }
+      const url = new URL(location.href)
+      url.searchParams.set('lang', value)
+      history.replaceState(null, '', url)
+      sync()
+      draw(lastQuery)
+    })
+    buttons.push({ lang: value, btn })
+    pick.append(btn)
+  }
+  sync()
+  wrap.append(pick, list)
+  draw()
+  return { section: wrap, filter: draw }
 }
 
 function renderShortcuts(): HTMLElement {

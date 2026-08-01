@@ -212,39 +212,59 @@ describe('a switch reaches the audio, and reaches it snapped', () => {
     expect(l[BLOCK - 1]).toBeCloseTo(0.25 * Math.SQRT1_2, 4)
   })
 
-  /** Second block of a held note, after setting `lvl` to `set` (if given).
-   *  The SECOND block, because the first carries the note's own onset ramp —
-   *  comparing two runs at the same block index is what makes these about the
-   *  param and not about the envelope. */
+  /** The level of a held note after setting `lvl` to `set` (if given).
+   *
+   *  process() SUMS into its buffer -- it is a mix bus, not an output slot --
+   *  so the buffer is cleared before each call. Without that this read
+   *  accumulated blocks: the first version of this test processed nine and
+   *  compared totals, which is why its ratio came out 3.31 instead of 3.6 and
+   *  had to be loosened to a band. It is an exact figure once the reads are
+   *  clean.
+   *
+   *  One block after the set is enough. setParam fills the param buffer
+   *  outright, with no ramp -- that immediacy is the point of the hold path
+   *  the widget uses. */
   const held = (set?: number): number => {
     const def = synth(({ gate, param }) => gate.mul(param('lvl', 0.25, { values: [0.25, 0.9] })))
     const pool = new VoicePool(def.graph, ctx, 1)
     const l = new Float32Array(BLOCK)
     const r = new Float32Array(BLOCK)
     pool.noteOn(60, 1)
+    l.fill(0); r.fill(0)
     pool.process(l, r, BLOCK)
     if (set !== undefined) pool.setParam('lvl', set)
-    // several blocks, so the reading is the SETTLED level: the voice ramps its
-    // own gain across a block, and one block after the set is still mid-ramp
-    for (let i = 0; i < 8; i++) pool.process(l, r, BLOCK)
+    l.fill(0); r.fill(0)
+    pool.process(l, r, BLOCK)
     return l[BLOCK - 1]!
   }
 
-  it('flips to the other value when it is set', () => {
+  it('flips to the other value the instant it is set', () => {
     // the path the widget uses on a tap: audible before the debounced eval
-    // makes the new default permanent. Asserted as a RATIO band rather than an
-    // exact level because the voice's own gain ramp is still settling here —
-    // the point is that setting the switch moves the output by roughly the
-    // ratio of its two values, not that it lands on a particular sample.
-    const ratio = held(0.9) / held()
-    expect(ratio).toBeGreaterThan(3)
-    expect(ratio).toBeLessThan(0.9 / 0.25 + 0.1)
+    // makes the new default permanent. Exact, not a band: the level IS the
+    // switch value through a centre-panned equal-power gain.
+    expect(held(0.9)).toBeCloseTo(0.9 * Math.SQRT1_2, 4)
+    expect(held()).toBeCloseTo(0.25 * Math.SQRT1_2, 4)
+    expect(held(0.9) / held()).toBeCloseTo(0.9 / 0.25, 4)
   })
 
   it('snaps a value from BETWEEN the pair, where a knob would have held it', () => {
     // a MIDI CC or a stray setParam lands anywhere; a switch has no in-between
     // to rest on, and resting there would be a state the source cannot spell
-    expect(held(0.8)).toBeCloseTo(held(0.9), 6) // 0.8 is nearer 0.9
-    expect(held(0.4)).toBeCloseTo(held(0.25), 6) // 0.4 is nearer 0.25
+    expect(held(0.8)).toBeCloseTo(0.9 * Math.SQRT1_2, 4) // 0.8 is nearer 0.9
+    expect(held(0.4)).toBeCloseTo(0.25 * Math.SQRT1_2, 4) // 0.4 is nearer 0.25
+  })
+
+  it('process() sums into its buffer, which is why the reads above clear it', () => {
+    // pinning the property that made the first version of this test wrong: a
+    // reader who forgets it measures totals and sees levels climb past 1
+    const def = synth(({ gate, param }) => gate.mul(param('lvl', 0.25, { values: [0.25, 0.9] })))
+    const pool = new VoicePool(def.graph, ctx, 1)
+    const l = new Float32Array(BLOCK)
+    const r = new Float32Array(BLOCK)
+    pool.noteOn(60, 1)
+    pool.process(l, r, BLOCK)
+    const one = l[BLOCK - 1]!
+    pool.process(l, r, BLOCK) // NOT cleared
+    expect(l[BLOCK - 1]).toBeCloseTo(one * 2, 4)
   })
 })

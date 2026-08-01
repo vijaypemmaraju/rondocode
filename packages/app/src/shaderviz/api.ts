@@ -91,6 +91,29 @@ export const VIZ_PARAM_FIELD = 'ctls'
 export const VIZ_PARAM_DETAIL =
   'the live value of the macro, knob or switch of that name, in its own units, so the visual answers the control you are actually turning'
 
+/* ---- meter smoothing ----------------------------------------------------- */
+
+/** Ease `cur` toward `target`, frame-rate independently.
+ *
+ *  The engine reports meters every 10 blocks, about 37 Hz, while frames run at
+ *  60 or 120. A meter value written straight through is held for a frame and
+ *  jumps the next, so `lvl_` and `duck` visibly step.
+ *
+ *  ASYMMETRIC on purpose. A duck snaps down on the kick and releases slowly; a
+ *  symmetric filter rounds off the snap, which is exactly the part you feel.
+ *  So the direction that should be immediate gets the short constant. Same
+ *  reason a level meter has a fast attack and a slow release.
+ *
+ *  Time constants are in MILLISECONDS and `dtSec` in seconds, because that is
+ *  how each is already carried at the call site. 0 means "jump".
+ */
+export function follow(cur: number, target: number, dtSec: number, upMs: number, downMs: number): number {
+  const ms = target > cur ? upMs : downMs
+  if (!(ms > 0)) return target
+  const k = 1 - Math.exp((-Math.max(0, dtSec) * 1000) / ms)
+  return cur + (target - cur) * k
+}
+
 /* ---- uniform layout ------------------------------------------------------ */
 
 /** A vec2f needs 8-byte alignment and array<vec4f> needs 16, so the vec2f

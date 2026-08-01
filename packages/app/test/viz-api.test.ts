@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  MAX_CHANNELS, VIZ_FNS, VIZ_GLOBALS, VIZ_PARAM_FIELD, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS, vizLayout,
+  follow, MAX_CHANNELS, VIZ_FNS, VIZ_GLOBALS, VIZ_PARAM_FIELD, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS, vizLayout,
 } from '../src/shaderviz/api'
 import { buildPrelude } from '../src/shaderviz/renderer'
 import { SECTIONS } from '../src/docs/content'
@@ -126,6 +126,51 @@ describe('the visual API is declared once', () => {
       const dup = buildPrelude(['a-b', 'a_b'], [])
       const decls = [...dup.matchAll(/^var<private> (\w+):/gm)].map((m) => m[1]!)
       expect(new Set(decls).size).toBe(decls.length)
+    })
+  })
+
+  /* Meters arrive at ~37 Hz and frames run at 60+, so a value written through
+   * raw is held for a frame and jumps the next. This is the easing that fixes
+   * it, and the asymmetry is the part that is easy to write backwards. */
+  describe('meter smoothing', () => {
+    const FRAME = 1 / 60
+
+    it('moves toward the target and settles on it', () => {
+      let v = 0
+      for (let i = 0; i < 200; i++) v = follow(v, 1, FRAME, 30, 30)
+      expect(v).toBeCloseTo(1, 5)
+      // and monotonically, never overshooting
+      let prev = 0
+      let x = 0
+      for (let i = 0; i < 50; i++) {
+        x = follow(x, 1, FRAME, 30, 30)
+        expect(x).toBeGreaterThanOrEqual(prev)
+        expect(x).toBeLessThanOrEqual(1)
+        prev = x
+      }
+    })
+
+    it('is frame-rate independent: 120 fps reaches the same place as 60', () => {
+      let a = 0
+      for (let i = 0; i < 60; i++) a = follow(a, 1, FRAME, 40, 40)
+      let b = 0
+      for (let i = 0; i < 120; i++) b = follow(b, 1, FRAME / 2, 40, 40)
+      expect(b).toBeCloseTo(a, 3)
+    })
+
+    it('falls fast and rises slow when asked to, which is what keeps a duck snappy', () => {
+      // one frame of a duck snapping 1 -> 0.2 with a 3 ms fall
+      const down = follow(1, 0.2, FRAME, 45, 3)
+      expect(down, 'the snap should be essentially instant').toBeLessThan(0.21)
+      // and one frame of it releasing back, which should barely move
+      const up = follow(0.2, 1, FRAME, 45, 3)
+      expect(up, 'the release should be eased').toBeLessThan(0.5)
+      expect(up).toBeGreaterThan(0.2)
+    })
+
+    it('a zero time constant jumps, and negative dt cannot move it backwards', () => {
+      expect(follow(0, 1, FRAME, 0, 0)).toBe(1)
+      expect(follow(0.5, 1, -1, 30, 30)).toBeCloseTo(0.5, 6)
     })
   })
 

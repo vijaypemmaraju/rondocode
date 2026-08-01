@@ -651,11 +651,43 @@ for (const [short, long] of Object.entries(SCALE_MODE)) {
 }
 
 /** A .ctrl/.gain value node → modifier value text, or null. */
+/** Arithmetic over a project MACRO, as a modifier value: `bright / 9000 + .5`.
+ *
+ *  A macro reaches the pattern layer through macroval(), so `gain: bright / 2`
+ *  compiles to `.gain(macroval('bright').div(2))`. Nothing brought that back,
+ *  so any docs example using one knob to drive a pattern control decompiled to
+ *  a js block — which is the case the feature exists for.
+ *
+ *  Precedence guarded the same way rExpr does it: only emit infix when the
+ *  text re-parses to the same tree, since a modifier value has no parentheses
+ *  to fall back on. */
+function macroArith(n: Node): { s: string; prec: number } | null {
+  const nv = numValue(n)
+  if (nv !== undefined) return { s: num(nv), prec: 5 }
+  if (isCall(n) && calleeName(n) === 'macroval') {
+    const a = n['arguments'] as Node[]
+    const name = a.length === 1 ? strValue(a[0]!) : undefined
+    return name !== undefined && /^[a-zA-Z_]\w*$/.test(name) ? { s: name, prec: 5 } : null
+  }
+  const m = methodCall(n)
+  if (m === undefined || m.args.length !== 1) return null
+  const info = OP_INFO[m.method]
+  if (info === undefined) return null
+  const l = macroArith(m.obj)
+  const r = macroArith(m.args[0]!)
+  if (l === null || r === null) return null
+  if (l.prec < info.prec || r.prec <= info.prec) return null // would mis-associate
+  return { s: `${l.s} ${info.op} ${r.s}`, prec: info.prec }
+}
+
 function ctrlValue(n: Node): string | null {
   const nv = numValue(n)
   if (nv !== undefined) return num(nv)
   const sv = strValue(n)
   if (sv !== undefined) return sv // a mini string
+  // a macro driving a pattern control, with any arithmetic on it
+  const mac = macroArith(n)
+  if (mac !== null) return mac.s
   // signal chains: sig[.range(a,b)][.slow(n)|.fast(n)] / rise(n)/fall(n) bases
   let cur: Node = n
   let slow: number | undefined

@@ -285,11 +285,35 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     err(null)
   }
 
+  /* THE CANVAS BOX IS OBSERVED, NOT MEASURED PER FRAME.
+   *
+   * `canvas.clientWidth` is a layout read, and reading layout inside the rAF
+   * callback forces the browser to flush style and layout right there. On a
+   * bare page that is free. With the editor's widgets on screen — piano rolls
+   * and envelope editors, each running its own rAF that mutates DOM — layout
+   * is dirty every frame, so this read paid for a full recalculation of all of
+   * it, once per frame, before a single pixel was drawn. That is why the
+   * visuals only went choppy when widgets were visible.
+   *
+   * A ResizeObserver delivers the same numbers with no read at all. */
+  let boxW = 0
+  let boxH = 0
+  const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => {
+    const e = entries[0]
+    if (e === undefined) return
+    const cr = e.contentRect
+    boxW = cr.width
+    boxH = cr.height
+  })
+  ro?.observe(canvas)
+
   const resize = (): void => {
     if (!ctx || !device) return
     const dpr = Math.min(2, window.devicePixelRatio || 1)
-    const cssW = canvas.clientWidth || window.innerWidth
-    const cssH = canvas.clientHeight || window.innerHeight
+    // the observer has not fired yet on the very first frame, and a canvas
+    // with no observer support falls back to the viewport
+    const cssW = boxW || window.innerWidth
+    const cssH = boxH || window.innerHeight
     const w = Math.max(1, Math.floor(cssW * dpr))
     const h = Math.max(1, Math.floor(cssH * dpr))
     if (canvas.width === w && canvas.height === h) return
@@ -629,6 +653,7 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     dispose(): void {
       disposed = true
       if (raf) cancelAnimationFrame(raf)
+      ro?.disconnect()
       window.removeEventListener('resize', onResize)
       device?.destroy?.()
     },

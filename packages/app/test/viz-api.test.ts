@@ -174,6 +174,28 @@ describe('the visual API is declared once', () => {
     })
   })
 
+  /* A layout READ after a style WRITE forces the browser to flush layout
+   * synchronously. The editor's widgets each run a rAF that writes styles, so
+   * a read anywhere in the renderer's frame path recalculated the whole
+   * widget-laden document once per frame — visuals that were smooth on a bare
+   * page and choppy the moment a piano roll was on screen. Nothing in a test
+   * environment reproduces that, so this guards the shape instead. */
+  it('the renderer never reads layout, and the pointer handler never does either', () => {
+    const rend = read('shaderviz/renderer.ts')
+    // strip comments: they discuss the very properties being banned
+    const code = rend.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    for (const prop of ['clientWidth', 'clientHeight', 'offsetWidth', 'offsetHeight', 'getBoundingClientRect']) {
+      expect(code.includes(prop), `renderer reads layout via ${prop}`).toBe(false)
+    }
+    expect(rend, 'the canvas box should be observed, not measured').toContain('ResizeObserver')
+
+    const wiring = read('shaderviz/shaderviz.ts').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(
+      wiring.includes('getBoundingClientRect'),
+      'a layout read in a pointermove handler runs hundreds of times a second',
+    ).toBe(false)
+  })
+
   it('dt is reachable — the bug that motivated all of this', () => {
     // it was in the struct and in the packing, with no var<private> to read it
     expect(VIZ_GLOBALS.some((g) => g.name === 'dt')).toBe(true)

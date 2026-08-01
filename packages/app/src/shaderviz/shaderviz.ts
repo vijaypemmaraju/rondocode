@@ -76,16 +76,32 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
     renderer.setParams(Object.fromEntries(getMacroValues()))
   })
 
-  // POINTER, in uv space with y flipped to match the shader's coordinates.
+  /* POINTER, in uv space with y flipped to match the shader's coordinates.
+   *
+   * NO LAYOUT READ IN THE HANDLER. getBoundingClientRect() here forces a style
+   * and layout flush, pointermove fires at display rate or faster, and the
+   * cost scales with how complicated the DOM is — so with the editor's widgets
+   * on screen it was a full layout recalculation several hundred times a
+   * second, which is precisely when the visuals went choppy.
+   *
+   * The canvas is a fixed full-bleed element, so the viewport IS its box.
+   * Listeners are attached only while the visuals are on, since a pointer
+   * handler for an invisible canvas is pure overhead. */
   const onMove = (e: PointerEvent): void => {
-    const r = canvas.getBoundingClientRect()
-    if (r.width > 0 && r.height > 0) {
-      renderer.setPointer((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height)
-    }
+    const w = window.innerWidth
+    const h = window.innerHeight
+    if (w > 0 && h > 0) renderer.setPointer(e.clientX / w, 1 - e.clientY / h)
   }
   const onDown = (e: PointerEvent): void => { onMove(e); renderer.pressPointer() }
-  window.addEventListener('pointermove', onMove, { passive: true })
-  window.addEventListener('pointerdown', onDown, { passive: true })
+  const pointerOn = (v: boolean): void => {
+    if (v) {
+      window.addEventListener('pointermove', onMove, { passive: true })
+      window.addEventListener('pointerdown', onDown, { passive: true })
+    } else {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerdown', onDown)
+    }
+  }
 
   let on = false
   const setOn = (v: boolean): void => {
@@ -95,14 +111,14 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
     canvas.classList.toggle('visible', v)
     document.body.classList.toggle('shaderviz-on', v)
     if (!v) toast.classList.add('hidden')
+    pointerOn(v)
     renderer.setActive(v)
   }
   btn.addEventListener('click', () => setOn(!on))
 
   return {
     dispose(): void {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerdown', onDown)
+      pointerOn(false)
       unsubEngine()
       unsubState()
       unsubPat()

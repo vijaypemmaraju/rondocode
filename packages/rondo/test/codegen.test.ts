@@ -286,3 +286,31 @@ describe('a macro driving a pattern control round-trips', () => {
     expect(decompile(withParens)).toContain('js')
   })
 })
+
+describe('a token after an osc round-trips (the last docs gap)', () => {
+  const rt = (spine: string): string => {
+    const r = compile(`synth k\n${spine}\n\nplay k\n  0\n\ncps .5\n`)
+    expect(r.ok, r.ok ? '' : JSON.stringify(r.errors)).toBe(true)
+    return r.ok ? decompile(r.code) : ''
+  }
+
+  it('spells the default freq out when a token follows', () => {
+    // bare `saw` still wants a frequency, so `mix saw .3` would read the .3 as
+    // it. Rendering `saw note` closes the call and says the same thing.
+    expect(rt('  tri note\n  mix saw note .3\n')).toContain('mix saw note 0.3')
+  })
+
+  it('keeps the SHORT form where nothing follows', () => {
+    // the extra word is only paid where it is needed
+    const d = rt('  saw note\n  * adsr .01 .1 .5 .1\n')
+    expect(d).toMatch(/^ {2}saw$/m)
+  })
+
+  it('round-trips as a FIXED POINT: decompiling twice changes nothing', () => {
+    // the real guarantee. A spelling that re-parses to something else would
+    // drift on the second pass rather than merely look different.
+    const once = rt('  tri note\n  mix saw note .3\n  svf 2200 res:.2\n')
+    const twice = decompile((compile(once) as { ok: true; code: string }).code)
+    expect(twice).toBe(once)
+  })
+})

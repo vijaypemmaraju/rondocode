@@ -213,7 +213,19 @@ function eqBands(n: Node): string | null {
   return parts.join(' ')
 }
 
-function rExpr(n: Node): R | null {
+/**
+ * `closed` suppresses the osc freq-default shortening for THIS call only.
+ *
+ * `saw(note.freq)` normally renders as the bare `saw`, which is shorter and
+ * what a musician writes. But bare `saw` still has arity room, so a context
+ * that puts another token after it -- `mix saw .3` -- would have that token
+ * read as saw's frequency. Rendering `saw note` instead closes the call and
+ * says the same thing.
+ *
+ * The flag does NOT propagate into nested calls: only the argument that has to
+ * be unambiguous pays the extra word.
+ */
+function rExpr(n: Node, closed = false): R | null {
   // identifiers + the special refs
   if (n.type === 'Identifier') {
     return { s: n['name'] as string, prec: 5, arityOpen: false }
@@ -360,7 +372,7 @@ function rExpr(n: Node): R | null {
         pos.push(sv)
       } else {
         // an osc's default freq arg (note.freq) is omitted entirely
-        if (spec.kind === 'osc' && i === 0 && spec.freqDefault === true &&
+        if (!closed && spec.kind === 'osc' && i === 0 && spec.freqDefault === true &&
             rest.length === 1 && opts === undefined && rest[i]!.type === 'MemberExpression' &&
             isIdent(rest[i]!['object'] as Node, 'note') && isIdent(rest[i]!['property'] as Node, 'freq')) {
           continue
@@ -436,8 +448,9 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
     // One-arg sigops (min, max, mod): the operand must render CLOSED, or it
     // would swallow whatever follows it on the line.
     if (spec?.kind === 'sigop' && spec.pos.length === 1 && m.args.length === 1) {
-      const arg = rExpr(m.args[0]!)
-      if (arg === null || arg.prec < 2 || arg.openPrec !== undefined || arg.arityOpen) return false
+      let arg = rExpr(m.args[0]!)
+      if (arg !== null && arg.arityOpen) arg = rExpr(m.args[0]!, true)
+      if (arg === null || arg.prec < 2 || arg.arityOpen) return false
       if (!unfoldPipeline(m.obj, lines)) return false
       lines.push(`${m.method} ${arg.s}`)
       return true
@@ -450,10 +463,17 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
       return true
     }
     if (m.method === 'mix' && m.args.length === 2) {
-      const other = rExpr(m.args[0]!)
+      // `mix a b` puts a bare token after `a`, so `a` must have no arity room
+      // left. When the short form does (bare `saw` still wants a frequency),
+      // ask for the closed spelling rather than giving up on the whole line.
+      let other = rExpr(m.args[0]!)
+      if (other !== null && other.arityOpen) other = rExpr(m.args[0]!, true)
       const t = rExpr(m.args[1]!)
-      // an open/arity-open first arg would swallow t into its own argument list
-      if (other === null || other.prec < 2 || other.openPrec !== undefined || other.arityOpen || t === null || t.prec < 2) return false
+      // arityOpen, NOT openPrec: line 377 draws the distinction -- openPrec is
+      // operator absorption, arity room is TOKEN absorption, and a bare token
+      // is what follows here. openPrec is set for any call with a positional,
+      // so checking it rejected the very spelling asked for above.
+      if (other === null || other.prec < 2 || other.arityOpen || t === null || t.prec < 2) return false
       if (!unfoldPipeline(m.obj, lines)) return false
       lines.push(`mix ${other.s} ${t.s}`)
       return true

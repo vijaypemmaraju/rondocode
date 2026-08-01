@@ -19,12 +19,17 @@ import { FLASH_MS } from './editor/flash'
 import { encodeShare, sharePayloadFor, shareUrl } from './session/share'
 
 /* A compact, pleasant loop for the hero: the first thing a visitor can play. */
+/* The arp and the chords share one synth, so the four sustained chord voices
+ * mask a single arp note easily. Measured: chords alone render at rms 0.127,
+ * and the arp at its old 0.28 gain only reached 0.066, half the chords, which
+ * is why it was inaudible. 0.7 puts it at about 1.3x, leading without
+ * swamping them. */
 const HERO_DEMO = `const keys = synth(({ note, gate, adsr, saw, svf }) =>
   svf(saw(note.freq).add(saw(note.freq.mul(1.006))), 2200, { res: 0.3 })
     .mul(adsr(gate, { a: 0.01, d: 0.4, s: 0.5, r: 0.5 })).mul(0.35))
 
 p('chords', chord('<Cmaj7 Am7 Fmaj7 G>').sound('keys').dur(0.95))
-p('arp', n('0 2 4 7 4 2').scale('c major').sound('keys').fast(2).gain(0.28))
+p('arp', n('0 2 4 7 4 2').scale('c major').sound('keys').fast(2).gain(0.7))
 setCps(0.5)`
 
 /* ------------------------------------------------------------------------- *
@@ -545,8 +550,13 @@ async function build(): Promise<void> {
     })
     langPick.append(b)
   }
-  tabs.append(el('div', 'doc-tabs-spacer'), langPick)
-  document.body.append(tabs)
+  // The bar does NOT scroll; the tabs inside it do. Putting the language
+  // buttons in the scroller pushed them off-screen in portrait, where four
+  // tabs already fill the width: you had to scroll the strip to find a control
+  // that should never move.
+  const tabbar = el('div', 'doc-tabbar')
+  tabbar.append(tabs, langPick)
+  document.body.append(tabbar)
   // MEASURE, do not assume. The header has no fixed height: it wraps
   // differently at small widths and with a larger system font, so a hard-coded
   // offset would either overlap the tabs or leave a gap on exactly the devices
@@ -554,13 +564,13 @@ async function build(): Promise<void> {
   const syncStickyOffsets = (): void => {
     const r = document.documentElement.style
     r.setProperty('--doc-top-h', `${Math.round(top.getBoundingClientRect().height)}px`)
-    r.setProperty('--doc-tabs-h', `${Math.round(tabs.getBoundingClientRect().height)}px`)
+    r.setProperty('--doc-tabs-h', `${Math.round(tabbar.getBoundingClientRect().height)}px`)
   }
   syncStickyOffsets()
   if (typeof ResizeObserver === 'function') {
     const ro = new ResizeObserver(syncStickyOffsets)
     ro.observe(top)
-    ro.observe(tabs)
+    ro.observe(tabbar)
   }
   window.addEventListener('orientationchange', syncStickyOffsets)
 

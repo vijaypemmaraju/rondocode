@@ -68,8 +68,11 @@ describe('every notation feature survives the whole pipeline', () => {
 
     // every note must be a real pitch — an unresolved degree or a NaN
     // accidental would sail through the checks above
-    for (const e of [...evs.values()].flat()) {
-      if (e.kind !== 'on') continue
+    // e.type, NOT e.kind: the discriminator is 'noteOn' | 'noteOff' | 'param'.
+    // Written as e.kind this loop body never ran and the check was vacuous.
+    const onsets = [...evs.values()].flat().filter((e) => e.type === 'noteOn')
+    expect(onsets.length, 'no note onsets at all').toBeGreaterThan(0)
+    for (const e of onsets) {
       expect(Number.isFinite(e.note), `non-finite note from '${notation}'`).toBe(true)
     }
 

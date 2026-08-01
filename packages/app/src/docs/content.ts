@@ -1620,10 +1620,14 @@ bpm 132`,
   },
   {
     id: 'rondo-widgets',
-    title: 'rondo: live controls in the code',
-    group: 'the rondo language',
+    title: 'Live controls in the code',
+    // NOT a rondo feature, and it stopped being one some time ago: the
+    // scanners read the SOURCE, so every widget works in both languages. It
+    // sat under "the rondo language" and opened by calling itself a rondo
+    // feature, which was quietly untrue for JavaScript readers.
+    group: 'start here',
     blocks: [
-      p('Rondo code grows CONTROL SURFACES inline. Nothing is hidden in a panel: the widget sits on the line that made it.'),
+      p('Code grows CONTROL SURFACES inline, in BOTH languages. Nothing is hidden in a panel: the widget sits on the line that made it, and it reads the source rather than the language, so the same gesture edits the same number whether you wrote it in rondo or in JavaScript.'),
       note("The controls are not a rondo feature -- they read the SOURCE, so they work in JavaScript too, on the same code they always described. `param('cut', 900, { min: 100, max: 8000 })` grows a dial, `adsr(gate, { a: 0.005, ... })` and `env(gate, [[0.005, 1], ...])` grow envelopes, `n('0 3 5 7')` a grid, `stack(s('kick ~ kick ~'), ...)` a step sequencer, `svf(x, 900, { res: 0.4 })` grows a response curve, and a quoted enum like `{ mode: 'lp' }` cycles on a tap. A gesture writes back inside the string or the array literal it came from. A filter line grows its own response curve, in either language. A test compiles a rondo program and requires both scanners to find the same widgets, so the two cannot drift apart quietly."),
       table(
         'The inventory: what you write, and what it becomes.',
@@ -1648,6 +1652,44 @@ bpm 132`,
       p('The text is always the source of truth: every gesture rewrites the code (watch it change as you drag), so anything you can touch you can also type, undo, and share. Undo and redo live as chips at the left of the bottom bar, in both languages, so history is one thumb-tap away on a phone.'),
       p('While the transport runs, everything lights: notation characters flash as their notes sound (including inside `js` escapes), grids sweep a playhead, envelopes fire a marker per note, and lines built from signals (like `irand`) pulse whole.'),
       p('For playing live, the PERFORMANCE LOCK (the padlock in the header) freezes the text while every widget stays live: a stray tap cannot place a caret, open the keyboard, or convert the buffer, but knobs, grids, scrubs, undo and redo all keep working. Tap it again to edit.'),
+    ],
+  },
+  {
+    id: 'rondo-syntax',
+    title: 'rondo: how a line is read',
+    group: 'the rondo language',
+    blocks: [
+      p('Everything else in this guide now shows in either language, so this group is about what rondo IS rather than what it can do. A line is read left to right: a word, then its positional arguments separated by spaces, then any `name:value` arguments. There are no parentheses and no commas, which is what makes it quick to type on a phone and is also the source of every surprise below.'),
+      p('A call ENDS when its positionals are full. `saw` takes one, so `saw note` is finished and anything after it belongs to whatever is enclosing it. That is why `mix saw note .3` reads as a mix of the running signal with `saw note` at .3, and not as `saw` given three arguments. The corollary is the trap: `mix saw .3` gives the .3 to SAW, because bare `saw` still has room for a frequency. When a call could still absorb what follows it, spell its argument out.'),
+      table(
+        'Arguments, and where they stop.',
+        ['form', 'reading'],
+        [
+          ['`ladder 900`', 'the running signal, cutoff 900. A processor takes the running signal implicitly, so you never name it.'],
+          ['`ladder 900 res:.4`', 'positionals first, then named. A named argument SEALS the list: a bare word after `res:.4` is an error rather than another positional.'],
+          ['`svf cut res:.3`', 'a positional may be a binding name, not just a number.'],
+          ['`mix saw note .3`', 'nested call as an argument. `saw note` is closed, so .3 belongs to `mix`.'],
+          ['`reverb input room:.7`', 'an ERROR on a chain line: the input is already implicit, so this is one argument too many. `input` is for bindings that need the incoming signal by name.'],
+        ],
+      ),
+      p('Operators are `+ - * / ^`, with the usual precedence, and they bind OUTSIDE a finished call: `adsr .001 .09 0 .05 ^ 3` cubes the envelope rather than the release. `->` maps a 0..1 signal onto a range and binds loosest of all, so `env ^ 2 -> 48..190` squares first and then maps.'),
+      note("A `#` starts a comment when it follows whitespace or begins a line. Glued to digits it does not, which is why an accidental is written AFTER its degree: `2#` is a raised second, while `2 #` is a 2 and then a comment eating the rest of the line."),
+      p('A binding is `name = expr`, and it lives outside the pipe: bindings are the modulation and the control, the spine is the audio. Order does not matter, they are sorted by what they reference. A few names are reserved because the language leans on them: `note`, `gate`, `velocity` and `input` are the implicit signals, and `adsr`, `knob` and `switch` are spellings rather than values. An unknown name is a compile error pointing at the word, not a silent zero.'),
+      rondo(
+        'positionals, named args, an operator outside the call, and a binding.',
+        `synth lead
+  saw note
+  ladder cut * env ^ 2 res:.4
+  * env
+  env = adsr .01 .2 .5 .3
+  cut = knob 900 200..8000 log
+
+play lead
+  0 3 5 7
+  scale:a-min
+
+cps .5`,
+      ),
     ],
   },
   {

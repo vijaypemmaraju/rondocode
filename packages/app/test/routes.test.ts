@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { SECTIONS } from '../src/docs/content'
+import { SECTIONS, runnableCodeBlocks } from '../src/docs/content'
+import { compile, decompile } from '@rondocode/rondo'
 import { DSL_DOCS } from '../src/docs/dsl-docs'
 import { OPTIONS } from '../src/editor/rondo'
 import { referenceGroups } from '../src/editor/reference'
@@ -155,5 +156,51 @@ describe('the reference speaks both languages', () => {
   it('reuses referenceGroups rather than growing a second grouping', () => {
     const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
     expect(src).toContain('referenceGroups(lang, OPTIONS, DSL_DOCS)')
+  })
+})
+
+describe('every snippet can be shown in either language', () => {
+  /* The point of closing the round-trip gaps (#210-#212): the other language
+   * is GENERATED from the one authored source, so the two cannot drift. This
+   * checks the conversion the docs page performs, on the real content. */
+  // runnableCodeBlocks excludes troubleshooting's deliberately-broken halves:
+  // a snippet that does not compile cannot be shown in the other language, and
+  // inLang() leaves those as authored rather than pretending otherwise.
+  const blocks = runnableCodeBlocks()
+
+  it('has snippets in both languages to begin with', () => {
+    expect(blocks.filter((b) => b.lang === 'rondo').length).toBeGreaterThan(15)
+    expect(blocks.filter((b) => b.lang === undefined).length).toBeGreaterThan(10)
+  })
+
+  it('converts every rondo snippet to JavaScript', () => {
+    const bad = blocks.filter((b) => b.lang === 'rondo' && !compile(b.text).ok)
+    expect(bad.map((b) => b.id)).toEqual([])
+  })
+
+  it('converts every rondo snippet BACK without a js block', () => {
+    // a snippet that only survives one direction would show a `js{ }` blob to
+    // half the readers, which is what this whole arc was about
+    const bad = blocks.filter((b) => {
+      if (b.lang !== 'rondo') return false
+      const c = compile(b.text)
+      if (!c.ok) return true
+      const d = decompile(c.code)
+      return d.includes('js{') || /^js$/m.test(d)
+    })
+    expect(bad.map((b) => b.id)).toEqual([])
+  })
+
+  it('wires a language toggle that persists and travels', () => {
+    const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
+    expect(src).toContain('doc-langpick')
+    expect(src, 'not remembered').toContain('DOC_LANG_KEY')
+    expect(src, 'not linkable').toContain("url.searchParams.set('lang'")
+    expect(src, 'no way back to as-written').toContain('searchParams.delete')
+  })
+
+  it('falls back to the authored source rather than showing a js blob', () => {
+    const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
+    expect(src).toMatch(/if \(!d\.includes\('js\{'\)/)
   })
 })

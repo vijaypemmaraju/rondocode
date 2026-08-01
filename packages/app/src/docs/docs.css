@@ -866,3 +866,33 @@ a:hover {
   background: color-mix(in srgb, var(--c-accent) 18%, transparent);
   color: var(--c-accent);
 }
+
+/* snippet language, in the tab strip. Pinned right on desktop; on a phone it
+   scrolls with the tabs rather than stealing a line of its own. */
+.doc-tabs-spacer { flex: 1 0 8px; }
+.doc-langpick {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  align-self: center;
+  margin-right: var(--sp-2);
+}
+.doc-langbtn {
+  appearance: none;
+  border: 1px solid var(--c-border);
+  background: transparent;
+  color: var(--c-dim);
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  padding: 5px 9px;
+  min-height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.doc-langbtn:hover { color: var(--c-text); border-color: var(--c-dim); }
+.doc-langbtn.on {
+  color: var(--c-accent);
+  border-color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 15%, transparent);
+}

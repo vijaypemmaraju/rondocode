@@ -90,11 +90,33 @@ describe('rondo → rondocode codegen', () => {
     )
   })
 
+  it('scaledef takes the UNIT a tuning was published in, not just semitones', () => {
+    // a pelog is published as cents and a Bohlen-Pierce as ratios; converting
+    // either to semitones by hand is how a tuning gets typed in wrong
+    expect(ok(`scaledef pelog cents 0 120 270 670 785\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+      "defineScale('pelog', { cents: [0, 120, 270, 670, 785] })",
+    )
+    expect(ok(`scaledef bp ratios 1 1.19 1.4 period:3\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+      "defineScale('bp', { ratios: [1, 1.19, 1.4], periodRatio: 3 })",
+    )
+    // period: reads in the SAME unit as the steps
+    expect(ok(`scaledef w cents 0 100 200 period:1902\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+      "{ cents: [0, 100, 200], periodCents: 1902 }",
+    )
+    // a scale named after its unit word is still a name, not a unit
+    expect(ok(`scaledef cents 0 1 2\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+      "defineScale('cents', [0, 1, 2])",
+    )
+  })
+
   it('scaledef: positioned errors for a missing name, bad steps, too few steps', () => {
     failsAt(`scaledef\n`, 'scaledef needs a name', 1, 1)
     failsAt(`scaledef pelog 0 x 2\n`, 'scaledef steps are numbers', 1, 18)
     failsAt(`scaledef pelog 0\n`, 'at least 2 steps', 1, 1)
     failsAt(`scaledef 19edo 0 1\n`, 'scaledef needs a name', 1, 1)
+    // a period without a unit is ambiguous: semitones have no published period
+    failsAt(`scaledef p 0 1 2 period:3\n`, '`period:` needs a unit', 1, 1)
+    failsAt(`scaledef p cents 0 100 period:x\n`, '`period:` needs a positive number', 1, 24)
   })
 
   it('wavedef: a top-level table line → defineWavetable, HOISTED above the synths', () => {

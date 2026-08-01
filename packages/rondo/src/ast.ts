@@ -148,11 +148,22 @@ export interface MasterItem {
 }
 
 /** `scaledef NAME v1 v2 …` — register a custom tuning: step offsets in
- *  semitones from the root (floats welcome) → defineScale(NAME, [v…]). */
+ *  semitones from the root (floats welcome) → defineScale(NAME, [v…]).
+ *
+ *  A UNIT word may follow the name. Real tunings are published in cents
+ *  (a pelog is `0 120 270 670 785`) or as frequency ratios (just intonation
+ *  is `1 9/8 5/4 …`), and converting either to semitones by hand is how a
+ *  tuning gets typed in wrong. `scaledef pelog cents 0 120 270 670 785`
+ *  says what the numbers ARE, and `period:` gives the octave when the scale
+ *  does not repeat at 2:1 — a Bohlen-Pierce is `period:1902`. */
 export interface ScaleDefItem {
   t: 'scaledef'
   name: string
   values: number[]
+  /** absent = semitones. */
+  unit?: 'cents' | 'ratios'
+  /** the repeat interval, in the same unit as `values`. */
+  period?: number
   pos: Pos
 }
 

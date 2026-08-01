@@ -1574,21 +1574,43 @@ function decompileStaging(stmt: Node): string | null {
     return v !== undefined ? `${name === 'setBpm' ? 'bpm' : 'cps'} ${num(v)}` : null
   }
   if (name === 'defineScale' && args.length === 2) {
-    // only the literal-offsets-array form has sugar (`scaledef NAME v v …`,
-    // ≥ 2 values, a word name); cents/ratios specs stay js blocks
+    // `scaledef NAME [cents|ratios] v v … [period:p]` — a word name and at
+    // least two values; anything else stays a js block
     const sname = strValue(args[0]!)
     if (sname === undefined || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(sname)) return null
-    const arr = args[1]!
-    if (arr.type !== 'ArrayExpression') return null
-    const vals: string[] = []
-    for (const el of arr['elements'] as (Node | null)[]) {
-      if (el === null) return null
-      const v = numValue(el)
-      if (v === undefined) return null
-      vals.push(num(v))
+    const numList = (arr: Node): string[] | null => {
+      if (arr.type !== 'ArrayExpression') return null
+      const vals: string[] = []
+      for (const el of arr['elements'] as (Node | null)[]) {
+        if (el === null) return null
+        const v = numValue(el)
+        if (v === undefined) return null
+        vals.push(num(v))
+      }
+      return vals.length >= 2 ? vals : null
     }
-    if (vals.length < 2) return null
-    return `scaledef ${sname} ${vals.join(' ')}`
+    const spec = args[1]!
+    if (spec.type === 'ArrayExpression') {
+      const vals = numList(spec)
+      return vals === null ? null : `scaledef ${sname} ${vals.join(' ')}`
+    }
+    // the object spec: { cents: […], periodCents? } or { ratios: […], periodRatio? }
+    const o = objEntries(spec)
+    if (o === undefined) return null
+    const unit = o['cents'] !== undefined ? 'cents' : o['ratios'] !== undefined ? 'ratios' : undefined
+    if (unit === undefined) return null
+    const vals = numList(o[unit]!)
+    if (vals === null) return null
+    const pkey = unit === 'cents' ? 'periodCents' : 'periodRatio'
+    let period = ''
+    if (o[pkey] !== undefined) {
+      const pv = numValue(o[pkey]!)
+      if (pv === undefined || pv <= 0) return null
+      period = ` period:${num(pv)}`
+    }
+    // an unrecognised key would be silently dropped, so refuse the whole thing
+    if (Object.keys(o).some((k) => k !== unit && k !== pkey)) return null
+    return `scaledef ${sname} ${unit} ${vals.join(' ')}${period}`
   }
   if (name === 'macro' && args.length >= 2 && args.length <= 3) {
     // macro('bright', 1480, { min, max, curve }) → `macro bright 1480 500..7300 log`

@@ -329,9 +329,27 @@ describe('decompile round-trips (audit additions)', () => {
     fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5\n  scale: e-minorPentatonic\n')
   })
 
-  it('non-sugar defineScale forms bail to js blocks (totality): cents spec, non-literal args, 1 step', () => {
+  it('a cents or ratios spec is a unit word, not a js block', () => {
+    // real tunings are published in cents or in ratios, and converting either
+    // to semitones by hand is how a tuning gets typed in wrong
+    const r = decompile("defineScale('pelog', { cents: [0, 120, 270, 670, 785] })\n")
+    expect(r.trim()).toBe('scaledef pelog cents 0 120 270 670 785')
+    const back = compile(r)
+    expect(back.ok).toBe(true)
+    if (back.ok) expect(back.code.trim()).toBe("defineScale('pelog', { cents: [0, 120, 270, 670, 785] })")
+
+    const bp = decompile("defineScale('bp', { ratios: [1, 1.19, 1.4], periodRatio: 3 })\n")
+    expect(bp.trim()).toBe('scaledef bp ratios 1 1.19 1.4 period:3')
+    const bpBack = compile(bp)
+    expect(bpBack.ok).toBe(true)
+    if (bpBack.ok) expect(bpBack.code.trim()).toBe("defineScale('bp', { ratios: [1, 1.19, 1.4], periodRatio: 3 })")
+  })
+
+  it('non-sugar defineScale forms bail to js blocks (totality): unknown key, non-literal args, 1 step', () => {
     for (const stmt of [
-      "defineScale('pelog', { cents: [0, 120, 270] })",
+      // an unrecognised key would be silently DROPPED by the sugar
+      "defineScale('pelog', { cents: [0, 120, 270], stretch: 2 })",
+      "defineScale('pelog', { steps: [0, 120, 270] })",
       'defineScale(name, [0, 1, 2])',
       "defineScale('x', [0, y])",
       "defineScale('one', [0])",

@@ -202,7 +202,6 @@ describe('every snippet can be shown in either language', () => {
    * reason. It is an ALLOWLIST: a new JS snippet that will not convert fails
    * this test, and closing one of these means deleting its line. */
   const NO_RONDO_FORM: Record<string, string> = {
-    notes: "defineScale's cents form — rondo's `scaledef` takes semitones only",
     arrange: 'a stack whose layers have DIFFERENT sounds — rondo layers share the block synth',
     'midi-import': 'a stack whose layers have DIFFERENT sounds',
   }

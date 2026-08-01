@@ -857,12 +857,33 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
         errors.push({ message: 'scaledef needs a name (`scaledef pelog 0 1.2 2.7 5.4 6.7`)', line: ln.line, col: ln.rawCol })
       }
+      // an optional UNIT word: `scaledef pelog cents 0 120 270 670 785`
+      let unit: 'cents' | 'ratios' | undefined
+      let k = 2
+      const unitTok = ln.toks[2]
+      if (unitTok !== undefined && unitTok.k === 'ident' && (unitTok.v === 'cents' || unitTok.v === 'ratios')) {
+        unit = unitTok.v
+        k = 3
+      }
       const values: number[] = []
+      let period: number | undefined
       let bad = false
-      for (let k = 2; k < ln.toks.length; k++) {
+      for (; k < ln.toks.length; k++) {
         const t = ln.toks[k]!
+        // `period:1902` — the repeat interval, in the same unit as the steps
+        if (t.k === 'ident' && t.v === 'period' && ln.toks[k + 1]?.k === 'colon') {
+          const pv = ln.toks[k + 2]
+          if (pv === undefined || pv.k !== 'num' || pv.v <= 0) {
+            errors.push({ message: '`period:` needs a positive number, in the same unit as the steps', line: t.pos.line, col: t.pos.col })
+            bad = true
+            break
+          }
+          period = pv.v
+          k += 2
+          continue
+        }
         if (t.k !== 'num') {
-          errors.push({ message: 'scaledef steps are numbers — semitones from the root, floats welcome', line: t.pos.line, col: t.pos.col })
+          errors.push({ message: 'scaledef steps are numbers — semitones from the root (or `cents` / `ratios`), floats welcome', line: t.pos.line, col: t.pos.col })
           bad = true
           break
         }
@@ -871,7 +892,10 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       if (!bad && values.length < 2) {
         errors.push({ message: 'scaledef needs at least 2 steps (`scaledef pelog 0 1.2 2.7 5.4 6.7`)', line: ln.line, col: ln.rawCol })
       }
-      items.push({ t: 'scaledef', name, values, pos: head.pos })
+      if (!bad && period !== undefined && unit === undefined) {
+        errors.push({ message: '`period:` needs a unit — `scaledef bp ratios 1 25/21 … period:3`', line: ln.line, col: ln.rawCol })
+      }
+      items.push({ t: 'scaledef', name, values, ...(unit !== undefined ? { unit } : {}), ...(period !== undefined ? { period } : {}), pos: head.pos })
       i++
     }
     // `wavedef vox 1 .3 / .5 1 .6 / .3 .8 1` → defineWavetable('vox', [[…]]):

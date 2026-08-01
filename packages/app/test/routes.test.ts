@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SECTIONS } from '../src/docs/content'
+import { DSL_DOCS } from '../src/docs/dsl-docs'
+import { OPTIONS } from '../src/editor/rondo'
+import { referenceGroups } from '../src/editor/reference'
 import { ROUTES, SEARCH_INDEX, crossRouteHits, sectionsFor, viewForGroup, viewForPath } from '../src/docs/routes'
 
 /* ------------------------------------------------------------------------- *
@@ -118,5 +121,39 @@ describe('cross-route hits are ranked, not just the first eight', () => {
 
   it('keeps authoring order within a rank, so results are stable', () => {
     expect(crossRouteHits('a', 'guide')).toEqual(crossRouteHits('a', 'guide'))
+  })
+})
+
+describe('the reference speaks both languages', () => {
+  /* rondo is not the JavaScript API with different punctuation: a builtin is
+   * `svf cutoff res:…` there and `svf(inp, cutoff, opts?)` here. A reference
+   * showing only one is accurate about JavaScript and about nothing a rondo
+   * user can type. It reuses referenceGroups(), the same one the in-editor
+   * `?` panel uses, so the two cannot disagree about what a group contains. */
+  const sigs = (lang: 'rondo' | 'rondocode'): string[] =>
+    referenceGroups(lang, OPTIONS, DSL_DOCS).flatMap((g) => g.entries.map((e) => e.signature))
+
+  it('gives rondo its own spelling, not the JS call shape', () => {
+    expect(sigs('rondo')).toContain('svf cutoff res:… mode:…')
+    expect(sigs('rondocode').some((x) => x.startsWith('svf('))).toBe(true)
+  })
+
+  it('offers a real choice: the two differ substantially', () => {
+    const overlap = sigs('rondo').filter((x) => sigs('rondocode').includes(x))
+    // mini-notation is genuinely shared; everything else should not be
+    expect(overlap.length).toBeLessThan(sigs('rondo').length / 2)
+  })
+
+  it('renders a language toggle wired to both, remembered and linkable', () => {
+    const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
+    expect(src).toContain("['rondocode', 'JavaScript']")
+    expect(src).toContain("['rondo', 'rondo']")
+    expect(src, 'choice is not linkable').toContain("searchParams.set('lang'")
+    expect(src, 'choice is not remembered').toContain('localStorage.setItem(LANG_KEY')
+  })
+
+  it('reuses referenceGroups rather than growing a second grouping', () => {
+    const src = readFileSync(join(__dirname, '../src/docs.ts'), 'utf8')
+    expect(src).toContain('referenceGroups(lang, OPTIONS, DSL_DOCS)')
   })
 })

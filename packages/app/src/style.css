@@ -1336,17 +1336,26 @@ body.shaderviz-on .cm-gutters {
 body.shaderviz-on .topbar {
   background: color-mix(in srgb, var(--c-bar) 88%, transparent);
 }
-/* Keep code legible over bright visuals.
+/* Keep code legible over bright visuals — WITHOUT touching a glyph.
  *
- * This was two BLURRED shadows on every glyph. A blurred text-shadow is a
- * per-glyph gaussian, re-rasterized whenever the text layer is invalidated —
- * and the editor's widgets invalidate it constantly while playing, so the
- * cost scaled with how much was on screen. A stroke under the fill gives
- * better contrast over bright backgrounds anyway, and is a fill, not a blur. */
+ * Measured, at 74 fps idle, with a section block's notation lines in view
+ * (those run 600+ characters, so any per-glyph effect is paid thousands of
+ * times) over a live shader:
+ *
+ *   two blurred text-shadows (the original)      3.0 fps
+ *   one 1px-blur shadow                          4.2 fps
+ *   -webkit-text-stroke 2.5px                    9.2 fps
+ *   one ZERO-blur shadow                        17.4 fps
+ *   a flat scrim, no per-glyph effect           74.6 fps
+ *   nothing at all                              74.6 fps
+ *
+ * Every per-glyph treatment is fatal here and a blur is the worst of them:
+ * the text sits over a backdrop that changes every frame, so the layer cannot
+ * be cached and each glyph's effect is recomputed continuously. A single flat
+ * fill behind the column costs nothing and reads better, because the contrast
+ * is then constant instead of depending on what the shader is doing. */
 body.shaderviz-on .cm-content {
-  paint-order: stroke fill;
-  -webkit-text-stroke: 2.5px rgba(0, 0, 0, 0.82);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.85);
+  background: rgb(6 9 14 / 52%);
 }
 
 .shaderviz-btn.active {

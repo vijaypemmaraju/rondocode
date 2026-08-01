@@ -326,6 +326,7 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
   }
 
   let prevT = 0
+  let prevRaw = 0
   /* Frame pacing, for `?fps=1`. Kept always-on and allocation-free: two small
    * ring buffers. Without this the only way to describe a stutter is with an
    * adjective, and three separate "fixes" went in against adjectives. */
@@ -546,8 +547,11 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     pass.end()
     device.queue.submit([encoder.finish()])
 
-    gaps[ringAt] = dt * 1000
+    // the RAW gap, not the clamped dt: recording dt made `worst` top out at
+    // exactly the 100 ms clamp and hid how bad a stall really was
+    gaps[ringAt] = prevRaw === 0 ? dt * 1000 : (tWall - prevRaw) * 1000
     cpus[ringAt] = performance.now() - cpu0
+    prevRaw = tWall
     ringAt = (ringAt + 1) % RING
     if (ringLen < RING) ringLen++
     raf = requestAnimationFrame(frame)

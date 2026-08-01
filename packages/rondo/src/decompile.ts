@@ -628,12 +628,25 @@ function unfoldPipeline(n: Node, lines: string[]): boolean {
   return ok
 }
 
+/** A sig op called as a FUNCTION, viewed as the method it also is: the ctx
+ *  offers both spellings (`mix(a, b, t)` and `a.mix(b, t)`) and rondo has one
+ *  line for them, so the function form should not be the one that bails. */
+function sigopAsMethod(n: Node): { obj: Node; method: string; args: Node[] } | undefined {
+  if (!isCall(n)) return undefined
+  const name = calleeName(n)
+  const spec = name === undefined ? undefined : BUILTINS[name]
+  if (spec?.kind !== 'sigop') return undefined
+  const args = n['arguments'] as Node[]
+  if (args.length !== spec.pos.length + 1 || args[0] === undefined) return undefined
+  return { obj: args[0], method: name!, args: args.slice(1) }
+}
+
 function unfoldPipelineRaw(n: Node, lines: string[]): boolean {
   if (n.type === 'Identifier') {
     const sub = inline.map.get(n['name'] as string)
     if (sub !== undefined) return unfoldPipeline(sub, lines)
   }
-  const m = methodCall(n)
+  const m = methodCall(n) ?? sigopAsMethod(n)
   if (m !== undefined) {
     const info = OP_INFO[m.method]
     if (info !== undefined && m.args.length === 1) {
@@ -916,6 +929,19 @@ function chainAttempts(fn: Node, indent: string, fromInput: boolean): string[] |
 
 const EMPTY_INLINE: ReadonlyMap<string, Node> = new Map()
 
+/** Every name a chain body declares, in source order. */
+function bindingNames(fn: Node): string[] {
+  const body = fn['body'] as Node
+  if (body.type !== 'BlockStatement') return []
+  const out: string[] = []
+  for (const s of body['body'] as Node[]) {
+    if (s.type !== 'VariableDeclaration') continue
+    const bd = (s['declarations'] as Node[])[0]
+    if (bd !== undefined && isIdent(bd['id'] as Node)) out.push((bd['id'] as Node)['name'] as string)
+  }
+  return out
+}
+
 /** Local `const`s referenced exactly once, mapped to their value. Bindings the
  *  rondo output NEEDS by name (a `param`, which becomes a knob or a switch)
  *  are never inlined: the name is the wiring. */
@@ -989,6 +1015,12 @@ function chainLines(fn: Node, fromInput: boolean): { spine: string[]; bindings: 
     const body = fn['body'] as Node
     let ret: Node | undefined
     const bindings: string[] = []
+    // EVERY binding name is claimed up front, not as each is reached. A
+    // hoisted operand inside the FIRST binding's value would otherwise be free
+    // to take a name the third binding is about to declare — `pitch = note *
+    // amp` alongside a real `amp = env …` two lines down, which is a duplicate
+    // binding and a compile error.
+    for (const bn of bindingNames(fn)) hoist.used.add(renames.map.get(bn) ?? bn)
     if (body.type === 'BlockStatement') {
       for (const s of body['body'] as Node[]) {
         if (s.type === 'VariableDeclaration') {
@@ -1172,7 +1204,55 @@ const FN_COMB_INV: Record<string, { rname: string; pre: number }> = {
 
 /** A pattern chain expression → { sound, body lines } (voices, scale,
  *  modifiers), or null. Shared by p('name', CHAIN) and section stacks. */
-function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound'; body: string[] } | null {
+/** `sing([voice,] lyrics, notes, { name, cycles?, post? })` → the header
+ *  suffix and body lines of a rondo `sing` block, or null.
+ *
+ *  rondo writes the phrase as alternating LYRIC / MELODY line pairs and joins
+ *  each pair with a space, so one pair reproduces the two joined strings the
+ *  JS API takes. `name` is the channel and lives on the header; `cycles` is an
+ *  option in JavaScript and a modifier line in rondo. */
+function singEntry(n: Node): { header: string; name: string; body: string[] } | null {
+  if (!isCall(n) || calleeName(n) !== 'sing') return null
+  const a = n['arguments'] as Node[]
+  if (a.length !== 3 && a.length !== 4) return null
+  const withVoice = a.length === 4
+  const voice = withVoice ? strValue(a[0]!) : undefined
+  if (withVoice && (voice === undefined || !/^[a-zA-Z_]\w*$/.test(voice))) return null
+  const lyrics = strValue(a[withVoice ? 1 : 0]!)
+  const melody = strValue(a[withVoice ? 2 : 1]!)
+  const opts = objEntries(a[withVoice ? 3 : 2]!)
+  if (lyrics === undefined || melody === undefined || opts === undefined) return null
+  // a multi-line template would need the pair structure rebuilt line by line;
+  // the collapsed single-line form is what the compiler emits
+  const L = lyrics.trim()
+  const M = melody.trim()
+  if (L === '' || M === '' || L.includes('\n') || M.includes('\n')) return null
+  const name = opts['name'] !== undefined ? strValue(opts['name']) : undefined
+  if (name === undefined) return null
+  const mods: string[] = []
+  let post: string[] = []
+  for (const [k, v] of Object.entries(opts)) {
+    if (k === 'name') continue
+    if (k === 'cycles') {
+      const cv = numValue(v)
+      if (cv === undefined) return null
+      mods.push(`cycles: ${num(cv)}`)
+      continue
+    }
+    if (k === 'post') {
+      if (v.type !== 'ArrowFunctionExpression') return null
+      const pl = decompileChainFn(v, '  ', true)
+      if (pl === null || pl.some((l) => l.includes('js{'))) return null
+      post = ['post', ...pl]
+      continue
+    }
+    return null // an option with no rondo spelling
+  }
+  return { header: withVoice ? ` voice:${voice!}` : '', name, body: [L, M, ...mods, ...post] }
+}
+
+function chainToPlay(chainNode: Node):
+  { sound?: string; entry: 'notes' | 'sound' | 'sing'; header?: string; body: string[] } | null {
   // walk the method chain from the OUTSIDE in
   const mods: string[] = []
   let scale: string | undefined
@@ -1252,6 +1332,13 @@ function chainToPlay(chainNode: Node): { sound?: string; entry: 'notes' | 'sound
       mods.unshift(`${m.method === 'degradeBy' ? 'degradeby' : m.method}${combArgs.length > 0 ? ' ' + combArgs.join(' ') : ''}`)
     }
     cur = m.obj
+  }
+  // a sung phrase is its own entry: `sing([voice,] lyrics, notes, { … })`
+  const sung = singEntry(cur)
+  if (sung !== null) {
+    // the block name IS the `name:` option — rondo has one place to say it,
+    // so a p() whose channel differs from it has no faithful spelling
+    return { entry: 'sing', sound: sung.name, header: sung.header, body: [...sung.body, ...mods] }
   }
   // the entry: n/note/chord('…'), s/sound('…') (a beat block), or stack(entries…)
   let entry: 'notes' | 'sound' | undefined
@@ -1340,6 +1427,10 @@ function decompilePlay(stmt: Node): string | null {
   if (pname === undefined) return null
   const play = chainToPlay(args[1]!)
   if (play === null) return null
+  if (play.entry === 'sing') {
+    if (play.sound !== pname) return null
+    return [`sing ${pname}${play.header ?? ''}`, ...play.body.map((l) => `  ${l}`)].join('\n')
+  }
   if (play.entry === 'sound') {
     // p('beat', s('…')) → a bare `beat`; any other name is kept on the header
     return [`beat${pname === 'beat' ? '' : ` ${pname}`}`, ...play.body.map((l) => `  ${l}`)].join('\n')

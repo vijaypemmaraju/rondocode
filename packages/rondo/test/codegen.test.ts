@@ -255,3 +255,34 @@ describe('an operator after adsr round-trips', () => {
     expect(c.code).toContain('r: 0.05 }).pow(3)')
   })
 })
+
+describe('a macro driving a pattern control round-trips', () => {
+  const rt = (mod: string): string => {
+    const r = compile(`macro bright 1400 300..7000 log\n\nsynth a\n  saw note\n  * adsr .01 .1 .5 .1\n\nplay a\n  0 3\n  ${mod}\n\ncps .5\n`)
+    expect(r.ok, r.ok ? '' : JSON.stringify(r.errors)).toBe(true)
+    return r.ok ? decompile(r.code) : ''
+  }
+
+  it('brings back arithmetic on the macro, not a js block', () => {
+    // `gain: bright / 9000 + .5` compiles to
+    // .gain(macroval('bright').div(9000).add(0.5)); nothing brought it back,
+    // so the one-knob recipe -- the case the feature exists for -- degraded
+    expect(rt('gain: bright / 9000 + .5')).toContain('gain: bright / 9000 + 0.5')
+  })
+
+  it('handles the bare macro and each operator', () => {
+    expect(rt('gain: bright')).toContain('gain: bright')
+    expect(rt('dur: bright / 2')).toContain('dur: bright / 2')
+    expect(rt('pan: bright * 0.5')).toContain('pan: bright * 0.5')
+  })
+
+  it('refuses a shape that would not re-parse the same way', () => {
+    // a modifier value has no parentheses, so anything needing them must stay
+    // JavaScript rather than come back as something subtly different
+    const r = compile('macro b 1 0..2\n\nsynth a\n  saw note\n\nplay a\n  0\n\ncps .5\n')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const withParens = r.code.replace("p('a', n('0').sound('a'))", "p('a', n('0').sound('a').gain(macroval('b').add(1).mul(2)))")
+    expect(decompile(withParens)).toContain('js')
+  })
+})

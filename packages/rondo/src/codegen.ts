@@ -777,9 +777,14 @@ function cgMaster(item: Extract<TopItem, { t: 'master' }>): string {
   return `masterCompress(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
 }
 
-/** `scaledef pelog 0 1.2 2.7 …` → defineScale('pelog', [0, 1.2, 2.7, …]). */
+/** `scaledef pelog 0 1.2 2.7 …` → defineScale('pelog', [0, 1.2, 2.7, …]),
+ *  and with a unit word → the object spec defineScale also takes. */
 function cgScaleDef(item: Extract<TopItem, { t: 'scaledef' }>): string {
-  return `defineScale('${item.name}', [${item.values.map(num).join(', ')}])`
+  const list = `[${item.values.map(num).join(', ')}]`
+  if (item.unit === undefined) return `defineScale('${item.name}', ${list})`
+  const periodKey = item.unit === 'cents' ? 'periodCents' : 'periodRatio'
+  const period = item.period !== undefined ? `, ${periodKey}: ${num(item.period)}` : ''
+  return `defineScale('${item.name}', { ${item.unit}: ${list}${period} })`
 }
 
 /** `curvedef swell .25 1 .75 .2` → curvedef('swell', [[0.25, 1], [0.75, 0.2]]). */

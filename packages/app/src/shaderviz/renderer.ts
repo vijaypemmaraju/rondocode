@@ -1,6 +1,6 @@
 import type { SchedulerEvent } from '@rondocode/pattern'
 import {
-  MAX_CHANNELS, VIZ_GLOBALS, VIZ_PARAM_FIELD, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS, vizLayout,
+  follow, MAX_CHANNELS, VIZ_GLOBALS, VIZ_PARAM_FIELD, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS, vizLayout,
 } from './api'
 
 /* ------------------------------------------------------------------------- *
@@ -172,9 +172,14 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
   /** Last note + velocity seen per synth, held until the next one. */
   const lastNote = new Map<string, number>()
   const lastVel = new Map<string, number>()
-  /** Per-synth RMS from the engine's meter events (see setMeters). */
-  let chanLevels: Record<string, number> = {}
+  /* Meter values are eased toward their targets rather than written through:
+   * see `follow` in ./api.ts for why, and why it is asymmetric. */
+  /** Raw targets from the engine, and the smoothed values actually uploaded. */
+  let chanTarget: Record<string, number> = {}
+  const chanLevels = new Map<string, number>()
+  let duckTarget = 1
   let duckLevel = 1
+  let micTarget = 0
   let micLevel = 0
   /** Live macro/knob/switch values (see setParams). */
   let paramValues: Record<string, number> = {}
@@ -399,15 +404,21 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
       const ch = channelOf.get(name)
       if (ch !== undefined) uni[hitAt + ch] = nv
     }
-    // per-synth level / note / velocity, held rather than decayed
+    // per-synth level (eased toward the meter), note and velocity (held)
     const lvlAt = BLOCK_AT['lvls']!
     const noteAt = BLOCK_AT['notes']!
     const velAt = BLOCK_AT['vels']!
     for (const [name, ch] of channelOf) {
-      uni[lvlAt + ch] = chanLevels[name] ?? 0
+      const lv = follow(chanLevels.get(name) ?? 0, chanTarget[name] ?? 0, dt, 22, 110)
+      chanLevels.set(name, lv)
+      uni[lvlAt + ch] = lv
       uni[noteAt + ch] = lastNote.get(name) ?? 0
       uni[velAt + ch] = lastVel.get(name) ?? 0
     }
+    // the duck's snap DOWN is the punch, so it is followed almost immediately
+    // and only the release is eased
+    duckLevel = follow(duckLevel, duckTarget, dt, 45, 3)
+    micLevel = follow(micLevel, micTarget, dt, 22, 110)
     // macros / knobs / switches, in their own units
     const ctlAt = BLOCK_AT[VIZ_PARAM_FIELD]!
     for (let i = 0; i < paramNames.length && i < MAX_CHANNELS; i++) {
@@ -552,9 +563,10 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
       playing = v
     },
     setMeters(m): void {
-      chanLevels = m.channels
-      if (m.duck !== undefined) duckLevel = m.duck
-      if (m.mic !== undefined) micLevel = m.mic
+      // targets only: the frame loop eases toward these (see `follow`)
+      chanTarget = m.channels
+      duckTarget = m.duck ?? 1
+      micTarget = m.mic ?? 0
     },
     setPointer(x, y): void {
       pointer.x = x

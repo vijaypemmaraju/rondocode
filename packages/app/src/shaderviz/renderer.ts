@@ -1,68 +1,74 @@
 import type { SchedulerEvent } from '@rondocode/pattern'
+import {
+  MAX_CHANNELS, VIZ_GLOBALS, VIZ_PARAM_FIELD, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS, vizLayout,
+} from './api'
 
 /* ------------------------------------------------------------------------- *
  * Reusable WebGPU shader renderer — the engine behind the editor's visuals
  * AND the docs page's inline previews. It owns the GPU device, the shader
  * compile/swap, the audio→uniform packing and the rAF loop; the CALLER feeds
  * it data through opts (audio clock, analyser, sample rate) and drives it with
- * setVisual / pushEvents / setCps / setActive. No editor or DOM chrome here.
+ * setVisual / pushEvents / setCps / setMeters / setParams / setActive. No
+ * editor or DOM chrome here.
  *
- * The shader API (see buildPrelude): module globals time/res/level/bass/mid/
- * treble/cps/phase/hit/beat, spectrum(x)/waveform(x) samplers, and a hit_<synth>
- * envelope per synth in the program.
+ * The shader API is DECLARED IN ./api.ts, not here: this file derives the
+ * struct, the globals, the fs() assigns and the uniform indices from that one
+ * list. See the note at the top of api.ts for what went wrong when it didn't.
  * ------------------------------------------------------------------------- */
 
 const SPEC_BINS = 1024
 const WAVE_SAMPLES = 2048
-/** Max per-synth hit channels (packed as array<vec4f, 4> in the uniform). */
-const MAX_HITS = 16
-/** Float32 uniform layout: 12 scalars + 16 hit channels = 28 floats (112 B). */
-const UNI_FLOATS = 12 + MAX_HITS
-const HIT_BASE = 12 // float index where the hit channels start
+/** Max per-synth channels, and max params — each an array<vec4f, 4>. */
+const MAX_HITS = MAX_CHANNELS
 
-/** A synth name → a valid WGSL identifier for its hit_<id> global. */
+const LAYOUT = vizLayout()
+/** One vec4f array per per-synth global, plus one for the params. */
+const CHAN_FIELDS = [...VIZ_SYNTH_GLOBALS.map((g) => g.field), VIZ_PARAM_FIELD]
+/** Float index where each vec4f block starts. */
+const BLOCK_AT: Record<string, number> = {}
+CHAN_FIELDS.forEach((f, i) => { BLOCK_AT[f] = LAYOUT.base + i * MAX_CHANNELS })
+const UNI_FLOATS = LAYOUT.base + CHAN_FIELDS.length * MAX_CHANNELS
+
+/** A synth or param name → a valid WGSL identifier suffix. */
 const sanitizeIdent = (name: string): string => {
   const id = name.replace(/[^A-Za-z0-9_]/g, '_')
   return /^[A-Za-z_]/.test(id) ? id : `_${id}`
 }
 
-/** Build the WGSL prelude for the current synth set: bindings, the audio API
- *  as module globals (incl. one hit_<name> per synth), helpers, the fullscreen
- *  vertex stage, and an fs() that publishes uniforms into the globals then
- *  calls the user's render(uv). */
-function buildPrelude(synthNames: string[]): string {
-  const seen = new Set<string>()
+/** Build the WGSL prelude for the current synth/param set: bindings, the audio
+ *  API as module globals (one per VIZ_GLOBALS row, plus the per-synth and
+ *  per-param ones), helpers, the fullscreen vertex stage, and an fs() that
+ *  publishes uniforms into the globals then calls the user's render(uv).
+ *
+ *  Every part of this is derived from shaderviz/api.ts — see the note there on
+ *  why the list is not written out again here. */
+export function buildPrelude(synthNames: string[], paramNames: string[] = []): string {
   const decls: string[] = []
   const assigns: string[] = []
-  synthNames.slice(0, MAX_HITS).forEach((name, i) => {
-    const id = sanitizeIdent(name)
-    if (seen.has(id)) return
-    seen.add(id)
-    decls.push(`var<private> hit_${id}: f32;`)
-    assigns.push(`  hit_${id} = uni.hits[${Math.floor(i / 4)}][${i % 4}];`)
-  })
+  /** Declare `<prefix><id>` for each name, reading from `field`'s vec4f array. */
+  const channelBlock = (names: string[], prefix: string, field: string): void => {
+    const seen = new Set<string>()
+    names.slice(0, MAX_CHANNELS).forEach((name, i) => {
+      const id = sanitizeIdent(name)
+      if (seen.has(id)) return
+      seen.add(id)
+      decls.push(`var<private> ${prefix}${id}: f32;`)
+      assigns.push(`  ${prefix}${id} = uni.${field}[${Math.floor(i / 4)}][${i % 4}];`)
+    })
+  }
+  for (const g of VIZ_SYNTH_GLOBALS) channelBlock(synthNames, g.prefix, g.field)
+  channelBlock(paramNames, VIZ_PARAM_PREFIX, VIZ_PARAM_FIELD)
   return `
 struct U {
-  res: vec2f, time: f32, dt: f32,
-  level: f32, bass: f32, mid: f32, treble: f32,
-  cps: f32, phase: f32, hit: f32, beat: f32,
-  hits: array<vec4f, 4>,
+${LAYOUT.fields.join('\n')}
+${CHAN_FIELDS.map((f) => `  ${f}: array<vec4f, ${MAX_CHANNELS / 4}>,`).join('\n')}
 };
 @group(0) @binding(0) var<uniform> uni: U;
 @group(0) @binding(1) var specTex: texture_2d<f32>;
 @group(0) @binding(2) var waveTex: texture_2d<f32>;
 @group(0) @binding(3) var samp: sampler;
 
-var<private> time: f32;
-var<private> res: vec2f;
-var<private> level: f32;
-var<private> bass: f32;
-var<private> mid: f32;
-var<private> treble: f32;
-var<private> cps: f32;
-var<private> phase: f32;
-var<private> hit: f32;
-var<private> beat: f32;
+${VIZ_GLOBALS.map((g) => `var<private> ${g.name}: ${g.type};`).join('\n')}
 ${decls.join('\n')}
 
 fn spectrum(x: f32) -> f32 { return textureSampleLevel(specTex, samp, vec2f(clamp(x, 0.0, 1.0), 0.5), 0.0).r; }
@@ -79,9 +85,7 @@ struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 }
 
 @fragment fn fs(in: VSOut) -> @location(0) vec4f {
-  time = uni.time; res = uni.res; level = uni.level; bass = uni.bass;
-  mid = uni.mid; treble = uni.treble; cps = uni.cps; phase = uni.phase;
-  hit = uni.hit; beat = uni.beat;
+${VIZ_GLOBALS.map((g) => `  ${g.name} = uni.${g.name};`).join('\n')}
 ${assigns.join('\n')}
   let c = render(in.uv);
   return vec4f(c.rgb, 1.0);
@@ -109,9 +113,21 @@ export interface ShaderRenderer {
   /** Swap the user fragment (null = the built-in reactive default) + the synth
    *  set that maps to hit_<name> channels. */
   setVisual(wgsl: string | null, synths: string[]): void
-  /** Feed scheduler events so note onsets drive per-synth hit envelopes. */
+  /** Feed scheduler events: note onsets drive the per-synth hit/note/velocity
+   *  globals, and each event's own cycle number anchors `cycle`. */
   pushEvents(evs: SchedulerEvent[]): void
   setCps(cps: number): void
+  /** Transport running or not (also re-bases `cycle` on a fresh start). */
+  setPlaying(playing: boolean): void
+  /** Engine meters: per-synth RMS, and the sidechain/mic levels when present. */
+  setMeters(m: { channels: Record<string, number>; duck?: number; mic?: number }): void
+  /** Live macro / knob / switch values, by name. A changed SET of names
+   *  rebuilds the shader (each one is a named global); changed values do not. */
+  setParams(values: Record<string, number>): void
+  /** Pointer position in uv space (0..1, y up). */
+  setPointer(x: number, y: number): void
+  /** Fire the `click` envelope. */
+  pressPointer(): void
   /** Turn rendering on/off (lazily boots the GPU on first activation). */
   setActive(on: boolean): void
   dispose(): void
@@ -122,6 +138,11 @@ export interface ShaderRendererOpts {
   now: () => number
   /** The analyser to read spectrum/waveform from (null → time-only visuals). */
   analyser: () => AnalyserNode | null
+  /** Per-side taps for `left`/`right`/`width`. Optional: an AnalyserNode
+   *  downmixes to mono, so without a split these three cannot be measured and
+   *  report level/level/0 rather than something invented. */
+  analyserL?: () => AnalyserNode | null
+  analyserR?: () => AnalyserNode | null
   /** Engine sample rate (for the analyser's bin→Hz mapping). */
   sampleRate: () => number
   /** Surface a shader/GPU error (a string) or clear it (null). */
@@ -146,8 +167,39 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
   let freqBytes = new Uint8Array(0)
   let waveFloats = new Float32Array(0)
 
-  const pending: { at: number; amp: number; name: string }[] = []
+  const pending: { at: number; amp: number; name: string; note: number; cycle: number }[] = []
   const hitEnvs = new Map<string, number>()
+  /** Last note + velocity seen per synth, held until the next one. */
+  const lastNote = new Map<string, number>()
+  const lastVel = new Map<string, number>()
+  /** Per-synth RMS from the engine's meter events (see setMeters). */
+  let chanLevels: Record<string, number> = {}
+  let duckLevel = 1
+  let micLevel = 0
+  /** Live macro/knob/switch values (see setParams). */
+  let paramValues: Record<string, number> = {}
+  let paramNames: string[] = []
+  /** Previous frame's spectrum, for flux. */
+  let prevSpec = new Float32Array(0)
+  /** Per-side scratch for the stereo taps, (re)allocated only on a size change. */
+  const sides = { l: new Float32Array(0), r: new Float32Array(0) }
+  /** RMS of one analyser's time-domain window, scaled so a normal mix sits
+   *  mid-range rather than hugging zero. */
+  const rmsOf = (a: AnalyserNode, which: 'l' | 'r'): number => {
+    if (sides[which].length !== a.fftSize) sides[which] = new Float32Array(a.fftSize)
+    const buf = sides[which]
+    a.getFloatTimeDomainData(buf)
+    let s = 0
+    for (let i = 0; i < buf.length; i++) s += buf[i]! * buf[i]!
+    return Math.min(1, Math.sqrt(s / Math.max(1, buf.length)) * 3)
+  }
+  /** Transport: the cycle of the most recent event, advanced by the clock
+   *  between events so the value moves smoothly rather than in steps. */
+  let cycleAt = 0
+  let cycleAtT = 0
+  let playing = false
+  const pointer = { x: 0.5, y: 0.5 }
+  let clickEnv = 0
   let channelOf = new Map<string, number>()
   let beatEnv = 0
   let cps = 0.5
@@ -175,7 +227,7 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
 
   const buildPipeline = async (userFrag: string, synthNames: string[]): Promise<void> => {
     if (!device || !ctx) return
-    const code = `${buildPrelude(synthNames)}\n${userFrag}`
+    const code = `${buildPrelude(synthNames, paramNames)}\n${userFrag}`
     if (code === currentCode && pipeline) return
     device.pushErrorScope('validation')
     let module: GPUShaderModule
@@ -250,6 +302,10 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     let bass = 0
     let mid = 0
     let treble = 0
+    let centroid = 0
+    let flux = 0
+    let peak = 0
+    let crest = 0
     if (analyser) {
       if (freqBytes.length !== analyser.frequencyBinCount) freqBytes = new Uint8Array(analyser.frequencyBinCount)
       if (waveFloats.length !== analyser.fftSize) waveFloats = new Float32Array(analyser.fftSize)
@@ -272,6 +328,48 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
       mid = avg(binOf(200), binOf(2000))
       treble = avg(binOf(2000), binOf(12000))
       level = avg(0, freqBytes.length - 1)
+
+      // CENTROID: the energy-weighted mean bin, as a fraction of the band.
+      // Normalized against a 12 kHz ceiling rather than nyquist, because
+      // almost nothing musical lives above it and dividing by 24 kHz squashes
+      // every real patch into the bottom quarter of the range.
+      let wsum = 0
+      let msum = 0
+      const top = binOf(12000)
+      for (let i = 0; i <= top; i++) {
+        const m = freqBytes[i]! / 255
+        wsum += m * i
+        msum += m
+      }
+      centroid = msum > 1e-6 ? Math.min(1, wsum / msum / Math.max(1, top)) : 0
+
+      // FLUX: summed POSITIVE change since the last frame. Rising energy only
+      // — falling energy is a note ending, which is not an onset, and counting
+      // it makes every release read as a hit.
+      if (prevSpec.length !== freqBytes.length) prevSpec = new Float32Array(freqBytes.length)
+      let f = 0
+      for (let i = 0; i < freqBytes.length; i++) {
+        const m = freqBytes[i]! / 255
+        const d = m - prevSpec[i]!
+        if (d > 0) f += d
+        prevSpec[i] = m
+      }
+      flux = Math.min(1, f / 24)
+
+      // PEAK and CREST from the time-domain window we already pulled.
+      let pk = 0
+      let sq = 0
+      for (let i = 0; i < waveFloats.length; i++) {
+        const v = waveFloats[i]!
+        const a = Math.abs(v)
+        if (a > pk) pk = a
+        sq += v * v
+      }
+      const rms = Math.sqrt(sq / Math.max(1, waveFloats.length))
+      peak = Math.min(1, pk)
+      // 1 when a square wave, large when spiky. /8 puts a typical mix near the
+      // middle of 0..1 rather than pinned at either end.
+      crest = rms > 1e-5 ? Math.min(1, pk / rms / 8) : 0
       device.queue.writeTexture({ texture: specTex! }, specData, { bytesPerRow: SPEC_BINS }, { width: SPEC_BINS, height: 1 })
       device.queue.writeTexture({ texture: waveTex! }, waveData, { bytesPerRow: WAVE_SAMPLES }, { width: WAVE_SAMPLES, height: 1 })
     }
@@ -282,32 +380,89 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     while (pending.length > 0 && pending[0]!.at <= t) {
       const o = pending.shift()!
       hitEnvs.set(o.name, Math.max(hitEnvs.get(o.name) ?? 0, o.amp))
+      if (Number.isFinite(o.note)) lastNote.set(o.name, o.note)
+      lastVel.set(o.name, o.amp)
+      // the scheduler's own cycle number, re-based to this moment
+      if (o.cycle >= 0) { cycleAt = o.cycle; cycleAtT = o.at }
     }
     const decay = Math.exp(-dt / 0.12)
     let hitMax = 0
-    for (let i = 0; i < MAX_HITS; i++) uni[HIT_BASE + i] = 0
+    for (const f of CHAN_FIELDS) {
+      const at = BLOCK_AT[f]!
+      for (let i = 0; i < MAX_CHANNELS; i++) uni[at + i] = 0
+    }
+    const hitAt = BLOCK_AT['hits']!
     for (const [name, v] of hitEnvs) {
       const nv = v * decay
       hitEnvs.set(name, nv)
       if (nv > hitMax) hitMax = nv
       const ch = channelOf.get(name)
-      if (ch !== undefined) uni[HIT_BASE + ch] = nv
+      if (ch !== undefined) uni[hitAt + ch] = nv
+    }
+    // per-synth level / note / velocity, held rather than decayed
+    const lvlAt = BLOCK_AT['lvls']!
+    const noteAt = BLOCK_AT['notes']!
+    const velAt = BLOCK_AT['vels']!
+    for (const [name, ch] of channelOf) {
+      uni[lvlAt + ch] = chanLevels[name] ?? 0
+      uni[noteAt + ch] = lastNote.get(name) ?? 0
+      uni[velAt + ch] = lastVel.get(name) ?? 0
+    }
+    // macros / knobs / switches, in their own units
+    const ctlAt = BLOCK_AT[VIZ_PARAM_FIELD]!
+    for (let i = 0; i < paramNames.length && i < MAX_CHANNELS; i++) {
+      uni[ctlAt + i] = paramValues[paramNames[i]!] ?? 0
     }
     beatEnv = Math.max(beatEnv * Math.exp(-dt / 0.18), bass)
+    clickEnv *= Math.exp(-dt / 0.12)
     const phase = cps > 0 ? (t * cps) % 1 : 0
+    // CYCLE: anchored to the last scheduled event's own cycle number and
+    // advanced by the clock in between, so it tracks the TRANSPORT rather than
+    // wall time. Deriving it from time*cps alone drifts across a stop/start,
+    // which is what every arrangement-aware visual had to do before this.
+    const cycleNow = playing ? cycleAt + Math.max(0, (t - cycleAtT) * cps) : cycleAt
 
-    uni[0] = canvas.width
-    uni[1] = canvas.height
-    uni[2] = t
-    uni[3] = dt
-    uni[4] = level
-    uni[5] = bass
-    uni[6] = mid
-    uni[7] = treble
-    uni[8] = cps
-    uni[9] = phase
-    uni[10] = hitMax
-    uni[11] = beatEnv
+    // STEREO. One analyser downmixes to mono, so left/right need their own
+    // taps; without them these stay equal and width reads 0 rather than lying.
+    let chanL = level
+    let chanR = level
+    let width = 0
+    const aL = opts.analyserL?.()
+    const aR = opts.analyserR?.()
+    if (aL && aR) {
+      chanL = rmsOf(aL, 'l')
+      chanR = rmsOf(aR, 'r')
+      const sum = chanL + chanR
+      width = sum > 1e-5 ? Math.min(1, Math.abs(chanL - chanR) / sum * 2) : 0
+    }
+
+    const X = LAYOUT.index
+    uni[X['res']!] = canvas.width
+    uni[X['res']! + 1] = canvas.height
+    uni[X['pointer']!] = pointer.x
+    uni[X['pointer']! + 1] = pointer.y
+    uni[X['time']!] = t
+    uni[X['dt']!] = dt
+    uni[X['cps']!] = cps
+    uni[X['phase']!] = phase
+    uni[X['cycle']!] = cycleNow
+    uni[X['playing']!] = playing ? 1 : 0
+    uni[X['level']!] = level
+    uni[X['bass']!] = bass
+    uni[X['mid']!] = mid
+    uni[X['treble']!] = treble
+    uni[X['centroid']!] = centroid
+    uni[X['flux']!] = flux
+    uni[X['peak']!] = peak
+    uni[X['crest']!] = crest
+    uni[X['left']!] = chanL
+    uni[X['right']!] = chanR
+    uni[X['width']!] = width
+    uni[X['duck']!] = duckLevel
+    uni[X['mic']!] = micLevel
+    uni[X['beat']!] = beatEnv
+    uni[X['hit']!] = hitMax
+    uni[X['click']!] = clickEnv
     device.queue.writeBuffer(uniformBuf, 0, uni)
 
     const encoder = device.createCommandEncoder()
@@ -381,12 +536,42 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
       for (const ev of evs) {
         const name = typeof ev.controls.sound === 'string' ? ev.controls.sound : ''
         const amp = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
-        if (name !== '') pending.push({ at: ev.timeSec, amp, name })
+        const note = typeof ev.controls.note === 'number' ? ev.controls.note : NaN
+        const cycle = typeof ev.cycle === 'number' ? ev.cycle : -1
+        if (name !== '') pending.push({ at: ev.timeSec, amp, name, note, cycle })
       }
       if (pending.length > 512) pending.splice(0, pending.length - 512)
     },
     setCps(v): void {
       cps = v
+    },
+    setPlaying(v): void {
+      // a fresh start re-bases the cycle counter; without this, stopping and
+      // playing again leaves `cycle` wherever the last run left it
+      if (v && !playing) { cycleAt = 0; cycleAtT = opts.now() }
+      playing = v
+    },
+    setMeters(m): void {
+      chanLevels = m.channels
+      if (m.duck !== undefined) duckLevel = m.duck
+      if (m.mic !== undefined) micLevel = m.mic
+    },
+    setPointer(x, y): void {
+      pointer.x = x
+      pointer.y = y
+    },
+    pressPointer(): void {
+      clickEnv = 1
+    },
+    setParams(values): void {
+      paramValues = values
+      const names = Object.keys(values).sort()
+      // the prelude names each ctl_ global, so a CHANGED SET needs a rebuild;
+      // the same set with new values does not
+      if (names.length !== paramNames.length || names.some((n, i) => n !== paramNames[i])) {
+        paramNames = names
+        if (device) void buildPipeline(wantFrag, wantSynths)
+      }
     },
     setActive(v): void {
       on = v

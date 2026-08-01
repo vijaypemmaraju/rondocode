@@ -3,6 +3,7 @@ import type { AudioSession } from '../audio/AudioSession'
 import { icon } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { createShaderRenderer, DEFAULT_FRAG } from './renderer'
+import { getMacroValues } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
  * Editor visuals: a full-bleed WebGPU canvas behind the editor, driven by the
@@ -39,6 +40,8 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
   const renderer = createShaderRenderer(canvas, {
     now: () => audio.currentTimeFrames / audio.sampleRate,
     analyser: () => audio.analyser,
+    analyserL: () => audio.analyserL,
+    analyserR: () => audio.analyserR,
     sampleRate: () => audio.sampleRate,
     onError: (msg) => {
       if (msg === null) toast.classList.add('hidden')
@@ -48,11 +51,41 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
       }
     },
   })
-  renderer.setCps(editor.session.getState().cps)
+  const state0 = editor.session.getState()
+  renderer.setCps(state0.cps)
+  renderer.setPlaying(state0.playing)
 
-  const unsubState = editor.onState((s) => renderer.setCps(s.cps))
+  const unsubState = editor.onState((s) => {
+    renderer.setCps(s.cps)
+    renderer.setPlaying(s.playing)
+  })
   const unsubPat = editor.onPatternEvents((evs) => renderer.pushEvents(evs))
   const unsubVisual = editor.onVisual((wgsl, synths) => renderer.setVisual(wgsl, synths))
+  // Per-synth levels ride the engine's existing meter cadence — the same
+  // events the header meter and the inline channel bars already consume.
+  const unsubEngine = editor.onEngineEvent((ev) => {
+    if (ev.kind !== 'meters') return
+    renderer.setMeters({
+      channels: ev.channels,
+      ...(typeof ev.duck === 'number' ? { duck: ev.duck } : {}),
+      ...(typeof ev.mic === 'number' ? { mic: ev.mic } : {}),
+    })
+    // macros/knobs are read on the same tick: they change from a finger on a
+    // widget, from MIDI, or from a re-eval, and no one of those has a single
+    // notification the shader could hang off
+    renderer.setParams(Object.fromEntries(getMacroValues()))
+  })
+
+  // POINTER, in uv space with y flipped to match the shader's coordinates.
+  const onMove = (e: PointerEvent): void => {
+    const r = canvas.getBoundingClientRect()
+    if (r.width > 0 && r.height > 0) {
+      renderer.setPointer((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height)
+    }
+  }
+  const onDown = (e: PointerEvent): void => { onMove(e); renderer.pressPointer() }
+  window.addEventListener('pointermove', onMove, { passive: true })
+  window.addEventListener('pointerdown', onDown, { passive: true })
 
   let on = false
   const setOn = (v: boolean): void => {
@@ -68,6 +101,9 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
 
   return {
     dispose(): void {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerdown', onDown)
+      unsubEngine()
       unsubState()
       unsubPat()
       unsubVisual()

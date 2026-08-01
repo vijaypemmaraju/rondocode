@@ -103,6 +103,7 @@ const ensureViz = (): { canvas: HTMLCanvasElement; renderer: ReturnType<typeof c
 }
 
 const hideViz = (): void => {
+  vizRenderer?.setPlaying(false)
   vizRenderer?.setActive(false)
   vizCanvas?.classList.add('hidden')
 }
@@ -118,6 +119,9 @@ const showViz = (host: HTMLElement): void => {
   canvas.classList.remove('hidden')
   renderer.setVisual(latestVisual.wgsl, latestVisual.synths)
   renderer.setCps(player?.cps ?? 0.5)
+  // the docs previews have no engine behind them, so `playing` and `cycle`
+  // would sit at 0 forever and any arrangement-aware shader would look frozen
+  renderer.setPlaying(true)
   renderer.setActive(true)
 }
 

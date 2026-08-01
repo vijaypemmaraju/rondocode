@@ -145,7 +145,20 @@ export type EngineEvent =
    *  for schedulers stamping future atFrame values. Produced by
    *  RealtimeEngine.collectMeters() on request — the engine does not emit
    *  these unprompted. */
-  | { kind: 'meters'; frame: number; master: number; channels: Record<string, number>; buses?: Record<string, number> }
+  | {
+      kind: 'meters'
+      frame: number
+      master: number
+      channels: Record<string, number>
+      buses?: Record<string, number>
+      /** The sidechain envelope right now: 1 open, dipping toward 1-depth on
+       *  each source hit. Absent when nothing is ducking. Reported because a
+       *  visualizer otherwise has to APPROXIMATE the pump from bass energy,
+       *  which is a different shape from the thing actually being applied. */
+      duck?: number
+      /** RMS of the live input for the last block, absent when the mic is off. */
+      mic?: number
+    }
   /** Current output value of each probed node (see setProbes), for the editor's
    *  live-value readouts. `values[synth][nodeId]` is the node's most recent
    *  output sample from a currently-active voice; a silent synth (no active

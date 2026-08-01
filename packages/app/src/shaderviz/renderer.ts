@@ -134,7 +134,9 @@ export interface ShaderRenderer {
 }
 
 export interface ShaderRendererOpts {
-  /** Audio clock in seconds (drives time + onset scheduling). */
+  /** AUDIO clock in seconds: the timeline SchedulerEvent.timeSec is stamped
+   *  in. Drives onset dispatch, `phase` and `cycle`. Animation does NOT use
+   *  it — see the two-clock note in the frame loop. */
   now: () => number
   /** The analyser to read spectrum/waveform from (null → time-only visuals). */
   analyser: () => AnalyserNode | null
@@ -379,10 +381,29 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
       device.queue.writeTexture({ texture: waveTex! }, waveData, { bytesPerRow: WAVE_SAMPLES }, { width: WAVE_SAMPLES, height: 1 })
     }
 
-    const t = opts.now()
-    const dt = prevT === 0 ? 0.016 : Math.max(0, t - prevT)
-    prevT = t
-    while (pending.length > 0 && pending[0]!.at <= t) {
+    /* TWO CLOCKS, and conflating them is what made everything move in steps.
+     *
+     * `opts.now()` is AudioContext.currentTime, which only advances when the
+     * audio thread hands the main thread a new render quantum. Read once per
+     * frame it does not tick evenly: some frames see the same value as the
+     * last (dt = 0) and the next sees a double step. Every decay and every
+     * eased meter is scaled by dt, so they froze for a frame and then jumped —
+     * animation running in bursts, however smooth the underlying value was.
+     *
+     * So: the AUDIO clock still decides WHEN a note lands and where the cycle
+     * counter is anchored, because events are stamped in that timeline and
+     * nothing else would stay in sync. The WALL clock drives everything that
+     * merely has to look continuous — `time`, `dt`, the envelope decays, the
+     * meter easing. `phase` and `cycle` remain audio-locked, which is what a
+     * shader should be using for anything that must land with the music. */
+    const tAudio = opts.now()
+    const tWall = performance.now() / 1000
+    // clamped: a backgrounded tab returns after seconds, and one frame with
+    // dt = 4 would snap every envelope to its target at once
+    const dt = prevT === 0 ? 0.016 : Math.min(0.1, Math.max(0.0005, tWall - prevT))
+    prevT = tWall
+    const t = tWall
+    while (pending.length > 0 && pending[0]!.at <= tAudio) {
       const o = pending.shift()!
       hitEnvs.set(o.name, Math.max(hitEnvs.get(o.name) ?? 0, o.amp))
       if (Number.isFinite(o.note)) lastNote.set(o.name, o.note)
@@ -426,12 +447,12 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
     }
     beatEnv = Math.max(beatEnv * Math.exp(-dt / 0.18), bass)
     clickEnv *= Math.exp(-dt / 0.12)
-    const phase = cps > 0 ? (t * cps) % 1 : 0
+    const phase = cps > 0 ? (tAudio * cps) % 1 : 0
     // CYCLE: anchored to the last scheduled event's own cycle number and
     // advanced by the clock in between, so it tracks the TRANSPORT rather than
     // wall time. Deriving it from time*cps alone drifts across a stop/start,
     // which is what every arrangement-aware visual had to do before this.
-    const cycleNow = playing ? cycleAt + Math.max(0, (t - cycleAtT) * cps) : cycleAt
+    const cycleNow = playing ? cycleAt + Math.max(0, (tAudio - cycleAtT) * cps) : cycleAt
 
     // STEREO. One analyser downmixes to mono, so left/right need their own
     // taps; without them these stay equal and width reads 0 rather than lying.

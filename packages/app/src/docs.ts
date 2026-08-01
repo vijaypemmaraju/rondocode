@@ -12,7 +12,7 @@ import type { DocEntry } from './docs/dsl-docs'
 import type { PreviewPlayer } from './docs/player'
 import type { createShaderRenderer } from './shaderviz/renderer'
 import { createDocEditor } from './docs/doceditor'
-import { compile as compileRondo } from '@rondocode/rondo'
+import { compile as compileRondo, decompile as decompileRondo } from '@rondocode/rondo'
 import { iconEl } from './ui/icons'
 import { docsMarkdown } from './docs/markdown'
 import { FLASH_MS } from './editor/flash'
@@ -118,7 +118,42 @@ const showViz = (host: HTMLElement): void => {
 
 /** A playable code block: a full editor (syntax highlight + flash-on-play,
  *  editable), a ▶/⏹ toggle, and an "open in editor" link that tracks edits. */
-async function codeBlock(caption: string, src: string, lang?: 'rondo'): Promise<HTMLElement> {
+/** The language the reader has asked every snippet to be shown in, or null for
+ *  "as authored". Same storage shape as the reference toggle. */
+const DOC_LANG_KEY = 'rondocode-doc-lang'
+function docLang(): 'rondocode' | 'rondo' | null {
+  const q = new URLSearchParams(location.search).get('lang')
+  if (q === 'rondo' || q === 'rondocode') return q
+  const v = localStorage.getItem(DOC_LANG_KEY)
+  return v === 'rondo' || v === 'rondocode' ? v : null
+}
+
+/** A snippet in the language the reader picked.
+ *
+ *  GENERATED, not a second copy. Every docs program round-trips (#210-#212
+ *  closed the last gaps), so the other language is derived from the one
+ *  authored source and the two cannot drift. If a conversion ever does fail it
+ *  falls back to the original rather than showing a `js{ }` blob, so a future
+ *  gap degrades to "this one stayed in its own language". */
+function inLang(src: string, lang: 'rondo' | undefined): { text: string; lang?: 'rondo' } {
+  const want = docLang()
+  try {
+    if (want === 'rondo' && lang !== 'rondo') {
+      const d = decompileRondo(src)
+      if (!d.includes('js{') && !/^js$/m.test(d)) return { text: d, lang: 'rondo' }
+    } else if (want === 'rondocode' && lang === 'rondo') {
+      const c = compileRondo(src)
+      if (c.ok) return { text: c.code }
+    }
+  } catch { /* fall through to as-authored */ }
+  return lang === 'rondo' ? { text: src, lang } : { text: src }
+}
+
+async function codeBlock(captionIn: string, srcIn: string, langIn?: 'rondo'): Promise<HTMLElement> {
+  const conv = inLang(srcIn, langIn)
+  const src = conv.text
+  const lang = conv.lang
+  const caption = captionIn
   const card = el('div', 'doc-code')
   card.append(el('div', 'doc-code-cap', caption))
 
@@ -483,6 +518,34 @@ async function build(): Promise<void> {
     }
     tabs.append(a)
   }
+  // LANGUAGE. Every snippet is generated from one source, so this shows the
+  // same docs in whichever language you write in. A reload rather than a live
+  // re-mount: each block is a CodeMirror instance, and rebuilding them all in
+  // place would be a lot of machinery for a control you touch once.
+  const langPick = el('div', 'doc-langpick')
+  langPick.setAttribute('role', 'group')
+  langPick.setAttribute('aria-label', 'snippet language')
+  const wantLang = docLang()
+  for (const [value, text] of [['rondocode', 'JS'], ['rondo', 'rondo']] as const) {
+    const b = el('button', 'doc-langbtn', text) as HTMLButtonElement
+    b.type = 'button'
+    if (wantLang === value) b.classList.add('on')
+    b.setAttribute('aria-pressed', String(wantLang === value))
+    b.title = wantLang === value ? 'showing every snippet in this language (tap to go back to as-written)' : `show every snippet in ${text}`
+    b.addEventListener('click', () => {
+      const next = wantLang === value ? null : value
+      try {
+        if (next === null) localStorage.removeItem(DOC_LANG_KEY)
+        else localStorage.setItem(DOC_LANG_KEY, next)
+      } catch { /* private mode */ }
+      const url = new URL(location.href)
+      if (next === null) url.searchParams.delete('lang')
+      else url.searchParams.set('lang', next)
+      location.href = url.toString()
+    })
+    langPick.append(b)
+  }
+  tabs.append(el('div', 'doc-tabs-spacer'), langPick)
   document.body.append(tabs)
   // MEASURE, do not assume. The header has no fixed height: it wraps
   // differently at small widths and with a larger system font, so a hard-coded

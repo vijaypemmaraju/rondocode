@@ -218,7 +218,11 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--c-border, #2a2e37) 55%, transparent);
   cursor: pointer;
-  transition: background 0.06s, box-shadow 0.06s, transform 0.06s;
+  /* NO TRANSITION ON THE PLAYHEAD PROPERTIES. `.play` and `.trig` are toggled
+   * on every frame as the head sweeps, and a transition turns each flip into
+   * 60 ms of interpolation-plus-repaint — hundreds of them in flight at once
+   * across a roll. `background` alone is cheap and keeps the hover feel. */
+  transition: background 0.06s;
 }
 .rondo-roll .rc:hover { background: color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent); }
 /* every 4th column brighter: the beat grid */
@@ -229,9 +233,11 @@
 }
 /* playhead: the sweeping column lights, the sounding cell blooms */
 .rondo-roll .rc.play { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c-accent, #6ea8fe) 55%, transparent); }
+/* the sounding cell: same reasoning as .qr-cell.on — a hard ring, not a blur.
+ * The scale stays: transforms are composited and cost nothing to animate. */
 .rondo-roll .rc.trig {
   background: var(--c-accent-alt, #6ea8fe);
-  box-shadow: 0 0 10px -1px var(--c-accent-alt, #6ea8fe);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, #fff 50%, var(--c-accent-alt, #6ea8fe));
   transform: scale(1.12);
 }
 /* whole-block step sequencer: instrument labels + lanes aligned in TIME —
@@ -317,10 +323,18 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--c-accent, #6ea8fe) 55%, transparent);
 }
+/* THE LIT CELL IS REPAINTED EVERY FRAME as the playhead sweeps, so its
+ * treatment has to be paint-cheap. A blurred box-shadow is not: each flip
+ * repaints the cell AND an 8px blur halo around it, for every lit cell of
+ * every roll on screen. A section block puts several long rolls in view at
+ * once, which is where the frame rate went.
+ *
+ * A brighter fill plus a hard 1px ring reads as the same "bloom" at this size
+ * and is a fill, with no blur anywhere. */
 .rondo-qroll .qr-cell.on,
 .rondo-rollov .qr-cell.on {
   background: var(--c-accent-alt, #6ea8fe);
-  box-shadow: 0 0 8px -2px var(--c-accent-alt, #6ea8fe);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 45%, var(--c-accent-alt, #6ea8fe));
 }
 /* The playhead is moved with `transform`, not `left`, because it moves every
  * frame and `left` is a layout property — a roll can hold hundreds of

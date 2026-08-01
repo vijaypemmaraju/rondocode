@@ -5,6 +5,7 @@
  * dsl-docs.ts.
  * ------------------------------------------------------------------------- */
 
+import { VIZ_GLOBALS } from '../shaderviz/api'
 import { RECIPES } from './cookbook'
 import { GOTCHAS } from './gotchas'
 import type { Gotcha } from './gotchas'
@@ -76,6 +77,18 @@ const rondo = (caption: string, text: string): CodeBlock => ({ kind: 'code', cap
 const table = (caption: string, headers: string[], rows: string[][]): TableBlock => ({ kind: 'table', caption, headers, rows })
 const list = (items: string[], ordered = false): ListBlock => ({ kind: 'list', items, ordered })
 const note = (text: string, tone: 'info' | 'warn' = 'info'): NoteBlock => ({ kind: 'note', text, tone })
+
+/** The visual API table, GENERATED from shaderviz/api.ts rather than retyped.
+ *  That list is also what the renderer builds its uniform struct from and what
+ *  the editor highlights, so a global cannot exist without appearing here. */
+const vizTable = (): TableBlock =>
+  table(
+    'Everything a visual() shader can read.',
+    ['global', 'kind', 'what it is'],
+    [...VIZ_GLOBALS]
+      .sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name))
+      .map((g) => [`\`${g.name}\``, g.group, g.detail]),
+  )
 
 /** Every human-readable string a block contributes, for the docs search index
  *  (docs.ts) and the style sweeps in the tests. A new block kind that forgets
@@ -1041,7 +1054,11 @@ cps .45`,
     group: 'voice & visuals',
     title: 'Visuals',
     blocks: [
-      p("`visual(...)` attaches a WGSL fragment shader that renders behind the code, driven by the audio: `time`, `level`, `bass`/`mid`/`treble`, `spectrum(x)`, `waveform(x)`, and a `hit_<synth>` onset envelope per synth. Press play to hear it, then open it in the editor and toggle the visuals button to see it."),
+      p("`visual(...)` attaches a WGSL fragment shader that renders behind the code, driven by the audio. Press play to hear it, then open it in the editor and toggle the visuals button to see it."),
+      p('Everything below is a module global your `render(uv)` can read. They fall into four kinds: what the CANVAS is, where the TRANSPORT is, what the AUDIO is doing, and what the POINTER is doing. There are also generated ones, listed under the table.'),
+      vizTable(),
+      p('Per synth in the program you also get `hit_<name>`, `lvl_<name>`, `note_<name>` and `vel_<name>`, and per macro or knob a `ctl_<name>`. So `hit_kick` flashes on every kick, `lvl_pad` follows a pad while it is held, and `ctl_bright` is the knob you are turning. The two texture helpers are `spectrum(x)` and `waveform(x)`, both taking x in 0..1.'),
+      p('`cycle` and `phase` are the pair worth knowing: `phase` is the position WITHIN the current cycle and `cycle` is how many have passed, so `cycle` is what an arrangement-aware visual wants. It follows the transport rather than wall time, which matters the moment you stop and restart.'),
       code(
         'A spectrum ring with a kick-driven glow.',
         `const kick = synth(({ gate, adsr, sine }) =>

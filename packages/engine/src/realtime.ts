@@ -333,6 +333,15 @@ export class RealtimeEngine {
       }
       ev.buses = buses
     }
+    // The duck envelope as APPLIED, not as inferred. A visualizer reading bass
+    // energy gets a different shape from the multiplier actually in the path.
+    if (this.scSource !== undefined) ev.duck = Number.isFinite(this.duckLevel) ? this.duckLevel : 1
+    if (!this.micQuiet) {
+      let s = 0
+      for (let i = 0; i < BLOCK; i++) s += this.micBlock[i]! * this.micBlock[i]!
+      const m = Math.sqrt(s / BLOCK)
+      ev.mic = Number.isFinite(m) ? m : 0
+    }
     return ev
   }
 

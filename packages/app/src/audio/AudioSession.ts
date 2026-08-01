@@ -33,6 +33,11 @@ export class AudioSession {
    *  tap could not be built — viz then simply has no data (see start()). */
   readonly analyser: AnalyserNode | null
 
+  /** Per-side taps for stereo metering, or null when the split could not be
+   *  built. Pure taps: NOT connected to the destination. */
+  readonly analyserL: AnalyserNode | null
+  readonly analyserR: AnalyserNode | null
+
   /** Main-thread mirror of the samples loaded into the worklet, in load order
    *  (built-ins first). The worklet is the source of truth for playback; this
    *  is just so the UI can list what is loadable by name. */
@@ -47,8 +52,12 @@ export class AudioSession {
     private readonly context: AudioContext,
     private readonly node: AudioWorkletNode,
     analyser: AnalyserNode | null,
+    analyserL: AnalyserNode | null = null,
+    analyserR: AnalyserNode | null = null,
   ) {
     this.analyser = analyser
+    this.analyserL = analyserL
+    this.analyserR = analyserR
     node.port.onmessage = (e: MessageEvent) => this.onEvent?.(e.data as EngineEvent)
   }
 
@@ -73,6 +82,8 @@ export class AudioSession {
       // worklet → destination connection — audio must NEVER break because a
       // visualizer couldn't attach. (analyser stays null; viz draws nothing.)
       let analyser: AnalyserNode | null = null
+      let analyserL: AnalyserNode | null = null
+      let analyserR: AnalyserNode | null = null
       try {
         const a = context.createAnalyser()
         a.fftSize = 2048
@@ -80,6 +91,30 @@ export class AudioSession {
         node.connect(a)
         a.connect(context.destination)
         analyser = a
+        // PER-SIDE taps. An AnalyserNode downmixes to mono, so left/right and
+        // any width measure are impossible from `a` alone. Split off the same
+        // node and leave these analysers UNCONNECTED to the destination — they
+        // are pure taps, and connecting them would sum the signal in twice.
+        // Nested in its own try: a browser without createChannelSplitter still
+        // gets the mono visuals rather than losing the whole tap.
+        try {
+          const split = context.createChannelSplitter(2)
+          node.connect(split)
+          const mk = (): AnalyserNode => {
+            const s = context.createAnalyser()
+            s.fftSize = 1024
+            s.smoothingTimeConstant = 0.7
+            return s
+          }
+          const l = mk()
+          const r = mk()
+          split.connect(l, 0)
+          split.connect(r, 1)
+          analyserL = l
+          analyserR = r
+        } catch (splitError) {
+          console.warn('[audio] stereo tap failed; left/right/width stay mono', splitError)
+        }
       } catch (tapError) {
         console.warn('[audio] analyser tap failed; connecting direct', tapError)
         try {
@@ -91,7 +126,7 @@ export class AudioSession {
       }
       // Do NOT resume here: at page load there's no user gesture yet. The
       // context stays suspended (silent) until the first Run calls resume().
-      return new AudioSession(context, node, analyser)
+      return new AudioSession(context, node, analyser, analyserL, analyserR)
     } catch (e) {
       context.close().catch(() => {})
       throw e

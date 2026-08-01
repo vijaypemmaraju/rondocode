@@ -6,6 +6,9 @@ import { syntaxTree } from '@codemirror/language'
 import { snippetCompletion } from '@codemirror/autocomplete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { stringCallName } from './complete'
+import {
+  VIZ_FNS, VIZ_GLOBALS, VIZ_PARAM_DETAIL, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS,
+} from '../shaderviz/api'
 
 /* ------------------------------------------------------------------------- *
  * Inline WGSL support inside visual(`…`): the template argument of a visual()
@@ -27,9 +30,16 @@ const TYPES = new Set([
   'vec2f', 'vec3f', 'vec4f', 'vec2i', 'vec3i', 'vec4i', 'vec2u', 'vec3u', 'vec4u',
   'vec2', 'vec3', 'vec4', 'mat2x2f', 'mat3x3f', 'mat4x4f', 'mat2x2', 'mat3x3', 'mat4x4',
 ])
-// the rondocode audio API injected into every shader (see shaderviz PRELUDE)
-const API_VARS = new Set(['time', 'res', 'level', 'bass', 'mid', 'treble', 'cps', 'phase', 'hit', 'beat', 'uv'])
-const API_FNS = new Set(['spectrum', 'waveform', 'render'])
+// the rondocode audio API injected into every shader. DERIVED from
+// shaderviz/api.ts — this used to be a second copy and drifted from it.
+// `uv` is not a uniform: it is render()'s argument, and colouring it the same
+// way is right because it reads as part of the same API.
+const API_VARS = new Set<string>([...VIZ_GLOBALS.map((g) => g.name), 'uv'])
+const API_FNS = new Set<string>([...VIZ_FNS.map((f) => f.name), 'render'])
+/** `hit_kick`, `lvl_pad`, `ctl_bright` — generated per synth/param, so they
+ *  are matched by PREFIX rather than listed. */
+const API_PREFIXES = [...VIZ_SYNTH_GLOBALS.map((g) => g.prefix), VIZ_PARAM_PREFIX]
+const isApiVar = (id: string): boolean => API_VARS.has(id) || API_PREFIXES.some((p) => id.startsWith(p))
 const BUILTINS = new Set([
   'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'pow', 'exp', 'exp2', 'log',
   'log2', 'sqrt', 'inverseSqrt', 'abs', 'sign', 'floor', 'ceil', 'round', 'trunc',
@@ -69,7 +79,7 @@ function tokenizeWgsl(text: string): Tok[] {
       let cls = 'wgsl-id'
       if (KEYWORDS.has(id)) cls = 'wgsl-kw'
       else if (isType(id)) cls = 'wgsl-type'
-      else if (API_VARS.has(id) || /^hit_[A-Za-z0-9_]+$/.test(id)) cls = 'wgsl-api'
+      else if (isApiVar(id)) cls = 'wgsl-api'
       else if (API_FNS.has(id) || BUILTINS.has(id)) cls = 'wgsl-fn'
       else if (/^\s*\(/.test(text.slice(to))) cls = 'wgsl-fn' // user-defined call
       out.push({ from, to, cls })
@@ -164,26 +174,33 @@ const fnSnippet = (label: string, detail: string): Completion =>
   snippetCompletion(`${label}(\${})`, { label, type: 'function', detail })
 const apiVar = (label: string, detail: string): Completion => ({ label, type: 'variable', detail })
 
+/** The API entries, generated from the one table so a new global is offered
+ *  here the moment it exists. Ordered audio → transport → input → canvas,
+ *  because that is roughly how often each is reached for; `boost` descends so
+ *  they all still sort above the WGSL keywords. */
+const API_ORDER: Record<string, number> = { audio: 0, transport: 1, input: 2, canvas: 3 }
+const apiCompletions: Completion[] = [...VIZ_GLOBALS]
+  .sort((a, b) => (API_ORDER[a.group] ?? 9) - (API_ORDER[b.group] ?? 9))
+  .map((g, i) => ({ ...apiVar(g.name, `${g.group}: ${g.detail}`), boost: 90 - i }))
+
 const WGSL_COMPLETIONS: Completion[] = [
   // rondocode audio API (surfaced first via boost)
-  { ...apiVar('level', 'audio: overall loudness 0..1'), boost: 90 },
-  { ...apiVar('bass', 'audio: low-band energy 0..1'), boost: 89 },
-  { ...apiVar('mid', 'audio: mid-band energy 0..1'), boost: 88 },
-  { ...apiVar('treble', 'audio: high-band energy 0..1'), boost: 87 },
-  { ...apiVar('beat', 'audio: bass-driven pulse 0..1'), boost: 86 },
-  { ...apiVar('hit', 'audio: note-onset envelope 0..1'), boost: 85 },
-  { ...apiVar('time', 'audio clock, seconds'), boost: 84 },
-  { ...apiVar('phase', 'cycle position 0..1'), boost: 83 },
-  { ...apiVar('cps', 'tempo, cycles/sec'), boost: 82 },
-  { ...apiVar('res', 'vec2f canvas resolution (px)'), boost: 81 },
-  { ...apiVar('uv', 'vec2f pixel coord 0..1 (render arg)'), boost: 80 },
-  { ...fnSnippet('spectrum', 'FFT magnitude 0..1 at x(0..1)'), boost: 79 },
-  { ...fnSnippet('waveform', 'waveform sample -1..1 at x(0..1)'), boost: 78 },
+  ...apiCompletions,
+  { ...apiVar('uv', 'canvas: pixel coord 0..1 (render arg)'), boost: 60 },
+  ...VIZ_FNS.map((f, i) => ({ ...fnSnippet(f.name, f.detail), boost: 59 - i })),
+  // The generated families. The real globals carry a synth or param name this
+  // source has no way to know, so the PREFIX is offered with its explanation —
+  // otherwise `lvl_` and `ctl_` exist and nothing ever mentions them.
+  ...VIZ_SYNTH_GLOBALS.map((g, i) => ({
+    ...apiVar(`${g.prefix}<synth>`, `per synth: ${g.detail}`),
+    boost: 56 - i,
+  })),
+  { ...apiVar(`${VIZ_PARAM_PREFIX}<name>`, `per control: ${VIZ_PARAM_DETAIL}`), boost: 51 },
   snippetCompletion('fn render(uv: vec2f) -> vec4f {\n\t${}\n\treturn vec4f(0.0, 0.0, 0.0, 1.0);\n}', {
     label: 'render',
     type: 'function',
     detail: 'shader entry point',
-    boost: 77,
+    boost: 50,
   }),
   // keywords
   ...['fn', 'let', 'var', 'const', 'return', 'if', 'else', 'for', 'loop', 'while', 'break', 'continue', 'struct', 'true', 'false'].map(kw),

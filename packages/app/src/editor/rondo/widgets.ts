@@ -977,7 +977,7 @@ class QueryRollWidget extends WidgetType {
        *  cells matters — a stopped roll that keeps a row lit reads as still
        *  playing. */
       const stopSweep = (): void => {
-        head.style.opacity = '0'
+        setOnce(head, 'opacity', '0', lastOpacity)
         for (const { el } of cellEls) el.classList.remove('on')
         anchor = null
         this.raf = 0
@@ -985,6 +985,7 @@ class QueryRollWidget extends WidgetType {
       // touched only when a cell actually flips (see syncLit)
       const lit = new Set<number>()
       const lastLeft = { v: '' }
+      const lastOpacity = { v: '' }
       const frame = (): void => {
         if (anchor === null) { this.raf = 0; return }
         const tNow = now()
@@ -994,7 +995,7 @@ class QueryRollWidget extends WidgetType {
         // feed quiet for ~2 cycles (a paused feed rather than a stop)
         if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) { stopSweep(); return }
         const phase = (anchor.phase + (tNow - anchor.t) * cps()) % 1
-        head.style.opacity = '1'
+        setOnce(head, 'opacity', '1', lastOpacity)
         moveHead(head, `${(phase * 100).toFixed(2)}%`, lastLeft)
         syncLit(cellEls, lit, phase)
         this.raf = requestAnimationFrame(frame)
@@ -1166,7 +1167,7 @@ export class RollOverviewWidget extends WidgetType {
       let anchor: { t: number; pos: number } | null = null
       let lastEv = 0
       const stopSweep = (): void => {
-        head.style.opacity = '0'
+        setOnce(head, 'opacity', '0', lastOpacity)
         for (const { el } of cellEls) el.classList.remove('on')
         anchor = null
         this.raf = 0
@@ -1174,6 +1175,7 @@ export class RollOverviewWidget extends WidgetType {
       // touched only when a cell actually flips (see syncLit)
       const lit = new Set<number>()
       const lastLeft = { v: '' }
+      const lastOpacity = { v: '' }
       const frame = (): void => {
         if (anchor === null) { this.raf = 0; return }
         const tNow = now()
@@ -1182,7 +1184,7 @@ export class RollOverviewWidget extends WidgetType {
         if (this.hooks.isPlaying?.() === false) { stopSweep(); return }
         if (tNow - lastEv > 2 / Math.max(cps(), 0.05)) { stopSweep(); return }
         const pos = (anchor.pos + (tNow - anchor.t) * cps()) % period
-        head.style.opacity = '1'
+        setOnce(head, 'opacity', '1', lastOpacity)
         moveHead(head, `${((pos / period) * 100).toFixed(2)}%`, lastLeft)
         syncLit(cellEls, lit, pos)
         this.raf = requestAnimationFrame(frame)
@@ -2559,10 +2561,31 @@ function syncLit(
 }
 
 /** Move a playhead without dirtying layout when it has not actually moved. */
+/* Move a playhead to `pct` across its roll.
+ *
+ * TRANSFORM, NOT `left`. `left` is a layout property, so writing it every
+ * frame invalidated layout for a roll that can hold hundreds of positioned
+ * cells — and a section block has one roll per play line, several of them
+ * long. Six of those relaying every frame is enough to make a full-screen
+ * shader visibly choppy while they are on screen, and smooth the moment they
+ * scroll out. A transform is handled by the compositor: no layout, no paint.
+ *
+ * The percentage works because .qr-head spans the FULL width of the roll and
+ * draws its line in a ::before at the left edge — translateX(%) is relative to
+ * the element's own width, so a full-width element moves by that fraction of
+ * the roll. A 1.5px-wide head would have moved 1.5px. */
 function moveHead(head: HTMLElement, pct: string, last: { v: string }): void {
   if (last.v === pct) return
   last.v = pct
-  head.style.left = pct
+  head.style.transform = `translateX(${pct})`
+}
+
+/** Set a style property only when it changes: every one of these runs inside a
+ *  per-frame loop, and a redundant write still costs a style recalculation. */
+function setOnce(el: HTMLElement, prop: 'opacity', value: string, last: { v: string }): void {
+  if (last.v === value) return
+  last.v = value
+  el.style.setProperty(prop, value)
 }
 
 /** Scan the doc for knob + envelope + play-notation bindings → inline widgets. */

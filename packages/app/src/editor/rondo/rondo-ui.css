@@ -322,15 +322,36 @@
   background: var(--c-accent-alt, #6ea8fe);
   box-shadow: 0 0 8px -2px var(--c-accent-alt, #6ea8fe);
 }
+/* The playhead is moved with `transform`, not `left`, because it moves every
+ * frame and `left` is a layout property — a roll can hold hundreds of
+ * positioned cells, and relaying several of them per frame is enough to make
+ * a full-screen shader choppy while they are on screen.
+ *
+ * translateX(%) is a fraction of the ELEMENT's own width, so the head spans
+ * the whole roll and paints its line in a ::before at the left edge. At the
+ * old 1.5px width a 50% translate would have moved it three quarters of a
+ * pixel. */
 .rondo-qroll .qr-head,
 .rondo-rollov .qr-head {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1.5px;
-  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 70%, transparent);
+  left: 0;
+  width: 100%;
+  pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s;
+  will-change: transform;
+}
+.rondo-qroll .qr-head::before,
+.rondo-rollov .qr-head::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1.5px;
+  background: color-mix(in srgb, var(--c-accent, #6ea8fe) 70%, transparent);
 }
 
 /* whole-roll TRANSPOSE grab strip (both roll forms): a narrow left-edge

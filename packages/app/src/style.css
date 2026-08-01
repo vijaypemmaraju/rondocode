@@ -1343,6 +1343,22 @@ body.shaderviz-on .cm-content {
   border-color: var(--c-accent);
 }
 
+/* `?fps=1` frame-pacing readout. Deliberately plain and out of the way: it is
+ * a diagnostic, not chrome, and it must not itself cost a frame. */
+.shaderviz-fps {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 60;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #cfe3ff;
+  background: rgb(8 12 20 / 78%);
+  border: 1px solid rgb(120 160 220 / 25%);
+  pointer-events: none;
+  white-space: nowrap;
+}
 .shaderviz-toast {
   position: fixed;
   left: 50%;

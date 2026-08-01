@@ -277,7 +277,13 @@ function rExpr(n: Node): R | null {
         if (o !== undefined) {
           const vals = ['a', 'd', 's', 'r'].map((k) => (o[k] !== undefined ? numValue(o[k]!) : 0))
           if (vals.every((x) => x !== undefined)) {
-            return { s: `adsr ${vals.map((x) => num(x!)).join(' ')}`, prec: 5, openPrec: 2, arityOpen: false }
+            // CLOSED, not openPrec 2. adsr takes exactly four positionals, so
+            // the parser finishes the call and binds any following operator to
+            // the whole thing — verified for ^, * and +. Claiming it was open
+            // blocked `^` (prec 4) while allowing `->` (prec 1), which is why
+            // `adsr … ^ 3 -> 48..190` decompiled to a js{ } blob even though
+            // rondo says it natively.
+            return { s: `adsr ${vals.map((x) => num(x!)).join(' ')}`, prec: 5, arityOpen: false }
           }
         }
       }

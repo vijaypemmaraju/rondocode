@@ -63,7 +63,9 @@ a:hover {
     repeating-linear-gradient(90deg, var(--c-grid) 0 1px, transparent 1px 34px),
     repeating-linear-gradient(0deg, var(--c-grid) 0 1px, transparent 1px 34px),
     color-mix(in srgb, var(--c-bar) 92%, transparent);
-  backdrop-filter: blur(8px);
+  /* No backdrop blur: the background above is already 92% opaque, so the
+   * blur is invisible, and on the docs pages that host a shader preview it
+   * would be recomputed every frame against animating content. */
   border-bottom: 1px solid var(--c-border);
 }
 

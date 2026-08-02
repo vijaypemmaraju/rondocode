@@ -14,6 +14,15 @@ import { getMacroValues } from '@rondocode/pattern'
  * ------------------------------------------------------------------------- */
 
 export interface ShaderVizHandle {
+  /** Turn the visuals on/off exactly as the header button does. Exposed so a
+   *  measurement harness can hold the shader in a known state instead of
+   *  synthesizing a click and hoping. */
+  setOn(v: boolean): void
+  /** Whether the visuals are currently on. */
+  isOn(): boolean
+  /** Frame pacing over the last ~2 s — the same numbers the `?fps=1` readout
+   *  prints. See scripts/measure-frames.ts. */
+  stats(): { fps: number; p95Ms: number; worstMs: number; cpuMs: number; drops: number }
   dispose(): void
 }
 
@@ -149,6 +158,9 @@ export function mountShaderViz(root: HTMLElement, editor: EditorHandle, audio: A
   btn.addEventListener('click', () => setOn(!on))
 
   return {
+    setOn,
+    isOn: (): boolean => on,
+    stats: (): ReturnType<typeof renderer.stats> => renderer.stats(),
     dispose(): void {
       pointerOn(false)
       startFps(false)

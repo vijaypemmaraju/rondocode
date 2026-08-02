@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bpmToCps, cpsToBpm, midiCps, ticksPerBar } from '../src/index'
+import { bpmToCps, cpsToBpm, midiCps, quartersPerBar, ticksPerBar } from '../src/index'
 
 /* The BPM face of the engine's cps truth. One cycle is one BAR everywhere in
  * this codebase (mini-notation, the scheduler, MIDI import and export), so the
@@ -7,6 +7,32 @@ import { bpmToCps, cpsToBpm, midiCps, ticksPerBar } from '../src/index'
  * tests pin the numbers producers actually type, the exact round trip, and the
  * agreement with the MIDI helpers — the one place the same convention was
  * already written down. */
+
+describe('quartersPerBar: how long a bar is', () => {
+  it('counts QUARTER notes, so 6/8 and 3/4 are the same length', () => {
+    expect(quartersPerBar({ num: 4, den: 4 })).toBe(4)
+    expect(quartersPerBar({ num: 3, den: 4 })).toBe(3)
+    // six eighths and three quarters are the same amount of music; they differ
+    // in how you count them, which is the metronome's problem, not the clock's
+    expect(quartersPerBar({ num: 6, den: 8 })).toBe(3)
+    expect(quartersPerBar({ num: 7, den: 8 })).toBe(3.5)
+    expect(quartersPerBar({ num: 5, den: 4 })).toBe(5)
+    expect(quartersPerBar({ num: 2, den: 2 })).toBe(4)
+  })
+
+  it('defaults to 4/4 when nobody said otherwise', () => {
+    expect(quartersPerBar()).toBe(4)
+  })
+
+  it('is the ONE definition ticksPerBar and midiCps are built from', () => {
+    // a second copy of this arithmetic is how a project and its exported file
+    // end up disagreeing about where bar two starts
+    for (const sig of [{ num: 4, den: 4 }, { num: 3, den: 4 }, { num: 7, den: 8 }, { num: 6, den: 8 }]) {
+      expect(ticksPerBar(480, sig)).toBe(480 * quartersPerBar(sig))
+      expect(midiCps(120, sig)).toBeCloseTo(bpmToCps(120, quartersPerBar(sig)), 12)
+    }
+  })
+})
 
 describe('bpmToCps / cpsToBpm', () => {
   it('converts the tempos producers type, 4 beats to the bar', () => {

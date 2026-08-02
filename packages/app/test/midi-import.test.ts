@@ -37,9 +37,9 @@ interface TrackSpec {
   notes: { pitch: number; start: number; dur: number; ch?: number }[]
 }
 
-/** Build a format-1 SMF (120 BPM, 4/4, ppq 480) from per-track note lists.
- *  Channel 9 marks a track as drums, exactly like real GM files. */
-function buildSmf(tracks: TrackSpec[]): Uint8Array {
+/** Build a format-1 SMF (120 BPM, ppq 480, 4/4 unless a meter is given) from
+ *  per-track note lists. Channel 9 marks a track as drums, like real GM files. */
+function buildSmf(tracks: TrackSpec[], timeSig: { num: number; den: number } = { num: 4, den: 4 }): Uint8Array {
   const ppq = 480
   const usPerQ = Math.round(60_000_000 / 120)
   const chunks: number[] = [...ascii('MThd'), ...be32(6), ...be16(1), ...be16(tracks.length), ...be16(ppq)]
@@ -47,7 +47,10 @@ function buildSmf(tracks: TrackSpec[]): Uint8Array {
     const events: { tick: number; bytes: number[] }[] = []
     if (ti === 0) {
       events.push({ tick: 0, bytes: [0xff, 0x51, 0x03, (usPerQ >> 16) & 0xff, (usPerQ >> 8) & 0xff, usPerQ & 0xff] })
-      events.push({ tick: 0, bytes: [0xff, 0x58, 0x04, 4, 2, 24, 8] })
+      events.push({
+        tick: 0,
+        bytes: [0xff, 0x58, 0x04, timeSig.num, Math.round(Math.log2(timeSig.den)), 24, 8],
+      })
     }
     if (t.name !== undefined) events.push({ tick: 0, bytes: [0xff, 0x03, t.name.length, ...ascii(t.name)] })
     for (const n of t.notes) {
@@ -156,6 +159,25 @@ describe('midiToRondocode → evalCode round-trip', () => {
     expect(code).not.toContain('masterCompress(')
     const r = evalsClean(code)
     expect(r.masterComp).toBeUndefined()
+  })
+})
+
+describe('the meter comes across, not just the tempo', () => {
+  it('writes the file\'s time signature, so the import says why the tempo is what it is', () => {
+    const { code } = midiToRondocode(buildSmf([BASS_TRACK], { num: 3, den: 4 }), { name: 'waltz' })
+    expect(code).toContain('setTimeSig(3, 4)')
+    // 120 bpm in 3/4 is a three-quarter bar: 0.6667 cps, not 0.5
+    expect(code).toMatch(/setCps\(0\.6667\)/)
+    const r = evalCode(code, baseScope)
+    expect(r.ok, r.diagnostics.map((d) => d.message).join('; ')).toBe(true)
+    expect(r.timeSig).toEqual({ num: 3, den: 4 })
+    expect(r.cps).toBeCloseTo(2 / 3, 3)
+  })
+
+  it('stays silent about 4/4: every ordinary import reads exactly as before', () => {
+    const { code } = midiToRondocode(buildSmf([BASS_TRACK]), { name: 'plain' })
+    expect(code).not.toContain('setTimeSig')
+    expect(evalCode(code, baseScope).timeSig).toEqual({ num: 4, den: 4 })
   })
 })
 

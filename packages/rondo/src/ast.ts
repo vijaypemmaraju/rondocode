@@ -119,6 +119,16 @@ export interface CpsItem {
   pos: Pos
 }
 
+/** `timesig 3 4` — the project's meter. A cycle is one BAR, so this is what
+ *  makes a bar three quarters long instead of four; `bpm` is counted in
+ *  quarter notes and scales with it. */
+export interface TimeSigItem {
+  t: 'timesig'
+  num: number
+  den: number
+  pos: Pos
+}
+
 /** Raw rondocode/JS passed through verbatim — a top-level `js{ … }` line or a
  *  `js` block (header + indented body). The parity escape hatch. */
 export interface RawItem {
@@ -265,7 +275,7 @@ export interface CurveDefItem {
 }
 
 export type TopItem =
-  | SynthBlock | PlayBlock | CpsItem | RawItem
+  | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
   | SidechainItem | MasterItem | BusBlock | VisualItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
 

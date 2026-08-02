@@ -37,7 +37,7 @@ export type RondoPos =
 
 const BLOCK_HEADERS = [
   'synth', 'play', 'beat', 'sing', 'bus', 'section', 'song', 'macro',
-  'cps', 'bpm', 'sidechain', 'master', 'scaledef', 'wavedef', 'visual', 'js',
+  'cps', 'bpm', 'timesig', 'sidechain', 'master', 'scaledef', 'wavedef', 'visual', 'js',
 ]
 
 /** Blocks whose body is a signal pipeline. `post` is nested inside a synth but

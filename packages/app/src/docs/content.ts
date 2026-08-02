@@ -568,7 +568,17 @@ p('hats', note('c5*8').sound('hat'))`,
     title: 'Layering & tempo',
     blocks: [
       p("You can register several patterns at once, and each p() plays alongside the others. stack() combines patterns into one. note('c1*4').sound('kick') triggers a synth by name."),
-      p('Tempo comes in two spellings of one number. `setBpm(120)` is the unit you count in; `setCps(0.5)` is the engine unit, cycles per second. One cycle is one BAR of 4 beats everywhere in rondocode, so a bar at 120 bpm lasts 2 seconds and the cycle rate is 0.5 per second: multiply cps by 240 to get bpm. Write whichever you think in, the last call in a run wins, and the header shows both. MIDI import and export use the same convention, so an imported file keeps its tempo and one cycle stays one bar.'),
+      p('Tempo comes in two spellings of one number. `setBpm(120)` is the unit you count in; `setCps(0.5)` is the engine unit, cycles per second. One cycle is one BAR everywhere in rondocode, so a bar at 120 bpm in 4/4 lasts 2 seconds and the cycle rate is 0.5 per second: multiply cps by 240 to get bpm. Write whichever you think in, the last call in a run wins, and the header shows both. MIDI import and export use the same convention, so an imported file keeps its tempo and one cycle stays one bar.'),
+      p('`setTimeSig(3, 4)` changes how long that bar is. A cycle is still one bar, so everything that counts bars follows: `setBpm` (counted in quarter notes, the same as MIDI), the header readout, the MIDI clock and the bar lines of an exported file. What it does NOT change is your notation. A line still fills one cycle, so `n(\'0 2 4\')` is three quarters in 3/4 and four in 4/4. Put the two lines in either order, they mean the same thing. The beat unit has to be a power of two: 5/4 and 7/8 are fine, 4/6 is not a time signature anyone can write.'),
+      table(
+        'The same 120 bpm, in three meters.',
+        ['meter', 'quarters in a bar', 'cps at 120 bpm'],
+        [
+          ['`setTimeSig(4, 4)`', '4', '`0.5` (the default)'],
+          ['`setTimeSig(3, 4)`', '3', '`0.6667`, a waltz'],
+          ['`setTimeSig(7, 8)`', '3.5', '`0.5714`'],
+        ],
+      ),
       table(
         'Tempos you already know, in both units.',
         ['bpm', 'cps', 'where it lives'],

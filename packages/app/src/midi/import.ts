@@ -261,6 +261,13 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
   if (wantMix) {
     lines.push(`masterCompress({ threshold: -14, ratio: 2.5, attack: 15, release: 150, makeup: 1.5 })`)
   }
+  // The meter, when the file is not in 4/4: it was already used to derive the
+  // cps above, so writing it down changes no timing — it makes the import say
+  // WHY the tempo is what it is, keeps the header BPM reading the file's own
+  // number, and survives a re-export with its bar lines intact.
+  if (f.timeSig.num !== 4 || f.timeSig.den !== 4) {
+    lines.push(`setTimeSig(${f.timeSig.num}, ${f.timeSig.den})`)
+  }
   lines.push(`setCps(${cps.toFixed(4)})`)
 
   return { code: lines.join('\n') + '\n', bpm: f.tempoBpm, bars: maxBars, summary }

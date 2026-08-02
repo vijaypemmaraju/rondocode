@@ -11,7 +11,8 @@ import { CcRouter, loadMappings, parseCc, saveMappings } from '../midi/cc'
 import type { ParamRange } from '../midi/cc'
 import { CLOCK_BYTE, MidiClockFollower, MidiClockSender, parseClock } from '../midi/clock'
 import type { ClockMessage } from '../midi/clock'
-import { cpsToBpm } from '@rondocode/pattern'
+import { cpsToBpm, quartersPerBar } from '@rondocode/pattern'
+import type { TimeSig } from '@rondocode/pattern'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
@@ -323,8 +324,11 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
 
   // ---- clock ------------------------------------------------------------
   let sync: SyncMode = 'internal'
-  const follower = new MidiClockFollower()
-  const sender = new MidiClockSender()
+  // Both read the meter live: a cycle is a bar, so 3/4 is 72 clock ticks
+  // rather than 96, in both directions.
+  const timeSig = (): TimeSig => session.getState().timeSig
+  const follower = new MidiClockFollower({ timeSig })
+  const sender = new MidiClockSender({ timeSig })
   let clockTimer: ReturnType<typeof setInterval> | undefined
   /** Ticks since the last tempo push, and the value pushed, for the deadband. */
   let sinceApply = 0
@@ -387,9 +391,11 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     } else if (sync === 'send') {
       const outs = outputs().length
       tempoLine.textContent =
-        outs === 0 ? 'no outputs to send to' : `sending ${showBpm(cpsToBpm(session.getState().cps))} BPM`
+        outs === 0
+          ? 'no outputs to send to'
+          : `sending ${showBpm(cpsToBpm(session.getState().cps, quartersPerBar(session.getState().timeSig)))} BPM`
     } else {
-      const own = `internal ${showBpm(cpsToBpm(session.getState().cps))} BPM`
+      const own = `internal ${showBpm(cpsToBpm(session.getState().cps, quartersPerBar(session.getState().timeSig)))} BPM`
       tempoLine.textContent = bpm === undefined ? own : `${own}, clock in at ${showBpm(bpm)}`
     }
   }

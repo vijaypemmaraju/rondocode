@@ -50,6 +50,36 @@ describe('rondo → rondocode codegen', () => {
     expect(both).toContain('setBpm(128)')
   })
 
+  it('`timesig 3 4` is the meter, and it commutes with the tempo line', () => {
+    expect(ok('timesig 3 4\n')).toContain('setTimeSig(3, 4)')
+    // either order compiles to both calls; the evaluator resolves bpm against
+    // the meter at the END of the eval, so the two lines mean the same thing
+    // whichever way round they are written
+    const a = ok('timesig 3 4\n\nbpm 120\n')
+    const b = ok('bpm 120\n\ntimesig 3 4\n')
+    for (const out of [a, b]) {
+      expect(out).toContain('setTimeSig(3, 4)')
+      expect(out).toContain('setBpm(120)')
+    }
+  })
+
+  it('rejects a meter that is not one, at the line that wrote it', () => {
+    // the beat unit is a power of two, because that is what a time signature
+    // can express and what the MIDI meta event stores
+    const bad = compile('synth s\n  saw\n\ntimesig 4 6\n')
+    expect(bad.ok).toBe(false)
+    if (bad.ok) return
+    expect(bad.errors[0]!.message).toMatch(/power of two/)
+    expect(bad.errors[0]!.line).toBe(4)
+    expect(bad.errors[0]!.col).toBe(1)
+    expect(compile('timesig 0 4\n').ok).toBe(false)
+    expect(compile('timesig 3\n').ok).toBe(false)
+    // …and the ordinary odd meters are fine
+    for (const m of ['timesig 5 4', 'timesig 7 8', 'timesig 12 8', 'timesig 2 2']) {
+      expect(compile(`${m}\n`).ok, m).toBe(true)
+    }
+  })
+
   it('threads the audio spine: source, filter (running signal first), VCA', () => {
     const out = ok(`synth acid\n  saw + square note/2\n  ladder cutoff * env^2 res:.85\n  * env\n  env    = adsr .003 .2 .3 .1\n  cutoff = knob 800 80..8000 log\n`)
     // oscillator blend

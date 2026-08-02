@@ -45,15 +45,20 @@
  * a synthetic tick stream.
  * ------------------------------------------------------------------------- */
 
-import { cpsToBpm } from '@rondocode/pattern'
+import { cpsToBpm, quartersPerBar, DEFAULT_TIME_SIG } from '@rondocode/pattern'
+import type { TimeSig } from '@rondocode/pattern'
 
 /** MIDI clock resolution: ticks per quarter note. Fixed by the spec. */
 export const TICKS_PER_QUARTER = 24
-/** One cycle is one bar of 4/4, matching the MIDI export and the bpm/cps
- *  conversion the rest of the app uses (see @rondocode/pattern's bpmToCps). */
-export const QUARTERS_PER_CYCLE = 4
-/** 96. The number that turns a tick rate into cps. */
-export const TICKS_PER_CYCLE = TICKS_PER_QUARTER * QUARTERS_PER_CYCLE
+/** One cycle is one BAR, matching MIDI export and the bpm/cps conversion the
+ *  rest of the app uses (see @rondocode/pattern's bpmToCps). How many quarters
+ *  that bar holds is the project's meter, so a 3/4 project locks to 72 ticks
+ *  per cycle rather than 96 — otherwise following an external clock would put
+ *  our bar line a quarter note off theirs, every bar. */
+export const ticksPerCycle = (timeSig: TimeSig = DEFAULT_TIME_SIG): number =>
+  TICKS_PER_QUARTER * quartersPerBar(timeSig)
+/** 96: four quarters to the bar, the default meter. */
+export const TICKS_PER_CYCLE = ticksPerCycle()
 
 /** Tempos outside this band are not a musical clock: a stream that estimates
  *  outside it is treated as unlocked rather than reported. */
@@ -106,6 +111,10 @@ export const CLOCK_BYTE: Record<ClockMessage, number> = {
 }
 
 export interface FollowerOpts {
+  /** The project's meter, read fresh on every use — it changes with each eval,
+   *  and a clock that captured it once would drift a whole beat per bar after
+   *  someone edits the timesig line. Default 4/4. */
+  timeSig?: () => TimeSig
   /** Tick timestamps fitted for the tempo. Default 48. */
   window?: number
   /** Ticks required before `cps` reports anything. Default 24. */
@@ -129,6 +138,7 @@ export class MidiClockFollower {
   private readonly minTicks: number
   private readonly phaseGain: number
   private readonly maxTrim: number
+  private readonly timeSig: () => TimeSig
   /** Tick timestamps, oldest first, at most window+1 of them. */
   private readonly times: number[] = []
   /** Ticks since the master last started (or continued). */
@@ -140,6 +150,12 @@ export class MidiClockFollower {
     this.minTicks = opts.minTicks ?? DEFAULT_MIN_TICKS
     this.phaseGain = opts.phaseGain ?? DEFAULT_PHASE_GAIN
     this.maxTrim = opts.maxTrim ?? DEFAULT_MAX_TRIM
+    this.timeSig = opts.timeSig ?? (() => DEFAULT_TIME_SIG)
+  }
+
+  /** Ticks in one cycle at the CURRENT meter (96 in 4/4, 72 in 3/4). */
+  private get perCycle(): number {
+    return ticksPerCycle(this.timeSig())
   }
 
   /** A 0xF8 at `timeMs` on a monotonic clock (MIDIMessageEvent.timeStamp). */
@@ -222,8 +238,8 @@ export class MidiClockFollower {
   get cps(): number | undefined {
     const period = this.periodMs()
     if (period === undefined) return undefined
-    const cps = 1000 / (period * TICKS_PER_CYCLE)
-    const bpm = cpsToBpm(cps)
+    const cps = 1000 / (period * this.perCycle)
+    const bpm = cpsToBpm(cps, quartersPerBar(this.timeSig()))
     if (bpm < MIN_BPM || bpm > MAX_BPM) return undefined // not a musical clock
     return cps
   }
@@ -231,12 +247,13 @@ export class MidiClockFollower {
   /** The master's tempo in bpm, or undefined before lock. */
   get bpm(): number | undefined {
     const cps = this.cps
-    return cps === undefined ? undefined : cpsToBpm(cps)
+    return cps === undefined ? undefined : cpsToBpm(cps, quartersPerBar(this.timeSig()))
   }
 
   /** Where the master is in its bar, in [0, 1). Exact: it is a tick count. */
   get phase(): number {
-    return (this.ticks % TICKS_PER_CYCLE) / TICKS_PER_CYCLE
+    const per = this.perCycle
+    return (this.ticks % per) / per
   }
 
   /** How far the master's bar position is AHEAD of ours, in cycles, taking the
@@ -273,6 +290,8 @@ export interface SenderOpts {
    *  each tick from a timer; the cost is that a tempo change takes up to this
    *  long to reach the wire, since a queued send cannot be recalled. */
   lookaheadMs?: number
+  /** The project's meter, read fresh per call (see FollowerOpts). Default 4/4. */
+  timeSig?: () => TimeSig
 }
 
 /**
@@ -281,11 +300,13 @@ export interface SenderOpts {
  */
 export class MidiClockSender {
   private readonly lookaheadMs: number
+  private readonly timeSig: () => TimeSig
   /** Timestamp of the next tick to schedule, or undefined when stopped. */
   private next: number | undefined
 
   constructor(opts: SenderOpts = {}) {
     this.lookaheadMs = opts.lookaheadMs ?? 150
+    this.timeSig = opts.timeSig ?? (() => DEFAULT_TIME_SIG)
   }
 
   get running(): boolean {
@@ -306,7 +327,7 @@ export class MidiClockSender {
    *  from a timer more often than the lookahead. */
   due(nowMs: number, cps: number): number[] {
     if (this.next === undefined || !Number.isFinite(cps) || cps <= 0) return []
-    const period = 1000 / (cps * TICKS_PER_CYCLE)
+    const period = 1000 / (cps * ticksPerCycle(this.timeSig()))
     // A long stall (backgrounded tab) would otherwise emit the whole backlog
     // at once: skip to now instead, since those ticks are in the past.
     if (this.next < nowMs - this.lookaheadMs) this.next = nowMs

@@ -1,8 +1,8 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
-import type { ControlMap } from '@rondocode/pattern'
+import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
+import type { ControlMap, TimeSig } from '@rondocode/pattern'
 import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
@@ -115,8 +115,13 @@ export interface EvalResult {
   buses: Map<string, BusDef>
   /** Staged per-synth sends into buses — populated only when ok. */
   sends: SendSpec[]
-  /** Present iff the code called setCps(x) or setBpm(x); clamped to [0.05, 4]. */
+  /** Present iff the code called setCps(x) or setBpm(x); clamped to [0.05, 4].
+   *  A bpm is converted with the meter below, whichever line came first. */
   cps?: number
+  /** The project's meter. Present on every SUCCESSFUL eval — 4/4 when the code
+   *  never called setTimeSig — because the document owns it: deleting the line
+   *  has to mean 4/4 again, not "keep whatever it was". */
+  timeSig?: TimeSig
   /** Present iff the code called sidechain(source, opts). `release` in the
    *  DSL is SECONDS; it is stored here as releaseMs. depth/releaseMs are
    *  validated on the engine side (clamped there). `amounts` are per-synth
@@ -141,8 +146,10 @@ export interface EvalResult {
 export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))
 
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
-/** Names injected per-eval; never taken from the caller's scope object. */
-const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
+/** Names injected per-eval; never taken from the caller's scope object.
+ *  EXPORTED so the docs-coverage test can check itself against this list
+ *  instead of keeping a second copy that drifts (docs.test.ts). */
+export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -511,7 +518,10 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   /** sing() synth name -> its content id, to catch name collisions (a different
    *  vocal or a user synth reusing the name) while allowing identical re-calls. */
   const singNames = new Map<string, string>()
-  let cps: number | undefined
+  /** The tempo line as WRITTEN. Resolved to cps once the eval closes, because
+   *  bpm needs the meter and the meter can be set on any line. */
+  let tempo: { unit: 'cps' | 'bpm'; value: number } | undefined
+  let timeSig: TimeSig | undefined
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
   let visualSrc: string | undefined
@@ -560,19 +570,46 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     if (typeof x !== 'number' || !Number.isFinite(x)) {
       throw new TypeError(`setCps(): expected a finite number, got ${String(x)}`)
     }
-    cps = clampCps(x)
+    tempo = { unit: 'cps', value: x }
   }
 
   /** The same tempo staging, in the unit producers count in. One cycle is one
-   *  BAR of 4/4, so 128 bpm is 0.5333 cps — the identical convention MIDI
+   *  BAR, so at 4/4 128 bpm is 0.5333 cps — the identical convention MIDI
    *  import and export use (bpmToCps is the one conversion, in @rondocode/pattern).
-   *  setCps and setBpm are the same slot: the last call in an eval wins. */
+   *  setCps and setBpm are the same slot: the last call in an eval wins.
+   *
+   *  DEFERRED, not converted here: bpm depends on how many quarters a bar
+   *  holds, and setTimeSig may not have been called yet. Converting on the
+   *  spot would make `bpm 120` + `timesig 3 4` mean something different from
+   *  the same two lines in the other order, which no one would ever guess. */
   const setBpm = (x: unknown): void => {
     assertOpen('setBpm')
     if (typeof x !== 'number' || !Number.isFinite(x)) {
       throw new TypeError(`setBpm(): expected a finite number, got ${String(x)}`)
     }
-    cps = clampCps(bpmToCps(x))
+    tempo = { unit: 'bpm', value: x }
+  }
+
+  /** The project's meter. A cycle is one BAR, so this is what makes a bar
+   *  three quarters long instead of four: it scales `bpm`, the header tempo
+   *  readout, the MIDI clock and the exported file's bar lines, all of which
+   *  read it back off the session state. Written down rather than baked into
+   *  a decimal cps, so the intent survives.
+   *
+   *  Only the DENOMINATOR is restricted (a power of two): that is what a time
+   *  signature can express, and what the SMF meta event can store. 7/8 and
+   *  5/4 are ordinary; 4/6 is not a thing. */
+  const setTimeSig = (num: unknown, den: unknown): void => {
+    assertOpen('setTimeSig')
+    if (typeof num !== 'number' || !Number.isInteger(num) || num < 1 || num > 64) {
+      throw new TypeError(`setTimeSig(): beats per bar must be a whole number in 1..64, got ${String(num)}`)
+    }
+    if (typeof den !== 'number' || !Number.isInteger(den) || den < 1 || den > 64 || (den & (den - 1)) !== 0) {
+      throw new TypeError(
+        `setTimeSig(): the beat unit must be a power of two in 1..64 (2, 4, 8, 16…), got ${String(den)}`,
+      )
+    }
+    timeSig = { num, den }
   }
 
   /** Arm the sidechain duck: `source` synth's notes duck every other channel.
@@ -805,8 +842,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
-  values.push(p, defineSynth, setCps, setBpm, sidechain, masterCompress, visual, bus, sing, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, visual, bus, sing, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to
@@ -916,7 +953,18 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   }
 
   const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings: keptSings }
-  if (cps !== undefined) result.cps = cps
+  // Resolve the tempo LAST, now that the meter is known however it was
+  // ordered: `bpm 120` under `timesig 3 4` is 0.667 cps, not 0.5.
+  if (tempo !== undefined) {
+    result.cps = clampCps(
+      tempo.unit === 'bpm' ? bpmToCps(tempo.value, quartersPerBar(timeSig ?? DEFAULT_TIME_SIG)) : tempo.value,
+    )
+  }
+  // The meter is reported on EVERY successful eval, not only when written:
+  // the doc is the source of truth for it, so deleting the line has to put
+  // the session back to 4/4 — otherwise a stale 3/4 would keep rescaling the
+  // header BPM against a cps that was computed for 4/4.
+  result.timeSig = timeSig ?? DEFAULT_TIME_SIG
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg
   if (visualSrc !== undefined) result.visual = visualSrc

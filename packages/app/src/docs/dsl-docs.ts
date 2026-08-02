@@ -244,8 +244,14 @@ const GLOBALS: DocEntry[] = [
   g(
     'setBpm',
     'setBpm(bpm: number)',
-    'Set the tempo in beats per minute, 4 beats to the bar (one cycle is one bar, so 128 bpm is 0.5333 cps). Same tempo slot as setCps, the same convention MIDI import and export use, and the last call in a run wins.',
+    'Set the tempo in beats per minute, counted in QUARTER notes (one cycle is one bar, so at 4/4 128 bpm is 0.5333 cps; under setTimeSig(3, 4) the same 128 bpm is 0.7111 cps, because the bar is shorter). Same tempo slot as setCps, the same convention MIDI import and export use, and the last call in a run wins.',
     'setBpm(128)',
+  ),
+  g(
+    'setTimeSig',
+    'setTimeSig(beats: number, unit: number)',
+    'Set the meter: beats per bar, then the beat unit. A cycle is one BAR, so this is what makes a bar three quarters long instead of four -- it scales setBpm, the header tempo readout, the MIDI clock and the bar lines of an exported MIDI file. It does NOT change your notation: a line still fills one cycle, which is now a 3/4 bar. Order does not matter, so timesig and bpm can go in either order. The unit must be a power of two (5/4 and 7/8 are fine, 4/6 is not a time signature). Without it a project is in 4/4.',
+    'setTimeSig(3, 4)',
   ),
   g(
     'sidechain',

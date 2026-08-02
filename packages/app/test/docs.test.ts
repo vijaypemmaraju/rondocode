@@ -4,6 +4,7 @@ import type { Block } from '../src/docs/content'
 import { blockHtml, inlineHtml } from '../src/docs/blocks'
 import { Pattern } from '@rondocode/pattern'
 import { synth } from '@rondocode/engine'
+import { STAGING_NAMES } from '../src/session/evalCode'
 import type { PostCtx, Sig, SynthCtx } from '@rondocode/engine'
 import { baseScope } from '../src/session/scope'
 import { DSL_DOCS, docsByName, docsOfKind } from '../src/docs/dsl-docs'
@@ -33,10 +34,24 @@ const assertBidirectional = (docNames: string[], liveNames: string[], what: stri
 
 describe('docs coverage: globals', () => {
   it('covers every baseScope key plus the per-eval staging names, bidirectionally', () => {
-    // p / defineSynth / setCps / setBpm are injected per-eval by evalCode() (see
-    // STAGING_NAMES in src/session/evalCode.ts) — part of the vocabulary
-    // even though they are not baseScope keys.
-    const live = [...Object.keys(baseScope), 'p', 'defineSynth', 'setCps', 'setBpm', 'sidechain', 'masterCompress', 'bus']
+    // p / defineSynth / setCps / setBpm / setTimeSig and friends are injected
+    // per-eval by evalCode(), so they are part of the vocabulary even though
+    // they are not baseScope keys. IMPORTED, not retyped: this list used to be
+    // a second copy, and a new staging name could be added to the evaluator
+    // and simply never noticed here.
+    const NOT_A_GLOBAL_ENTRY = new Set([
+      // Documented by the guide sections that own them (visuals, singing)
+      // rather than as one-line global entries: each needs a whole page.
+      'visual',
+      'sing',
+      // Internal: the probe-location hook the evaluator injects for inline
+      // live values. Not vocabulary anyone writes.
+      '__rcTap',
+    ])
+    const live = [
+      ...Object.keys(baseScope),
+      ...[...STAGING_NAMES].filter((n) => !NOT_A_GLOBAL_ENTRY.has(n)),
+    ]
     assertBidirectional(namesOfKind('global'), live, 'globals')
   })
 })

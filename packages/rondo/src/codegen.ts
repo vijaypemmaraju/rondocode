@@ -897,6 +897,9 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'section') return cgSection(item, errors, macroNames)
     if (item.t === 'song') return '' // assembled below, after all sections exist
+    // `timesig 3 4` → setTimeSig(3, 4). The evaluator resolves `bpm` against
+    // it at the END of the eval, so the two lines commute.
+    if (item.t === 'timesig') return `setTimeSig(${item.num}, ${item.den})`
     // the tempo line, in the unit it was written in: `bpm 128` → setBpm(128),
     // `cps .5333` → setCps(0.5333). Keeping the unit in the JS is what lets
     // the decompiler hand the same spelling back (see decompile.ts).

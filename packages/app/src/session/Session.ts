@@ -1,5 +1,6 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
-import type { SchedulerEvent } from '@rondocode/pattern'
+import { DEFAULT_TIME_SIG } from '@rondocode/pattern'
+import type { SchedulerEvent, TimeSig } from '@rondocode/pattern'
 import { RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
@@ -62,6 +63,10 @@ export interface AudioSessionLike {
 export interface SessionState {
   playing: boolean
   cps: number
+  /** The project's meter (4/4 unless the code says otherwise). A cycle is one
+   *  BAR, so this is how many quarter notes a cycle spans — what the header
+   *  tempo field, the MIDI clock and MIDI export all convert against. */
+  timeSig: TimeSig
   synths: string[]
   patterns: string[]
   lastError?: string
@@ -225,6 +230,11 @@ export class Session {
    *  tempo isn't resent every eval. Starts at the scheduler's own default,
    *  which is also the engine's — the two agree before anyone sets anything. */
   private liveCps: number | undefined
+  /** The project's meter, from the last successful eval. Not sent to the
+   *  engine: nothing in the audio graph counts bars — this scales the tempo
+   *  UNIT (bpm), the clock and the exported file, all of which read it from
+   *  getState(). */
+  private timeSig: TimeSig = DEFAULT_TIME_SIG
   private playing = false
   private lastGoodSource = ''
   private lastAttemptedSource = ''
@@ -403,6 +413,9 @@ export class Session {
       if (!result.patterns.has(name)) this.scheduler.removePattern(name)
     }
 
+    // The meter comes from the document on every successful eval (4/4 when
+    // unwritten), so deleting the line really does mean 4/4 again.
+    if (result.timeSig !== undefined) this.timeSig = result.timeSig
     if (result.cps !== undefined) this.requestCps(result.cps)
     this.syncCps()
 
@@ -815,6 +828,7 @@ export class Session {
     const s: SessionState = {
       playing: this.playing,
       cps: this.scheduler.cps,
+      timeSig: this.timeSig,
       synths: [...this.liveSynths.keys()],
       patterns: this.scheduler.patterns(),
     }

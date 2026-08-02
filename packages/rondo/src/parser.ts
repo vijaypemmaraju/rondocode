@@ -12,7 +12,7 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue } from './ast'
+import type { Binding, Comb, CpsItem, TimeSigItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
 import type { BuiltinSpec } from './builtins'
@@ -716,6 +716,33 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
   return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : fallback, unit, pos: header.toks[0]!.pos }, next: i + 1 }
 }
 
+/** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
+ *  of two, because that is what a time signature can express and what the MIDI
+ *  meta event can store: 7/8 and 5/4 are ordinary, 4/6 is not a thing. */
+function parseTimeSig(lines: Line[], i: number, errors: RondoError[]): { block: TimeSigItem; next: number } {
+  const header = lines[i]!
+  const a = header.toks[1]
+  const b = header.toks[2]
+  const bad = (message: string): void => { errors.push({ message, line: header.line, col: header.rawCol }) }
+  if (!a || a.k !== 'num' || !b || b.k !== 'num') {
+    bad('timesig needs two numbers: beats per bar, then the beat unit (`timesig 3 4`)')
+  }
+  const num = a && a.k === 'num' ? a.v : 4
+  const den = b && b.k === 'num' ? b.v : 4
+  if (!Number.isInteger(num) || num < 1 || num > 64) {
+    bad(`beats per bar must be a whole number in 1..64, got ${num}`)
+  }
+  if (!Number.isInteger(den) || den < 1 || den > 64 || (den & (den - 1)) !== 0) {
+    bad(`the beat unit must be a power of two in 1..64 (2, 4, 8, 16…), got ${den}`)
+  }
+  const ok = Number.isInteger(num) && num >= 1 && num <= 64 &&
+    Number.isInteger(den) && den >= 1 && den <= 64 && (den & (den - 1)) === 0
+  return {
+    block: { t: 'timesig', num: ok ? num : 4, den: ok ? den : 4, pos: header.toks[0]!.pos },
+    next: i + 1,
+  }
+}
+
 export function parse(src: string): { program: Program; errors: RondoError[]; jsRegions: { from: number; to: number }[] } {
   const { lines, errors, jsRegions } = lex(src)
   const items: TopItem[] = []
@@ -726,7 +753,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     const head = ln.toks[0]
     // escape hatch, one-liner: `js{ … }` alone on a top-level line → raw statement
     if (head && head.k === 'jsexpr') { items.push({ t: 'raw', code: head.v, pos: head.pos }); i++; continue }
-    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, `cps`/`bpm`, or `js`', line: ln.line, col: ln.rawCol }); i++; continue }
+    if (!head || head.k !== 'ident') { errors.push({ message: 'expected `synth`, `play`, `cps`/`bpm`/`timesig`, or `js`', line: ln.line, col: ln.rawCol }); i++; continue }
     if (head.v === 'synth') { const r = parseSynth(lines, i, errors); items.push(r.block); i = r.next }
     else if (head.v === 'play') { const r = parsePlay(lines, i, errors); items.push(r.block); i = r.next }
     // `beat [NAME]` — notation words are SYNTH NAMES (the JS s('kick hat'))
@@ -735,6 +762,9 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     // `bpm 128` — the same tempo line in the unit every producer thinks in
     // (one cycle is one bar of 4/4, so 128 bpm is 0.5333 cps)
     else if (head.v === 'bpm') { const r = parseCps(lines, i, errors, 'bpm'); items.push(r.block); i = r.next }
+    // `timesig 3 4` — a cycle is a bar, and this is how long a bar is. It
+    // scales `bpm` wherever the two lines sit relative to each other.
+    else if (head.v === 'timesig') { const r = parseTimeSig(lines, i, errors); items.push(r.block); i = r.next }
     // `sing NAME [voice:WORD]` — a neural vocal block
     else if (head.v === 'sing') { const r = parseSing(lines, i, errors); items.push(r.block); i = r.next }
     // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
@@ -1060,7 +1090,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / bus / sidechain / master / macro / switch / curvedef / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / timesig / bus / sidechain / master / macro / switch / curvedef / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

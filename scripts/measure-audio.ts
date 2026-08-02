@@ -105,6 +105,7 @@ for (const ex of wanted) {
   const events = runPatterns(staged.patterns, { cycles: CYCLES, cps })
   const mix = renderMix(staged.synths, events, CYCLES / cps, {
     sampleRate: 48000,
+    cps,
     samples: BANK,
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),

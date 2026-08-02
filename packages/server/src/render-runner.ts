@@ -243,8 +243,15 @@ export interface MixOpts {
   /** TRANSPORT TEMPO in cycles per second (default 0.5). Threaded into every
    *  stem render and every bus chain so `sync` lfo/delay nodes run at the same
    *  musical rate they do live — pass the SAME cps the events were scheduled
-   *  at, or the bounce drifts from the session. */
-  cps?: number
+   *  at, or the bounce drifts from the session.
+   *
+   *  REQUIRED, and not because it is always interesting: it was optional with
+   *  a 0.5 default, and EIGHT of the ten callers forgot it. Every WAV they
+   *  wrote had its tempo-synced delays and LFOs running at the wrong speed —
+   *  audible as a render that drifts against the beat compared to the app,
+   *  which passes it. A comment saying "pass this" did not work; a required
+   *  field cannot be forgotten. */
+  cps: number
   /** Per-stem polyphony. Default 12. */
   maxVoices?: number
   /** Sidechain duck: every noteOn of `source` snaps a per-sample envelope down
@@ -364,11 +371,11 @@ export function renderMix(
   synths: Map<string, SynthDef>,
   events: Map<string, RenderEvent[]>,
   durationSec: number,
-  opts?: MixOpts,
+  opts: MixOpts,
 ): MixResult {
   const sampleRate = opts?.sampleRate ?? 48000
   const maxVoices = opts?.maxVoices ?? 12
-  const cps = opts?.cps ?? DEFAULT_CPS
+  const { cps } = opts
   const total = Math.round(durationSec * sampleRate)
   const left = new Float32Array(total)
   const right = new Float32Array(total)

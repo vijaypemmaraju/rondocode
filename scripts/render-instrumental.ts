@@ -40,6 +40,6 @@ const staged = stageCode(SRC)
 if (!staged.ok) throw new Error(staged.diagnostics.map((d) => d.message).join(' | '))
 const cps = staged.cps ?? 0.5
 const events = runPatterns(staged.patterns, { cycles, cps })
-const mix = renderMix(staged.synths, events, cycles / cps, { sampleRate: 48000 })
+const mix = renderMix(staged.synths, events, cycles / cps, { sampleRate: 48000, cps })
 writeFileSync(out, encodeWav16(mix.left, mix.right, mix.sampleRate))
 console.log(`✓ ${out}  (${(cycles / cps).toFixed(1)}s @ 48k)`)

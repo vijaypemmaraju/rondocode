@@ -38,6 +38,7 @@ const events = runPatterns(staged.patterns, { cycles, cps })
 // granular() voice rendered as digital zero.
 const mix = renderMix(staged.synths, events, durationSec, {
   sampleRate: 48000,
+  cps,
   samples: builtInSamples(48000),
   ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
   ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),

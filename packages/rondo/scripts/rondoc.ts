@@ -45,6 +45,7 @@ if (out) {
   const events = runPatterns(staged.patterns, { cycles, cps })
   const mix = renderMix(staged.synths, events, durationSec, {
     sampleRate: 48000,
+    cps,
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
   })

@@ -39,6 +39,7 @@ const durationSec = cycles / cps
 const events = runPatterns(staged.patterns, { cycles, cps })
 const mix = renderMix(staged.synths, events, durationSec, {
   sampleRate: 48000,
+  cps,
   ...(Object.keys(samples).length > 0 ? { samples } : {}),
   ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
   ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),

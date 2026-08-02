@@ -72,6 +72,7 @@ for (const demo of DEMOS) {
   const events = runPatterns(staged.patterns, { cycles: demo.cycles, cps })
   const mix = renderMix(staged.synths, events, durationSec, {
     sampleRate: 48000,
+    cps,
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),

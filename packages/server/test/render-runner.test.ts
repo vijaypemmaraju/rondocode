@@ -167,7 +167,7 @@ describe('renderMix', () => {
     const staged = stageCode(TWO_SYNTH_SOURCE)
     if (!staged.ok) throw new Error('stage failed')
     const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-    const mix = renderMix(staged.synths, events, 1.5)
+    const mix = renderMix(staged.synths, events, 1.5, { cps: 0.5 })
     expect(mix.perSynth['ping']!.events).toBe(2)
     expect(mix.perSynth['ping']!.rms).toBeGreaterThan(0.001)
     expect(mix.perSynth['buzz']!.events).toBe(1)
@@ -178,14 +178,14 @@ describe('renderMix', () => {
   it('peak-normalizes a hot mix to 0.89', () => {
     // Two full-scale-ish stems summed guarantee a peak over 0.89.
     const staged = stageCode(`
-const a = synth(({ note, gate, adsr, sine }) => sine(note.freq).mul(adsr(gate, { a: 0.001, d: 0.5, s: 1, r: 0.1 })))
+const a = synth(({ note, gate, adsr, sine }) => sine(note.freq).mul(adsr(gate, { cps: 0.5, a: 0.001, d: 0.5, s: 1, r: 0.1 })))
 const b = synth(({ note, gate, adsr, sine }) => sine(note.freq).mul(adsr(gate, { a: 0.001, d: 0.5, s: 1, r: 0.1 })))
 p('pa', note('c3').sound('a'))
 p('pb', note('c3').sound('b'))
 `)
     if (!staged.ok) throw new Error('stage failed')
     const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-    const mix = renderMix(staged.synths, events, 1.2)
+    const mix = renderMix(staged.synths, events, 1.2, { cps: 0.5 })
     expect(mix.normalized).toBe(true)
     let peak = 0
     for (let i = 0; i < mix.left.length; i++) {
@@ -206,8 +206,8 @@ p('pa', note('c3').sound('a'))
       for (let i = 0; i < x.length; i++) s += x[i]! * x[i]!
       return Math.sqrt(s / x.length)
     }
-    const base = renderMix(staged.synths, events, 1.2)
-    const comped = renderMix(staged.synths, events, 1.2, {
+    const base = renderMix(staged.synths, events, 1.2, { cps: 0.5 })
+    const comped = renderMix(staged.synths, events, 1.2, { cps: 0.5,
       masterComp: { threshold: -30, ratio: 10, attack: 5, release: 50, knee: 6, makeup: 0 },
     })
     // neither is peak-normalized here, so the comp's reduction is visible
@@ -242,8 +242,8 @@ bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { a: ${sen
 
     const dryEvents = runPatterns(dry.patterns, { cycles: 1, cps: 1 })
     const wetEvents = runPatterns(wet.patterns, { cycles: 1, cps: 1 })
-    const dryMix = renderMix(dry.synths, dryEvents, dur, { sampleRate: sr, buses: dry.buses, sends: dry.sends })
-    const wetMix = renderMix(wet.synths, wetEvents, dur, { sampleRate: sr, buses: wet.buses, sends: wet.sends })
+    const dryMix = renderMix(dry.synths, dryEvents, dur, { cps: 0.5, sampleRate: sr, buses: dry.buses, sends: dry.sends })
+    const wetMix = renderMix(wet.synths, wetEvents, dur, { cps: 0.5, sampleRate: sr, buses: wet.buses, sends: wet.sends })
 
     // With a send, the reverb bus rings on after the dry note has gone silent.
     expect(rmsTail(wetMix.left, tailFrom)).toBeGreaterThan(rmsTail(dryMix.left, tailFrom) + 1e-4)
@@ -257,7 +257,7 @@ p('typo', note('c4').sound('sofft'))
 `)
     if (!staged.ok) throw new Error('stage failed')
     const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-    const mix = renderMix(staged.synths, events, 1.2)
+    const mix = renderMix(staged.synths, events, 1.2, { cps: 0.5 })
     expect(mix.normalized).toBe(false)
     expect(Object.keys(mix.perSynth)).toEqual(['soft']) // no entry for the typo
     expect(mix.perSynth['soft']!.rms).toBeGreaterThan(0)
@@ -269,7 +269,7 @@ p('typo', note('c4').sound('sofft'))
    * the pad shows up directly in the summed mix. */
   const SC_SOURCE = `
 const kick = synth(({ gate, adsr, sine }) => {
-  const amp = adsr(gate, { a: 0.001, d: 0.05, s: 0, r: 0.02 })
+  const amp = adsr(gate, { cps: 0.5, a: 0.001, d: 0.05, s: 0, r: 0.02 })
   return sine(60).mul(amp).mul(0.02)
 })
 const pad = synth(({ note, gate, adsr, saw }) => {
@@ -296,12 +296,12 @@ setCps(1)
       const sc = { source: 'kick', depth: 0.7, releaseMs: 120 }
       // Kicks land at 0, 0.25, 0.5, 0.75s. Sample just after the 0.25 kick
       // (ducked) vs midway to the next hit (recovered).
-      const ducked = renderMix(staged.synths, events, 1.5, { sidechain: sc })
+      const ducked = renderMix(staged.synths, events, 1.5, { cps: 0.5, sidechain: sc })
       const afterHit = winRms(ducked.left, ducked.right, 0.26, 0.30)
       const midway = winRms(ducked.left, ducked.right, 0.40, 0.46)
       expect(afterHit).toBeLessThan(midway * 0.75)
 
-      const flat = renderMix(staged.synths, events, 1.5)
+      const flat = renderMix(staged.synths, events, 1.5, { cps: 0.5 })
       const fAfter = winRms(flat.left, flat.right, 0.26, 0.30)
       const fMid = winRms(flat.left, flat.right, 0.40, 0.46)
       expect(Math.abs(fAfter - fMid)).toBeLessThan(fMid * 0.1) // flat, no duck
@@ -314,10 +314,10 @@ setCps(1)
       if (!staged.ok) throw new Error('stage failed')
       const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
       const kickOnly = new Map([['kick', events.get('kick')!]])
-      const withSc = renderMix(staged.synths, kickOnly, 1.5, {
+      const withSc = renderMix(staged.synths, kickOnly, 1.5, { cps: 0.5,
         sidechain: { source: 'kick', depth: 0.9, releaseMs: 120 },
       })
-      const without = renderMix(staged.synths, kickOnly, 1.5)
+      const without = renderMix(staged.synths, kickOnly, 1.5, { cps: 0.5 })
       expect(withSc.perSynth['kick']!.rms).toBeCloseTo(without.perSynth['kick']!.rms, 6)
     })
 
@@ -326,15 +326,15 @@ setCps(1)
       if (!staged.ok) throw new Error('stage failed')
       const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
       const base = { source: 'kick', depth: 0.8, releaseMs: 120 }
-      const full = renderMix(staged.synths, events, 1.5, { sidechain: { ...base, amounts: { pad: 1 } } })
-      const lite = renderMix(staged.synths, events, 1.5, { sidechain: { ...base, amounts: { pad: 0.3 } } })
+      const full = renderMix(staged.synths, events, 1.5, { cps: 0.5, sidechain: { ...base, amounts: { pad: 1 } } })
+      const lite = renderMix(staged.synths, events, 1.5, { cps: 0.5, sidechain: { ...base, amounts: { pad: 0.3 } } })
       // just after the 0.25s kick: the lite pad ducks far less than the full pad
       const fullAfter = winRms(full.left, full.right, 0.255, 0.275)
       const liteAfter = winRms(lite.left, lite.right, 0.255, 0.275)
       expect(liteAfter).toBeGreaterThan(fullAfter * 1.5)
       // an unlisted synth still ducks fully (default amount 1): omitting pad
       // matches amounts:{pad:1}
-      const dflt = renderMix(staged.synths, events, 1.5, { sidechain: { ...base } })
+      const dflt = renderMix(staged.synths, events, 1.5, { cps: 0.5, sidechain: { ...base } })
       const dfltAfter = winRms(dflt.left, dflt.right, 0.255, 0.275)
       expect(dfltAfter).toBeCloseTo(fullAfter, 6)
     })
@@ -348,8 +348,8 @@ setCps(1)
       const staged = stageCode(SC_SOURCE)
       if (!staged.ok) throw new Error('stage failed')
       const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-      const short = renderMix(staged.synths, events, 1.5, { sidechain: { source: 'kick', depth: 0.8, releaseMs: 40 } })
-      const long = renderMix(staged.synths, events, 1.5, { sidechain: { source: 'kick', depth: 0.8, releaseMs: 400 } })
+      const short = renderMix(staged.synths, events, 1.5, { cps: 0.5, sidechain: { source: 'kick', depth: 0.8, releaseMs: 40 } })
+      const long = renderMix(staged.synths, events, 1.5, { cps: 0.5, sidechain: { source: 'kick', depth: 0.8, releaseMs: 400 } })
       // 50-90ms after the 0.25s kick: the 40ms release has mostly recovered,
       // the 400ms release has not.
       const shortLater = winRms(short.left, short.right, 0.30, 0.34)
@@ -357,14 +357,14 @@ setCps(1)
       expect(shortLater).toBeGreaterThan(longLater * 1.3)
       // Calibrate against the unducked render: short is back near flat, long
       // is still visibly ducked.
-      const flat = renderMix(staged.synths, events, 1.5)
+      const flat = renderMix(staged.synths, events, 1.5, { cps: 0.5 })
       const flatLater = winRms(flat.left, flat.right, 0.30, 0.34)
       expect(shortLater).toBeGreaterThan(flatLater * 0.8)
       expect(longLater).toBeLessThan(flatLater * 0.75)
     })
 
     it('surfaces the staged sidechain config from source', () => {
-      const staged = stageCode(`sidechain('kick', { depth: 0.7 })\n${SC_SOURCE}`)
+      const staged = stageCode(`sidechain('kick', { cps: 0.5, depth: 0.7 })\n${SC_SOURCE}`)
       expect(staged.ok).toBe(true)
       if (!staged.ok) return
       expect(staged.sidechain).toEqual({ source: 'kick', depth: 0.7, releaseMs: 180 })
@@ -383,7 +383,7 @@ p('a', note('c4').gain(${g}).sound('tone'))
       const staged = stageCode(src(g))
       if (!staged.ok) throw new Error('stage failed')
       const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-      return renderMix(staged.synths, events, 1.2).perSynth['tone']!.rms
+      return renderMix(staged.synths, events, 1.2, { cps: 0.5 }).perSynth['tone']!.rms
     }
     const full = render(1)
     const half = render(0.5)
@@ -407,8 +407,8 @@ p('a', note('c4').sound('hit'))
     // 48k, so the kernel's resampling path is exercised too.
     const data = new Float32Array(4410)
     for (let i = 0; i < data.length; i++) data[i] = 0.8 * Math.sin((2 * Math.PI * 220 * i) / 44100)
-    const withSamples = renderMix(staged.synths, events, 1.2, { samples: { clik: { data, sampleRate: 44100 } } })
-    const without = renderMix(staged.synths, events, 1.2)
+    const withSamples = renderMix(staged.synths, events, 1.2, { cps: 0.5, samples: { clik: { data, sampleRate: 44100 } } })
+    const without = renderMix(staged.synths, events, 1.2, { cps: 0.5 })
     expect(withSamples.perSynth['hit']!.rms).toBeGreaterThan(0.001)
     expect(without.perSynth['hit']!.rms).toBeLessThan(1e-6)
   })
@@ -418,7 +418,7 @@ p('a', note('c4').sound('hit'))
     if (!staged.ok) throw new Error('stage failed')
     const run = (): Float32Array => {
       const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-      return renderMix(staged.synths, events, 1.5).left
+      return renderMix(staged.synths, events, 1.5, { cps: 0.5 }).left
     }
     expect(run()).toEqual(run())
   })
@@ -455,8 +455,8 @@ p('b', note('c4').sound('dry'))
     // Render each synth ALONE so the tail is attributable.
     const evPluck = runPatterns(new Map([['a', staged.patterns.get('a')!]]), { cycles: 1, cps: 1 })
     const evDry = runPatterns(new Map([['b', staged.patterns.get('b')!]]), { cycles: 1, cps: 1 })
-    const wet = renderMix(staged.synths, evPluck, 1.0)
-    const dry = renderMix(staged.synths, evDry, 1.0)
+    const wet = renderMix(staged.synths, evPluck, 1.0, { cps: 0.5 })
+    const dry = renderMix(staged.synths, evDry, 1.0, { cps: 0.5 })
     // well after the note (dry has decayed), the post synth still rings
     const wetTail = tailRms(wet.left, 0.4)
     const dryTail = tailRms(dry.left, 0.4)
@@ -469,7 +469,7 @@ p('b', note('c4').sound('dry'))
     if (!staged.ok) throw new Error('stage failed')
     const run = (): Float32Array => {
       const ev = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
-      return renderMix(staged.synths, ev, 1.0).left
+      return renderMix(staged.synths, ev, 1.0, { cps: 0.5 }).left
     }
     expect(run()).toEqual(run())
   })
@@ -486,7 +486,7 @@ p('b', note('c4').sound('dry'))
 describe('renderMix: stems', () => {
   const FULL_SOURCE = `
 const kick = synth(({ gate, adsr, sine, note }) =>
-  sine(note.freq.mul(0.5)).mul(adsr(gate, { a: 0.001, d: 0.12, s: 0, r: 0.02 })).mul(0.9))
+  sine(note.freq.mul(0.5)).mul(adsr(gate, { cps: 0.5, a: 0.001, d: 0.12, s: 0, r: 0.02 })).mul(0.9))
 const pad = synth(
   ({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.4, s: 0.7, r: 0.2 })).mul(0.9),
   ({ input, reverb }) => input.mix(reverb(input), 0.4),

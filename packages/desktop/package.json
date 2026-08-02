@@ -7,6 +7,7 @@
     "dev": "cargo tauri dev",
     "build": "cargo tauri build",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "test": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "probe": "node probe/serve.mjs"
   }
 }

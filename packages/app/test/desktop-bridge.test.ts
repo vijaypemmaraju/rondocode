@@ -121,6 +121,30 @@ describe('the library actually calls the bridge', () => {
     expect(lib).toMatch(/extFor\(editor\.getLang\(\)\)/)
   })
 
+  it('a language toggle re-extensions the open workspace file', () => {
+    // The bug this pins: onLang wrote only the IndexedDB row, so toggling a
+    // workspace project to rondo left rondo source in a .js file and the next
+    // open evaluated it as JavaScript.
+    const lang = lib.indexOf('editor.onLang(')
+    expect(lang).toBeGreaterThan(-1)
+    const body = lib.slice(lang, lang + 1400)
+    expect(body).toContain('setWorkspaceLang(')
+    expect(body).toMatch(/openPath !== null/)
+    // and the new path is adopted, or the next save recreates the old file
+    expect(body).toMatch(/openPath = moved/)
+  })
+
+  it('lets go of the file when the open project stops being that file', () => {
+    // Otherwise the autosave keeps writing an unrelated project's code into
+    // the last workspace file that happened to be open.
+    const sw = lib.indexOf('const switchTo =')
+    expect(sw).toBeGreaterThan(-1)
+    expect(lib.slice(sw, sw + 800)).toMatch(/openPath = null/)
+    const forget = lib.indexOf("'use app storage'")
+    expect(forget).toBeGreaterThan(-1)
+    expect(lib.slice(forget, forget + 600)).toMatch(/openPath = null/)
+  })
+
   it('a cancelled dialog leaves the project untouched', () => {
     // both paths bail on null rather than writing an empty file or clobbering
     expect(lib).toMatch(/if \(f === null\) return/)
@@ -174,6 +198,14 @@ describe('the workspace: a directory as the project list', () => {
     expect(invoke).toHaveBeenCalledWith('create_in_workspace', {
       dir: '/w', name: 'tune', ext: '.rondo', code: 'saw note',
     })
+  })
+
+  it('switching language moves the file, because the extension IS the language', async () => {
+    const invoke = vi.fn().mockResolvedValue('/w/tune.rondo')
+    setShell(invoke)
+    const { setWorkspaceLang } = await import('../src/desktop/bridge')
+    expect(await setWorkspaceLang('/w/tune.js', 'rondo')).toBe('/w/tune.rondo')
+    expect(invoke).toHaveBeenCalledWith('set_workspace_ext', { path: '/w/tune.js', ext: '.rondo' })
   })
 
   it('picking a workspace remembers it; cancelling leaves it unset', async () => {

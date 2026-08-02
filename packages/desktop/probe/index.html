@@ -1,0 +1,203 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rondocode shell probe</title>
+<!--
+  WHAT THIS IS. The desktop shell runs the app in WKWebView, not Chrome, and
+  nothing in CI can tell you what that web view supports. Every capability the
+  app depends on is checked here, in the real shell, in one screen:
+
+      pnpm --filter @rondocode/desktop probe
+
+  Run it after any tauri/wry bump, or when a feature works in the browser and
+  someone reports it not working in the app. Each row is a YES or a NO with the
+  detail that makes it actionable, and the Tauri commands are invoked for real
+  against a scratch folder in /tmp rather than mocked.
+
+  There is no console here: WKWebView's inspector is not scriptable and the
+  window has no devtools. So the page renders its own errors.
+-->
+<style>
+  body { background:#0b0f14; color:#dfe7ef; font:18px/1.5 ui-monospace,Menlo,monospace; padding:24px; margin:0 }
+  h1 { font-size:20px; margin:0 0 6px; color:#8fd0a0 }
+  h2 { font-size:16px; margin:22px 0 6px; color:#8b96a5; font-weight:normal; text-transform:uppercase; letter-spacing:.08em }
+  .row { margin:8px 0 }
+  .ok { color:#7fe0a0 } .bad { color:#ff7a7a } .pend { color:#c7a95b }
+  small { color:#8b96a5; font-size:14px }
+  canvas { width:280px; height:100px; border:1px solid #2a2e37; display:block; margin:12px 0 }
+</style>
+<h1>rondocode desktop shell: capability probe</h1>
+<div id="ua"><small></small></div>
+<div id="out"></div>
+<canvas id="c" width="560" height="200"></canvas>
+
+<script type="module">
+const out = document.getElementById('out')
+document.querySelector('#ua small').textContent = navigator.userAgent
+
+const section = (title) => {
+  const h = document.createElement('h2')
+  h.textContent = title
+  out.append(h)
+}
+const line = (label) => {
+  const d = document.createElement('div')
+  d.className = 'row'
+  d.innerHTML = `<span class="pend">…</span> ${label}`
+  out.append(d)
+  return (ok, detail) => {
+    d.innerHTML = `<span class="${ok ? 'ok' : 'bad'}">${ok ? 'YES' : 'NO '}</span> ${label}` +
+      (detail ? ` <small>${detail}</small>` : '')
+  }
+}
+
+const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args)
+/* A scratch workspace: /tmp so the probe never touches a real folder of tunes,
+ * and a fresh one per run so it never has to delete anything (an earlier
+ * version trashed its leftovers, which quietly filled the user's Trash with
+ * probe files). create_in_workspace makes the directory. */
+const WS = `/tmp/rondocode-probe-${Date.now()}`
+
+section('the web view')
+
+const tauriRow = line('window.__TAURI__ injected (withGlobalTauri)')
+tauriRow(typeof window.__TAURI__ === 'object' && window.__TAURI__ !== null,
+  typeof window.__TAURI__ === 'object' ? Object.keys(window.__TAURI__).join(' ') : 'MISSING: every desktop feature is inert')
+
+const awRow = line('AudioWorklet (the DSP engine is one)')
+awRow(typeof AudioWorkletNode === 'function' && typeof (window.AudioContext ?? window.webkitAudioContext) === 'function')
+
+const wasmRow = line('WebAssembly (the engine and the voice models)')
+try {
+  new WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])) // (module)
+  wasmRow(true)
+} catch (e) { wasmRow(false, String(e)) }
+
+const storeRow = line('Cache Storage + IndexedDB (the model cache)')
+storeRow(typeof caches === 'object' && typeof indexedDB === 'object')
+
+section('webgpu — the visuals')
+
+const apiRow = line('navigator.gpu exists')
+apiRow(typeof navigator.gpu === 'object' && navigator.gpu !== null)
+const adapterRow = line('requestAdapter()')
+const deviceRow = line('requestDevice()')
+const drawRow = line('paints a frame to a canvas')
+;(async () => {
+  if (!navigator.gpu) { adapterRow(false, 'no navigator.gpu'); deviceRow(false, ''); drawRow(false, ''); return }
+  let adapter
+  try {
+    adapter = await navigator.gpu.requestAdapter()
+    adapterRow(adapter !== null, adapter ? (adapter.info?.description ?? adapter.info?.vendor ?? 'ok') : 'returned null')
+  } catch (e) { return adapterRow(false, String(e)) }
+  if (!adapter) { deviceRow(false, 'no adapter'); drawRow(false, ''); return }
+  let device
+  try {
+    device = await adapter.requestDevice()
+    deviceRow(true, `maxTextureDimension2D=${device.limits.maxTextureDimension2D}`)
+  } catch (e) { return deviceRow(false, String(e)) }
+  try {
+    const canvas = document.getElementById('c')
+    const ctx = canvas.getContext('webgpu')
+    if (!ctx) throw new Error("getContext('webgpu') returned null")
+    ctx.configure({ device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: 'opaque' })
+    const enc = device.createCommandEncoder()
+    enc.beginRenderPass({
+      colorAttachments: [{
+        view: ctx.getCurrentTexture().createView(),
+        clearValue: { r: 0.1, g: 0.75, b: 0.45, a: 1 },
+        loadOp: 'clear', storeOp: 'store',
+      }],
+    }).end()
+    device.queue.submit([enc.finish()])
+    await device.queue.onSubmittedWorkDone()
+    // The API can succeed while the compositor shows nothing, so LOOK at it.
+    drawRow(true, 'a green fill below means the compositor showed it')
+  } catch (e) { drawRow(false, String(e)) }
+})()
+
+section('network — sing() downloads its models once')
+
+for (const [label, url] of [
+  ['phoneme.onnx (R2)', 'https://models.rondocode.com/phoneme.onnx'],
+  ['vec-768.onnx (R2)', 'https://models.rondocode.com/vec-768.onnx'],
+  // HuggingFace answers 307 to a cdn-lfs host: the redirect must survive CORS
+  ['supertonic (HuggingFace, redirects)', 'https://huggingface.co/Supertone/supertonic-3/resolve/main/config.json'],
+  ['onnxruntime wasm (jsDelivr)', 'https://cdn.jsdelivr.net/npm/onnxruntime-web/package.json'],
+]) {
+  const row = line(`fetch ${label}`)
+  // Range-limited: these are hundreds of megabytes, and the question is whether
+  // the request is ALLOWED, not whether the disk fills up.
+  fetch(url, { headers: { Range: 'bytes=0-1023' } }).then(
+    async (r) => {
+      const buf = await r.arrayBuffer().catch(() => null)
+      row(r.ok, `HTTP ${r.status}${buf ? `, ${buf.byteLength} bytes read` : ', body unreadable'}`)
+    },
+    (e) => row(false, String(e)),
+  )
+}
+
+section('the command surface — invoked for real')
+;(async () => {
+  const midi = line('midi_open publishes the virtual source')
+  try {
+    const name = await invoke('midi_open', { name: 'rondocode' })
+    const open = await invoke('midi_is_open')
+    midi(open === true, `named "${name}" — confirm with: cargo run --example midiports -- --list`)
+    await invoke('midi_send', { bytes: [0x90, 60, 100] })
+    await invoke('midi_send_at', { bytes: [0x80, 60, 0], delayMs: 250 })
+  } catch (e) { midi(false, String(e)) }
+
+  // The language/extension coupling: a workspace file carries its language in
+  // its extension and nowhere else, so the editor's toggle has to move it.
+  let path
+  const create = line('create_in_workspace writes a .js project')
+  try {
+    path = await invoke('create_in_workspace', { dir: WS, name: 'probe', ext: '.js', code: 'saw(220)' })
+    create(true, path)
+  } catch (e) { create(false, String(e)) }
+
+  const before = line('list_workspace reads it back as rondocode')
+  try {
+    const row = (await invoke('list_workspace', { dir: WS })).find((e) => e.name === 'probe')
+    before(row?.lang === 'rondocode', `lang=${row?.lang}`)
+  } catch (e) { before(false, String(e)) }
+
+  let moved
+  const move = line('set_workspace_ext moves it to .rondo')
+  try {
+    moved = await invoke('set_workspace_ext', { path, ext: '.rondo' })
+    move(moved.endsWith('probe.rondo'), moved)
+  } catch (e) { move(false, String(e)) }
+
+  const after = line('…and it reads back as rondo, contents intact')
+  try {
+    const row = (await invoke('list_workspace', { dir: WS })).find((e) => e.name === 'probe')
+    const f = await invoke('open_project_path', { path: moved })
+    after(row?.lang === 'rondo' && f.code === 'saw(220)', `lang=${row?.lang}, code=${JSON.stringify(f.code)}`)
+  } catch (e) { after(false, String(e)) }
+
+  const noop = line('the same language twice is a no-op, not an error')
+  try {
+    noop(await invoke('set_workspace_ext', { path: moved, ext: '.rondo' }) === moved)
+  } catch (e) { noop(false, String(e)) }
+
+  const clash = line('refuses to clobber a project of the other language')
+  try {
+    await invoke('create_in_workspace', { dir: WS, name: 'probe', ext: '.js', code: 'other' })
+    await invoke('set_workspace_ext', { path: `${WS}/probe.js`, ext: '.rondo' })
+    clash(false, 'IT OVERWROTE THE OTHER PROJECT')
+  } catch (e) { clash(String(e).includes('already exists'), String(e)) }
+})()
+</script>
+<script>
+  // No devtools in this web view, so a failure has to render itself or it is
+  // invisible: an empty page and no way to ask why.
+  const shout = (text) => {
+    const d = document.createElement('div')
+    d.className = 'row bad'
+    d.textContent = text
+    document.body.append(d)
+  }
+  window.addEventListener('error', (e) => shout(`SCRIPT ERROR: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`))
+  window.addEventListener('unhandledrejection', (e) => shout(`UNHANDLED REJECTION: ${e.reason}`))
+</script>

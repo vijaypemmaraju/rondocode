@@ -24,7 +24,7 @@ import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } fr
 import {
   createInWorkspace, extFor, hasWorkspace, isDesktop, listWorkspace, openProjectDialog,
   openProjectPath, pickWorkspace, renameInWorkspace, saveProject, saveProjectDialog,
-  setWorkspaceDir, trashFile, workspaceDir,
+  setWorkspaceDir, setWorkspaceLang, trashFile, workspaceDir,
 } from '../desktop/bridge'
 import type { WorkspaceEntry } from '../desktop/bridge'
 import { compile as compileRondo } from '@rondocode/rondo'
@@ -332,6 +332,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     flushSave()
     activeId = p.id
     active = p
+    // An IndexedDB project is not the file that was open: drop the path FIRST,
+    // or the next autosave writes this project's code into that file, and the
+    // language toggle below re-extensions it. (openFile sets its own path.)
+    openPath = null
     setActiveId(p.id)
     writeDocOwner(p.id) // this tab's buffer now holds THIS project
     setLabel(p.name)
@@ -749,7 +753,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
         forget.type = 'button'
         forget.title = 'stop using the folder; projects go back to living in the app'
         forget.addEventListener('click', () => {
-          void (async () => { setWorkspaceDir(null); await render() })()
+          // Flush first, then let go of the file: leaving the workspace must
+          // save what is on screen, and must not keep writing to a folder the
+          // user just stopped using.
+          void (async () => { flushSave(); openPath = null; setWorkspaceDir(null); await render() })()
         })
         wsRow.append(forget)
       }
@@ -855,6 +862,24 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     void store.setProjectLang(id, lang).then((at) => {
       if (at !== undefined && id === activeId) baseVersion = at
     })
+    // ON DESKTOP THE EXTENSION IS THE LANGUAGE. A workspace file has no
+    // database row behind it — the listing reads .rondo/.js back as the
+    // project's language — so a toggle that only wrote the row above would
+    // leave rondo source in a .js file, and the next open would hand it to the
+    // JavaScript evaluator. Move the file BEFORE the pending save flushes, so
+    // the debounced write lands on the new path rather than recreating the old
+    // one. A clash (both names taken) leaves the file where it is: the edit is
+    // still saved, and renaming over someone else's project would be worse.
+    if (openPath !== null) {
+      const from = openPath
+      void setWorkspaceLang(from, lang).then(
+        (moved) => {
+          if (openPath === from) openPath = moved
+          void render()
+        },
+        (e: unknown) => console.warn('[library] switching', from, 'to', lang, 'failed', e),
+      )
+    }
   })
 
   const onKey = (e: KeyboardEvent): void => {

@@ -183,6 +183,17 @@ export const createInWorkspace = (
 export const renameInWorkspace = (path: string, newName: string): Promise<string> =>
   invoke<string>('rename_in_workspace', { path, newName })
 
+/** Move a project to the extension its language reads back as. Returns the new
+ *  path (the same one when it already matches).
+ *
+ *  A workspace file carries its language in its EXTENSION and nowhere else, so
+ *  the editor's language toggle has to move the file too. Without this, a
+ *  toggle leaves rondo source in a `.js` file and the next open evaluates it
+ *  as JavaScript. Rejects when the other file already exists, rather than
+ *  clobbering a project that happens to share the name. */
+export const setWorkspaceLang = (path: string, lang: 'rondo' | 'rondocode'): Promise<string> =>
+  invoke<string>('set_workspace_ext', { path, ext: extFor(lang) })
+
 /** Move a project to the Trash — recoverable in Finder, unlike an unlink. */
 export const trashFile = (path: string): Promise<void> => invoke<void>('trash_file', { path })
 

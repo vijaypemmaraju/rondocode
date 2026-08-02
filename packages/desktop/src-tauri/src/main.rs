@@ -55,6 +55,11 @@ fn rename_in_workspace(path: String, new_name: String) -> Result<String, String>
 }
 
 #[tauri::command]
+fn set_workspace_ext(path: String, ext: String) -> Result<String, String> {
+    files::set_workspace_ext(path, ext)
+}
+
+#[tauri::command]
 fn trash_file(path: String) -> Result<(), String> {
     files::trash_file(path)
 }
@@ -96,6 +101,7 @@ fn main() {
             list_workspace,
             create_in_workspace,
             rename_in_workspace,
+            set_workspace_ext,
             trash_file,
             write_render,
             midi_open,

@@ -15,6 +15,13 @@ tunes, and walking into `node_modules` or `.git` would turn the library into
 noise. Delete moves a file to the Trash rather than unlinking it, so a mis-click
 is recoverable in Finder.
 
+The **extension is the language**, and it is the only place that fact is
+recorded — a workspace file has no database row behind it. So the editor's
+language toggle *moves the file*: flip a `.js` project to rondo and it becomes
+`tune.rondo` on disk (`set_workspace_ext`). Without that, the next open would
+hand rondo source to the JavaScript evaluator. A toggle that would collide with
+an existing file of the other extension is refused rather than clobbering it.
+
 **A virtual MIDI port.** This is the DAW integration. WebMIDI can only open ports
 that already exist, so in a browser rondocode can drive hardware but cannot *be*
 an instrument. The desktop shell publishes a CoreMIDI source named `rondocode`,
@@ -32,6 +39,28 @@ pnpm --filter @rondocode/desktop test    # exercises CoreMIDI for real
 
 The frontend is `packages/app` unchanged — `tauri.conf.json` points at its dev
 server in development and its `dist/` in a build, so there is one UI codebase.
+
+## Verifying the shell
+
+```sh
+pnpm --filter @rondocode/desktop probe
+```
+
+Opens the shell on a page that checks, in the real WKWebView, everything the app
+depends on and CI cannot see: WebGPU (adapter, device, and a frame actually
+painted), AudioWorklet, WebAssembly, the model-download hosts including the
+HuggingFace redirect through CORS, and every Tauri command invoked for real
+against a scratch workspace in `/tmp`. Each row is a YES or a NO with the detail
+that makes it actionable.
+
+Run it after a `tauri`/`wry` bump, or whenever something works in the browser and
+someone reports it not working in the app. WKWebView's inspector is not
+scriptable and the window has no devtools, so the page renders its own errors —
+an empty page means the script died before the first check.
+
+Last run (tauri 2.11.1, macOS): everything green, `requestAdapter()` reports
+`apple` with `maxTextureDimension2D=8192`, and `cargo run --example midiports --
+--list` sees `rondocode` beside `Bus 1`.
 
 ## Shape
 

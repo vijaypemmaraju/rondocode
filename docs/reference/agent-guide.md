@@ -5,7 +5,8 @@ browser. A human may be listening (and playing) right now. This guide explains
 how the system fits together and how to work it through the MCP tools.
 
 Read `rondocode://docs/dsl-reference` for the full language surface and
-`rondocode://docs/examples` for five complete, known-working programs.
+`rondocode://docs/examples` for every shipped program, each one known to eval
+clean and play.
 
 ## How the system fits together
 
@@ -35,8 +36,13 @@ you (MCP client) ── stdio ──> mcp server ── ws :6070 ──> browser
     registers a pattern named `bass`. Pattern strings use **mini-notation**
     (`'0 3 [5 7] ~'`) and chainable combinators (`.fast`, `.every`, `.euclid`,
     `.gain`, `.ctrl`, ...).
-  - **Tempo** — `setCps(0.5)` sets cycles per second (with 4 beats per cycle,
-    0.5 cps = 120 bpm).
+  - **Tempo** — `setCps(0.5)` sets cycles per second, and `setBpm(120)` is the
+    same slot in the unit you count in. One cycle is one BAR, so the two are
+    related by how many quarter notes a bar holds: four by default, hence
+    0.5 cps = 120 bpm. `setTimeSig(3, 4)` changes that — under it a bar is
+    three quarters, so the same 120 bpm is 0.667 cps. The last tempo call in a
+    program wins, and it resolves against the meter whichever order they
+    appear in.
 
 ## Eval semantics — the rules that matter
 

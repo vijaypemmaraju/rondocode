@@ -105,10 +105,12 @@ export function dslReferenceMarkdown(entries: DocEntry[]): string {
  * makes sound — so they double as templates for eval_code.
  */
 export function examplesMarkdown(examples: Example[]): string {
+  // COUNTED, not asserted: this said "Five" while serving every shipped
+  // example, which by then was 29 of them.
   const parts: string[] = [
     '# rondocode examples',
     '',
-    'Five complete, known-working programs (each one evals clean and plays). Use them as starting points for eval_code: send one verbatim to hear it, then edit.',
+    `${examples.length} complete, known-working programs (each one evals clean and plays). Use them as starting points for eval_code: send one verbatim to hear it, then edit.`,
     '',
   ]
   for (const ex of examples) {

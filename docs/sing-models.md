@@ -1,9 +1,10 @@
 # Hosting the singing models
 
 `sing()` runs a neural voice pipeline entirely in the browser (on-device, WebGPU
-with a WASM fallback). It needs several large ONNX models. In production they're
-fetched from HuggingFace and cached in the browser's Cache API — a one-time
-download per visitor, then offline.
+with a WASM fallback). It needs several large ONNX models, fetched over the
+network and cached in the browser's Cache API — a one-time download per
+visitor, then offline. The phoneme + voice models come from a Cloudflare R2
+bucket; the Supertonic TTS models come from HuggingFace.
 
 ## What needs hosting
 
@@ -21,9 +22,12 @@ load automatically. You only need to host the phoneme + voice-conversion models:
 | `gen_barbara.onnx` | ~112 MB | RVC generator — voice "barbara" |
 | `gen_rise.onnx` | ~112 MB | RVC generator — voice "rise" |
 
-These are hosted at **`hi-im-vijay/rondocode-sing`** (public), which is the
-default in `config.ts` — the app fetches straight from HuggingFace, no local
-server, so it works in prod, dev, and over Tailnet alike.
+These are served from **`https://models.rondocode.com`** (a public Cloudflare
+R2 bucket on the edge CDN — fast, cached, no egress fees), which is
+`DEFAULT_BASE` in `src/sing/config.ts`. No local server is involved, so it
+works in prod, dev and over Tailnet alike. A copy also exists at the public
+HuggingFace repo `hi-im-vijay/rondocode-sing`, which is what the upload
+instructions below produce; either host works, R2 is simply the default.
 
 ## Re-uploading / hosting your own copy
 
@@ -58,9 +62,10 @@ For **local development** against the static model server instead:
 VITE_SING_MODELS_BASE=http://127.0.0.1:8790
 ```
 
-If unset, dev builds default to `127.0.0.1:8790` and production builds to the
-placeholder in `config.ts` (`DEFAULT_BASE`) — change that constant or set the env
-var. `VITE_SUPERTONIC_BASE` overrides the Supertonic host the same way.
+If unset, EVERY build (dev and production alike) uses `DEFAULT_BASE` from
+`config.ts`, which is the R2 bucket above — there is no separate dev default,
+and nothing points at `127.0.0.1:8790` unless you set the env var yourself.
+`VITE_SUPERTONIC_BASE` overrides the Supertonic host the same way.
 
 ## The int8 aligner build
 
@@ -139,5 +144,6 @@ multipart API: deploy a throwaway token-gated worker with a `BUCKET` binding
 to `rondocode-models` that exposes createMultipartUpload / uploadPart /
 complete, POST the file in ~90 MiB parts, then delete the worker. After any
 upload, verify `curl -sI https://models.rondocode.com/<file>` reports the
-exact local byte size. Until `phoneme-int8.onnx` exists, clients that prefer
-it fall back to `phoneme.onnx` automatically.
+exact local byte size. Every file in the table above is up (`phoneme-int8.onnx`
+included); a client that prefers a build which is ever missing falls back to
+the fp32 one automatically, so an absent object degrades rather than breaks.

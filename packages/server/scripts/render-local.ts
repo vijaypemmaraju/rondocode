@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { stageCode, runPatterns, renderMix } from '../src/render-runner'
 import { encodeWav16 } from '../../engine/src/wav'
 import { analyze, sampleNamesIn, usesMicIn } from '../../engine/src/index'
+import { builtInSamples } from '../../app/src/audio/demo-samples'
 
 const path = process.argv[2]
 const cycles = Number(process.argv[3]) || 8
@@ -32,18 +33,20 @@ const durationSec = cycles / cps
 const events = runPatterns(staged.patterns, { cycles, cps })
 const mix = renderMix(staged.synths, events, durationSec, {
   sampleRate: 48000,
+  samples: builtInSamples(48000),
   ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
   ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
   ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
 })
 // Say why a render is silent rather than reporting success over digital zero
 // (see render-example.ts — same trap, same explanation).
+const bank = builtInSamples(48000)
 const needsSamples = [...new Set([...staged.synths.values()].flatMap((d) => [
   ...sampleNamesIn(d.graph),
   ...(d.post ? sampleNamesIn(d.post) : []),
-]))]
+]))].filter((n) => bank[n] === undefined)
 if (needsSamples.length > 0) {
-  console.error(`note: plays sample(s) ${needsSamples.join(', ')} — no sample bank headless, so those voices are silent.`)
+  console.error(`note: plays sample(s) ${needsSamples.join(', ')}, which are not built in, so those voices are silent.`)
 }
 if ([...staged.synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))) {
   console.error('note: reads the live microphone, which a headless render has no device for.')

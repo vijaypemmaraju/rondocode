@@ -16,15 +16,18 @@
  * twin of scripts/measure-frames.ts: run it after touching the engine, the
  * mix stage or the examples, and keep the baseline in docs/audio-health.md.
  *
- * SAMPLES. A headless render has no sample bank, so `sample()` and
- * `granular()` voices are silent by construction — nothing is wrong with the
- * example. Those are reported as `needs samples` rather than counted as
- * failures, because calling them broken would train you to ignore the output.
+ * SAMPLES. The BUILT-IN bank (vox / riser / pad / break) is loaded here, the
+ * same procedurally-generated PCM the browser builds at startup, so a
+ * sample()/granular() example renders for real. Only a sample a USER would
+ * load, a sing() vocal (baked in the browser) or the live mic is unavailable;
+ * those are reported as `needs …` rather than counted as failures, because
+ * calling a working example broken trains you to ignore the output.
  */
 import { writeFileSync } from 'node:fs'
 import { analyze, sampleNamesIn, usesMicIn } from '../packages/engine/src/index'
 import { measureLoudness } from '../packages/engine/src/loudness'
 import { SHIPPED_EXAMPLES } from '../packages/app/src/examples/index'
+import { builtInSamples } from '../packages/app/src/audio/demo-samples'
 import { renderMix, runPatterns, stageCode } from '../packages/server/src/render-runner'
 
 const argv = process.argv.slice(2)
@@ -71,6 +74,9 @@ const wanted = SHIPPED_EXAMPLES.filter(
 )
 if (wanted.length === 0) throw new Error(`no example matched --examples=${ONLY ?? ''}`)
 
+/** The browser's startup bank, available offline because it is generated. */
+const BANK = builtInSamples(48000)
+
 const rows: Row[] = []
 for (const ex of wanted) {
   const staged = stageCode(ex.code)
@@ -83,6 +89,7 @@ for (const ex of wanted) {
     continue
   }
   // What this program would need from a sample bank we do not have.
+  // Only what the bank CANNOT supply is missing.
   const needsSamples = [
     ...new Set([
       ...[...staged.synths.values()].flatMap((d) => [
@@ -90,7 +97,7 @@ for (const ex of wanted) {
         ...(d.post ? sampleNamesIn(d.post) : []),
       ]),
     ]),
-  ]
+  ].filter((n) => BANK[n] === undefined)
   const needsMic = [...staged.synths.values()].some(
     (d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)),
   )
@@ -98,6 +105,7 @@ for (const ex of wanted) {
   const events = runPatterns(staged.patterns, { cycles: CYCLES, cps })
   const mix = renderMix(staged.synths, events, CYCLES / cps, {
     sampleRate: 48000,
+    samples: BANK,
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),

@@ -22,23 +22,21 @@ people run on every save. It is the audio twin of `scripts/measure-frames.ts`:
 run it after touching the engine, the mix stage or the examples, and update the
 baseline below.
 
-## Silence that is not a defect
+## The built-in bank, offline
 
-A headless render has no sample bank and no input device, so `sample()`,
-`granular()`, `mic()` and `sing()` voices are digital zero here. That is the
-renderer's limit, not the example's, so those are reported as `needs samples` /
-`needs the live mic` rather than flagged. Calling them broken would train you
-to ignore the output, which is how a real failure gets missed.
+The four built-in samples (`vox`, `riser`, `pad`, `break`) are procedurally
+generated pure functions, not files — so the headless path loads exactly what
+the browser builds at startup, via `builtInSamples()` in
+`packages/app/src/audio/demo-samples.ts`. Before that, every `sample()` and
+`granular()` voice rendered as digital zero and the scripts reported success
+over it: `render-example.ts granular` wrote a silent file.
 
-The scripts say so out loud now. Rendering the `granular` example prints:
-
-```
-note: this program plays sample(s) pad — a headless render has no sample bank,
-so those voices are silent here.
-WARNING: the render is SILENT (digital zero). The .wav was still written.
-```
-
-Before this it reported `wrote out.wav` with every appearance of success.
+What remains unavailable offline is a sample a USER loads in the app, a
+`sing()` vocal (baked in the browser) and the live microphone. Those are
+reported as `needs …` rather than flagged, because calling a working example
+broken trains you to ignore the output, which is how a real failure gets
+missed. The scripts also say plainly when a render came out silent instead of
+reporting success over zeros.
 
 ## What "healthy" means
 
@@ -73,16 +71,16 @@ generative            -1   -12.7   13.4     379Hz
 edm                   -1     -13   13.2     551Hz
 synthscape          -1.3   -13.2   12.5     153Hz
 arrangement         -3.1   -13.6   12.6    2144Hz
-sampler             -6.3   -15.7    9.5      55Hz  needs samples: vox, riser
-granular         -Infinity -Infinity      0       0Hz  needs samples: pad
+sampler               -3   -14.5   12.1     253Hz
+granular            -4.3   -16.2   14.1     305Hz
 singing               -1   -13.9   13.2     264Hz  needs samples: singclipnl0399
 wobble              -8.3   -14.9    8.7     333Hz
 club                -3.4   -12.2   11.3     315Hz
 drum machine          -1   -14.4   15.3    1771Hz
 polyrhythm            -1   -10.9   11.1     378Hz
-live mic         -Infinity -Infinity      0       0Hz  needs the live mic
+live mic            None    None      0       0Hz  needs the live mic
 wavetable lead      -2.8   -15.7   17.5    2699Hz
-chop               -15.3   -23.2    7.3      52Hz  needs samples: break
+chop                -1.2   -15.8   13.6     682Hz
 macros                -1   -11.5   11.2     182Hz
 waltz                 -1   -16.1   16.1     319Hz
 ```
@@ -108,7 +106,7 @@ output gain, where the house standard says level belongs:
 | `synthscape` | -17.8 | -13.2 |
 | `ambient bells` | -17.8 | -13.6 |
 
-Spread is now 6.8 LUFS, median unchanged at -13.2, and every edited example's
+Spread is now 6.9 LUFS across the 27 measurable examples, median -13.3, and every edited example's
 crest moved by at most 0.1 dB: this raised the level without touching the
 dynamics. `synthscape` has four voices and all four were scaled by the same
 factor, because raising one would have remixed the piece.
@@ -120,10 +118,12 @@ Three rules learned doing it, all measured:
   raising output gain changes the render by 0.1 dB. `waltz` sits at -16.1 LUFS
   because it is sparse and dynamic, not because it is quiet, and no gain edit
   will move it. Compression would, at the cost of what it is.
-- **Sample-dependent examples must be left alone.** `chop` and `sampler` read
-  quiet here only because their loudest voice is a sample that a headless
-  render has no bank for. Trimming them to hit a number would make them too
-  loud in the app, where the sample does play.
+- **A sample-dependent example cannot be judged until it renders.** `chop`,
+  `sampler` and `granular` were excluded from the first pass because their
+  loudest voice was missing; with the bank loaded, `granular` turned out to be
+  the quietest example of all at -24.1 LUFS, invisible behind the silence. It
+  is now -16.2, `chop` -15.8 and `sampler` -14.5. An example you cannot
+  measure is not an example that is fine.
 - **Headroom caps the trim.** `wavetable lead` needed +11.8 dB to reach the
   median and had 10.8 before the normalizer, so it landed at -15.7 rather than
   -13. Sparse material simply does not reach the same loudness without

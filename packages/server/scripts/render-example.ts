@@ -6,6 +6,7 @@ import { stageCode, runPatterns, renderMix } from '../src/render-runner'
 import { encodeWav16 } from '../../engine/src/wav'
 import { analyze, sampleNamesIn, usesMicIn } from '../../engine/src/index'
 import { EXAMPLES } from '../../app/src/examples/index'
+import { builtInSamples } from '../../app/src/audio/demo-samples'
 
 const name = process.argv[2]
 const cycles = Number(process.argv[3]) || 8
@@ -32,8 +33,12 @@ const events = runPatterns(staged.patterns, { cycles, cps })
  * does not exist in the file: `club`'s space bus moved its spectral centroid
  * 265 -> 315 Hz, which is the tail you can hear missing. render-local.ts had
  * this right and this script did not. */
+// The built-in bank the browser builds at startup — procedurally generated,
+// so a CLI can have exactly what the app has. Without it every sample() and
+// granular() voice rendered as digital zero.
 const mix = renderMix(staged.synths, events, durationSec, {
   sampleRate: 48000,
+  samples: builtInSamples(48000),
   ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
   ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
   ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
@@ -42,13 +47,14 @@ const mix = renderMix(staged.synths, events, durationSec, {
 /* SAY WHY IT IS SILENT. A headless render has no sample bank and no input
  * device, so sample()/granular()/mic() voices produce digital zero — and the
  * script used to report "wrote out.wav" with every appearance of success. */
+const bank = builtInSamples(48000)
 const needsSamples = [...new Set([...staged.synths.values()].flatMap((d) => [
   ...sampleNamesIn(d.graph),
   ...(d.post ? sampleNamesIn(d.post) : []),
-]))]
+]))].filter((n) => bank[n] === undefined)
 const needsMic = [...staged.synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))
 if (needsSamples.length > 0) {
-  console.error(`note: this program plays sample(s) ${needsSamples.join(', ')} — a headless render has no sample bank, so those voices are silent here.`)
+  console.error(`note: this program plays sample(s) ${needsSamples.join(', ')}, which are not built in (a user loads those in the app), so those voices are silent here.`)
 }
 if (needsMic) console.error('note: this program reads the live microphone, which a headless render has no device for — those voices are silent here.')
 if (staged.sings.length > 0) console.error('note: this program uses sing(); vocals are baked in the browser, so they are silent here.')

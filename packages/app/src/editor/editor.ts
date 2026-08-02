@@ -15,7 +15,7 @@ import type { SessionState, ProbeTarget } from '../session/Session'
 import { synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
-import { makeVox, makeRiser, makePad, makeBreak } from '../audio/demo-samples'
+import { builtInSamples } from '../audio/demo-samples'
 import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
@@ -288,10 +288,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Default demo samples so `sample()` works out of the box (users add their
   // own via the button above). Generated PCM fed through the real sample path.
   try {
-    audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
-    audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
-    audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
-    audio.loadSamplePcm('break', makeBreak(audio.sampleRate), audio.sampleRate, true)
+    for (const [name, s] of Object.entries(builtInSamples(audio.sampleRate))) {
+      audio.loadSamplePcm(name, s.data, s.sampleRate, true)
+    }
     // sing(): wire the neural render manager + its progress dialog
     singMgr.initSing(audio)
     mountSingDialog()

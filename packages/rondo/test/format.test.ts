@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile'
 import { formatRondo, formatRondoLine } from '../src/format'
+import { STATEMENT_KEYWORDS } from '../src/parser'
 import { genProgram, mulberry32 } from './fuzzgen'
 
 /* The formatter's contract, rule by rule, then the two fuzz gates:
@@ -109,6 +110,37 @@ describe('interior spacing', () => {
   it('keeps named args glued (res:.5 is canonical)', () => {
     const src = 'synth a\n  saw\n  ladder 1200 res:.5\n'
     expect(fmt(src)).toBe(src)
+  })
+})
+
+describe('one-line statements, every one of them', () => {
+  // The bug this pins: the formatter kept its OWN copy of the statement list,
+  // so `timesig` was added to the parser and not here, and a top-level
+  // `timesig    3     4` kept its sloppy spacing while `bpm    120` next to it
+  // was normalized. The list now lives in the parser and is imported.
+  it('normalizes spacing on every statement keyword the parser accepts', () => {
+    const sloppy: Record<string, [string, string]> = {
+      cps: ['cps    .5', 'cps .5'],
+      bpm: ['bpm    120', 'bpm 120'],
+      timesig: ['timesig    3     4', 'timesig 3 4'],
+      song: ['song    a', 'song a'],
+      sidechain: ['sidechain    kick   depth:.7', 'sidechain kick depth:.7'],
+      master: ['master    ratio:3', 'master ratio:3'],
+      macro: ['macro    drums   .5', 'macro drums .5'],
+      scaledef: ['scaledef    myscale   cents   0   200', 'scaledef myscale cents 0 200'],
+      wavedef: ['wavedef    mywave   1   .3   /   .5   1', 'wavedef mywave 1 .3 / .5 1'],
+    }
+    // every keyword in the set is covered here: a new statement must be given
+    // a case rather than silently going unformatted
+    expect(Object.keys(sloppy).sort()).toEqual([...STATEMENT_KEYWORDS].sort())
+    for (const [kw, [line, want]] of Object.entries(sloppy)) {
+      // a program that COMPILES: the formatter declines to touch one that
+      // does not, so a sloppy program alone would pass this vacuously
+      const src = `synth kick\n  saw\n\nsection a 4\n  play kick\n    0 2 4\n\n${line}\n`
+      expect(compile(src).ok, `${kw}: fixture must compile`).toBe(true)
+      const out = fmt(src)
+      expect(out, kw).toContain(`\n${want}\n`)
+    }
   })
 })
 

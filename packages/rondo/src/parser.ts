@@ -716,6 +716,15 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
   return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : fallback, unit, pos: header.toks[0]!.pos }, next: i + 1 }
 }
 
+/** The top-level items that are ONE LINE rather than a block with an indented
+ *  body. The formatter needs exactly this set to know a line belongs at column
+ *  0 (see format.ts), and it lived there as a second copy until `timesig` was
+ *  added to one list and not the other — so it lives HERE, next to the dispatch
+ *  that defines it, and the formatter imports it. */
+export const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
+  'cps', 'bpm', 'timesig', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef',
+])
+
 /** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
  *  of two, because that is what a time signature can express and what the MIDI
  *  meta event can store: 7/8 and 5/4 are ordinary, 4/6 is not a thing. */

@@ -38,6 +38,7 @@ import { EditorView, WidgetType } from '@codemirror/view'
 import { formatNumber } from '../widgets/rewrite'
 import { LiveWriter, attachGesture } from './gesture'
 import type { Drag } from './gesture'
+import { EQ_TYPE_CYCLES, SVF_MODES } from './enums'
 import { inkOf, paintOnAttach } from './paint'
 import { buzz } from './widgets'
 import type { Hooks, KnobMatch } from './widgets'
@@ -229,8 +230,10 @@ export interface FilterScan {
   bands: { type: EqBandTypeName; freq: StaticArg; gain?: StaticArg; q?: StaticArg }[]
 }
 
-const SVF_MODE_SET = new Set(['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'])
-const EQ_TYPE_SET = new Set(['lowshelf', 'highshelf', 'peak', 'lp', 'hp'])
+// One editor-side list, shared by the scanners (see enums.ts for why the
+// editor mirrors the engine rather than importing it).
+const SVF_MODE_SET: ReadonlySet<string> = new Set(SVF_MODES)
+const EQ_TYPE_SET: ReadonlySet<string> = new Set(EQ_TYPE_CYCLES.flat())
 const NUM_RE = /^-?\d*\.?\d+$/
 
 const stripComment = (raw: string): string => {

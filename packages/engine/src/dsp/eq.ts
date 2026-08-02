@@ -9,7 +9,11 @@ const finiteOr = (v: unknown, def: number): number =>
 /** A parametric-EQ band. `peak` is a bell; `lowshelf`/`highshelf` tilt one end;
  *  `lp`/`hp` are 12 dB/oct cuts (gain ignored). freq in Hz, gain in dB, q is
  *  bell/shelf sharpness (higher = narrower). */
-export type EqBandType = 'lowshelf' | 'highshelf' | 'peak' | 'lp' | 'hp'
+/** Every EQ band type, as a VALUE — same reason as SVF_MODES in filters.ts:
+ *  the editor enumerates these and a type cannot be iterated. */
+export const EQ_BAND_TYPES = ['lowshelf', 'highshelf', 'peak', 'lp', 'hp'] as const
+
+export type EqBandType = (typeof EQ_BAND_TYPES)[number]
 
 export interface EqBand {
   type?: EqBandType

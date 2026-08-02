@@ -26,7 +26,7 @@ import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, Widge
 import { STEP_RE, accValue } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
-import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, WT_TABLES } from '../rondo/enums'
+import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, SVF_MODES as EDITOR_SVF_MODES, WT_TABLES } from '../rondo/enums'
 import type { EnumSpan } from '../rondo/enums'
 import type { UnisonScan } from '../rondo/unison'
 import type { SwitchMatch, SwitchWrite } from '../rondo/switches'
@@ -755,8 +755,8 @@ function staticArgJs(
 
 const isSvfMode = (s: string | null): s is SvfModeName => s !== null && SVF_MODES.has(s)
 
-const SVF_MODES = new Set(['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'])
-const EQ_TYPES = new Set(['lowshelf', 'highshelf', 'peak', 'lp', 'hp'])
+const SVF_MODES: ReadonlySet<string> = new Set(EDITOR_SVF_MODES)
+const EQ_TYPES: ReadonlySet<string> = new Set(EQ_TYPE_CYCLES.flat())
 
 /** Filter response curves under `svf(…)`, `ladder(…)`, `dualsvf(…)`, `eq(…)`.
  *

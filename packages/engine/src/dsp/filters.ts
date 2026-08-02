@@ -3,7 +3,14 @@ import { clamp, flush } from './util'
 
 const TWO_PI = 2 * Math.PI
 
-export type SvfMode = 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'
+/** Every SVF response mode, as a VALUE — the editor needs to enumerate these
+ *  (completion, the mode chips, the response-curve widget's scanners) and a
+ *  bare type cannot be iterated, so three separate copies of this list grew in
+ *  the app. The type is derived from the list, so a new mode reaches all of
+ *  them by adding one entry here. */
+export const SVF_MODES = ['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'] as const
+
+export type SvfMode = (typeof SVF_MODES)[number]
 
 /** Simper TPT state-variable filter (12dB/oct). Inputs 'in', 'cutoff' (Hz,
  *  audio-rate, clamped per sample to [1, 0.49*sr]) and 'res' (0..1, clamped to

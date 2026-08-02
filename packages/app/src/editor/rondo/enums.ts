@@ -11,9 +11,15 @@
  * Everything here is PURE ((text) → spans, (text, pos) → edit) and unit
  * tested; the DOM layer (mark decorations + the tap handler) lives in
  * widgets.ts and follows the gesture rules there. */
-
-/** SVF response modes — filters.ts SvfMode (SvfKernel's output mix). */
-const SVF_MODES = ['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'] as const
+/** SVF response modes, mirroring the engine's SVF_MODES.
+ *
+ *  A DELIBERATE copy, not an oversight: importing the value from
+ *  @rondocode/engine drags the whole audio engine into the docs page's eager
+ *  graph, which eager-graph.test.ts exists to prevent (the docs page loads no
+ *  audio until the first play). So the editor mirrors the list and a test
+ *  asserts the two are equal — adding a mode engine-side fails loudly instead
+ *  of quietly never reaching the editor. */
+export const SVF_MODES = ['lp', 'hp', 'bp', 'notch', 'peak', 'allpass'] as const
 
 /** Built-in wavetable names — wavetable.ts WAVETABLE_TABLES. Doc wavedefs
  *  are appended at scan time (they are the doc's own truth, fresh while

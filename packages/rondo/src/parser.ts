@@ -142,14 +142,20 @@ function parsePositionals(c: Cursor, spec: BuiltinSpec): Expr[] {
 /** eq band groups: a type word starts a band, following numbers are its
  *  params in order (`hp 170` / `peak 300 -3 2` = freq gain q). Emitted flat
  *  with enum markers; codegen regroups them into band objects. */
-const EQ_BAND_TYPES = new Set(['hp', 'lp', 'peak', 'lowshelf', 'highshelf'])
+/** EQ band types the `eq` line accepts. A DELIBERATE second copy of the
+ *  engine's EQ_BAND_TYPES: this package models the DSL's surface as text
+ *  (see builtins.ts) and does not depend on the engine, so importing it would
+ *  couple the language to the audio implementation for five words. The copy is
+ *  pinned instead — a test asserts these two sets are equal, so adding a band
+ *  type engine-side fails loudly here rather than being silently rejected. */
+export const EQ_BAND_TYPES: ReadonlySet<string> = new Set(['hp', 'lp', 'peak', 'lowshelf', 'highshelf'])
 function parseEqBands(c: Cursor): Expr[] {
   const args: Expr[] = []
   while (canStartArg(c)) {
     const t = c.peek()!
     if (t.k === 'ident') {
       c.next()
-      if (!EQ_BAND_TYPES.has(t.v)) { c.err(`unknown eq band type \`${t.v}\` (hp, lp, peak, lowshelf, highshelf)`, t.pos); continue }
+      if (!EQ_BAND_TYPES.has(t.v)) { c.err(`unknown eq band type \`${t.v}\` (${[...EQ_BAND_TYPES].join(', ')})`, t.pos); continue }
       args.push({ t: 'enum', name: t.v, pos: t.pos })
     } else {
       if (args.length === 0) { c.err('eq bands start with a type word (`eq hp 170 highshelf 7000 4`)', t.pos); c.next(); continue }
@@ -716,6 +722,21 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
   return { block: { t: 'cps', value: v && v.k === 'num' ? v.v : fallback, unit, pos: header.toks[0]!.pos }, next: i + 1 }
 }
 
+/** EVERY keyword the top-level dispatch below accepts, in the order the
+ *  grammar introduces them. The editor needs this list to offer blocks in
+ *  completion and to colour them, and it kept its own copies: the completion
+ *  list was missing `curvedef` and `switch`, so two real blocks were never
+ *  suggested. The dispatch, this list and the "unknown block" message are now
+ *  one thing.
+ *
+ *  BODY-level words (`post`, `send`) are NOT here: they open nothing at the
+ *  top level. See words.ts, which adds them for highlighting. */
+export const BLOCK_KEYWORDS: readonly string[] = [
+  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig',
+  'bus', 'sidechain', 'master', 'macro', 'switch', 'curvedef', 'scaledef',
+  'wavedef', 'visual', 'js',
+]
+
 /** The top-level items that are ONE LINE rather than a block with an indented
  *  body. The formatter needs exactly this set to know a line belongs at column
  *  0 (see format.ts), and it lived there as a second copy until `timesig` was
@@ -1099,7 +1120,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       i = next
     }
-    else { errors.push({ message: `unknown block \`${head.v}\` (expected synth / play / beat / sing / section / song / cps / bpm / timesig / bus / sidechain / master / macro / switch / curvedef / scaledef / wavedef / visual / js)`, line: ln.line, col: ln.rawCol }); i++ }
+    else { errors.push({ message: `unknown block \`${head.v}\` (expected ${BLOCK_KEYWORDS.join(' / ')})`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
 }

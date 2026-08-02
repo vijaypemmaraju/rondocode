@@ -24,7 +24,7 @@
  * ------------------------------------------------------------------------- */
 
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
-import { BUILTINS } from '@rondocode/rondo'
+import { BUILTINS, BLOCK_KEYWORDS } from '@rondocode/rondo'
 import { ENUM_VALUE_TABLE } from './enums'
 
 /** Where the cursor is, as far as completion cares. */
@@ -35,10 +35,9 @@ export type RondoPos =
   | { kind: 'named'; builtin: string; arg: string }
   | { kind: 'args'; builtin: string; block: string }
 
-const BLOCK_HEADERS = [
-  'synth', 'play', 'beat', 'sing', 'bus', 'section', 'song', 'macro',
-  'cps', 'bpm', 'timesig', 'sidechain', 'master', 'scaledef', 'wavedef', 'visual', 'js',
-]
+/** Imported from the parser, not restated: this copy was missing `curvedef`
+ *  and `switch`, so two blocks the grammar accepts were never offered. */
+const BLOCK_HEADERS: readonly string[] = BLOCK_KEYWORDS
 
 /** Blocks whose body is a signal pipeline. `post` is nested inside a synth but
  *  takes the same vocabulary, so it reads as one. */

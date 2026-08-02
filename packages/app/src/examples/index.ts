@@ -31,7 +31,9 @@ const acid = synth(({ note, gate, param, adsr, saw, square, ladder }) => {
   // saw blended with a sub-octave square for body
   const osc = saw(note.freq).mix(square(note.freq.mul(0.5)), 0.3)
   // moog-style ladder filter; the squared envelope kicks the cutoff open
-  return ladder(osc, cutoff.mul(env.pow(2)), { res: 0.85 }).mul(env)
+  // output level: examples sit around -13 LUFS so switching between them
+  // does not jump the volume (docs/audio-health.md)
+  return ladder(osc, cutoff.mul(env.pow(2)), { res: 0.85 }).mul(env).mul(2.2)
 })
 
 // p(name, pattern) registers a pattern. n('...') is mini-notation scale
@@ -63,7 +65,7 @@ const bell = synth(({ note, gate, adsr, tri, sine, delay }) => {
   const partial = sine(note.freq.mul(3.01)).mul(0.25)
   const tone = tri(note.freq).mul(0.6).add(partial).mul(env)
   // short feedback delay smears each strike into a wash
-  return tone.add(delay(tone, 0.28, 0.45)).mul(0.6)
+  return tone.add(delay(tone, 0.28, 0.45)).mul(0.98)
 })
 
 // sparse pentatonic phrase: <> alternates one value per cycle, ~ is a rest
@@ -343,7 +345,7 @@ const pad = synth(({ note, gate, adsr, saw, svf, lfo }) => {
     .mix(saw(f.mul(1.004)), 0.5).mix(saw(f.mul(0.996)), 0.4)
     .mix(saw(f.mul(1.009)), 0.34).mix(saw(f.mul(0.991)), 0.34)
     .mix(saw(f.mul(1.015)), 0.28).mix(saw(f.mul(0.985)), 0.28)
-  return svf(wide, lfo(0.05).range(900, 2400), { res: 0.15 }).mul(env).mul(0.5)
+  return svf(wide, lfo(0.05).range(900, 2400), { res: 0.15 }).mul(env).mul(0.85)
 }, ({ input, chorus, reverb, exciter, width }) => {
   // post-chain: CHORUS (huge, wide, the engine runs it decorrelated L/R) →
   // EXCITER (a little top-end sheen so it glistens) → WIDTH → REVERB. This is
@@ -367,7 +369,7 @@ const arp = synth(({ note, gate, param, adsr, saw, svf }) => {
   const bright = param('bright', 4200, { min: 600, max: 9000, curve: 'log' })
   const env = adsr(gate, { a: 0.002, d: 0.13, s: 0.05, r: 0.14 })
   const osc = saw(note.freq).mix(saw(note.freq.mul(1.005)), 0.4)
-  return svf(osc, env.range(0.4, 1).mul(bright), { res: 0.4 }).mul(env).mul(0.52)
+  return svf(osc, env.range(0.4, 1).mul(bright), { res: 0.4 }).mul(env).mul(0.88)
 }, ({ input, reverb, transient, flanger }) => {
   // TRANSIENT sharpens each pluck's onset and dries its tail. It is level
   // independent, so a quiet note gets exactly the same snap as a loud one.
@@ -382,14 +384,14 @@ const arp = synth(({ note, gate, param, adsr, saw, svf }) => {
 const bass = synth(({ note, gate, adsr, sine, saw, onepole }) => {
   const env = adsr(gate, { a: 0.02, d: 0.3, s: 0.8, r: 0.2 })
   const tone = sine(note.freq).mix(saw(note.freq), 0.12)
-  return onepole(tone, 320).mul(env).mul(0.85).tanh().mul(0.42)
+  return onepole(tone, 320).mul(env).mul(0.85).tanh().mul(0.71)
 })
 
 // --- kick: soft, deep, a gentle pulse ---
 const kick = synth(({ gate, adsr, sine }) => {
   const pitch = adsr(gate, { a: 0.001, d: 0.1, s: 0, r: 0.06 })
   const amp = adsr(gate, { a: 0.001, d: 0.2, s: 0, r: 0.08 })
-  return sine(pitch.pow(3).range(45, 150)).mul(amp).tanh().mul(0.42)
+  return sine(pitch.pow(3).range(45, 150)).mul(amp).tanh().mul(0.71)
 })
 
 // chords as four voices (exact note names so the E7's G# rings true)
@@ -615,7 +617,7 @@ const chordsArp = `// chords & arps, name chords instead of hand-stacking notes.
 const keys = synth(({ note, gate, adsr, saw, svf, lfo }) => {
   const env = adsr(gate, { a: 0.008, d: 0.3, s: 0.5, r: 0.5 })
   const cut = lfo(0.1).range(900, 2600) // slow filter drift
-  return svf(saw(note.freq), cut, { res: 0.3 }).mul(env).mul(0.5)
+  return svf(saw(note.freq), cut, { res: 0.3 }).mul(env).mul(1.0)
 }, ({ input, reverb }) =>
   // a post chain (2nd synth arg) adds ONE shared reverb tail over all the
   // notes — the right way to space a synth, vs a reverb per voice
@@ -3011,7 +3013,7 @@ synth lead mono glide:.045
   ott depth:.8
   exciter freq:2400 amount:.7
   eq hp 180 peak 2800 2.5 1
-  * .95
+  * 2.7
   env = adsr .004 .12 .75 .2
   scan = env -> .12...85
   wide = supersaw detune:.55 mix:.9

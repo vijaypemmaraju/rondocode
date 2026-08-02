@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { bpmToCps } from '@rondocode/pattern'
 import { verifiedChanges } from '../src/editor/rondo/gesture'
 import type { WriteHost } from '../src/editor/rondo/gesture'
-import { bpmRange, docCps, docTimeSig, findTempoSite, showBpm, tempoEdit, writeNum } from '../src/editor/tempo'
+import {
+  bpmRange, docCps, docTimeSig, findTempoSite, findTimeSigSite, parseTimeSig,
+  showBpm, tempoEdit, timeSigEdit, writeNum,
+} from '../src/editor/tempo'
 
 /* The header BPM field's pure half: locating the document's tempo line, and
  * turning a typed BPM into a verified rewrite of that one number. The DOM half
@@ -160,6 +163,75 @@ describe('docTimeSig: the meter the document asks for', () => {
     const doc = 'timesig 3 4\ncps .5\n'
     const edit = tempoEdit(doc, 'rondo', 120)!
     expect(edit.insert).toBe('.6667')
+  })
+})
+
+describe('parseTimeSig: what someone types into the meter field', () => {
+  it('takes the spellings people actually write', () => {
+    expect(parseTimeSig('3/4')).toEqual({ num: 3, den: 4 })
+    expect(parseTimeSig(' 7 / 8 ')).toEqual({ num: 7, den: 8 })
+    expect(parseTimeSig('3 4')).toEqual({ num: 3, den: 4 })
+    expect(parseTimeSig('12/8')).toEqual({ num: 12, den: 8 })
+  })
+
+  it('refuses what is not a meter rather than guessing', () => {
+    // the field snaps back; guessing what 4/6 meant would be worse
+    for (const bad of ['4/6', '3/0', '0/4', '3.5/4', 'waltz', '', '3/4/4', '99/4']) {
+      expect(parseTimeSig(bad), bad).toBeNull()
+    }
+  })
+})
+
+describe('timeSigEdit: setting the meter writes the document', () => {
+  it('rewrites the numbers of an existing line, in either language', () => {
+    const rondo = timeSigEdit('timesig 4 4\nbpm 120\n', 'rondo', { num: 3, den: 4 })!
+    expect(rondo.expected).toBe('4 4')
+    expect(rondo.insert).toBe('3 4')
+    const js = timeSigEdit('setTimeSig(4, 4)\nsetBpm(120)\n', 'rondocode', { num: 7, den: 8 })!
+    expect(js.expected).toBe('4, 4')
+    expect(js.insert).toBe('7, 8')
+  })
+
+  it('inserts a line under the tempo line when there is none', () => {
+    const doc = 'synth lead\n  saw\n\nbpm 120\n'
+    const edit = timeSigEdit(doc, 'rondo', { num: 3, den: 4 })!
+    const out = doc.slice(0, edit.from) + edit.insert + doc.slice(edit.to)
+    expect(out).toBe('synth lead\n  saw\n\nbpm 120\ntimesig 3 4\n')
+  })
+
+  it('appends when the document has no tempo line either, with or without a final newline', () => {
+    const withNl = 'p(1)\n'
+    const a = timeSigEdit(withNl, 'rondocode', { num: 3, den: 4 })!
+    expect(withNl.slice(0, a.from) + a.insert).toBe('p(1)\nsetTimeSig(3, 4)\n')
+    const noNl = 'p(1)'
+    const b = timeSigEdit(noNl, 'rondocode', { num: 3, den: 4 })!
+    expect(noNl.slice(0, b.from) + b.insert).toBe('p(1)\nsetTimeSig(3, 4)\n')
+  })
+
+  it('writes nothing when the document already says exactly that', () => {
+    expect(timeSigEdit('timesig 3 4\n', 'rondo', { num: 3, den: 4 })).toBeNull()
+  })
+
+  it('does not write "4/4, explicitly" into a document that never mentioned a meter', () => {
+    // the change would change nothing; adding a line to someone's file for it
+    // is noise
+    expect(timeSigEdit('bpm 120\n', 'rondo', { num: 4, den: 4 })).toBeNull()
+    // …but an EXISTING line is rewritten back to 4/4 on request
+    expect(timeSigEdit('timesig 3 4\n', 'rondo', { num: 4, den: 4 })!.insert).toBe('4 4')
+  })
+
+  it('finds the LAST meter line, like the tempo line', () => {
+    const site = findTimeSigSite('timesig 3 4\ntimesig 7 8\n', 'rondo')!
+    expect(site.text).toBe('7 8')
+  })
+
+  it('the result is a program that means what the field said', () => {
+    // end to end: type 3/4 into a 4/4 project and the tempo really changes
+    const doc = 'bpm 120\n'
+    const edit = timeSigEdit(doc, 'rondo', { num: 3, den: 4 })!
+    const out = doc.slice(0, edit.from) + edit.insert + doc.slice(edit.to)
+    expect(docTimeSig(out, 'rondo')).toEqual({ num: 3, den: 4 })
+    expect(docCps(out, 'rondo')).toBeCloseTo(2 / 3, 10)
   })
 })
 

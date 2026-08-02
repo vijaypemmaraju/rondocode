@@ -120,7 +120,8 @@ body {
  * 44px target, and it keeps the button chrome so it reads as one cluster. */
 .tempo {
   display: inline-grid;
-  grid-template-columns: auto auto;
+  /* bpm value, its unit, then the meter — the cps readout spans all three */
+  grid-template-columns: auto auto auto;
   align-items: baseline;
   column-gap: 3px;
   min-height: var(--h-ctrl);
@@ -150,6 +151,19 @@ body {
 }
 .tempo:focus-within {
   border-color: var(--c-accent);
+}
+/* The meter reads as secondary to the tempo: same field behaviour, quieter
+ * weight, and its own left margin so `120 bpm` and `3/4` do not run together.
+ * 5 chars is the widest it can be ('12/16'). */
+.tempo-sig {
+  width: 5ch;
+  margin-left: var(--sp-2);
+  color: var(--c-dim);
+  font-weight: 500;
+  text-align: left;
+}
+.tempo-sig:focus {
+  color: var(--c-accent);
 }
 .tempo-unit {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;

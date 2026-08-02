@@ -3208,6 +3208,71 @@ play bass
 cps .46
 `
 
+const waltzRondo = `# A WALTZ, IN 3/4. A cycle is one BAR, and timesig is how long a bar is:
+# three quarter notes instead of four. Every notation line still fills one
+# cycle, so a line of three steps is one step per BEAT, and the
+# oom-pah-pah falls where it should. Change the line to timesig 4 4 and the
+# same notes turn into something that limps.
+#
+# bpm counts quarter notes (the MIDI convention), so 150 bpm here is a bar
+# every 1.2 seconds. The header shows both, and the meter next to it.
+
+timesig 3 4
+bpm 150
+
+# the oom: a round upright-ish bass on beat one
+synth bass mono glide:.02
+  sine note
+  + saw note * .5
+  svf 420 res:.15
+  * env
+  * .9
+  tanh
+  env = adsr .01 .35 .25 .18
+
+# the pah-pah: short chords on two and three
+synth comp unison:2 detune:6
+  saw note
+  + saw note * 1.004
+  svf cut res:.2
+  * env
+  * .3
+  env = adsr .012 .16 0 .12
+  cut = 1800 + env * 1200
+
+# the tune on top
+synth lead
+  tri note
+  + saw note * .35
+  svf 3400 res:.18
+  * env
+  * .42
+  env = adsr .01 .22 .5 .2
+  post
+    delay .4 .28 sync:1
+    reverb room:.72 damp:.35 mix:.22
+
+play bass
+  0 ~ ~
+  scale: d-min
+  sub 12
+  dur: .7
+  gain: .95
+
+play comp
+  ~ <Dm Gm A7 Dm> <Dm Gm A7 Dm>
+  dur: .28
+  gain: .55
+
+play lead
+  <5 4> <7 5> <9 7> ~ <4 2> <5 4>
+  scale: d-min
+  dur: .5
+  gain: .6
+
+master threshold:-8 ratio:2 attack:25 release:150 makeup:1
+`
+
 /** Compile a rondo example to its rondocode twin at module load — ONE source
  *  of truth, and a compile failure is loud in every test run. */
 const fromRondo = (src: string): string => {
@@ -3249,6 +3314,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
   { name: 'macros', code: fromRondo(macrosRondo), rondo: macrosRondo },
+  { name: 'waltz', code: fromRondo(waltzRondo), rondo: waltzRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

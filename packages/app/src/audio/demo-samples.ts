@@ -155,3 +155,22 @@ export function makeBreak(sampleRate: number): Float32Array {
   if (peak > 0) for (let i = 0; i < n; i++) out[i]! *= 0.85 / peak
   return out
 }
+
+/** Every built-in sample, as the PCM map the render paths take.
+ *
+ *  ONE list. The editor and the docs player each enumerated these four by
+ *  hand, and the headless renderers had none of them at all — which is why
+ *  `pnpm tsx packages/server/scripts/render-example.ts granular` wrote a file
+ *  of digital zero: the bank the browser builds at startup simply did not
+ *  exist offline. They are pure functions of the sample rate, so there is
+ *  nothing stopping a CLI from having exactly what the app has.
+ *
+ *  Keyed by the name user code plays: `sample(gate, 'break')`. */
+export function builtInSamples(sampleRate: number): Record<string, { data: Float32Array; sampleRate: number }> {
+  return {
+    vox: { data: makeVox(sampleRate), sampleRate },
+    riser: { data: makeRiser(sampleRate), sampleRate },
+    pad: { data: makePad(sampleRate), sampleRate },
+    break: { data: makeBreak(sampleRate), sampleRate },
+  }
+}

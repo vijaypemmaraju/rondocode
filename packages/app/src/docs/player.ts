@@ -1,7 +1,7 @@
 import { AudioSession } from '../audio/AudioSession'
 import { Session } from '../session'
 import { synthsUseMic } from '../session/evalCode'
-import { makeVox, makeRiser, makePad, makeBreak } from '../audio/demo-samples'
+import { builtInSamples } from '../audio/demo-samples'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import type { SchedulerEvent } from '@rondocode/pattern'
@@ -99,10 +99,9 @@ export class PreviewPlayer {
         this.audio = audio
         // load the built-in demo samples so sample()/granular() snippets are audible here too
         try {
-          audio.loadSamplePcm('vox', makeVox(audio.sampleRate), audio.sampleRate, true)
-          audio.loadSamplePcm('riser', makeRiser(audio.sampleRate), audio.sampleRate, true)
-          audio.loadSamplePcm('pad', makePad(audio.sampleRate), audio.sampleRate, true)
-          audio.loadSamplePcm('break', makeBreak(audio.sampleRate), audio.sampleRate, true)
+          for (const [name, smp] of Object.entries(builtInSamples(audio.sampleRate))) {
+            audio.loadSamplePcm(name, smp.data, smp.sampleRate, true)
+          }
         } catch {
           /* samples optional — snippets that don't use them still play */
         }

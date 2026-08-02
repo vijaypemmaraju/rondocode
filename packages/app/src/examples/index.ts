@@ -561,7 +561,7 @@ const cloud = synth(({ note, gate, adsr, granular, lfo, reverb, chorus }) => {
     pos: lfo(0.03).range(0.2, 0.6),    // gentle drift
     size: 0.22, density: 70, spray: 0.004,   // big + dense + tight = smooth
   })
-  const w = chorus(g.mul(env).mul(0.5), { rate: 0.3, depth: 0.005, mix: 0.4 })
+  const w = chorus(g.mul(env).mul(1.25), { rate: 0.3, depth: 0.005, mix: 0.4 })
   return w.mix(reverb(w, { roomSize: 0.94, damp: 0.35 }), 0.5)
 }, undefined, { voices: 12 })
 
@@ -1529,7 +1529,7 @@ const granularRondo = `# granular done dreamy: big smooth
 synth cloud voices:12
   granular pad root:57 pos:drift size:.22 density:70 spray:.004
   * env
-  * .5
+  * 1.25
   chorus rate:.3 depth:.005 mix:.4
   reverb room:.94 damp:.35 mix:.5
   drift = lfo .03 -> .2..0.6
@@ -3044,7 +3044,7 @@ const chopRondo = `# CHOP. slices:8 cuts the built-in
 synth chop
   sample break slices:8
   * a
-  * .95
+  * 1.28
   a = adsr .001 .22 1 .02
 
 # the back half of the same break,
@@ -3053,14 +3053,14 @@ synth tail
   sample break start:.5 reverse:1 loop:1
   svf 2400
   * a
-  * .3
+  * .4
   a = adsr .02 .5 .7 .4
 
 synth sub
   sine
   * a
   tanh
-  * .35
+  * .47
   a = adsr .004 .2 .55 .12
 
 # eight chops, reordered

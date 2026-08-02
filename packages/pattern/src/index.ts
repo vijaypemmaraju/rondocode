@@ -51,10 +51,12 @@ export {
   midiCps,
   bpmToCps,
   cpsToBpm,
+  quartersPerBar,
+  DEFAULT_TIME_SIG,
   midiNotesToPattern,
   midiNotesToVoices,
 } from './midi'
-export type { MidiFile, MidiTrack, MidiNote, MiniOptions, MiniResult } from './midi'
+export type { MidiFile, MidiTrack, MidiNote, MiniOptions, MiniResult, TimeSig } from './midi'
 export { notesToSmf, velocityToMidi, bendValue, trackChannel } from './midiExport'
 export type { ExportNote, SmfOptions } from './midiExport'
 

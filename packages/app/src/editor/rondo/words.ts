@@ -9,7 +9,7 @@
  * ------------------------------------------------------------------------- */
 
 /** Block keywords — the words that open a top-level block. */
-export const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'bpm', 'post', 'bus', 'send', 'sidechain', 'master', 'macro', 'curvedef', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song', 'switch'])
+export const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'bpm', 'timesig', 'post', 'bus', 'send', 'sidechain', 'master', 'macro', 'curvedef', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song', 'switch'])
 
 /** Pattern modifiers / combinators on play lines. Kept in step with the
  *  OPTIONS table by a test: anything documented has to be highlighted. */

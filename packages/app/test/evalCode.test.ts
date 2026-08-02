@@ -244,6 +244,50 @@ describe('evalCode: setBpm staging', () => {
   })
 })
 
+describe('evalCode: setTimeSig staging', () => {
+  it('scales bpm: a 3/4 bar is three quarters, so 120 bpm is 0.667 cps', () => {
+    expect(run('setTimeSig(3, 4)\nsetBpm(120)').cps).toBeCloseTo(2 / 3, 10)
+    expect(run('setTimeSig(7, 8)\nsetBpm(120)').cps).toBeCloseTo(0.5714, 4)
+    // 6/8 is three quarters, same as 3/4: the difference is how you count it
+    expect(run('setTimeSig(6, 8)\nsetBpm(120)').cps).toBeCloseTo(2 / 3, 10)
+  })
+
+  it('applies whichever ORDER the two lines are written in', () => {
+    // the reason the tempo resolves at the end of the eval rather than in
+    // setBpm: otherwise these two would mean different tempos
+    const first = run('setTimeSig(3, 4)\nsetBpm(120)').cps
+    const second = run('setBpm(120)\nsetTimeSig(3, 4)').cps
+    expect(first).toBeCloseTo(2 / 3, 10)
+    expect(second).toBe(first)
+  })
+
+  it('leaves an explicit cps alone: that number is already cycles per second', () => {
+    expect(run('setTimeSig(3, 4)\nsetCps(0.25)').cps).toBe(0.25)
+  })
+
+  it('reports the meter on EVERY successful eval, so deleting the line means 4/4', () => {
+    expect(run('setTimeSig(3, 4)').timeSig).toEqual({ num: 3, den: 4 })
+    // no line at all is not "unknown", it is four four
+    expect(run('const z = 1').timeSig).toEqual({ num: 4, den: 4 })
+  })
+
+  it('rejects a meter that is not one: the unit must be a power of two', () => {
+    expect(run('setTimeSig(4, 6)').ok).toBe(false)
+    expect(run('setTimeSig(3, 0)').ok).toBe(false)
+    expect(run('setTimeSig(0, 4)').ok).toBe(false)
+    expect(run('setTimeSig(3.5, 4)').ok).toBe(false)
+    expect(run(`setTimeSig('3', 4)`).ok).toBe(false)
+    // …and 5/4, 7/8, 12/8 are ordinary music
+    for (const [n, d] of [[5, 4], [7, 8], [12, 8], [2, 2], [9, 16]]) {
+      expect(run(`setTimeSig(${n}, ${d})`).ok, `${n}/${d}`).toBe(true)
+    }
+  })
+
+  it('still clamps the resolved tempo to the engine window', () => {
+    expect(run('setTimeSig(3, 4)\nsetBpm(9999)').cps).toBe(4)
+  })
+})
+
 describe('evalCode: sidechain staging', () => {
   it('stages a config, converting release seconds to releaseMs', () => {
     const r = runD("sidechain('kick', { depth: 0.7 })")

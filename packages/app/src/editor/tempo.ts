@@ -1,4 +1,5 @@
-import { bpmToCps, cpsToBpm } from '@rondocode/pattern'
+import { bpmToCps, cpsToBpm, quartersPerBar, DEFAULT_TIME_SIG } from '@rondocode/pattern'
+import type { TimeSig } from '@rondocode/pattern'
 import { verifiedChanges } from './rondo/gesture'
 import type { WriteHost } from './rondo/gesture'
 import { tooltip } from '../ui/tooltip'
@@ -7,11 +8,16 @@ import type { EditorLang } from './editor'
 /* ------------------------------------------------------------------------- *
  * The header tempo readout: BPM as the face, cps as the truth underneath.
  *
- * The engine only knows cycles per second, and one cycle is one BAR of 4/4
- * everywhere in this codebase (mini-notation, the scheduler, MIDI import and
- * export) — so a BPM is exactly `cps * 60 * 4`, the conversion that lives in
+ * The engine only knows cycles per second, and one cycle is one BAR everywhere
+ * in this codebase (mini-notation, the scheduler, MIDI import and export) — so
+ * a BPM is `cps * 60 * quartersPerBar`, the conversion that lives in
  * @rondocode/pattern and is shared with the MIDI helpers. Nothing here does
  * that arithmetic itself.
+ *
+ * The bar's length comes from the document's own `timesig` line, not from the
+ * session: this readout has to describe what the code WILL do when it runs,
+ * exactly as docCps does for the tempo. In 3/4 a bar is three quarters, so the
+ * same 120 bpm is 0.667 cps rather than 0.5.
  *
  * Editing rule: THE DOCUMENT IS THE SOURCE OF TRUTH. Typing a BPM rewrites the
  * number in the doc's tempo line, in the unit that line already uses (a
@@ -33,6 +39,34 @@ export interface TempoSite {
   to: number
   /** the literal's exact text — what a write must still find there. */
   text: string
+}
+
+/** rondo: a top-level `timesig 3 4` line. */
+const RONDO_SIG_RE = /^timesig[ \t]+(\d+)[ \t]+(\d+)\b/
+/** rondocode (JS): a `setTimeSig(3, 4)` call with two literals. */
+const JS_SIG_RE = /\bsetTimeSig\([ \t]*(\d+)[ \t]*,[ \t]*(\d+)[ \t]*\)/g
+
+/** The meter a document asks for, or 4/4 when it asks for none. Last one wins,
+ *  like the tempo line, because both languages stage in source order. A
+ *  denominator that is not a power of two is IGNORED here rather than
+ *  reported: this is a readout, and the evaluator is what refuses it with a
+ *  positioned error. */
+export function docTimeSig(doc: string, lang: EditorLang): TimeSig {
+  let found: TimeSig = DEFAULT_TIME_SIG
+  for (const raw of doc.split('\n')) {
+    const line = stripComment(raw, lang)
+    if (lang === 'rondo') {
+      const m = RONDO_SIG_RE.exec(line)
+      if (m) found = { num: Number(m[1]), den: Number(m[2]) }
+    } else {
+      JS_SIG_RE.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = JS_SIG_RE.exec(line)) !== null) found = { num: Number(m[1]), den: Number(m[2]) }
+    }
+  }
+  const ok = Number.isInteger(found.num) && found.num >= 1 && Number.isInteger(found.den) &&
+    found.den >= 1 && (found.den & (found.den - 1)) === 0
+  return ok ? found : DEFAULT_TIME_SIG
 }
 
 /** rondo: a top-level `cps .5333` / `bpm 128` line (indent 0, per the grammar). */
@@ -86,12 +120,16 @@ function stripComment(line: string, lang: EditorLang): string {
 export function docCps(doc: string, lang: EditorLang): number | null {
   const site = findTempoSite(doc, lang)
   if (site === null || !Number.isFinite(site.value)) return null
-  return site.unit === 'bpm' ? bpmToCps(site.value) : site.value
+  return site.unit === 'bpm' ? bpmToCps(site.value, quartersPerBar(docTimeSig(doc, lang))) : site.value
 }
 
-/** The cps window the engine accepts (clampCps in evalCode) as BPM. */
-export const MIN_BPM = cpsToBpm(0.05)
-export const MAX_BPM = cpsToBpm(4)
+/** The cps window the engine accepts (clampCps in evalCode), as BPM. Meter
+ *  dependent: a 3/4 bar is three quarters, so the same cps ceiling is fewer
+ *  beats per minute. */
+export const bpmRange = (timeSig: TimeSig = DEFAULT_TIME_SIG): { min: number; max: number } => ({
+  min: cpsToBpm(0.05, quartersPerBar(timeSig)),
+  max: cpsToBpm(4, quartersPerBar(timeSig)),
+})
 
 /** Trim a number for DISPLAY: one decimal, and only when it earns its place
  *  (128, not 128.0; 127.5 keeps its half). */
@@ -121,7 +159,7 @@ export function tempoEdit(
 ): { from: number; to: number; expected: string; insert: string } | null {
   const site = findTempoSite(doc, lang)
   if (site === null) return null
-  const value = site.unit === 'bpm' ? bpm : bpmToCps(bpm)
+  const value = site.unit === 'bpm' ? bpm : bpmToCps(bpm, quartersPerBar(docTimeSig(doc, lang)))
   return { from: site.from, to: site.to, expected: site.text, insert: writeNum(value, site.unit, site.text) }
 }
 
@@ -164,18 +202,25 @@ export function mountTempo(opts: TempoOpts): TempoHandle {
   root.append(field, unit, sub)
 
   const currentCps = (): number => docCps(opts.view.state.doc.toString(), opts.getLang()) ?? opts.getSessionCps()
+  const currentSig = (): TimeSig => docTimeSig(opts.view.state.doc.toString(), opts.getLang())
+  const currentBpm = (): number => cpsToBpm(currentCps(), quartersPerBar(currentSig()))
 
   const refresh = (): void => {
     const cps = currentCps()
+    const sig = currentSig()
     const inDoc = docCps(opts.view.state.doc.toString(), opts.getLang()) !== null
     // never fight the hands that are typing in the field
-    if (document.activeElement !== field) field.value = showBpm(cpsToBpm(cps))
+    if (document.activeElement !== field) field.value = showBpm(cpsToBpm(cps, quartersPerBar(sig)))
     sub.textContent = inDoc ? `${trimCps(cps)} cps` : `${trimCps(cps)} cps, this run only`
+    // The meter is named only when it is not 4/4: every project would
+    // otherwise carry a "in 4/4" that says nothing.
+    const meter = sig.num === 4 && sig.den === 4 ? '' : ` in ${sig.num}/${sig.den}`
     tooltip(
       root,
-      inDoc
-        ? 'tempo in bpm: 4 beats to the bar, one bar per cycle. Typing rewrites the tempo line in your code.'
-        : 'tempo in bpm: 4 beats to the bar, one bar per cycle. Your code sets no tempo, so this applies to the current run only. Add a tempo line to keep it.',
+      `tempo in bpm, counted in quarter notes; one bar${meter} per cycle. ` +
+      (inDoc
+        ? 'Typing rewrites the tempo line in your code.'
+        : 'Your code sets no tempo, so this applies to the current run only. Add a tempo line to keep it.'),
     )
   }
 
@@ -185,11 +230,13 @@ export function mountTempo(opts: TempoOpts): TempoHandle {
       refresh() // unreadable input: snap back to what is actually playing
       return
     }
-    const bpm = Math.min(MAX_BPM, Math.max(MIN_BPM, typed))
     const doc = opts.view.state.doc.toString()
+    const sig = docTimeSig(doc, opts.getLang())
+    const { min, max } = bpmRange(sig)
+    const bpm = Math.min(max, Math.max(min, typed))
     const edit = tempoEdit(doc, opts.getLang(), bpm)
     if (edit === null) {
-      opts.setSessionCps(bpmToCps(bpm))
+      opts.setSessionCps(bpmToCps(bpm, quartersPerBar(sig)))
       refresh()
       return
     }
@@ -204,7 +251,7 @@ export function mountTempo(opts: TempoOpts): TempoHandle {
       field.blur() // commits, and hands the keyboard back on a phone
     } else if (e.key === 'Escape') {
       e.preventDefault()
-      field.value = showBpm(cpsToBpm(currentCps()))
+      field.value = showBpm(currentBpm())
       field.blur()
     }
   })

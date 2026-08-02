@@ -399,8 +399,20 @@ describe('decompile: the tempo unit round-trips', () => {
     expect(decompile('setCps(0.5333)\n')).toContain('cps 0.5333')
   })
 
+  it('setTimeSig decompiles to `timesig`, keeping the line order', () => {
+    expect(decompile('setTimeSig(3, 4)\n')).toContain('timesig 3 4')
+    const both = decompile('setTimeSig(3, 4)\nsetBpm(120)\n')
+    expect(both.indexOf('timesig 3 4')).toBeLessThan(both.indexOf('bpm 120'))
+  })
+
+  it('a computed meter stays a js block rather than becoming a wrong line', () => {
+    // there is no rondo spelling for setTimeSig(n, 4): naming a number it
+    // cannot write down would be a lie about what the program does
+    expect(decompile('const n = 3\nsetTimeSig(n, 4)\n')).toContain('js')
+  })
+
   it('rondo → JS → rondo keeps the spelling the author typed', () => {
-    for (const src of ['bpm 128\n', 'cps 0.5333\n']) {
+    for (const src of ['bpm 128\n', 'cps 0.5333\n', 'timesig 3 4\n', 'timesig 7 8\n']) {
       const c = compile(src)
       expect(c.ok).toBe(true)
       if (!c.ok) return

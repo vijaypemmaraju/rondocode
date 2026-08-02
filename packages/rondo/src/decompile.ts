@@ -1609,6 +1609,13 @@ function decompileStaging(stmt: Node): string | null {
     const v = numValue(args[0]!)
     return v !== undefined ? `${name === 'setBpm' ? 'bpm' : 'cps'} ${num(v)}` : null
   }
+  // `setTimeSig(3, 4)` → `timesig 3 4`. Non-literal arguments stay a js block:
+  // there is no rondo spelling for a computed meter.
+  if (name === 'setTimeSig' && args.length === 2) {
+    const a = numValue(args[0]!)
+    const b = numValue(args[1]!)
+    return a !== undefined && b !== undefined ? `timesig ${num(a)} ${num(b)}` : null
+  }
   if (name === 'defineScale' && args.length === 2) {
     // `scaledef NAME [cents|ratios] v v … [period:p]` — a word name and at
     // least two values; anything else stays a js block

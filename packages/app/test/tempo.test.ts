@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { bpmToCps } from '@rondocode/pattern'
 import { verifiedChanges } from '../src/editor/rondo/gesture'
 import type { WriteHost } from '../src/editor/rondo/gesture'
-import { MAX_BPM, MIN_BPM, docCps, findTempoSite, showBpm, tempoEdit, writeNum } from '../src/editor/tempo'
+import { bpmRange, docCps, docTimeSig, findTempoSite, showBpm, tempoEdit, writeNum } from '../src/editor/tempo'
 
 /* The header BPM field's pure half: locating the document's tempo line, and
  * turning a typed BPM into a verified rewrite of that one number. The DOM half
@@ -128,10 +128,52 @@ describe('tempoEdit: typing a BPM rewrites the doc', () => {
   })
 })
 
+describe('docTimeSig: the meter the document asks for', () => {
+  it('reads it in both languages, defaulting to 4/4', () => {
+    expect(docTimeSig('setTimeSig(3, 4)\n', 'rondocode')).toEqual({ num: 3, den: 4 })
+    expect(docTimeSig('timesig 3 4\n', 'rondo')).toEqual({ num: 3, den: 4 })
+    expect(docTimeSig('const z = 1\n', 'rondocode')).toEqual({ num: 4, den: 4 })
+    expect(docTimeSig('', 'rondo')).toEqual({ num: 4, den: 4 })
+  })
+
+  it('takes the LAST one, like the tempo line, and ignores comments', () => {
+    expect(docTimeSig('setTimeSig(3, 4)\nsetTimeSig(7, 8)\n', 'rondocode')).toEqual({ num: 7, den: 8 })
+    expect(docTimeSig('// setTimeSig(3, 4)\n', 'rondocode')).toEqual({ num: 4, den: 4 })
+    expect(docTimeSig('# timesig 3 4\n', 'rondo')).toEqual({ num: 4, den: 4 })
+  })
+
+  it('falls back to 4/4 for a meter that is not one, rather than showing nonsense', () => {
+    // the evaluator is what REPORTS this, with a caret; a readout just must
+    // not divide the tempo by 6 in the meantime
+    expect(docTimeSig('setTimeSig(4, 6)\n', 'rondocode')).toEqual({ num: 4, den: 4 })
+  })
+
+  it('is what the header BPM is computed from: same cps, different bpm', () => {
+    // a 3/4 bar is three quarters, so 0.667 cps reads as 120 bpm there and
+    // 160 bpm in 4/4 — the number in the field has to follow the meter
+    expect(docCps('timesig 3 4\nbpm 120\n', 'rondo')).toBeCloseTo(2 / 3, 10)
+    expect(docCps('bpm 120\n', 'rondo')).toBeCloseTo(0.5, 10)
+  })
+
+  it('converts a typed BPM into a cps LINE using the meter', () => {
+    // typing 120 into the header of a 3/4 project must write 0.6667, not 0.5
+    const doc = 'timesig 3 4\ncps .5\n'
+    const edit = tempoEdit(doc, 'rondo', 120)!
+    expect(edit.insert).toBe('.6667')
+  })
+})
+
 describe('the BPM window matches the engine cps clamp', () => {
-  it('is [12, 960] bpm, the [0.05, 4] cps window at 4 beats to the bar', () => {
-    expect(MIN_BPM).toBeCloseTo(12, 10)
-    expect(MAX_BPM).toBeCloseTo(960, 10)
+  it('is [12, 960] bpm, the [0.05, 4] cps window at four quarters to the bar', () => {
+    expect(bpmRange().min).toBeCloseTo(12, 10)
+    expect(bpmRange().max).toBeCloseTo(960, 10)
+  })
+
+  it('narrows with the bar: 3/4 holds three quarters, so the same cps is fewer bpm', () => {
+    // the ceiling is a cps ceiling; a shorter bar reaches it at a lower bpm
+    expect(bpmRange({ num: 3, den: 4 }).max).toBeCloseTo(720, 10)
+    expect(bpmRange({ num: 6, den: 8 }).max).toBeCloseTo(720, 10) // 6/8 is three quarters too
+    expect(bpmRange({ num: 7, den: 8 }).max).toBeCloseTo(840, 10)
   })
 })
 
@@ -144,7 +186,7 @@ describe('header chrome fits its content', () => {
     // showBpm rounds to one decimal, so the widest string is 5 chars ('127.9',
     // '959.9'). At 4.5ch the tempo you were playing was clipped against 'bpm'.
     const widest = Math.max(
-      ...[MIN_BPM, MAX_BPM, bpmToCps(127.9) * 240, 127.94, 959.94].map((b) => showBpm(b).length),
+      ...[bpmRange().min, bpmRange().max, bpmToCps(127.9) * 240, 127.94, 959.94].map((b) => showBpm(b).length),
     )
     expect(widest).toBeLessThanOrEqual(5)
     const w = /width:\s*([\d.]+)ch/.exec(rule('.tempo-input'))?.[1]

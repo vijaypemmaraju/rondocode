@@ -6,6 +6,7 @@ import {
   velocityToMidi,
   bendValue,
   trackChannel,
+  ticksPerBar,
 } from '../src/index'
 import type { ExportNote, MidiFile } from '../src/index'
 
@@ -150,6 +151,48 @@ describe('notesToSmf: round-trip through the repo parser', () => {
     expect(() => notesToSmf([note(0, Infinity, 60, 1, 'a')])).toThrow(TypeError)
     expect(() => notesToSmf([], { cps: 0 })).toThrow(TypeError)
     expect(() => notesToSmf([], { ticksPerQuarter: 40000 })).toThrow(TypeError)
+  })
+})
+
+describe('the meter reaches the file', () => {
+  const notes = [note(0, 1, 60, 0.8, 'lead'), note(1, 1, 62, 0.8, 'lead')]
+
+  it('writes the time signature it was given, not 4/4', () => {
+    const f = parseMidi(notesToSmf(notes, { cps: 2 / 3, timeSig: { num: 3, den: 4 } }))
+    expect(f.timeSig).toEqual({ num: 3, den: 4 })
+    // and the tempo still reads back as the bpm that produced it: a 3/4 bar at
+    // 0.667 cps is 120 bpm, not the 160 a 4/4 reading would claim
+    expect(Math.round(f.tempoBpm)).toBe(120)
+    expect(midiCps(f.tempoBpm, f.timeSig)).toBeCloseTo(2 / 3, 6)
+  })
+
+  it('puts the SECOND bar one bar in, not four quarters in', () => {
+    // the failure this catches: a 3/4 project whose notes land a quarter note
+    // later every bar, so bar 4 is a whole beat adrift in the DAW
+    const f = parseMidi(notesToSmf(notes, { cps: 2 / 3, timeSig: { num: 3, den: 4 } }))
+    const lead = f.tracks.find((t) => t.name === 'lead')!
+    expect(lead.notes[1]!.startTick).toBe(ticksPerBar(TPQ, { num: 3, den: 4 }))
+    expect(lead.notes[1]!.startTick).toBe(TPQ * 3)
+  })
+
+  it('defaults to 4/4, so every existing export is byte-identical', () => {
+    const withOut = notesToSmf(notes, { cps: 0.5 })
+    const withFourFour = notesToSmf(notes, { cps: 0.5, timeSig: { num: 4, den: 4 } })
+    expect([...withFourFour]).toEqual([...withOut])
+  })
+
+  it('refuses a denominator SMF cannot store, instead of writing a wrong file', () => {
+    // the meta event stores log2(den), so the denominator can only be a power
+    // of two — 4/6 would silently become something else
+    expect(() => notesToSmf(notes, { cps: 0.5, timeSig: { num: 4, den: 6 } })).toThrow(/power of two/)
+    expect(() => notesToSmf(notes, { cps: 0.5, timeSig: { num: 0, den: 4 } })).toThrow(/numerator/)
+  })
+
+  it('round-trips every meter a project can be in', () => {
+    for (const sig of [{ num: 3, den: 4 }, { num: 5, den: 4 }, { num: 7, den: 8 }, { num: 6, den: 8 }, { num: 12, den: 8 }]) {
+      const f = parseMidi(notesToSmf(notes, { cps: 0.5, timeSig: sig }))
+      expect(f.timeSig, `${sig.num}/${sig.den}`).toEqual(sig)
+    }
   })
 })
 

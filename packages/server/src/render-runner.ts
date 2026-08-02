@@ -32,6 +32,7 @@ import type { BusDef, Diagnostic, SendSpec, SingRequest } from '../../app/src/se
 import { baseScope } from '../../app/src/session/scope'
 import { RESERVED_PARAM_NAMES } from '../../engine/src/macro'
 import { Scheduler } from '../../pattern/src/index'
+import type { TimeSig } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
 import { BLOCK, DEFAULT_CPS, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
 import type { RenderEvent, SynthDef } from '../../engine/src/index'
@@ -65,6 +66,9 @@ export type StageResult =
       sends: SendSpec[]
       /** Present iff the code called setCps (already clamped 0.05..4). */
       cps?: number
+      /** The project's meter (4/4 when unwritten). A cycle is one BAR, so this
+       *  is what a MIDI export needs to put its bar lines in the right place. */
+      timeSig?: TimeSig
       /** Present iff the code called sidechain() — releaseMs, not seconds.
        *  `amounts` are per-synth duck responses (0..1); any synth not listed
        *  defaults to 1 (full duck). */
@@ -97,6 +101,7 @@ export function stageCode(source: string): StageResult {
     warnings: r.diagnostics,
   }
   if (r.cps !== undefined) out.cps = r.cps
+  if (r.timeSig !== undefined) out.timeSig = r.timeSig
   if (r.sidechain !== undefined) out.sidechain = r.sidechain
   if (r.masterComp !== undefined) out.masterComp = r.masterComp
   return out

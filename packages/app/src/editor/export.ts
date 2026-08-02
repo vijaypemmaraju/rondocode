@@ -116,15 +116,20 @@ export function measureBounce(
  *  Same source of truth as the WAV bounce: the staged patterns run through
  *  the scheduler (stageCode → capturePatternNotes), so what you hear is what
  *  exports. One track per synth (staged definition order), .gain as velocity,
- *  one cycle = one bar of 4/4 at the staged tempo; sing()/sample channels
- *  export their trigger notes. */
+ *  one cycle = one bar at the staged tempo AND the staged meter (so a 3/4
+ *  project's bar lines land where the code says, not every four quarters);
+ *  sing()/sample channels export their trigger notes. */
 export function bounceMidi(code: string, cycles: number): Uint8Array | { error: string } {
   const staged = stageCode(code)
   if (!staged.ok) return { error: staged.diagnostics.find((d) => d.severity === 'error')?.message ?? 'eval failed' }
   const cps = staged.cps ?? 0.5
   const notes = capturePatternNotes(staged.patterns, { cycles, cps })
   if (notes.length === 0) return { error: 'no notes to export' }
-  return notesToSmf(notes, { cps, trackOrder: [...staged.synths.keys()] })
+  return notesToSmf(notes, {
+    cps,
+    trackOrder: [...staged.synths.keys()],
+    ...(staged.timeSig !== undefined ? { timeSig: staged.timeSig } : {}),
+  })
 }
 
 /** The active project's name from the header label (the library owns it),

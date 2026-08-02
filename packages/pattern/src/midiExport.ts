@@ -1,8 +1,9 @@
 /* Deterministic Standard-MIDI-File (SMF) EXPORT — the exact inverse of the
  * parser in midi.ts, sharing its conventions:
- *   - 1 cycle == 1 bar of 4/4, so tempo derives from cps as the inverse of
- *     midiCps: bpm = cps * 60 * 4 (four quarters per bar).
- *   - format 1: a tempo/meta conductor track first (set_tempo, 4/4 time
+ *   - 1 cycle == 1 BAR, whose length in quarter notes comes from the project's
+ *     time signature (4/4 unless it says otherwise), so tempo derives from cps
+ *     as the inverse of midiCps: bpm = cps * 60 * quartersPerBar.
+ *   - format 1: a tempo/meta conductor track first (set_tempo, the time
  *     signature, track name), then ONE MTrk per named track, each carrying a
  *     track-name meta event so MuseScore/DAWs label the staves.
  *   - explicit status bytes throughout (no running status — the parser
@@ -13,6 +14,8 @@
  * note-off. parseMidi skips bends, so a round trip through the repo's own
  * parser reproduces the ROUNDED pitch; the bend is for external consumers.
  * No external deps; big-endian per the SMF spec. */
+import { cpsToBpm, quartersPerBar, DEFAULT_TIME_SIG } from './midi'
+import type { TimeSig } from './midi'
 
 export interface ExportNote {
   /** onset, in cycles from the start (1 cycle = 1 bar) */ timeCycles: number
@@ -29,6 +32,11 @@ export interface SmfOptions {
   ticksPerQuarter?: number
   /** preferred track order; tracks not listed follow in first-appearance order */
   trackOrder?: readonly string[]
+  /** The project's meter (default 4/4). A cycle is one BAR, so this decides
+   *  both how many quarters a cycle spans and the time-signature meta event —
+   *  without it a 3/4 project exports as 4/4 and every bar line in the DAW
+   *  lands in the wrong place. */
+  timeSig?: TimeSig
 }
 
 /** velocity 0..1 → MIDI 1..127. Never 0: a velocity-0 note-on means note-OFF
@@ -109,7 +117,16 @@ export function notesToSmf(notes: readonly ExportNote[], opts: SmfOptions = {}):
   if (!Number.isInteger(tpq) || tpq <= 0 || tpq >= 0x8000) {
     throw new TypeError(`notesToSmf: ticksPerQuarter must be an integer in 1..32767, got ${tpq}`)
   }
-  const ticksPerCycle = tpq * 4 // 1 cycle = 1 bar of 4/4 = 4 quarters
+  const timeSig = opts.timeSig ?? DEFAULT_TIME_SIG
+  if (!Number.isInteger(timeSig.num) || timeSig.num < 1 || timeSig.num > 255) {
+    throw new TypeError(`notesToSmf: time signature numerator must be an integer in 1..255, got ${timeSig.num}`)
+  }
+  // SMF stores the denominator as a power of two, so it can only BE a power of
+  // two: 4/6 is not a time signature anyone can write down.
+  if (!Number.isInteger(timeSig.den) || timeSig.den < 1 || (timeSig.den & (timeSig.den - 1)) !== 0 || timeSig.den > 128) {
+    throw new TypeError(`notesToSmf: time signature denominator must be a power of two in 1..128, got ${timeSig.den}`)
+  }
+  const ticksPerCycle = tpq * quartersPerBar(timeSig) // 1 cycle = 1 bar
 
   // group notes per track, in trackOrder then first-appearance order
   const byTrack = new Map<string, ExportNote[]>()
@@ -125,13 +142,18 @@ export function notesToSmf(notes: readonly ExportNote[], opts: SmfOptions = {}):
   // a trackOrder name nothing played never becomes an empty MTrk
   for (const [t, list] of byTrack) if (list.length === 0) byTrack.delete(t)
 
-  // conductor track: name + set_tempo + 4/4 time signature at tick 0
-  const bpm = cps * 60 * 4
+  // conductor track: name + set_tempo + the time signature at tick 0
+  const bpm = cpsToBpm(cps, quartersPerBar(timeSig))
   const usPerQuarter = Math.max(1, Math.min(0xffffff, Math.round(60_000_000 / bpm)))
+  // The meta event stores log2(den), and the metronome byte is 24 clocks per
+  // quarter scaled to the beat unit — so a 6/8 bar clicks in eighths, which is
+  // what a DAW's metronome plays.
+  const denPow = Math.round(Math.log2(timeSig.den))
+  const clocksPerBeat = Math.max(1, Math.min(255, Math.round((24 * 4) / timeSig.den)))
   const conductor: number[] = [
     ...trackNameMeta('rondocode'),
     0x00, 0xff, 0x51, 0x03, (usPerQuarter >> 16) & 0xff, (usPerQuarter >> 8) & 0xff, usPerQuarter & 0xff,
-    0x00, 0xff, 0x58, 0x04, 4, 2, 24, 8, // 4/4, standard metronome bytes
+    0x00, 0xff, 0x58, 0x04, timeSig.num, denPow, clocksPerBeat, 8,
     ...END_OF_TRACK,
   ]
   const chunks: number[][] = [[...ascii('MTrk'), ...be32(conductor.length), ...conductor]]

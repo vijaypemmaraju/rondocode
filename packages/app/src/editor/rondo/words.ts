@@ -7,9 +7,14 @@
  * One list, four consumers — PR #191 was the cleanup after three of them had
  * quietly drifted apart, and a fourth copy would start that over.
  * ------------------------------------------------------------------------- */
+import { BLOCK_KEYWORDS } from '@rondocode/rondo'
 
-/** Block keywords — the words that open a top-level block. */
-export const KEYWORDS = new Set(['synth', 'play', 'beat', 'sing', 'cps', 'bpm', 'timesig', 'post', 'bus', 'send', 'sidechain', 'master', 'macro', 'curvedef', 'scaledef', 'wavedef', 'visual', 'js', 'section', 'song', 'switch'])
+
+/** Block keywords: every word the parser's top-level dispatch accepts
+ *  (imported, so a new block is coloured the day it parses), plus the two
+ *  BODY-level words that open nothing at the top level but still read as
+ *  keywords inside a block. */
+export const KEYWORDS: ReadonlySet<string> = new Set([...BLOCK_KEYWORDS, 'post', 'send'])
 
 /** Pattern modifiers / combinators on play lines. Kept in step with the
  *  OPTIONS table by a test: anything documented has to be highlighted. */

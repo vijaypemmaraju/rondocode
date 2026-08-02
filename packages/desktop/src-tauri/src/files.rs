@@ -219,6 +219,35 @@ pub fn rename_in_workspace(path: String, new_name: String) -> Result<String, Str
     Ok(to.display().to_string())
 }
 
+/// Re-extension a project, keeping its name. Returns the new path (or the old
+/// one, unchanged, when it already ends in `ext`).
+///
+/// This exists because on the desktop the EXTENSION IS THE LANGUAGE: the
+/// workspace listing reads `.rondo` vs `.js` back as the project's language,
+/// with no database row involved. So the editor's language toggle has to move
+/// the file, or the next open hands rondo source to the JavaScript evaluator.
+/// `rename_in_workspace` deliberately preserves the extension (renaming a tune
+/// must never change what it is), which is why this is a separate command.
+pub fn set_workspace_ext(path: String, ext: String) -> Result<String, String> {
+    if !matches!(ext.as_str(), ".rondo" | ".js") {
+        return Err(format!("'{ext}' is not a project extension"));
+    }
+    let from = PathBuf::from(&path);
+    let stem = from
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("{} has no name", from.display()))?;
+    let to = from.with_file_name(format!("{stem}{ext}"));
+    if to == from {
+        return Ok(path); // already in that language
+    }
+    if to.exists() {
+        return Err(format!("{} already exists", to.display()));
+    }
+    std::fs::rename(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
+    Ok(to.display().to_string())
+}
+
 /// Move a project to the TRASH rather than unlinking it. A library delete
 /// should be undoable in Finder; std::fs::remove_file is not.
 pub fn trash_file(path: String) -> Result<(), String> {
@@ -303,6 +332,35 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&moved).unwrap(), "saw note");
         // and the language it reads back as is unchanged
         assert_eq!(open_path(moved).unwrap().lang, "rondo");
+    }
+
+    #[test]
+    fn switching_language_moves_the_file_to_the_other_extension() {
+        // The extension IS the language here, so a toggle that only wrote a
+        // database row would leave rondo source in a .js file, and the next
+        // open would hand it to the JavaScript evaluator.
+        let t = Tmp::new("relang");
+        let p = create_in_workspace(t.s(), "tune".into(), ".js".into(), "saw(220)".into()).unwrap();
+        let moved = set_workspace_ext(p.clone(), ".rondo".into()).unwrap();
+        assert!(moved.ends_with("tune.rondo"), "got {moved}");
+        assert_eq!(std::fs::read_to_string(&moved).unwrap(), "saw(220)");
+        assert_eq!(open_path(moved.clone()).unwrap().lang, "rondo");
+        assert!(!PathBuf::from(&p).exists(), "the old file must not linger");
+        // and the same language twice is a no-op, not an error
+        assert_eq!(set_workspace_ext(moved.clone(), ".rondo".into()).unwrap(), moved);
+    }
+
+    #[test]
+    fn switching_language_will_not_clobber_the_other_file_or_take_a_junk_extension() {
+        let t = Tmp::new("relang-clash");
+        let js = create_in_workspace(t.s(), "tune".into(), ".js".into(), "1".into()).unwrap();
+        create_in_workspace(t.s(), "tune".into(), ".rondo".into(), "2".into()).unwrap();
+        // tune.rondo is someone else's project: refuse rather than overwrite it
+        assert!(set_workspace_ext(js.clone(), ".rondo".into()).is_err());
+        assert_eq!(std::fs::read_to_string(&js).unwrap(), "1");
+        for bad in [".txt", ".sh", "", "rondo"] {
+            assert!(set_workspace_ext(js.clone(), bad.into()).is_err(), "should refuse {bad:?}");
+        }
     }
 
     #[test]

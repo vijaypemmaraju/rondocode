@@ -85,6 +85,11 @@ fn timebase() -> (u32, u32) {
 /// ticks = ns * denom / numer.
 fn host_time_after(delay_ms: f64) -> MIDITimeStamp {
     let now = unsafe { mach_absolute_time() };
+    // NOT `delay_ms <= 0.0`, which clippy suggests: a NaN delay compares false
+    // against everything, so `<=` would fall through and schedule a note at
+    // `now + (NaN as u64)`. Negating `> 0.0` sends NaN down the same path as
+    // zero, which is the only sane reading of "when should this play".
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(delay_ms > 0.0) {
         return 0; // 0 means "as soon as possible" to CoreMIDI
     }
@@ -245,6 +250,9 @@ mod tests {
         // go out immediately rather than wrapping into the far future
         assert_eq!(host_time_after(0.0), 0);
         assert_eq!(host_time_after(-5.0), 0);
+        // and NaN is "now" too, not `now + garbage`: a bad delay must not
+        // schedule a note somewhere unreachable in the future
+        assert_eq!(host_time_after(f64::NAN), 0);
     }
 
     #[test]

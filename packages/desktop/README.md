@@ -15,6 +15,13 @@ tunes, and walking into `node_modules` or `.git` would turn the library into
 noise. Delete moves a file to the Trash rather than unlinking it, so a mis-click
 is recoverable in Finder.
 
+The **extension is the language**, and it is the only place that fact is
+recorded — a workspace file has no database row behind it. So the editor's
+language toggle *moves the file*: flip a `.js` project to rondo and it becomes
+`tune.rondo` on disk (`set_workspace_ext`). Without that, the next open would
+hand rondo source to the JavaScript evaluator. A toggle that would collide with
+an existing file of the other extension is refused rather than clobbering it.
+
 **A virtual MIDI port.** This is the DAW integration. WebMIDI can only open ports
 that already exist, so in a browser rondocode can drive hardware but cannot *be*
 an instrument. The desktop shell publishes a CoreMIDI source named `rondocode`,

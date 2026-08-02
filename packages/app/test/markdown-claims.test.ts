@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SHIPPED_EXAMPLES } from '../src/examples'
@@ -23,15 +22,22 @@ import { SHIPPED_EXAMPLES } from '../src/examples'
 const ROOT = join(__dirname, '../../..')
 const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8')
 
-const MARKDOWN = [
-  'README.md',
-  'CONTRIBUTING.md',
-  'docs/perf-frames.md',
-  'docs/reference/agent-guide.md',
-  'docs/sing-models.md',
-  'packages/desktop/README.md',
-  'packages/dsp-rs/README.md',
-]
+/** Every markdown doc in the repo, DISCOVERED rather than listed: a
+ *  hand-written list is one more copy to forget, and docs/audio-health.md was
+ *  added the same day this file was and would have gone unchecked. */
+const MARKDOWN = ((): string[] => {
+  const out: string[] = []
+  const walk = (rel: string): void => {
+    for (const e of readdirSync(join(ROOT, rel))) {
+      if (e === 'node_modules' || e === 'target' || e === 'dist' || e.startsWith('.')) continue
+      const child = rel === '' ? e : `${rel}/${e}`
+      if (statSync(join(ROOT, child)).isDirectory()) walk(child)
+      else if (e.endsWith('.md') && !['CODE_OF_CONDUCT.md', 'SECURITY.md'].includes(e)) out.push(child)
+    }
+  }
+  for (const root of ['', 'docs', 'packages/desktop', 'packages/dsp-rs']) walk(root)
+  return [...new Set(out)].filter((f) => !f.includes('/src/'))
+})()
 
 describe('the markdown does not name things that stopped existing', () => {
   it('finds the docs (a broken path list would make this vacuous)', () => {

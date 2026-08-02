@@ -3,7 +3,7 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
 import type { ControlMap, TimeSig } from '@rondocode/pattern'
-import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
+import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -98,9 +98,10 @@ function singId(s: string): string {
 /** True when any staged synth's voice or post graph contains a live mic()
  *  node — the signal a host uses to open/close the device microphone. */
 export function synthsUseMic(synths: ReadonlyMap<string, SynthDef>): boolean {
-  return [...synths.values()].some(
-    (d) => d.graph.nodes.some((n) => n.type === 'mic') || (d.post?.nodes.some((n) => n.type === 'mic') ?? false),
-  )
+  // usesMicIn is the engine's walk — the offline render sweep asks the same
+  // question (a mic voice is silent with no input device), and two walks of
+  // the same node type is how they drift.
+  return [...synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))
 }
 
 export interface EvalResult {

@@ -31,6 +31,7 @@ jobs:
           pnpm --filter @rondocode/engine exec tsc --noEmit
           pnpm --filter @rondocode/app exec tsc --noEmit
           pnpm --filter @rondocode/server exec tsc --noEmit
+          pnpm --filter @rondocode/rondo exec tsc --noEmit
 
       - name: Test
         run: pnpm test

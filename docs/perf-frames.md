@@ -72,8 +72,9 @@ a dialog.
 
 Taken on an M-series Mac, 60 Hz display, `--dpr=2`, 4 s per sample:
 
-104 samples, 26 examples. Every one at the display rate, zero dropped frames,
-worst single gap 21.9 ms, and the render loop never above 0.34 ms of CPU:
+108 samples, 27 examples. Every one at the display rate, zero dropped frames,
+worst single gap 21.9 ms, and the render loop never above 0.34 ms of CPU.
+`waltz` was added later and measured on its own; the rest are one sweep:
 
 ```
 example               on     off      p95     worst  chars
@@ -103,6 +104,7 @@ drum machine        60.1    60.1   18.6ms    20.6ms  1644
 polyrhythm          60.1    60.1   18.6ms      20ms  1544
 wavetable lead      60.1    60.1   18.6ms    19.4ms   867
 macros              60.1    60.1   18.6ms    21.1ms  1787
+waltz               60.1      60   18.5ms    19.8ms  1306
 ```
 
 The interesting row is `techno`: under the calibration stylesheet above it

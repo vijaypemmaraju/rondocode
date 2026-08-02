@@ -152,11 +152,12 @@ escape hatches as the guarantee of last resort.
 
 ## Rendering examples headless
 
-Render any built-in example to a WAV without a browser:
+Render any built-in example to a WAV without a browser (run it with no
+arguments to list the names):
 
 ```sh
-pnpm tsx packages/server/scripts/render-example.ts "veldt (full)" 52 out.wav
-#                                                   <name>       <cycles> <out>
+pnpm tsx packages/server/scripts/render-example.ts "club" 32 out.wav
+#                                                   <name>  <cycles> <out>
 ```
 
 ## MIDI

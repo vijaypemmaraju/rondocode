@@ -49,7 +49,7 @@
 import { compile } from './compile'
 import { lex, scanBalanced, stripComment } from './lexer'
 import type { Line } from './lexer'
-import { FN_COMBS, isModifierLine } from './parser'
+import { FN_COMBS, STATEMENT_KEYWORDS, isModifierLine } from './parser'
 
 /* ---- per-line plans -------------------------------------------------------- */
 
@@ -67,7 +67,10 @@ type Plan =
   | { kind: 'keep' } // js/visual block body: byte-identical, not even a trim
   | { kind: 'code'; role: Role; indent: number | null } // null = keep original
 
-const STATEMENTS = new Set(['cps', 'bpm', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef'])
+/** Imported, not retyped: a one-line statement the parser accepts but the
+ *  formatter does not know about keeps whatever indent it was written with,
+ *  which for a top-level line is a parse error the formatter exists to fix. */
+const STATEMENTS = STATEMENT_KEYWORDS
 
 const isBinding = (ln: Line): boolean =>
   ln.toks.length >= 2 && ln.toks[0]!.k === 'ident' && ln.toks[1]!.k === 'eq'

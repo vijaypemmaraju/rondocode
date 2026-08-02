@@ -1180,15 +1180,20 @@ synth wob mono glide:.05
   + square note/2
   ladder cut res:.8
   shape 2.2 type:tube
-  delay .1875 .25 sync:1 maxtime:1
   * env
   tanh
   cut = lfo rate tri sync:1 -> 150..3200
   rate = knob .125 .0625..1
   env = adsr .005 .1 .9 .06
+  post
+    # THE ECHO LIVES HERE, not on the voice line. A per-voice delay is
+    # re-entered every time the voice retriggers, so its tail is chopped
+    # mid-waveform and you hear it as static. The post chain runs once,
+    # after the voices are summed, so the echoes ring on across notes.
+    delay .1875 .25 sync:1 maxtime:1 mix:.3
 
 play wob
-  0 0 ~ 0 0 ~ 3 2  scale:e-min
+  0 0 ~ 0 0 ~ <3 4> <2 3>  scale:e-min
   gain: .8
   dur: .9
 

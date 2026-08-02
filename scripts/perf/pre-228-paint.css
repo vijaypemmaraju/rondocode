@@ -1,0 +1,51 @@
+/* THE CALIBRATION INPUT: every per-frame blur that #226, #227 and #228 removed,
+ * restored verbatim.
+ *
+ *   pnpm tsx scripts/measure-frames.ts --examples=<a-heavy-one> \
+ *     --inject-css=scripts/perf/pre-228-paint.css
+ *
+ * A sweep that reports 60 fps everywhere is worth exactly as much as the
+ * instrument's ability to report something else. This file is that check: it
+ * puts the editor back into the paint state that measured 3 fps, so the harness
+ * can be shown going red before its green is believed.
+ *
+ * All four rules matter and they compound — each is a blur recomputed every
+ * frame, because the thing behind or beneath it changes every frame:
+ *
+ *   .topbar          a backdrop-filter over an animating shader
+ *   .cm-content      two blurred shadows per GLYPH, and no opaque scrim of its
+ *                    own, so the text layer cannot be cached
+ *   .qr-cell.on      an 8px blur halo on every cell the playhead lights
+ *   .rc              a 60 ms transition on properties toggled every frame
+ *
+ * Numbers on the machine this was calibrated on live in docs/perf-frames.md.
+ * They are not portable: display refresh, scale factor and GPU all move them.
+ * What IS portable is the SHAPE — shader-on collapses, shader-off does not. */
+
+body.shaderviz-on .topbar {
+  background: color-mix(in srgb, var(--c-bar) 62%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+body.shaderviz-on .cm-content {
+  /* `background: transparent` is half the effect: the flat scrim #228 added
+   * gives the text an opaque backdrop of its own, and a layer whose backdrop
+   * is static can be cached however expensive its glyphs are. Restore the
+   * shadows WITHOUT removing the scrim and it measures nearly green. */
+  background: transparent;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+.rondo-qroll .qr-cell.on,
+.rondo-rollov .qr-cell.on {
+  box-shadow: 0 0 8px -2px var(--c-accent-alt, #6ea8fe);
+}
+
+.rondo-roll .rc {
+  transition: background 0.06s, box-shadow 0.06s, transform 0.06s;
+}
+
+.rondo-roll .rc.trig {
+  box-shadow: 0 0 10px -1px var(--c-accent-alt, #6ea8fe);
+}

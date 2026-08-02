@@ -90,7 +90,7 @@ AudioSession.start().then(
     void library.catch((e) => console.warn('[library] failed to mount', e))
     mountDocs(editor)
     mountSynthLib(editor)
-    mountShaderViz(app, editor, audio)
+    const shaderviz = mountShaderViz(app, editor, audio)
     mountProbes(editor) // inline live-value readouts on modulation expressions
     // First-run onboarding: a one-question survey sets the default language,
     // a dedicated welcome project owns the coach marks (created through the
@@ -107,6 +107,9 @@ AudioSession.start().then(
       void import('./sing/devhook').then((m) => m.installSingDevHook())
       ;(window as unknown as { __rcEditor: typeof editor }).__rcEditor = editor
       ;(window as unknown as { __rcAudio: typeof audio }).__rcAudio = audio
+      // The frame-pacing harness drives the visuals from here rather than by
+      // clicking the header button: `pnpm tsx scripts/measure-frames.ts`.
+      ;(window as unknown as { __rcViz: typeof shaderviz }).__rcViz = shaderviz
     }
   },
   (e: unknown) => {

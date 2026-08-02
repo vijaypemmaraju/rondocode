@@ -7,6 +7,7 @@ import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { stageCode, runPatterns, renderMix } from '../src/render-runner'
 import { encodeWav16 } from '../../engine/src/wav'
+import { analyze, sampleNamesIn, usesMicIn } from '../../engine/src/index'
 
 const path = process.argv[2]
 const cycles = Number(process.argv[3]) || 8
@@ -35,5 +36,20 @@ const mix = renderMix(staged.synths, events, durationSec, {
   ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
   ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
 })
+// Say why a render is silent rather than reporting success over digital zero
+// (see render-example.ts — same trap, same explanation).
+const needsSamples = [...new Set([...staged.synths.values()].flatMap((d) => [
+  ...sampleNamesIn(d.graph),
+  ...(d.post ? sampleNamesIn(d.post) : []),
+]))]
+if (needsSamples.length > 0) {
+  console.error(`note: plays sample(s) ${needsSamples.join(', ')} — no sample bank headless, so those voices are silent.`)
+}
+if ([...staged.synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))) {
+  console.error('note: reads the live microphone, which a headless render has no device for.')
+}
+if (staged.sings.length > 0) console.error('note: uses sing(); vocals bake in the browser, so they are silent here.')
+if (analyze(mix).isSilent) console.error('WARNING: the render is SILENT (digital zero). The .wav was still written.')
+
 writeFileSync(out, encodeWav16(mix.left, mix.right, mix.sampleRate))
 console.error(`wrote ${out}: "${ex.name ?? 'local'}" ${cycles} cyc @ ${cps} cps; stems=${Object.keys(mix.perSynth).join(',')}`)

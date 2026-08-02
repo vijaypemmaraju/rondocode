@@ -163,6 +163,92 @@ export function tempoEdit(
   return { from: site.from, to: site.to, expected: site.text, insert: writeNum(value, site.unit, site.text) }
 }
 
+/** Where the meter is written: ONE range covering both numbers, since they are
+ *  rewritten together. null when the document sets no meter. */
+export interface TimeSigSite {
+  from: number
+  to: number
+  /** the exact text between from/to — what a write must still find there. */
+  text: string
+}
+
+/** rondo: `timesig 3 4`, capturing both numbers as one span. */
+const RONDO_SIG_SITE_RE = /^timesig[ \t]+(\d+[ \t]+\d+)/
+/** rondocode: `setTimeSig(3, 4)`, likewise. */
+const JS_SIG_SITE_RE = /\bsetTimeSig\([ \t]*(\d+[ \t]*,[ \t]*\d+)[ \t]*\)/g
+
+/** Find the meter line the running program obeys: the LAST one, like the
+ *  tempo line. */
+export function findTimeSigSite(doc: string, lang: EditorLang): TimeSigSite | null {
+  let found: TimeSigSite | null = null
+  let offset = 0
+  for (const raw of doc.split('\n')) {
+    const line = stripComment(raw, lang)
+    if (lang === 'rondo') {
+      const m = RONDO_SIG_SITE_RE.exec(line)
+      if (m) {
+        const from = offset + m[0].length - m[1]!.length
+        found = { from, to: from + m[1]!.length, text: m[1]! }
+      }
+    } else {
+      JS_SIG_SITE_RE.lastIndex = 0
+      let m: RegExpExecArray | null
+      while ((m = JS_SIG_SITE_RE.exec(line)) !== null) {
+        const from = offset + m.index + m[0].indexOf(m[1]!)
+        found = { from, to: from + m[1]!.length, text: m[1]! }
+      }
+    }
+    offset += raw.length + 1
+  }
+  return found
+}
+
+/** The verified change that sets this document's meter, or null when there is
+ *  nothing to do.
+ *
+ *  Two shapes. With a meter line, the numbers are rewritten in place. WITHOUT
+ *  one, a line is INSERTED — after the tempo line when there is one, so the
+ *  two live together, otherwise at the end. Nothing is inserted for 4/4 when
+ *  the document never mentions a meter: writing "the default, explicitly" into
+ *  someone's file for a change that changes nothing is noise. */
+export function timeSigEdit(
+  doc: string,
+  lang: EditorLang,
+  sig: TimeSig,
+): { from: number; to: number; expected: string; insert: string } | null {
+  const numbers = lang === 'rondo' ? `${sig.num} ${sig.den}` : `${sig.num}, ${sig.den}`
+  const site = findTimeSigSite(doc, lang)
+  if (site !== null) {
+    if (site.text === numbers) return null // already says exactly this
+    return { from: site.from, to: site.to, expected: site.text, insert: numbers }
+  }
+  if (sig.num === 4 && sig.den === 4) return null // already in 4/4, implicitly
+  const line = lang === 'rondo' ? `timesig ${sig.num} ${sig.den}` : `setTimeSig(${sig.num}, ${sig.den})`
+  // Anchor to the END of the tempo line's own line, so the pair reads together
+  // and the insertion can never land inside an indented block body.
+  const tempo = findTempoSite(doc, lang)
+  const lineEnd = tempo === null ? -1 : doc.indexOf('\n', tempo.to)
+  const pos = tempo === null || lineEnd === -1 ? doc.length : lineEnd
+  const atEnd = pos === doc.length
+  // Mid-document: land on the newline that ends the tempo line, so the new
+  // line goes after it. At the end: only add a break if the file lacks one.
+  const prefix = atEnd ? (doc.length === 0 || doc.endsWith('\n') ? '' : '\n') : '\n'
+  const suffix = atEnd ? '\n' : ''
+  return { from: pos, to: pos, expected: '', insert: `${prefix}${line}${suffix}` }
+}
+
+/** Parse what someone typed into the meter field: `3/4`, `3 4`, `7/8`. null
+ *  when it is not a meter — the field snaps back rather than guessing. */
+export function parseTimeSig(text: string): TimeSig | null {
+  const m = /^\s*(\d{1,2})\s*[/ ]\s*(\d{1,3})\s*$/.exec(text)
+  if (!m) return null
+  const num = Number(m[1])
+  const den = Number(m[2])
+  if (!Number.isInteger(num) || num < 1 || num > 64) return null
+  if (!Number.isInteger(den) || den < 1 || den > 64 || (den & (den - 1)) !== 0) return null
+  return { num, den }
+}
+
 export interface TempoOpts {
   /** the editor view — doc reads and the verified write both go through it. */
   view: WriteHost & { state: { doc: { toString(): string } } }
@@ -197,9 +283,19 @@ export function mountTempo(opts: TempoOpts): TempoHandle {
   const unit = document.createElement('span')
   unit.className = 'tempo-unit'
   unit.textContent = 'bpm'
+  // The meter, in the same pill: it is the other half of "how long is a bar",
+  // and typing it here writes the timesig line rather than hiding the change
+  // in session state (same contract as the BPM field).
+  const sigField = document.createElement('input')
+  sigField.className = 'tempo-input tempo-sig'
+  sigField.type = 'text'
+  sigField.inputMode = 'numeric'
+  sigField.autocomplete = 'off'
+  sigField.spellcheck = false
+  sigField.setAttribute('aria-label', 'time signature')
   const sub = document.createElement('span')
   sub.className = 'tempo-cps'
-  root.append(field, unit, sub)
+  root.append(field, unit, sigField, sub)
 
   const currentCps = (): number => docCps(opts.view.state.doc.toString(), opts.getLang()) ?? opts.getSessionCps()
   const currentSig = (): TimeSig => docTimeSig(opts.view.state.doc.toString(), opts.getLang())
@@ -211,6 +307,7 @@ export function mountTempo(opts: TempoOpts): TempoHandle {
     const inDoc = docCps(opts.view.state.doc.toString(), opts.getLang()) !== null
     // never fight the hands that are typing in the field
     if (document.activeElement !== field) field.value = showBpm(cpsToBpm(cps, quartersPerBar(sig)))
+    if (document.activeElement !== sigField) sigField.value = `${sig.num}/${sig.den}`
     sub.textContent = inDoc ? `${trimCps(cps)} cps` : `${trimCps(cps)} cps, this run only`
     // The meter is named only when it is not 4/4: every project would
     // otherwise carry a "in 4/4" that says nothing.
@@ -258,6 +355,37 @@ export function mountTempo(opts: TempoOpts): TempoHandle {
   field.addEventListener('blur', commit)
   // selecting on focus makes the whole value replaceable with one thumb tap
   field.addEventListener('focus', () => field.select())
+
+  /* The meter writes the timesig line (or adds one), then re-evals — the same
+   * write-verify path the BPM field and the inline widgets use, so an edit
+   * that raced a keystroke is dropped rather than spliced over. Typing
+   * something that is not a meter snaps back: the beat unit has to be a power
+   * of two, and guessing what someone meant by 4/6 would be worse than
+   * refusing it. */
+  const commitSig = (): void => {
+    const parsed = parseTimeSig(sigField.value)
+    if (parsed === null) {
+      refresh()
+      return
+    }
+    const doc = opts.view.state.doc.toString()
+    const edit = timeSigEdit(doc, opts.getLang(), parsed)
+    if (edit !== null && verifiedChanges(opts.view, [edit])) opts.requestEval(true)
+    refresh()
+  }
+  sigField.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      sigField.blur()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      const s = currentSig()
+      sigField.value = `${s.num}/${s.den}`
+      sigField.blur()
+    }
+  })
+  sigField.addEventListener('blur', commitSig)
+  sigField.addEventListener('focus', () => sigField.select())
 
   refresh()
   return { el: root, refresh }

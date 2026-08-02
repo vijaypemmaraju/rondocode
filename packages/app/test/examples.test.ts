@@ -15,7 +15,7 @@ import { baseScope } from '../src/session/scope'
 
 describe('examples', () => {
   it('ships twenty-eight distinctly named examples (local ones may add more)', () => {
-    expect(SHIPPED_EXAMPLES).toHaveLength(28)
+    expect(SHIPPED_EXAMPLES).toHaveLength(29)
     expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(EXAMPLES.length) // all unique
     for (const s of SHIPPED_EXAMPLES) expect(EXAMPLES).toContainEqual(s)
   })

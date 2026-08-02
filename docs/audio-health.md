@@ -56,22 +56,22 @@ buses and master glue included). Every one healthy or explained:
 
 ```
 example             peak    LUFS  crest  centroid  notes
-acid                -8.6   -20.2   13.8     366Hz
+acid                -1.7   -13.4   13.9     366Hz
 visuals               -1   -13.2   13.9     348Hz
 techno              -1.3    -9.5    7.6     202Hz
 dubstep               -1   -12.8   11.5     533Hz
 trance                -1     -10    8.5     150Hz
 future bass           -1    -9.3    9.1    1141Hz
-ambient bells         -6   -17.8   17.9     706Hz
+ambient bells       -1.8   -13.6   17.9     706Hz
 drum groove         -1.2   -13.3   12.3     332Hz
 fm keys             -1.4   -11.4   12.4     437Hz
 fm presets            -1   -12.1   15.1    1696Hz
 chiptune              -1   -15.2   14.7     381Hz
-chords & arps       -7.3   -21.2   16.3     477Hz
+chords & arps       -1.2   -15.2   16.4     477Hz
 over a chord          -1   -13.3   14.3     354Hz
 generative            -1   -12.7   13.4     379Hz
 edm                   -1     -13   13.2     551Hz
-synthscape          -5.9   -17.8   12.5     153Hz
+synthscape          -1.3   -13.2   12.5     153Hz
 arrangement         -3.1   -13.6   12.6    2144Hz
 sampler             -6.3   -15.7    9.5      55Hz  needs samples: vox, riser
 granular         -Infinity -Infinity      0       0Hz  needs samples: pad
@@ -81,7 +81,7 @@ club                -3.4   -12.2   11.3     315Hz
 drum machine          -1   -14.4   15.3    1771Hz
 polyrhythm            -1   -10.9   11.1     378Hz
 live mic         -Infinity -Infinity      0       0Hz  needs the live mic
-wavetable lead     -11.8   -24.8   17.6    2699Hz
+wavetable lead      -2.8   -15.7   17.5    2699Hz
 chop               -15.3   -23.2    7.3      52Hz  needs samples: break
 macros                -1   -11.5   11.2     182Hz
 waltz                 -1   -16.1   16.1     319Hz
@@ -92,6 +92,42 @@ because the parts you actually hear are the samples, and what is left is the
 accompaniment. `wavetable lead` and `ambient bells` sit near the sparse end of
 the crest range because they are single sustained voices, which is what they
 are for.
+
+## Loudness matching
+
+The examples once spanned **15.5 LUFS** — flipping from `future bass` (-9.3) to
+`wavetable lead` (-24.8) dropped the volume by more than 15 dB, and the
+quietest were the teaching examples a newcomer opens first. Five were raised by
+output gain, where the house standard says level belongs:
+
+| example | before | after |
+| --- | --- | --- |
+| `wavetable lead` | -24.8 | -15.7 |
+| `chords & arps` | -21.2 | -15.2 |
+| `acid` | -20.2 | -13.4 |
+| `synthscape` | -17.8 | -13.2 |
+| `ambient bells` | -17.8 | -13.6 |
+
+Spread is now 6.8 LUFS, median unchanged at -13.2, and every edited example's
+crest moved by at most 0.1 dB: this raised the level without touching the
+dynamics. `synthscape` has four voices and all four were scaled by the same
+factor, because raising one would have remixed the piece.
+
+Three rules learned doing it, all measured:
+
+- **Gain is INERT above the normalizer.** The mix stage scales any peak over
+  0.89 back down, so for an example already at -1 dBFS peak (half of them)
+  raising output gain changes the render by 0.1 dB. `waltz` sits at -16.1 LUFS
+  because it is sparse and dynamic, not because it is quiet, and no gain edit
+  will move it. Compression would, at the cost of what it is.
+- **Sample-dependent examples must be left alone.** `chop` and `sampler` read
+  quiet here only because their loudest voice is a sample that a headless
+  render has no bank for. Trimming them to hit a number would make them too
+  loud in the app, where the sample does play.
+- **Headroom caps the trim.** `wavetable lead` needed +11.8 dB to reach the
+  median and had 10.8 before the normalizer, so it landed at -15.7 rather than
+  -13. Sparse material simply does not reach the same loudness without
+  squashing it.
 
 ## A trap this sweep found
 

@@ -1075,7 +1075,7 @@ p('hats', note('c5*8').sound('hat'))
 p('snare', note('~ c4 ~ c4').sound('snare'))
 `
 
-const singing = `// SINGING — a neural voice sings your lyrics over a full band.
+const singing = `// SINGING — a neural voice sings your lyrics over drums, bass and keys.
 // sing(voice, lyrics, notes): both lyrics and notes are mini-notation, one
 // syllable per note (hyphens split a word: "twin-kle" = 2 notes). First Run
 // downloads the voice models once (cached after); the vocal bakes in the
@@ -1167,9 +1167,10 @@ cps .6
 `
 
 /** Wobble bass — the registry surface in one patch. */
-const wobbleRondo = `# wobble bass. supersaw + sub through an
-# LFO-swept ladder, tube drive, delay,
-# saturation — a mono glide bass.
+const wobbleRondo = `# wobble bass: supersaw + sub through an
+# LFO-swept ladder, tube drive and
+# saturation, with the echo in the post
+# chain. one mono voice, gliding.
 
 # sync:1 makes the rate MUSICAL: the wobble
 # is an eighth note and the echo a dotted
@@ -1200,10 +1201,12 @@ play wob
 cps .55
 `
 
-/** A full club track — sections, chords, bus, pump, glue. Pure rondo. */
-const clubRondo = `# a full club track in pure rondo.
-# sections, named chords, a reverb bus,
-# sidechain pump, master glue.
+/** Club loop in pure rondo: three voices, two sections, bus + pump + glue. */
+const clubRondo = `# a club loop in pure rondo: kick, sub
+# and stab over an intro and a drop.
+# named chords, a reverb bus, sidechain
+# pump, master glue. it repeats: the
+# song line is the whole arrangement.
 
 synth kick
   sine drop
@@ -1335,7 +1338,8 @@ cps .58
 /** The singing example's rondo twin: a `sing` block reads like sheet music —
  *  each LYRIC line above its MELODY line, pairs joined at compile time. */
 const singingRondo = `# SINGING — a neural voice sings your
-# lyrics over a full band. lyric line
+# lyrics over drums, bass and keys.
+# lyric line
 # above its melody line; hyphens split
 # a word into syllables. first Run
 # downloads the voice once (cached).
@@ -2782,8 +2786,9 @@ master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 cps .5
 `
 
-const arrangementRondo = `# arrangement: a full track, not a
-# loop. intro -> build -> drop; the
+const arrangementRondo = `# arrangement: 16 bars with a SHAPE,
+# not one bar repeating. intro -> build
+# -> drop, then it loops. the
 # build carries a 4-cycle riser and a
 # snare roll that crescendos into the
 # drop on a rising saw gain.
@@ -3086,7 +3091,9 @@ cps .5
 `
 
 /** ONE macro driving four destinations at four different ratios. */
-const macrosRondo = `# ONE KNOB, A WHOLE TRACK.
+const macrosRondo = `# ONE KNOB, FOUR VOICES. A four bar loop:
+# kick, sub, lead and pad, all moving
+# together off a single dial.
 # macro declares a control that lives above every synth. Reference it bare
 # from any synth or post chain and one dial moves them all. Each site is free
 # to SCALE it however it likes, so the same knob can open one thing while it

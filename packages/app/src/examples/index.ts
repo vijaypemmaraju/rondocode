@@ -428,7 +428,7 @@ masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
 setCps(0.5)
 `
 
-const arrangement = `// arrangement, a FULL track with sections, not just a loop. arrange()
+const arrangement = `// arrangement: 16 bars with a SHAPE, not one bar repeating. arrange()
 // sequences blocks of cycles: intro (4) -> build (4) -> drop (8), then loops.
 // Each section is a stack of the parts playing then. rise(n) ramps 0..1 over
 // n cycles (here the riser's long envelope does the sweep instead).

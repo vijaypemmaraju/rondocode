@@ -325,6 +325,17 @@ const NON_PARAM_CTRL_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
  *  are cheap, but this stays bounded). */
 const CTRL_SCAN_CYCLES = 16
 
+/** Extra SINGLE cycles probed after the dense window, at the bar counts real
+ *  arrangements start sections on.
+ *
+ *  The dense window is [0, 16), so a program whose second section begins at
+ *  bar 16 — `section build 16` then `section drop 16`, the most ordinary shape
+ *  in dance music — had every ctrl in its second half unchecked, and the bad
+ *  one surfaced as an engine warning while it played. Probing one cycle at
+ *  each boundary costs a fraction of widening the window (this runs on every
+ *  eval, including a widget drag) and covers arrangements out to 64 bars. */
+const CTRL_PROBE_CYCLES = [16, 24, 32, 48, 64]
+
 /**
  * Catch `.ctrl('name', …)` targets that the engine would reject at play time as
  * `unknown param 'name'` — a bug that otherwise only surfaces as a per-cycle
@@ -367,11 +378,14 @@ const validateCtrlParams = (
   })
   const diags: Diagnostic[] = []
   const seen = new Set<string>() // dedup by `${sound}|${key}`
-  const span = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
+  const spans = [
+    new TimeSpan(F(0), F(CTRL_SCAN_CYCLES)),
+    ...CTRL_PROBE_CYCLES.map((c) => new TimeSpan(F(c), F(c + 1))),
+  ]
   for (const pat of patterns.values()) {
     let haps
     try {
-      haps = pat.query(span)
+      haps = spans.flatMap((sp) => pat.query(sp))
     } catch {
       continue // a pattern-query bug must never block eval
     }

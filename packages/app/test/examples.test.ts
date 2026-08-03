@@ -111,3 +111,35 @@ describe('examples', () => {
     })
   }
 })
+
+/* An example's comments are the first documentation anyone reads, and they were
+ * overclaiming: `macros` billed an eight second, four voice loop as "ONE KNOB,
+ * A WHOLE TRACK"; `club` called three voices "a full club track". Everything
+ * else audited clean (chord progressions, euclid counts, bpm, slice counts all
+ * verified against the code), so the failure was specifically SIZE language —
+ * which is the easy thing to inflate and the hard thing to notice. */
+describe('example descriptions do not oversell the example', () => {
+  /* Allow words BETWEEN the adjective and the noun: club's original claim was
+   * "a full CLUB track", which a literal /full track/ never matches — the
+   * guard would have missed the very thing that prompted it. */
+  const INFLATED = [
+    /\b(full|whole|complete|entire)\b[\w\s]{0,14}?\b(track|song|album|band)\b/i,
+    /\ba whole lot of\b/i,
+  ]
+  it('no example calls itself a full/whole track or a full band', () => {
+    const bad: string[] = []
+    for (const ex of SHIPPED_EXAMPLES) {
+      for (const src of [ex.code, ex.rondo ?? '']) {
+        const comments = src
+          .split('\n')
+          .filter((l) => /^\s*(#|\/\/)/.test(l))
+          .join(' ')
+        for (const re of INFLATED) if (re.test(comments)) bad.push(`${ex.name}: ${re.source}`)
+      }
+    }
+    expect(
+      [...new Set(bad)],
+      'say what it actually is: how many voices, how many bars, whether it loops',
+    ).toEqual([])
+  })
+})

@@ -743,6 +743,22 @@ describe('evalCode: custom-wavetable registry lifecycle (mirrors defineScale)', 
 })
 
 describe('evalCode: ctrl() param validation', () => {
+  it('sees a ctrl that only appears AFTER a 16-bar first section', () => {
+    /* The reported bug: `section build 16` then `section drop 16` puts every
+     * ctrl of the second half at cycle 16 and later, and the scan window was
+     * [0, 16) — so a bad ctrl in the drop played as an engine warning instead
+     * of failing the eval. 16 missed it; 17 caught it. */
+    const synth = "const r = synth(({ note, gate, param, saw, svf }) => svf(saw(note.freq), param('base', 900)).mul(gate))"
+    const arranged = `${synth}\np('a', arrange([16, note('c3').sound('r')], [16, note('c3').sound('r').ctrl('nope', 1)]))`
+    const bad = run(arranged)
+    expect(bad.ok, 'a ctrl in the second section must fail the eval').toBe(false)
+    expect(bad.diagnostics.some((d) => d.message.includes("declares no param 'nope'"))).toBe(true)
+    // and the same shape with a REAL param still evals
+    const good = `${synth}\np('a', arrange([16, note('c3').sound('r')], [16, note('c3').sound('r').ctrl('base', 1200)]))`
+    expect(run(good).ok, 'a valid ctrl in the second section must still pass').toBe(true)
+  })
+
+
   // A synth with a VOICE param 'cutoff' and a POST param 'wet'.
   const VOICE_POST_SYNTH =
     "const pv = synth(({ note, gate, param, saw, svf }) => svf(saw(note.freq), param('cutoff', 800)).mul(gate), " +

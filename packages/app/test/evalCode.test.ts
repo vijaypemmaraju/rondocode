@@ -791,6 +791,22 @@ p('r', note('c3').sound('riser').slow(16).dur(16))`)
     expect(warns(`p('r', note('c3').sound('riser').slow(64).dur(2.5))`).length).toBe(1)
   })
 
+  /* One finding must be ONE diagnostic. It used to emit one per `.dur(` call
+   * site in the whole file, so a real buildup with five dur() calls reported
+   * the same problem five times, at four places it was not. */
+  it('reports one diagnostic per finding, at the dur() that caused it', () => {
+    const code = [
+      RISER,
+      "p('a', note('c3*4').sound('riser').dur(0.9))",
+      "p('b', note('e3*2').sound('riser').dur(0.5))",
+      "p('c', note('g3').sound('riser').slow(16).dur(16))",
+      "p('d', note('a3*8').sound('riser').dur(0.25))",
+    ].join('\n')
+    const found = run(code).diagnostics.filter((d) => d.message.includes('MULTIPLIES'))
+    expect(found).toHaveLength(1)
+    expect(found[0]!.line, 'positioned on the dur(16), not on the other four').toBe(4)
+  })
+
   it('does not confuse a chord\'s separate notes for a retrigger', () => {
     // three notes at once on one synth is three voices, not one note held
     expect(warns(`p('r', chord('<Cmaj7>').sound('riser').slow(8).dur(0.9))`)).toEqual([])

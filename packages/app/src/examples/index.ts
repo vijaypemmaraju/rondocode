@@ -3304,6 +3304,168 @@ const fromRondo = (src: string): string => {
 
 /** The shipped examples (stable, committed). */
 
+const reverseCymbalRondo = `# REVERSE CYMBAL. Three ways to make a sound run backwards into a hit.
+#
+# There is no reverse operator on a synth voice, and none is needed. What
+# reads as "reversed" is two things at once: amplitude and brightness RISING
+# across bars, and then an instant CUT on the landing instead of a fade. In an
+# envelope that is a long ATTACK and a near-zero RELEASE.
+#
+# The release is the whole trick. r 1.5 fades past the downbeat and reads as
+# nothing; r .006 slams shut on it and reads as reverse.
+#
+# And dur MULTIPLIES the note's whole, it is not a bar count. slow 4 already
+# makes a 4-bar note, so dur: 1 is what ends the gate on the landing. dur: 4
+# there would hold the gate for SIXTEEN bars and the riser would never cut.
+
+# 1. THE CLASSIC. Noise, with the filter climbing faster than the level (^2),
+# so it gets bright before it gets loud.
+synth revnoise
+  noise
+  svf cut res:.55
+  * env
+  * .45
+  cut = curve -> 300..13000
+  curve = adsr 6.4 .1 1 .006 ^ 2
+  env = adsr 6.4 .1 1 .006
+  post
+    reverb room:.8 damp:.35 mix:.28
+
+# 2. TONAL. Saws bending up a fourth over the four bars. The pitch rise is
+# what makes this one feel like tape running backwards rather than a swoosh.
+synth revtone
+  saw pitch
+  + saw pitch * 1.007
+  + saw pitch * .5
+  svf cut res:.35
+  * env
+  * .23
+  pitch = bend -> 150..200
+  bend = adsr 6.4 .1 1 .006 ^ 1.3
+  cut = env -> 500..7000
+  env = adsr 6.4 .1 1 .006
+  post
+    reverb room:.85 damp:.3 mix:.34
+
+# 3. NOT AN ENVELOPE AT ALL. A roll that doubles in density every bar reads as
+# reverse for a completely different reason: the ACCELERATION is the ramp.
+# Stack it with either of the above and it does most of the work.
+synth roll
+  noise
+  svf 3800 res:.35
+  * env
+  * .3
+  tanh
+  env = adsr .001 .05 0 .03
+
+# The landing. A crash whose tail runs on into the next section, a kick, and a
+# stab so the arrival is a chord and not just a thump.
+synth crash
+  noise
+  svf 7800 res:.12 mode:hp
+  * shimmer
+  + noise * splash * .5
+  tanh
+  * .36
+  shimmer = adsr .002 2.6 0 2.2
+  splash = adsr .001 .06 0 .04
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  * .7
+  drop = adsr .001 .09 0 .04 ^ 2 -> 46..185
+  amp = adsr .001 .2 0 .06
+
+synth snare
+  noise
+  svf 2400 res:.3
+  + sine 185 * body
+  * amp
+  tanh
+  * .39
+  body = adsr .001 .07 0 .03
+  amp = adsr .001 .14 0 .06
+
+synth sub
+  sine note
+  * env
+  tanh
+  * .62
+  env = adsr .005 .18 .85 .07
+
+synth stab
+  saw note
+  + saw note * 1.006
+  + saw note/2 * .6
+  svf cut res:.3
+  * env
+  * .2
+  cut = env -> 700..5200 ^ 1.5
+  env = adsr .004 .5 .25 .35
+  post
+    reverb room:.7 damp:.4 mix:.2
+
+section rise 4
+
+  play revnoise
+    c3
+    slow 4
+    dur: 1
+    gain: .9
+
+  play revtone
+    c3
+    slow 4
+    dur: 1
+    gain: .75
+
+  # doubling every bar: 2, 4, 8, 16 in the last
+  beat rolls
+    <roll*2 roll*4 roll*8 roll*16>
+
+  # on the LAST bar, so it is already decaying when the landing arrives and
+  # its tail carries across the section line on its own
+  play crash
+    <~ ~ ~ c3>
+    dur: 1
+    gain: .85
+
+section land 4
+
+  beat pulse
+    kick ~ snare ~ ~ kick snare ~
+
+  play sub
+    <[0 ~ ~ ~ 0 ~ ~ ~] [0 ~ ~ 0 ~ ~ 0 ~]>
+    scale: a-min
+    sub 24
+    dur: .45
+    gain: 1
+
+  play stab
+    <[0 ~ ~ ~] [~ ~ 4 ~] [2 ~ ~ ~] [~ 4 ~ ~]>
+    scale: a-min
+    dur: .9
+    gain: .9
+
+  # g3, not c3: a retrigger of the SAME note steals its own voice, so this
+  # would cut the crash still ringing from the rise. Noise ignores pitch.
+  play crash
+    <g3 ~ ~ ~>
+    dur: 1
+    gain: .7
+
+song rise land
+
+sidechain kick depth:.5 release:.12 stab:.9 sub:1
+
+master threshold:-9 ratio:2 attack:20 release:150 makeup:1
+
+bpm 150
+`
+
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
   { name: 'visuals', code: visuals, rondo: visualsRondo },
@@ -3336,6 +3498,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
   { name: 'macros', code: fromRondo(macrosRondo), rondo: macrosRondo },
   { name: 'waltz', code: fromRondo(waltzRondo), rondo: waltzRondo },
+  { name: 'reverse cymbal', code: fromRondo(reverseCymbalRondo), rondo: reverseCymbalRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

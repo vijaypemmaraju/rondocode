@@ -50,7 +50,7 @@ reporting success over zeros.
 
 ## The baseline
 
-29 examples, 8 cycles each, 48 kHz, through the offline mix (sidechain, send
+30 examples, 8 cycles each, 48 kHz, through the offline mix (sidechain, send
 buses and master glue included). Every one healthy or explained:
 
 ```
@@ -66,7 +66,7 @@ drum groove         -1.2   -13.3   12.3      -     332Hz
 fm keys             -1.4   -11.4   12.4      -     437Hz
 fm presets            -1   -12.1   15.1   -7.9    1696Hz  mixed into the ceiling, normalized -7.9dB
 chiptune              -1   -15.2   14.7   -4.3     381Hz  mixed into the ceiling, normalized -4.3dB
-chords & arps       -1.2   -15.2   16.4      -     477Hz
+chords & arps         -1   -13.2   14.7   -0.9     537Hz  mixed into the ceiling, normalized -0.9dB
 over a chord          -1   -13.3   14.3   -2.2     354Hz  mixed into the ceiling, normalized -2.2dB
 generative            -1   -12.7   13.4   -1.4     379Hz  mixed into the ceiling, normalized -1.4dB
 edm                   -1     -13   13.2   -0.6     551Hz  mixed into the ceiling, normalized -0.6dB
@@ -84,6 +84,7 @@ wavetable lead      -2.8   -15.7   17.5      -    2699Hz
 chop                -1.2   -15.8   13.6      -     682Hz
 macros                -1   -11.4   11.2   -1.4     182Hz  mixed into the ceiling, normalized -1.4dB
 waltz                 -1   -16.4   16.3   -3.3     317Hz  mixed into the ceiling, normalized -3.3dB
+reverse cymbal      -1.5   -14.8   15.6      -    2891Hz
 ```
 
 **The peak column cannot flag a hot example, and never could.** Anything over

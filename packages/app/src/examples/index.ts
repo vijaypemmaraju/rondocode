@@ -631,10 +631,14 @@ p('pad',
     .gain(0.4),
 )
 
-// the SAME chords, arpeggiated up-and-down (try 'up' 'down' 'converge')
+// the SAME chords, arpeggiated up-and-down (try 'up' 'down' 'converge').
+// .add(12) puts the arp an octave above the pad, and that is not decoration:
+// one synth playing the same PITCH twice reuses the same voice, so an arp
+// sharing the pad's notes cuts the pad short every time it comes round.
 p('arp',
   chord('<Dm7 G7 Cmaj7 Am7>')
     .arp('updown')
+    .add(12)
     .sound('keys')
     .dur(0.12)
     .gain(0.55),
@@ -1603,9 +1607,12 @@ play pad synth:keys
   dur: .95
   gain: .4
 
+# +12 keeps the arp off the pad's own pitches: same pitch on one synth means
+# the same voice, so an arp in unison would cut the pad short
 play arp synth:keys
   <Dm7 G7 Cmaj7 Am7>
   arp updown
+  add 12
   dur: .12
   gain: .55
 

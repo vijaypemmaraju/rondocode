@@ -742,6 +742,61 @@ describe('evalCode: custom-wavetable registry lifecycle (mirrors defineScale)', 
   })
 })
 
+/* ------------------------------------------------------------------------- *
+ * GATE LENGTH. `dur` multiplies the note's own whole; it is not a count of
+ * bars. `slow(16).dur(16)` therefore asks for a 256-BAR gate on a note that
+ * retriggers every 16, and because a same-note retrigger steals its own voice,
+ * the extra 240 bars are inert: identical audio, no error, nothing to hear.
+ * A build-up riser shipped that way and played straight through the drop it
+ * was written for.
+ * ------------------------------------------------------------------------- */
+describe('evalCode: gate length', () => {
+  const RISER = "const riser = synth(({ gate, adsr, noise }) => noise().mul(adsr(gate, { a: 5, d: 0.1, s: 1, r: 0.006 })))"
+  const warns = (code: string) =>
+    run(`${RISER}
+${code}`).diagnostics.filter((d) => d.message.includes('MULTIPLIES'))
+
+  it('warns when dur holds a note past its own next trigger', () => {
+    const r = run(`${RISER}
+p('r', note('c3').sound('riser').slow(16).dur(16))`)
+    expect(r.ok, 'it plays, so this must not fail the eval').toBe(true)
+    const [d] = r.diagnostics.filter((x) => x.message.includes('MULTIPLIES'))
+    expect(d, 'a 256-bar gate on a 16-bar loop must be reported').toBeDefined()
+    expect(d!.severity).toBe('warning')
+    expect(d!.message).toContain('256 cycles')
+    expect(d!.message).toContain('retriggers after 16')
+    expect(d!.line, 'positioned on the .dur( call').toBe(2)
+  })
+
+  it('needs the far probes to see it at all', () => {
+    // The retrigger of a 16-bar note lands at cycle 16, one past the end of
+    // the dense [0, 16) window — so the dense scan alone sees ONE onset and
+    // has no next trigger to measure against. This is the same boundary that
+    // let a bad ctrl through in the second section of an arrangement.
+    const r = run(`${RISER}
+p('r', note('c3').sound('riser').slow(16).dur(16))`)
+    expect(r.diagnostics.some((d) => d.message.includes('retriggers after 16'))).toBe(true)
+  })
+
+  it('stays quiet for legato overlap and ordinary durations', () => {
+    expect(warns(`p('r', note('c3*8').sound('riser').dur(1.05))`), 'legato is deliberate').toEqual([])
+    expect(warns(`p('r', note('c3 e3 g3 e3').sound('riser').dur(0.98))`)).toEqual([])
+    expect(warns(`p('r', note('c3').sound('riser').slow(16).dur(1))`), 'the fixed form').toEqual([])
+  })
+
+  it('leaves a gate exactly at the threshold alone', () => {
+    // 2x the gap is the line: a gate twice its retrigger is the most a
+    // deliberate overlap plausibly reaches, so it must not fire.
+    expect(warns(`p('r', note('c3').sound('riser').slow(64).dur(2))`)).toEqual([])
+    expect(warns(`p('r', note('c3').sound('riser').slow(64).dur(2.5))`).length).toBe(1)
+  })
+
+  it('does not confuse a chord\'s separate notes for a retrigger', () => {
+    // three notes at once on one synth is three voices, not one note held
+    expect(warns(`p('r', chord('<Cmaj7>').sound('riser').slow(8).dur(0.9))`)).toEqual([])
+  })
+})
+
 describe('evalCode: ctrl() param validation', () => {
   it('sees a ctrl that only appears AFTER a 16-bar first section', () => {
     /* The reported bug: `section build 16` then `section drop 16` puts every

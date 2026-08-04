@@ -2,7 +2,7 @@ import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
-import type { ControlMap, TimeSig } from '@rondocode/pattern'
+import type { ControlMap, Hap, TimeSig } from '@rondocode/pattern'
 import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
@@ -336,6 +336,40 @@ const CTRL_SCAN_CYCLES = 16
  *  eval, including a widget drag) and covers arrangements out to 64 bars. */
 const CTRL_PROBE_CYCLES = [16, 24, 32, 48, 64]
 
+/** What every eval-time pattern check reads: the haps a scan of the staged
+ *  patterns turns up, queried ONCE.
+ *
+ *  Four checks want this (ctrl targets, mono chords, orphan sing() requests,
+ *  gate length) and each used to run its own 16-cycle query, so the cost of
+ *  the scan was paid three times over on every keystroke-triggered eval and a
+ *  fourth check would have cost a fourth. `dense` is the contiguous window,
+ *  which is the only part where the GAP between two haps means anything;
+ *  `probes` are the far single cycles, useful for "does this ever happen" and
+ *  useless for "what happens next". */
+interface ScannedHaps {
+  dense: Hap<ControlMap>[]
+  probes: Hap<ControlMap>[]
+}
+
+/** Query every staged pattern over the scan window and the far probes. A
+ *  pattern whose query throws is skipped: a pattern bug must never block an
+ *  eval, it has its own failure path at play time. */
+const scanHaps = (patterns: Map<string, Pattern<ControlMap>>): ScannedHaps => {
+  const dense: Hap<ControlMap>[] = []
+  const probes: Hap<ControlMap>[] = []
+  const denseSpan = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
+  const probeSpans = CTRL_PROBE_CYCLES.map((c) => new TimeSpan(F(c), F(c + 1)))
+  for (const pat of patterns.values()) {
+    try {
+      dense.push(...pat.query(denseSpan))
+      for (const sp of probeSpans) probes.push(...pat.query(sp))
+    } catch {
+      continue
+    }
+  }
+  return { dense, probes }
+}
+
 /**
  * Catch `.ctrl('name', …)` targets that the engine would reject at play time as
  * `unknown param 'name'` — a bug that otherwise only surfaces as a per-cycle
@@ -351,10 +385,10 @@ const CTRL_PROBE_CYCLES = [16, 24, 32, 48, 64]
  */
 const validateCtrlParams = (
   synths: Map<string, SynthDef>,
-  patterns: Map<string, Pattern<ControlMap>>,
+  haps: ScannedHaps,
   program: Program,
 ): Diagnostic[] => {
-  if (patterns.size === 0 || synths.size === 0) return []
+  if (synths.size === 0) return []
   // Collect `.ctrl('KEY', …)` call sites for positioning, keyed by KEY.
   const ctrlSites = new Map<string, { line: number; col: number }[]>()
   walkSimple(program, {
@@ -378,36 +412,119 @@ const validateCtrlParams = (
   })
   const diags: Diagnostic[] = []
   const seen = new Set<string>() // dedup by `${sound}|${key}`
-  const spans = [
-    new TimeSpan(F(0), F(CTRL_SCAN_CYCLES)),
-    ...CTRL_PROBE_CYCLES.map((c) => new TimeSpan(F(c), F(c + 1))),
-  ]
-  for (const pat of patterns.values()) {
-    let haps
-    try {
-      haps = spans.flatMap((sp) => pat.query(sp))
-    } catch {
-      continue // a pattern-query bug must never block eval
-    }
-    for (const h of haps) {
-      const c = h.value
-      const sound = c.sound
-      if (typeof sound !== 'string') continue
-      const def = synths.get(sound)
-      if (def === undefined) continue // unknown sound: not this check's concern
-      for (const [key, val] of Object.entries(c)) {
-        if (NON_PARAM_CTRL_KEYS.has(key) || typeof val !== 'number') continue
-        const dedup = `${sound}|${key}`
-        if (seen.has(dedup)) continue
-        seen.add(dedup)
-        if (def.graph.params.some((p) => p.name === key)) continue // valid voice param
-        if (def.post?.params.some((p) => p.name === key) === true) continue // valid POST param (now driveable)
-        const message = `ctrl('${key}'): synth '${sound}' declares no param '${key}'.`
-        const sites = ctrlSites.get(key) ?? [{ line: 1, col: 1 }]
-        for (const s of sites) {
-          diags.push({ line: s.line, col: s.col, message, severity: 'error', source: 'eval' })
-        }
+  for (const h of [...haps.dense, ...haps.probes]) {
+    const c = h.value
+    const sound = c.sound
+    if (typeof sound !== 'string') continue
+    const def = synths.get(sound)
+    if (def === undefined) continue // unknown sound: not this check's concern
+    for (const [key, val] of Object.entries(c)) {
+      if (NON_PARAM_CTRL_KEYS.has(key) || typeof val !== 'number') continue
+      const dedup = `${sound}|${key}`
+      if (seen.has(dedup)) continue
+      seen.add(dedup)
+      if (def.graph.params.some((p) => p.name === key)) continue // valid voice param
+      if (def.post?.params.some((p) => p.name === key) === true) continue // valid POST param (now driveable)
+      const message = `ctrl('${key}'): synth '${sound}' declares no param '${key}'.`
+      const sites = ctrlSites.get(key) ?? [{ line: 1, col: 1 }]
+      for (const s of sites) {
+        diags.push({ line: s.line, col: s.col, message, severity: 'error', source: 'eval' })
       }
+    }
+  }
+  return diags
+}
+
+/** How many times longer than its own next trigger a gate has to run before
+ *  it is worth saying something. Legato wants a little overlap (dur 1.05 on a
+ *  run of eighths is a normal, deliberate thing), so the threshold is not
+ *  "overlaps at all" — it is "so far past the retrigger that the number cannot
+ *  mean what it looks like it means". */
+const GATE_OVERRUN_FACTOR = 2
+
+/**
+ * Catch a `dur` that holds a note's gate long past its own next trigger.
+ *
+ * `dur` MULTIPLIES the note's whole; it is not a length in bars. So
+ * `.slow(16).dur(16)` does not mean "sixteen bars", it means sixteen times a
+ * sixteen-bar note: a 256-bar gate on a riser that retriggers every 16, which
+ * is how a build-up sailed straight through the drop it was built for with
+ * nothing anywhere reporting it.
+ *
+ * Nothing downstream can catch this. The gate is legal, the render is clean,
+ * and because a retrigger of the SAME note steals its own voice, dur 16 and
+ * dur 1.0001 sound identical past the retrigger point: the extra length is
+ * inert, so there is no audible symptom to chase either.
+ *
+ * A warning, not an error: it plays, and the fix is a judgement call.
+ *
+ * The probe cycles count here, as SUCCESSORS only. A 16-bar note has exactly
+ * one onset inside a 16-cycle window, so the dense window alone cannot see it
+ * retrigger and missed the very case this was written for. Since the dense
+ * window is contiguous, any onset before its end is already in it, so the
+ * earliest probe onset after a hap is an UPPER bound on the true gap. An
+ * over-estimated gap can only under-state the overrun, so this can miss a
+ * case but never invent one.
+ */
+const validateGateLength = (
+  synths: Map<string, SynthDef>,
+  haps: ScannedHaps,
+  program: Program,
+): Diagnostic[] => {
+  if (synths.size === 0) return []
+  // Onsets grouped by the voice they land on: same sound AND same note, since
+  // that is what shares (and steals) a voice. A chord's notes are separate.
+  const byVoice = new Map<string, { at: number; gate: number; dur: number }[]>()
+  for (const h of [...haps.dense, ...haps.probes]) {
+    if (!hasOnset(h)) continue
+    const c = h.value
+    if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
+    if (!synths.has(c.sound)) continue
+    const dur = typeof c.dur === 'number' ? c.dur : 1
+    const whole = h.whole!.length.valueOf()
+    const key = `${c.sound}|${c.note}`
+    const arr = byVoice.get(key) ?? []
+    arr.push({ at: h.whole!.begin.valueOf(), gate: whole * dur, dur })
+    byVoice.set(key, arr)
+  }
+  // Position on the `.dur(` call sites; one site is the common case and the
+  // message names the synth, so an exact pairing is not needed to act on it.
+  const durSites: { line: number; col: number }[] = []
+  walkSimple(program, {
+    CallExpression(node) {
+      const callee = node.callee
+      if (
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'dur' &&
+        callee.property.loc != null
+      ) {
+        durSites.push({ line: callee.property.loc.start.line, col: callee.property.loc.start.column + 1 })
+      }
+    },
+  })
+  const diags: Diagnostic[] = []
+  const warned = new Set<string>()
+  for (const [key, list] of byVoice) {
+    if (list.length < 2) continue // no next trigger inside the window to run past
+    list.sort((a, b) => a.at - b.at)
+    for (let i = 0; i < list.length - 1; i++) {
+      const cur = list[i]!
+      const gap = list[i + 1]!.at - cur.at
+      if (gap <= 0 || cur.gate <= gap * GATE_OVERRUN_FACTOR) continue
+      const sound = key.slice(0, key.lastIndexOf('|'))
+      if (warned.has(sound)) break
+      warned.add(sound)
+      const round = (n: number): string => String(Math.round(n * 100) / 100)
+      const message =
+        `dur ${round(cur.dur)} on '${sound}' holds the gate ${round(cur.gate)} cycles, but the same note ` +
+        `retriggers after ${round(gap)} — dur MULTIPLIES the note's own length, it is not a count of bars. ` +
+        `The extra length can never sound.`
+      for (const site of durSites.length > 0 ? durSites : [{ line: 1, col: 1 }]) {
+        diags.push({ line: site.line, col: site.col, message, severity: 'warning', source: 'eval' })
+      }
+      break
     }
   }
   return diags
@@ -471,39 +588,29 @@ const validateStagingTargets = (
  */
 const detectMonoChords = (
   synths: Map<string, SynthDef>,
-  patterns: Map<string, Pattern<ControlMap>>,
+  haps: ScannedHaps,
 ): Diagnostic[] => {
-  if (patterns.size === 0) return []
   const warned = new Set<string>()
   const diags: Diagnostic[] = []
-  const span = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
-  for (const pat of patterns.values()) {
-    let haps
-    try {
-      haps = pat.query(span)
-    } catch {
-      continue
-    }
-    const counts = new Map<string, number>() // `${sound}@${onsetTime}` -> notes
-    for (const h of haps) {
-      if (!hasOnset(h)) continue
-      const c = h.value
-      if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
-      const def = synths.get(c.sound)
-      if (def?.voiceOpts?.mono !== true || warned.has(c.sound)) continue
-      const k = `${c.sound}@${h.whole!.begin.toString()}`
-      const next = (counts.get(k) ?? 0) + 1
-      counts.set(k, next)
-      if (next > 1) {
-        warned.add(c.sound)
-        diags.push({
-          line: 1,
-          col: 1,
-          message: `synth '${c.sound}' is mono, but it's fed simultaneous notes (a chord/stack) — only one sounds. Drop mono (or set voices>1) to hear the harmony.`,
-          severity: 'warning',
-          source: 'eval',
-        })
-      }
+  const counts = new Map<string, number>() // `${sound}@${onsetTime}` -> notes
+  for (const h of haps.dense) {
+    if (!hasOnset(h)) continue
+    const c = h.value
+    if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
+    const def = synths.get(c.sound)
+    if (def?.voiceOpts?.mono !== true || warned.has(c.sound)) continue
+    const k = `${c.sound}@${h.whole!.begin.toString()}`
+    const next = (counts.get(k) ?? 0) + 1
+    counts.set(k, next)
+    if (next > 1) {
+      warned.add(c.sound)
+      diags.push({
+        line: 1,
+        col: 1,
+        message: `synth '${c.sound}' is mono, but it's fed simultaneous notes (a chord/stack) — only one sounds. Drop mono (or set voices>1) to hear the harmony.`,
+        severity: 'warning',
+        source: 'eval',
+      })
     }
   }
   return diags
@@ -919,8 +1026,11 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   // time (unknown/post-only params). Treated as errors: like any failed eval,
   // the broken version is NOT applied (last-good keeps playing) and the editor
   // shows a positioned diagnostic — instead of a silent per-cycle console warn.
+  // ONE query pass, four readers (see ScannedHaps) — it used to be three
+  // passes for three checks, and this adds a fourth for free.
+  const scanned = scanHaps(patterns)
   const stagingErrors = [
-    ...validateCtrlParams(synths, patterns, program),
+    ...validateCtrlParams(synths, scanned, program),
     ...validateStagingTargets(synths, sends, sidechainCfg, program),
   ]
   if (stagingErrors.length > 0) {
@@ -932,7 +1042,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   }
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).
-  diagnostics.push(...detectMonoChords(synths, patterns))
+  diagnostics.push(...detectMonoChords(synths, scanned))
+  diagnostics.push(...validateGateLength(synths, scanned, program))
 
   // A sing() whose returned pattern was never registered with p(...) still
   // staged a bake request — which triggers the (~GB) model download and blocks
@@ -941,16 +1052,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let keptSings = sings
   if (sings.length > 0) {
     const routed = new Set<string>()
-    const scanSpan = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
-    for (const pat of patterns.values()) {
-      try {
-        for (const h of pat.query(scanSpan)) {
-          const s = (h.value as ControlMap).sound
-          if (typeof s === 'string') routed.add(s)
-        }
-      } catch {
-        /* ignore a pattern-query bug here */
-      }
+    for (const h of scanned.dense) {
+      const s = h.value.sound
+      if (typeof s === 'string') routed.add(s)
     }
     keptSings = sings.filter((req) => routed.has(req.synthName))
     for (const req of sings) {

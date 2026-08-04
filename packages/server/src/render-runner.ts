@@ -307,6 +307,13 @@ export interface MixResult {
   perSynth: Record<string, { events: number; rms: number }>
   /** True when the summed mix peaked above 0.89 and was scaled down. */
   normalized: boolean
+  /** How much that scaling cost, in dB (0 when it did not happen, negative
+   *  otherwise). This is the number that makes normalization visible: above
+   *  the clamp, turning a part UP does not make the bounce louder, it makes
+   *  everything ELSE quieter by this much — so a gain edit reads as "nothing
+   *  happened", or as backwards. The mix stage always knew it; until now the
+   *  only place it surfaced was one CLI log line. */
+  normalizeDb: number
   /** Present iff `stems` was requested. Each synth's CONTRIBUTION TO THE
    *  FINAL MIX: its own post-chain, its sidechain ducking, and the master
    *  compressor's gain curve and any normalization scaling, applied exactly
@@ -521,13 +528,14 @@ export function renderMix(
   }
   const normalized = peak > 0.89
   const scale = normalized ? 0.89 / peak : 1
+  const normalizeDb = normalized ? 20 * Math.log10(scale) : 0
   if (normalized) {
     for (let i = 0; i < total; i++) {
       left[i]! *= scale
       right[i]! *= scale
     }
   }
-  if (!wantStems) return { left, right, sampleRate, perSynth, normalized }
+  if (!wantStems) return { left, right, sampleRate, perSynth, normalized, normalizeDb }
 
   // Replay the master stage on every stem, in the same two passes and the
   // same order the mix ran them, so the only difference from the mix is the
@@ -554,5 +562,5 @@ export function renderMix(
   for (const [busName, part] of busStems) {
     stems.push({ name: busName, kind: 'bus', left: part.left, right: part.right })
   }
-  return { left, right, sampleRate, perSynth, normalized, stems }
+  return { left, right, sampleRate, perSynth, normalized, normalizeDb, stems }
 }

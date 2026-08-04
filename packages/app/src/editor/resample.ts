@@ -35,6 +35,12 @@ export interface StagedMix {
   sampleRate: number
   /** the staged tempo the render ran at (cycles per second) */
   cps: number
+  /** dB the mix stage scaled the whole bounce down by to reach its 0.89 peak
+   *  ceiling; 0 when it stayed under. Carried through because the ONE staged
+   *  mapping used to drop it, which left every caller — the WAV bounce, the
+   *  stems, the loudness readout, resample-to-loop — unable to say that a
+   *  gain edit above the ceiling changes the balance but not the level. */
+  normalizeDb: number
   /** Present iff `stems` was requested: each part's contribution to THIS mix
    *  (see renderMix's MixStem). Summed, they reconstruct left/right. */
   stems?: MixStem[]
@@ -87,6 +93,7 @@ export function renderStagedMix(
     right: mix.right,
     sampleRate: mix.sampleRate,
     cps,
+    normalizeDb: mix.normalizeDb,
     ...(mix.stems ? { stems: mix.stems } : {}),
   }
 }
@@ -102,7 +109,7 @@ export function renderTakePcm(
   code: string,
   cycles: number,
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,
-): { data: Float32Array; sampleRate: number } | { error: string } {
+): { data: Float32Array; sampleRate: number; normalizeDb: number } | { error: string } {
   const mix = renderStagedMix(code, cycles, samples)
   if ('error' in mix) return mix
   const mono = normalize(
@@ -114,7 +121,7 @@ export function renderTakePcm(
     data = new Float32Array(frames)
     data.set(mono.subarray(0, Math.min(mono.length, frames)))
   }
-  return { data, sampleRate: mix.sampleRate }
+  return { data, sampleRate: mix.sampleRate, normalizeDb: mix.normalizeDb }
 }
 
 export interface ResampleOpts {
@@ -128,13 +135,13 @@ export interface ResampleOpts {
  *  next free takeN. Loads it exactly the way a mic take loads (loadSamplePcm,
  *  not built-in, session-lifetime persistence). Returns the take name or an
  *  error message; never throws. */
-export function resampleTake({ code, cycles, audio }: ResampleOpts): { name: string } | { error: string } {
+export function resampleTake({ code, cycles, audio }: ResampleOpts): { name: string; normalizeDb: number } | { error: string } {
   try {
     const res = renderTakePcm(code, cycles, audio.loadedSamples)
     if ('error' in res) return res
     const name = nextTakeName(audio.getSamples().map((s) => s.name))
     audio.loadSamplePcm(name, res.data, res.sampleRate)
-    return { name }
+    return { name, normalizeDb: res.normalizeDb }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
   }

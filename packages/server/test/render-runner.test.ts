@@ -192,6 +192,38 @@ p('pb', note('c3').sound('b'))
       peak = Math.max(peak, Math.abs(mix.left[i]!), Math.abs(mix.right[i]!))
     }
     expect(peak).toBeCloseTo(0.89, 3)
+    // and it says what that cost. Without this number nothing downstream can
+    // tell a mix that landed on 0.89 from one dragged down to it, because both
+    // report a peak of 0.89 — which is how a gain edit above the ceiling looks
+    // like it did nothing.
+    expect(mix.normalizeDb).toBeLessThan(0)
+    expect(mix.normalizeDb).toBeGreaterThan(-12)
+  })
+
+  it('reports the exact dB it removed, and 0 when it removed nothing', () => {
+    const at = (amp: number) => {
+      const staged = stageCode(
+        `const a = synth(({ note, gate, sine }) => sine(note.freq).mul(gate).mul(${amp}))
+p('x', note('c3').sound('a'))`,
+      )
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+      const mix = renderMix(staged.synths, events, 1, { cps: 1 })
+      let peak = 0
+      for (let i = 0; i < mix.left.length; i++) peak = Math.max(peak, Math.abs(mix.left[i]!))
+      return { mix, peak }
+    }
+    const under = at(0.5)
+    expect(under.mix.normalized).toBe(false)
+    expect(under.mix.normalizeDb).toBe(0)
+
+    // 8x as loud: the reported dB must be the scale actually applied, so
+    // undoing it recovers the peak the project really hit — 8x the quiet
+    // render's, since the only difference between them is that factor.
+    const over = at(4)
+    expect(over.mix.normalized).toBe(true)
+    const undone = over.peak / Math.pow(10, over.mix.normalizeDb / 20)
+    expect(undone / under.peak, 'normalizeDb must invert back to the pre-scale peak').toBeCloseTo(8, 1)
   })
 
   it('master compressor reduces a hot mix (offline parity)', () => {

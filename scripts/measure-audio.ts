@@ -51,6 +51,13 @@ const WANT = {
   /** Under 4 dB reads as over-compressed; over ~18 as unmixed/sparse. */
   minCrestDb: 4,
   maxCrestDb: 18,
+  /** At or below this much auto-normalization, say so in the notes. The mix
+   *  stage scales anything peaking over 0.89 back down to it, which is why
+   *  `hot` above can never fire on its own — every hot example arrives
+   *  pre-flattened to exactly -1.0 dBFS, and the peak column cannot tell a
+   *  well-levelled example from one mixed 8 dB into the ceiling. A couple of
+   *  tenths is rounding; several dB means the gains stopped being live. */
+  reportNormalizeDb: -0.5,
 }
 
 interface Row {
@@ -59,6 +66,8 @@ interface Row {
   needsMic: boolean
   silent: boolean
   peakDb: number
+  /** dB of auto-normalization the mix stage applied (0 = none). */
+  normDb: number
   lufs: number
   crestDb: number
   clipped: boolean
@@ -130,22 +139,34 @@ for (const ex of wanted) {
     if (crestDb < WANT.minCrestDb) flags.push(`squashed ${crestDb}dB`)
     if (crestDb > WANT.maxCrestDb) flags.push(`sparse ${crestDb}dB`)
   }
+  // The peak column cannot flag a too-hot example on its own: the mix stage
+  // already pulled anything above 0.89 back DOWN to it, so a wildly hot
+  // project and a well-levelled one both read -1.0 dBFS. normalizeDb is the
+  // amount that got taken off, and it is the only evidence the sweep has.
+  const normDb = Math.round(mix.normalizeDb * 10) / 10
   rows.push({
     name: ex.name, needsSamples, needsMic, silent: a.isSilent, peakDb, lufs: Math.round(loud.integratedLufs * 10) / 10,
-    crestDb, clipped: a.clipped, hasNaN: a.hasNaN, centroidHz: Math.round(a.spectralCentroidHz), flags,
+    crestDb, clipped: a.clipped, hasNaN: a.hasNaN, centroidHz: Math.round(a.spectralCentroidHz), normDb, flags,
   })
   process.stderr.write(`  measured ${ex.name}\n`)
 }
 
 const pad = (s: string, n: number): string => s.padEnd(n)
-process.stdout.write(`\n${pad('example', 16)} ${'peak'.padStart(7)} ${'LUFS'.padStart(7)} ${'crest'.padStart(6)} ${'centroid'.padStart(9)}  notes\n`)
+process.stdout.write(`\n${pad('example', 16)} ${'peak'.padStart(7)} ${'LUFS'.padStart(7)} ${'crest'.padStart(6)} ${'norm'.padStart(6)} ${'centroid'.padStart(9)}  notes\n`)
 for (const r of rows) {
+  // Normalization is REPORTED, never flagged. It is not a defect — the file
+  // sounds fine — it just means the gains inside that example stopped being
+  // live, so nobody tuning it should trust a level edit. Flagging 13 working
+  // examples would teach people to ignore this sweep, which is how the real
+  // failure gets missed (same reason `needs samples` is not a failure).
+  const norm = r.normDb <= WANT.reportNormalizeDb ? `mixed into the ceiling, normalized ${r.normDb}dB` : ''
   const note = r.needsSamples.length > 0
     ? `needs samples: ${r.needsSamples.join(', ')}`
-    : r.needsMic ? 'needs the live mic' : r.flags.join(', ')
+    : r.needsMic ? 'needs the live mic' : [...r.flags, norm].filter(Boolean).join(', ')
   process.stdout.write(
     `${pad(r.name, 16)} ${`${r.peakDb}`.padStart(7)} ${`${r.lufs}`.padStart(7)} ` +
-    `${`${r.crestDb}`.padStart(6)} ${`${r.centroidHz}Hz`.padStart(9)}  ${note}\n`,
+    `${`${r.crestDb}`.padStart(6)} ${`${r.normDb === 0 ? '-' : r.normDb}`.padStart(6)} ` +
+    `${`${r.centroidHz}Hz`.padStart(9)}  ${note}\n`,
   )
 }
 

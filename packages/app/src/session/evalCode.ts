@@ -487,12 +487,15 @@ const validateGateLength = (
     arr.push({ at: h.whole!.begin.valueOf(), gate: whole * dur, dur })
     byVoice.set(key, arr)
   }
-  // Position on the `.dur(` call sites; one site is the common case and the
-  // message names the synth, so an exact pairing is not needed to act on it.
-  const durSites: { line: number; col: number }[] = []
+  // Position on the `.dur(` call sites, keyed by the LITERAL they were given.
+  // A file with several dur() calls would otherwise get the same warning
+  // repeated once per call site — five copies of one finding, which reads as
+  // five problems. Matching on the value pairs them in the ordinary case.
+  const durSites: { line: number; col: number; value?: number }[] = []
   walkSimple(program, {
     CallExpression(node) {
       const callee = node.callee
+      const arg0 = node.arguments[0] as { type?: string; value?: unknown } | undefined
       if (
         callee.type === 'MemberExpression' &&
         !callee.computed &&
@@ -500,7 +503,12 @@ const validateGateLength = (
         callee.property.name === 'dur' &&
         callee.property.loc != null
       ) {
-        durSites.push({ line: callee.property.loc.start.line, col: callee.property.loc.start.column + 1 })
+        const site: { line: number; col: number; value?: number } = {
+          line: callee.property.loc.start.line,
+          col: callee.property.loc.start.column + 1,
+        }
+        if (arg0?.type === 'Literal' && typeof arg0.value === 'number') site.value = arg0.value
+        durSites.push(site)
       }
     },
   })
@@ -521,9 +529,10 @@ const validateGateLength = (
         `dur ${round(cur.dur)} on '${sound}' holds the gate ${round(cur.gate)} cycles, but the same note ` +
         `retriggers after ${round(gap)} — dur MULTIPLIES the note's own length, it is not a count of bars. ` +
         `The extra length can never sound.`
-      for (const site of durSites.length > 0 ? durSites : [{ line: 1, col: 1 }]) {
-        diags.push({ line: site.line, col: site.col, message, severity: 'warning', source: 'eval' })
-      }
+      // exactly one diagnostic per finding: the site whose literal matches,
+      // else the first dur() in the file, else the top.
+      const site = durSites.find((d) => d.value === cur.dur) ?? durSites[0] ?? { line: 1, col: 1 }
+      diags.push({ line: site.line, col: site.col, message, severity: 'warning', source: 'eval' })
       break
     }
   }

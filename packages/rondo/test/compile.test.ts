@@ -635,6 +635,16 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('masterCompress({ threshold: -6, ratio: 2, makeup: 1 })')
   })
 
+  /* `gain` is the only line that scales every part equally. It exists because
+   * the offline render peak-normalizes anything over 0.89 back down to it, so
+   * a project mixed past that ceiling cannot be turned down by any per-part
+   * gain — they are all inert up there — and could not be turned down at all
+   * before this. */
+  it('level line → masterGain, in dB, negative included', () => {
+    expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel -4.5\n`)).toContain('masterGain(-4.5)')
+    expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel 2\n`)).toContain('masterGain(2)')
+  })
+
   it('bus block: FX folded from input + send routing; knobs are rejected', () => {
     const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\nbus space\n  reverb room:.9 damp:.3\n  send s .35\n`)
     expect(out).toContain("bus('space', ({ input, reverb }) => {")
@@ -836,6 +846,7 @@ describe('positioned diagnostics', () => {
     expect(compile('macro x 1 0..2\n\nsynth kick\n  sine 60\n\nsidechain kick depth:x\n').ok).toBe(true)
     failsAt('sidechain\n', 'sidechain needs a source synth', 1, 1)
     failsAt('synth s\n  saw\n\nmaster threshold:x\n', 'master args are `name:number` pairs', 4, 8)
+    failsAt('synth s\n  saw\n\nlevel\n', 'level needs a number of dB', 4, 1)
   })
 
   it('unknown synth voice option points at the option token', () => {

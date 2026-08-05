@@ -1,6 +1,7 @@
 import { getCustomWavetables } from '@rondocode/engine'
 import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
 import type { MixStem } from '../../../server/src/render-runner'
+import type { RenderEvent } from '@rondocode/engine'
 import { normalize, toMono } from './micrec'
 
 /* RESAMPLE TO LOOP: bounce N cycles of the staged track back into the sample
@@ -34,6 +35,13 @@ export interface StagedMix {
   sampleRate: number
   /** the staged tempo the render ran at (cycles per second) */
   cps: number
+  /** The scheduled events per synth, as they went into the render. Returned
+   *  because a caller that had to re-derive them would be running the
+   *  scheduler twice, and one of the two copies would eventually disagree. */
+  events: Map<string, RenderEvent[]>
+  /** Per-stem event count and pre-normalization RMS (renderMix's perSynth):
+   *  what pinpoints a voice that never sounded. */
+  perSynth: Record<string, { events: number; rms: number }>
   /** dB the mix stage scaled the whole bounce down by to reach its 0.89 peak
    *  ceiling; 0 when it stayed under. Carried through because the ONE staged
    *  mapping used to drop it, which left every caller — the WAV bounce, the
@@ -50,6 +58,17 @@ export interface StagedMixOpts {
   stems?: boolean
   /** Render rate in Hz. Default 48000. */
   sampleRate?: number
+  /** Extra seconds rendered past the last cycle, so release and reverb tails
+   *  are captured instead of cut at the loop point. Default 0, which is right
+   *  for a LOOP (a tail would double up on repeat) and wrong for a one-shot
+   *  render an agent is going to listen to. */
+  tailSec?: number
+  /** Render at this tempo instead of the staged one. For callers that let the
+   *  user ask for a speed (the MCP render tools); everything else should take
+   *  the tempo the program states. */
+  cps?: number
+  /** Per-stem polyphony. Default is renderMix's own (12). */
+  maxVoices?: number
 }
 
 /** Stage `code` and render `cycles` of it offline: stageCode → runPatterns →
@@ -70,8 +89,8 @@ export function renderStagedMix(
 ): StagedMix | { error: string } {
   const staged = stageCode(code)
   if (!staged.ok) return { error: staged.diagnostics.find((d) => d.severity === 'error')?.message ?? 'eval failed' }
-  const cps = staged.cps ?? 0.5
-  const durationSec = cycles / cps
+  const cps = opts?.cps ?? staged.cps ?? 0.5
+  const durationSec = cycles / cps + (opts?.tailSec ?? 0)
   const events = runPatterns(staged.patterns, { cycles, cps })
   const tables = getCustomWavetables()
   const mix = renderMix(staged.synths, events, durationSec, {
@@ -82,16 +101,20 @@ export function renderStagedMix(
     ...(samples ? { samples } : {}),
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
+    ...(staged.masterGain !== undefined ? { masterGain: staged.masterGain } : {}),
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     // custom wavetables the staged program registered (defineWavetable/wavedef)
     ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
     ...(opts?.stems ? { stems: true } : {}),
+    ...(opts?.maxVoices !== undefined ? { maxVoices: opts.maxVoices } : {}),
   })
   return {
     left: mix.left,
     right: mix.right,
     sampleRate: mix.sampleRate,
     cps,
+    events,
+    perSynth: mix.perSynth,
     normalizeDb: mix.normalizeDb,
     ...(mix.stems ? { stems: mix.stems } : {}),
   }

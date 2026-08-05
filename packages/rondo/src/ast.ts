@@ -119,6 +119,18 @@ export interface CpsItem {
   pos: Pos
 }
 
+/** `level -4` — the project's overall output level in dB. The one line that
+ *  scales every part equally, so it moves the level without touching the
+ *  balance. Reach for it when a bounce says it was normalized: above the
+ *  render's peak ceiling the whole mix gets scaled back down, which makes
+ *  per-part gains inert, and only a uniform trim brings it back under. */
+export interface LevelItem {
+  t: 'level'
+  /** decibels as written; 0 is unity, negative is quieter. */
+  db: number
+  pos: Pos
+}
+
 /** `timesig 3 4` — the project's meter. A cycle is one BAR, so this is what
  *  makes a bar three quarters long instead of four; `bpm` is counted in
  *  quarter notes and scales with it. */
@@ -276,7 +288,7 @@ export interface CurveDefItem {
 
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
-  | SidechainItem | MasterItem | BusBlock | VisualItem
+  | SidechainItem | MasterItem | LevelItem | BusBlock | VisualItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
 
 export interface Program {

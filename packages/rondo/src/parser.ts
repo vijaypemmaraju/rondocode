@@ -732,7 +732,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
  *  BODY-level words (`post`, `send`) are NOT here: they open nothing at the
  *  top level. See words.ts, which adds them for highlighting. */
 export const BLOCK_KEYWORDS: readonly string[] = [
-  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig',
+  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level',
   'bus', 'sidechain', 'master', 'macro', 'switch', 'curvedef', 'scaledef',
   'wavedef', 'visual', 'js',
 ]
@@ -743,7 +743,7 @@ export const BLOCK_KEYWORDS: readonly string[] = [
  *  added to one list and not the other — so it lives HERE, next to the dispatch
  *  that defines it, and the formatter imports it. */
 export const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
-  'cps', 'bpm', 'timesig', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef',
+  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef',
 ])
 
 /** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
@@ -1022,6 +1022,18 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
         errors.push({ message: 'wavedef needs at least 2 frames to morph between (`wavedef vox 1 .3 / .5 1 .6`)', line: ln.line, col: ln.rawCol })
       }
       items.push({ t: 'wavedef', name, frames, pos: head.pos })
+      i++
+    }
+    // `level -4` → masterGain(-4): the whole output, in dB. NOT spelled
+    // `gain`, which is already a play modifier (`gain: .5`) — one word for two
+    // things reads as one thing, and it silently knocked the modifier out of
+    // the play-body completions.
+    else if (head.v === 'level') {
+      const v = ln.toks[1]
+      if (!v || v.k !== 'num') {
+        errors.push({ message: 'level needs a number of dB (`level -4`)', line: ln.line, col: ln.rawCol })
+      }
+      items.push({ t: 'level', db: v && v.k === 'num' ? v.v : 0, pos: head.pos })
       i++
     }
     // `master threshold:-6 ratio:2 …` → masterCompress(opts)

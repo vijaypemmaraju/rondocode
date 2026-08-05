@@ -24,8 +24,10 @@ import { fileURLToPath } from 'node:url'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
-import { renderMix, runPatterns, stageCode } from './render-runner'
-import type { MixResult, StageResult } from './render-runner'
+import { stageCode } from './render-runner'
+import { renderStagedMix } from '../../app/src/editor/resample'
+import type { StageResult } from './render-runner'
+import type { StagedMix } from '../../app/src/editor/resample'
 // Deep read-only imports from sibling package source (see mcp.ts header).
 import { analyze, encodeWav16, getCustomWavetables, renderOffline } from '../../engine/src/index'
 import type { Analysis } from '../../engine/src/index'
@@ -95,7 +97,7 @@ const writeWav = (wav: Uint8Array, prefix: string, code: string, dirs: RenderDir
 
 interface ProgramRender {
   staged: Extract<StageResult, { ok: true }>
-  mix: MixResult
+  mix: StagedMix
   analysis: Analysis
   cycles: number
   cps: number
@@ -126,25 +128,17 @@ const renderProgram = (
     )
   }
   const durationSec = musicSec + TAIL_SEC
-  const events = runPatterns(staged.patterns, { cycles, cps })
-  const tables = getCustomWavetables()
-  const mix = renderMix(staged.synths, events, durationSec, {
-    maxVoices: 12,
-    // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
-    // themselves off it, so an omitted cps would bounce at the wrong speed.
-    cps,
-    // Forward buses/sends/masterComp too, so the offline render an agent "hears"
-    // matches the live signal path (renderMix supports all three; omitting them
-    // silently dropped bus FX and the glue compressor from the render).
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
-    ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
-    // Custom wavetables the program just registered (defineWavetable/wavedef):
-    // explicit, though the kernels would also find this realm's registry.
-    ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
-  })
+  // Through renderStagedMix, the ONE staged->renderMix option mapping. This
+  // function used to build the option object itself and the comment here used
+  // to explain that the copy had silently dropped bus FX and the glue
+  // compressor; it would have dropped masterGain next. What an agent "hears"
+  // now cannot diverge from what the app plays without the shared mapping
+  // being wrong for everyone at once.
+  const mixed = renderStagedMix(code, cycles, undefined, { cps, tailSec: TAIL_SEC, maxVoices: 12 })
+  if ('error' in mixed) return fail(mixed.error)
+  const mix = mixed
   const analysis = analyze({ left: mix.left, right: mix.right, sampleRate: mix.sampleRate })
-  const unknownSounds = [...events.keys()].filter((s) => !staged.synths.has(s))
+  const unknownSounds = [...mix.events.keys()].filter((s) => !staged.synths.has(s))
   return { staged, mix, analysis, cycles, cps, durationSec, unknownSounds }
 }
 

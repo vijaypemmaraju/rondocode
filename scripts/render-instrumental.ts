@@ -1,7 +1,7 @@
 /* Render a backing track for the sung vocal (drums + bass + pad, C→F) to WAV.
  *   pnpm tsx scripts/render-instrumental.ts <out.wav> [cycles]  */
 import { writeFileSync } from 'node:fs'
-import { stageCode, runPatterns, renderMix } from '../packages/server/src/render-runner'
+import { renderStagedMix } from '../packages/app/src/editor/resample'
 import { encodeWav16 } from '../packages/engine/src/index'
 
 const out = process.argv[2]!
@@ -38,8 +38,10 @@ setCps(0.5)`
 
 const staged = stageCode(SRC)
 if (!staged.ok) throw new Error(staged.diagnostics.map((d) => d.message).join(' | '))
-const cps = staged.cps ?? 0.5
-const events = runPatterns(staged.patterns, { cycles, cps })
-const mix = renderMix(staged.synths, events, cycles / cps, { sampleRate: 48000, cps })
+// renderStagedMix: the one staged->renderMix mapping. Built by hand this
+// dropped the master compressor, the send buses and the sidechain, so the
+// backing track written here was not the one the app plays.
+const mix = renderStagedMix(SRC, cycles)
+if ('error' in mix) throw new Error(mix.error)
 writeFileSync(out, encodeWav16(mix.left, mix.right, mix.sampleRate))
 console.log(`✓ ${out}  (${(cycles / cps).toFixed(1)}s @ 48k)`)

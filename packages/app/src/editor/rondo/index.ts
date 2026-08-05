@@ -109,6 +109,7 @@ export const OPTIONS: RondoOption[] = [
   c('timesig', 'keyword', 'timesig BEATS UNIT', 'Set the meter. A cycle is one bar, so this is how long a bar is: it scales bpm, the header readout, the MIDI clock and an exported file\'s bar lines. Your notation still fills one cycle. The unit must be a power of two.', 'timesig 3 4'),
   c('sidechain', 'keyword', 'sidechain kick depth:.7 lead:.5', 'The pump: every kick ducks the other channels. Extra name:amount pairs are per-channel duck.', 'sidechain kick depth:.7 lead:.5'),
   c('master', 'keyword', 'master threshold:-6 ratio:2', 'Master-bus glue compressor.', 'master threshold:-6 ratio:2'),
+  c('level', 'keyword', 'level -4', "Overall output level in dB (0 = unity). Scales every part equally, so it moves the level without touching the balance. Reach for it when a bounce says it was normalized: above that ceiling per-part gains are inert.", 'level -4'),
   c('scaledef', 'keyword', 'scaledef pelog 0 1.2 2.7 5.4 6.7', 'Define a custom tuning: step offsets in semitones from the root (floats welcome), then `scale: c-pelog`. `Nedo` scales (`scale: c-19edo`) need no scaledef.'),
   c('wavedef', 'keyword', 'wavedef vox 1 .3 / .5 1 .6', 'Define a custom wavetable: `/`-separated frames of harmonic partial amplitudes, then `wavetable note pos table:vox`. The inline editor draws the morph; drag the bars to shape it.'),
   c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),

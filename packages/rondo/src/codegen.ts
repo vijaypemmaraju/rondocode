@@ -889,6 +889,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item, errors, macroNames)
     if (item.t === 'master') return cgMaster(item)
+    if (item.t === 'level') return `masterGain(${num(item.db)})`
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)
     if (item.t === 'curvedef') return cgCurveDef(item)

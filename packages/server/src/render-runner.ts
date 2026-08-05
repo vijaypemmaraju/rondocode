@@ -76,6 +76,8 @@ export type StageResult =
       /** Present iff the code called masterCompress() — master-bus glue
        *  compressor config (dB / ratio / ms). */
       masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+      /** Present iff the code called masterGain(db) — overall output level. */
+      masterGain?: number
       /** Staged sing() requests: the neural vocals a headless render must
        *  bake before mixing (the browser bakes them into the sample bank; see
        *  sing-headless.ts for the node path). */
@@ -104,6 +106,7 @@ export function stageCode(source: string): StageResult {
   if (r.timeSig !== undefined) out.timeSig = r.timeSig
   if (r.sidechain !== undefined) out.sidechain = r.sidechain
   if (r.masterComp !== undefined) out.masterComp = r.masterComp
+  if (r.masterGain !== undefined) out.masterGain = r.masterGain
   return out
 }
 
@@ -277,6 +280,12 @@ export interface MixOpts {
    *  the summed mix before normalization — mirrors the live engine's master
    *  compressor (which runs after master gain, before the limiter). */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Overall output level in dB from masterGain(db), applied to the summed mix
+   *  BEFORE the compressor (the live engine's order). Absent is unity. This is
+   *  the only lever that scales everything equally, which is what a project
+   *  mixed past the 0.89 peak ceiling needs: per-part gains up there are
+   *  inert, so nothing smaller can bring the whole mix back under it. */
+  masterGain?: number
   /** Shared send buses (name → compiled FX graph + gain). Fed by `sends` and
    *  summed into the mix before the master compressor — mirrors the live
    *  engine's bus stage. */
@@ -496,6 +505,17 @@ export function renderMix(
     }
   }
 
+  // Overall output level, BEFORE the compressor — the live engine's order, so
+  // a project that sets both gets the same compression here as it does there.
+  // A plain scalar, so the stem replay below only has to repeat the multiply.
+  const masterLevel = opts?.masterGain !== undefined ? Math.pow(10, opts.masterGain / 20) : 1
+  if (masterLevel !== 1) {
+    for (let i = 0; i < total; i++) {
+      left[i]! *= masterLevel
+      right[i]! *= masterLevel
+    }
+  }
+
   // Master glue compressor (stereo-linked), mirroring the live engine's master
   // stage: detect on max(|L|,|R|), one gain from the same soft-knee curve.
   // Its per-sample gain is a scalar, so recording it (for stems) and replaying
@@ -541,6 +561,12 @@ export function renderMix(
   // same order the mix ran them, so the only difference from the mix is the
   // float32 rounding of one multiply per stem.
   for (const part of [...stemAudio.values(), ...busStems.values()]) {
+    if (masterLevel !== 1) {
+      for (let i = 0; i < total; i++) {
+        part.left[i]! *= masterLevel
+        part.right[i]! *= masterLevel
+      }
+    }
     if (masterGain !== undefined) {
       for (let i = 0; i < total; i++) {
         part.left[i]! *= masterGain[i]!

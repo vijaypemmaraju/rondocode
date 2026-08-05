@@ -266,6 +266,12 @@ const GLOBALS: DocEntry[] = [
     'masterCompress({ threshold: -14, ratio: 3, attack: 10, release: 100, makeup: 2 })',
   ),
   g(
+    'masterGain',
+    'masterGain(db: number)',
+    "Overall output level in dB (0 = unity, negative = quieter), clamped to -60..+12. The one control that scales EVERY part equally, so it changes the level without touching the balance. Reach for it when a bounce reports 'normalized -N dB': above that ceiling the render scales the whole mix back down, which makes per-part gains inert, and only a uniform trim brings it back under. Call again to change it.",
+    'masterGain(-4)',
+  ),
+  g(
     'bus',
     'bus(name: string, fx: (ctx) => Sig, sends?: Record<string, number>, opts?: { gain?: number })',
     'A shared send bus: one FX chain (written like a synth post-chain) that many synths feed, so a single reverb or delay is shared instead of duplicated per voice. The sends map routes synths in by amount 0..1, tapped pre-fader so a reverb send does not pump with the sidechain. gain (def 1) scales the return; the bus sums into the master before the glue compressor.',

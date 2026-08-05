@@ -133,6 +133,13 @@ export interface EvalResult {
    *  compressor config. All fields in the compressor's native units (dB /
    *  ratio / ms); validated + clamped engine-side. */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Present iff the code called masterGain(db): overall output level in dB.
+   *  The one lever that scales EVERYTHING equally. Without it the only way to
+   *  change a project's level was to edit every synth, and a project mixed
+   *  past the render's 0.89 peak ceiling could not be brought back under it at
+   *  all — every per-part gain above the ceiling is inert (see normalizeDb).
+   *  Last call wins. */
+  masterGain?: number
   /** Present iff the code called visual(wgsl): the WGSL fragment source for
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
@@ -150,7 +157,7 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object.
  *  EXPORTED so the docs-coverage test can check itself against this list
  *  instead of keeping a second copy that drifts (docs.test.ts). */
-export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
+export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'visual', 'bus', 'sing', '__rcTap'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
 const DEFAULT_SIDECHAIN_DEPTH = 0.6
@@ -655,6 +662,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let timeSig: TimeSig | undefined
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
+  let masterGainDb: number | undefined
   let visualSrc: string | undefined
 
   // Staging is SEALED once the synchronous eval returns: a p() reached from
@@ -811,6 +819,20 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       knee: numField('knee', 6),
       makeup: numField('makeup', 0),
     }
+  }
+
+  /** Set the overall output level in dB (0 = unity, negative = quieter).
+   *  Applied to the summed mix, so it scales every part equally and changes
+   *  nothing about the balance. This is the lever to reach for when the bounce
+   *  reports `normalized -N dB`: per-part gains above that ceiling are inert,
+   *  and only a uniform trim brings the whole mix back under it. Clamped to
+   *  [-60, +12] dB. Last call wins. */
+  const masterGain = (db: unknown): void => {
+    assertOpen('masterGain')
+    if (typeof db !== 'number' || !Number.isFinite(db)) {
+      throw new TypeError(`masterGain(): expected a number of dB, got ${String(db)}`)
+    }
+    masterGainDb = Math.min(12, Math.max(-60, db))
   }
 
   /** Register the WGSL fragment source for the shader visualizer. The string
@@ -973,8 +995,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
-  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, visual, bus, sing, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'visual', 'bus', 'sing', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, visual, bus, sing, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to
@@ -1095,6 +1117,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   result.timeSig = timeSig ?? DEFAULT_TIME_SIG
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg
+  if (masterGainDb !== undefined) result.masterGain = masterGainDb
   if (visualSrc !== undefined) result.visual = visualSrc
   return result
 }

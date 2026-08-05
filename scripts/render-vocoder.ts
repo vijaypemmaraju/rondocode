@@ -4,7 +4,8 @@
  * a formant-shaped source, so the carrier "sings" vowels with no voice sample. */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { stageCode, runPatterns, renderMix } from '../packages/server/src/render-runner'
+import { stageCode } from '../packages/server/src/render-runner'
+import { renderStagedMix } from '../packages/app/src/editor/resample'
 import { encodeWav16 } from '../packages/engine/src/index'
 
 interface Demo {
@@ -67,16 +68,14 @@ for (const demo of DEMOS) {
     console.error(`SKIP ${demo.name}: ${staged.diagnostics.map((d) => d.message).join(' | ')}`)
     continue
   }
-  const cps = staged.cps ?? 0.5
-  const durationSec = demo.cycles / cps
-  const events = runPatterns(staged.patterns, { cycles: demo.cycles, cps })
-  const mix = renderMix(staged.synths, events, durationSec, {
-    sampleRate: 48000,
-    cps,
-    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
-  })
+  // renderStagedMix is the one staged->renderMix mapping; a copy here would go
+  // stale the next time a staged field is added, as this one already had.
+  const mix = renderStagedMix(demo.source, demo.cycles)
+  if ('error' in mix) {
+    console.error(`SKIP ${demo.name}: ${mix.error}`)
+    continue
+  }
+  const durationSec = demo.cycles / mix.cps
   // Peak-normalize to a consistent level so the demos (and the dry/wet A/B) are
   // fairly comparable regardless of each patch's internal gain.
   let peak = 0

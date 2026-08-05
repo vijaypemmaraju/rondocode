@@ -1,4 +1,10 @@
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
+
+/** repo root, from this file's location (packages/app/test). */
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
 /* ------------------------------------------------------------------------- *
  * ONE staged result, TWO consumers that must not disagree.
@@ -30,7 +36,7 @@ vi.mock('../../server/src/render-runner', async (importOriginal) => {
 
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
 import { renderMix, stageCode } from '../../server/src/render-runner'
-import { evalCode } from '../src/session/evalCode'
+import { STAGING_NAMES, evalCode } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
 import { renderStagedMix } from '../src/editor/resample'
 import { Session } from '../src/session/Session'
@@ -47,6 +53,7 @@ p('y', note('e4').sound('b'))
 bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.8 }), { b: 0.3 })
 sidechain('a', { depth: 0.5, release: 0.2, duck: { b: 0.7 } })
 masterCompress({ threshold: -10, ratio: 3 })
+masterGain(-3)
 visual(\`fn main() {}\`)
 setTimeSig(3, 4)
 setCps(0.7)
@@ -77,6 +84,7 @@ const FATE: Record<string, Fate> = {
   cps: { staged: true, mixOpt: 'cps', live: 'callback', why: 'live it retimes the scheduler, which is not an engine message' },
   sidechain: { staged: true, mixOpt: 'sidechain', live: 'setSidechain' },
   masterComp: { staged: true, mixOpt: 'masterComp', live: 'setMasterComp' },
+  masterGain: { staged: true, mixOpt: 'masterGain', live: 'setMaster' },
   sings: {
     staged: true,
     mixOpt: null,
@@ -106,11 +114,33 @@ const stagedFields = (): string[] => {
     .sort()
 }
 
+/** Staging names MAXIMAL deliberately does not call, and why. Everything else
+ *  in STAGING_NAMES must appear in the fixture or the field it stages would be
+ *  invisible to every assertion in this file. */
+const NOT_IN_FIXTURE: Record<string, string> = {
+  defineSynth: 'not written by hand — `const a = synth(...)` compiles to it, which MAXIMAL does twice',
+  setBpm: 'an alternative spelling of setCps that stages the same `cps` field, already covered',
+  __rcTap: 'internal source-position tap, stages nothing',
+}
+
 describe('staged fields reach both consumers', () => {
+  it('calls every staging function, so nothing can stage a field unseen', () => {
+    // Without this the fixture is a hand-maintained list, which is the exact
+    // thing this file exists to replace: a new staging call would add a field
+    // that MAXIMAL never triggers, so every check below would pass over it.
+    for (const name of STAGING_NAMES) {
+      if (name in NOT_IN_FIXTURE) continue
+      expect(
+        MAXIMAL.includes(`${name}(`),
+        `MAXIMAL never calls ${name}() — add it, or say in NOT_IN_FIXTURE why it cannot be called`,
+      ).toBe(true)
+    }
+  })
+
   it('exercises every staging call, so the list below is the whole list', () => {
     // Guards the fixture itself: a field only appears if MAXIMAL stages it.
     expect(stagedFields()).toEqual([
-      'buses', 'cps', 'masterComp', 'patterns', 'sends', 'sidechain', 'sings', 'synths', 'timeSig', 'visual',
+      'buses', 'cps', 'masterComp', 'masterGain', 'patterns', 'sends', 'sidechain', 'sings', 'synths', 'timeSig', 'visual',
     ])
   })
 
@@ -181,6 +211,45 @@ describe('staged fields reach both consumers', () => {
       if (f.live === null || f.live === 'callback') continue
       expect(kinds.has(f.live), `'${name}' is staged but the live session never sent '${f.live}'`).toBe(true)
     }
+  })
+
+  /* The mapping above is only worth pinning if there is ONE of it. Two scripts
+   * had grown their own copy of the renderMix option object, and both went
+   * stale the day masterGain landed: the audio sweep rendered seven examples
+   * without their own output level and then reported them as still mixed into
+   * the ceiling — a harness disagreeing with the app it measures. */
+  it('is the only place that builds renderMix options', () => {
+    const roots = ['packages/app/src', 'packages/server/src', 'packages/engine/src', 'scripts']
+    const ALLOWED = new Set([
+      'packages/server/src/render-runner.ts', // where renderMix is defined
+      'packages/app/src/editor/resample.ts', // renderStagedMix: the one mapping
+    ])
+    const offenders: string[] = []
+    const walk = (dir: string): void => {
+      let entries: string[]
+      try {
+        entries = readdirSync(dir)
+      } catch {
+        return
+      }
+      for (const e of entries) {
+        const full = join(dir, e)
+        if (statSync(full).isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!full.endsWith('.ts') || full.includes('/test/') || e.startsWith('_')) continue
+        const rel = full.slice(repoRoot.length + 1)
+        if (ALLOWED.has(rel)) continue
+        const text = readFileSync(full, 'utf8')
+        if (/renderMix\s*\(/.test(text)) offenders.push(rel)
+      }
+    }
+    for (const r of roots) walk(join(repoRoot, r))
+    expect(
+      offenders,
+      'call renderStagedMix instead — it is the one place that knows which staged fields become which options',
+    ).toEqual([])
   })
 
   it('does not quietly start forwarding something declared unforwarded', () => {

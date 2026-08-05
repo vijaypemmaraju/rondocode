@@ -10,7 +10,8 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { stageCode, runPatterns, renderMix } from '../packages/server/src/render-runner'
+import { stageCode } from '../packages/server/src/render-runner'
+import { renderStagedMix } from '../packages/app/src/editor/resample'
 import { encodeWav16 } from '../packages/engine/src/index'
 
 interface Demo {
@@ -105,21 +106,21 @@ for (const demo of DEMOS) {
     console.error(`SKIP ${demo.name}: ${staged.diagnostics.map((d) => d.message).join(' | ')}`)
     continue
   }
-  const cps = staged.cps ?? 0.5
-  const durationSec = demo.cycles / cps
-  const events = runPatterns(staged.patterns, { cycles: demo.cycles, cps })
-  const mix = renderMix(staged.synths, events, durationSec, {
-    sampleRate: 48000,
-    cps,
-    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
-  })
+  // renderStagedMix is the ONE staged->renderMix option mapping; building the
+  // options here again is how a script quietly renders something the app does
+  // not (this copy had already lost custom wavetables, and would have lost
+  // masterGain the day it landed).
+  const mix = renderStagedMix(demo.source, demo.cycles)
+  if ('error' in mix) {
+    console.error(`SKIP ${demo.name}: ${mix.error}`)
+    continue
+  }
+  const durationSec = demo.cycles / mix.cps
   const wav = encodeWav16(mix.left, mix.right, mix.sampleRate)
   const file = `${demo.name}.wav`
   writeFileSync(join(outDir, file), wav)
   console.error(
-    `wrote ${join(outDir, file)} (${(wav.byteLength / 1024) | 0} KiB, ${((durationSec * 100) | 0) / 100}s, ${mix.normalized ? 'normalized' : 'unnormalized'})`,
+    `wrote ${join(outDir, file)} (${(wav.byteLength / 1024) | 0} KiB, ${((durationSec * 100) | 0) / 100}s, ${mix.normalizeDb < -0.05 ? `normalized ${mix.normalizeDb.toFixed(1)} dB` : 'unnormalized'})`,
   )
   if (copyDir !== undefined) {
     writeFileSync(join(copyDir, file), wav)

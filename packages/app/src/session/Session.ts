@@ -1,7 +1,7 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import { DEFAULT_TIME_SIG } from '@rondocode/pattern'
 import type { SchedulerEvent, TimeSig } from '@rondocode/pattern'
-import { RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
+import { DEFAULT_MASTER_GAIN, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -230,6 +230,8 @@ export class Session {
    *  tempo isn't resent every eval. Starts at the scheduler's own default,
    *  which is also the engine's — the two agree before anyone sets anything. */
   private liveCps: number | undefined
+  /** Last masterGain(db) applied, so an unchanged one is not resent. */
+  private masterGainDb: number | undefined
   /** The project's meter, from the last successful eval. Not sent to the
    *  engine: nothing in the audio graph counts bars — this scales the tempo
    *  UNIT (bpm), the clock and the exported file, all of which read it from
@@ -449,6 +451,12 @@ export class Session {
 
     // Master glue compressor: same diff-and-send discipline — setMasterComp on
     // new/changed config, clearMasterComp when it vanishes.
+    // The engine has understood `setMaster` since it was written, and nothing
+    // in the app had ever sent it — a master gain the code could not reach.
+    if (result.masterGain !== this.masterGainDb) {
+      this.masterGainDb = result.masterGain
+      this.audio.send({ kind: 'setMaster', gain: Math.pow(10, (result.masterGain ?? 0) / 20) * DEFAULT_MASTER_GAIN })
+    }
     const mcJson = result.masterComp !== undefined ? JSON.stringify(result.masterComp) : undefined
     if (mcJson !== this.liveMasterComp) {
       if (result.masterComp !== undefined) {

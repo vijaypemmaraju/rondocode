@@ -69,6 +69,7 @@ function topChips(doc: string): Chip[] {
     chip('sidechain', `sidechain kick depth:.7 release:.12\n`, 'kw'),
     chip('master', `master threshold:-6 ratio:2\n`, 'kw'),
     chip('level', `level -4\n`, 'kw'),
+    chip('sum', `sum k 1..16\n  sine note * k\n`, 'kw'),
     chip('bpm', 'bpm 120\n', 'kw'),
     chip('cps', 'cps .5\n', 'kw'),
     chip('timesig', 'timesig 3 4\n', 'kw'),

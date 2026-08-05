@@ -152,4 +152,9 @@ export const isTransform = (name: string): boolean => {
  *  the synth to a js block instead). */
 export const isReservedBinding = (name: string): boolean =>
   name === 'note' || name === 'gate' || name === 'input' || name === 'velocity' ||
-  name === 'adsr' || name === 'knob' || name === 'switch'
+  name === 'adsr' || name === 'knob' || name === 'switch' ||
+  // `sum k 1..16` opens a block, so a binding of that name would make the
+  // line ambiguous to a reader even where the parser can tell them apart.
+  // The decompiler reads this list when it invents names, so it stops
+  // generating `sum` the moment the word means something.
+  name === 'sum'

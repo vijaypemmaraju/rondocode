@@ -181,6 +181,31 @@ class SynthGen {
         }
         return `${this.expr(e.l)}.${method}(${this.expr(e.r)})`
       }
+      case 'sum': {
+        /* UNROLLED, not emitted as a JS loop.
+         *
+         * The graph a synth builds is unrolled anyway — sixteen partials are
+         * sixteen oscillator nodes however the source spelled them — so a loop
+         * in the generated JS would buy nothing at runtime and cost the
+         * evaluator a scope. Substituting the index and emitting the sum keeps
+         * every existing rule (binding order, macro collection, unknown-name
+         * checks) working on ordinary expressions, with no special case
+         * anywhere downstream of here. */
+        const parts: string[] = []
+        for (let k = e.lo; k <= e.hi; k++) {
+          const idx: Expr = { t: 'num', v: k, pos: e.pos }
+          // each step gets its OWN copy of the bindings, with k substituted:
+          // `ratio` is a different number on every step, and inlining is what
+          // lets a binding depend on the index at all.
+          const env = new Map<string, Expr>([[e.index, idx]])
+          for (const b of orderBindings(e.bindings, this.errors)) {
+            env.set(b.name, substitute(b.expr, env))
+          }
+          parts.push(this.expr(substitute(e.body, env)))
+        }
+        if (parts.length === 0) return '0'
+        return parts.reduce((acc, x) => `${acc}.add(${x})`)
+      }
       case 'map':
         if (e.x.t === 'num') {
           // a constant mapped through a range is a constant — fold when the
@@ -441,6 +466,60 @@ function cgChain(
   const destructure = [...head, ...rest].join(', ')
   const body = [...macroLines, ...bindingLines, `  return ${spineStr}`].join('\n')
   return `({ ${destructure} }) => {\n${body}\n}`
+}
+
+/** Arithmetic on two constants, or null when the result is not a number worth
+ *  substituting (a divide by zero stays in the graph and errors there). */
+function fold(op: '+' | '-' | '*' | '/' | '^', a: number, b: number): number | null {
+  const v = op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : op === '/' ? a / b : Math.pow(a, b)
+  return Number.isFinite(v) ? v : null
+}
+
+/**
+ * Replace every identifier that `env` names with the expression bound to it.
+ *
+ * This is how `sum` gets its index in: the body and the bindings are ordinary
+ * expressions mentioning `k`, and each step substitutes the number. Bindings
+ * are substituted into each other first (in dependency order), so a binding
+ * may be built from another one exactly as it can outside a sum.
+ */
+function substitute(e: Expr, env: ReadonlyMap<string, Expr>): Expr {
+  switch (e.t) {
+    case 'ident': {
+      const hit = env.get(e.name)
+      return hit === undefined ? e : hit
+    }
+    case 'bin': {
+      const l = substitute(e.l, env)
+      const r = substitute(e.r, env)
+      // FOLD once the index is a number. `dk = 7.5 / k^.66` is arithmetic on a
+      // loop counter, not a signal graph, and leaving it unfolded would both
+      // build pointless nodes and fail outright — `number / signal` has no
+      // spelling, and after substitution the right side is a number.
+      if (l.t === 'num' && r.t === 'num') {
+        const v = fold(e.op, l.v, r.v)
+        if (v !== null) return { t: 'num', v, pos: e.pos }
+      }
+      return { ...e, l, r }
+    }
+    case 'map':
+      return { ...e, x: substitute(e.x, env), lo: substitute(e.lo, env), hi: substitute(e.hi, env) }
+    case 'call':
+      return {
+        ...e,
+        args: e.args.map((a) => substitute(a, env)),
+        named: Object.fromEntries(Object.entries(e.named).map(([k, v]) => [k, substitute(v, env)])),
+      }
+    case 'sum':
+      // a nested sum shadows the outer index if it reuses the name
+      return {
+        ...e,
+        bindings: e.bindings.map((b) => ({ ...b, expr: substitute(b.expr, env) })),
+        body: substitute(e.body, env),
+      }
+    default:
+      return e
+  }
 }
 
 function cgSynth(

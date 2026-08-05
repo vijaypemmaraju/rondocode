@@ -640,6 +640,38 @@ describe('rondo → rondocode codegen', () => {
    * a project mixed past that ceiling cannot be turned down by any per-part
    * gain — they are all inert up there — and could not be turned down at all
    * before this. */
+  /* `sum k 1..16` — the body summed once per k.
+   *
+   * An additive voice is N copies of one line with the numbers moving, and
+   * writing them out was the only way rondo had. The piano that motivated
+   * this needs `k * sqrt(1 + B*k^2)`, which has NO parenless spelling — so
+   * the test that matters is that bindings can carry the index, because
+   * bindings are how rondo writes what other languages need parens for. */
+  it('sum: the body is repeated and added, once per index', () => {
+    const out = ok('synth organ\n  sum k 1..3\n    sine note * k\n\nplay organ\n  c3\n')
+    expect(out).toContain('sine(note.freq.mul(1)).add(sine(note.freq.mul(2))).add(sine(note.freq.mul(3)))')
+  })
+
+  it('sum: a binding may be built FROM the index, and from another binding', () => {
+    const out = ok('synth v\n  sum k 1..2\n    sine note * ratio\n    inner = 1 + .0004 * k^2\n    ratio = k * inner^.5\n\nplay v\n  c3\n')
+    // k=1: 1*sqrt(1+.0004) = 1.0002; k=2: 2*sqrt(1+.0016) = 2.0016
+    expect(out).toMatch(/mul\(1\.0001999/)
+    expect(out).toMatch(/mul\(2\.0015993/)
+  })
+
+  it('sum: index arithmetic FOLDS instead of building nodes', () => {
+    // after substitution `7.5 / k^.66` is a number; left unfolded it is not
+    // even expressible (`number / signal` has no spelling) let alone useful
+    const out = ok('synth v\n  sum k 1..2\n    sine note\n    * env\n    dk = 7.5 / k^.66\n    env = adsr .002 dk 0 .28\n\nplay v\n  c3\n')
+    expect(out).toContain('d: 7.5')
+    expect(out).not.toContain('Math.pow')
+  })
+
+  it('sum: sits alongside ordinary spine lines', () => {
+    const out = ok('synth v\n  sum k 1..2\n    sine note * k\n  * env\n  env = adsr .01 .2 .5 .2\n\nplay v\n  c3\n')
+    expect(out).toContain('.mul(env)')
+  })
+
   it('level line → masterGain, in dB, negative included', () => {
     expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel -4.5\n`)).toContain('masterGain(-4.5)')
     expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel 2\n`)).toContain('masterGain(2)')
@@ -847,6 +879,13 @@ describe('positioned diagnostics', () => {
     failsAt('sidechain\n', 'sidechain needs a source synth', 1, 1)
     failsAt('synth s\n  saw\n\nmaster threshold:x\n', 'master args are `name:number` pairs', 4, 8)
     failsAt('synth s\n  saw\n\nlevel\n', 'level needs a number of dB', 4, 1)
+    // sum: every way the header can be wrong says which way
+    failsAt('synth v\n  sum\n    sine note\n', 'sum needs an index name and a range', 2, 3)
+    failsAt('synth v\n  sum k\n    sine note\n', 'sum needs a range after the index', 2, 3)
+    failsAt('synth v\n  sum k 8..2\n    sine note\n', 'sum range runs backwards', 2, 3)
+    failsAt('synth v\n  sum k 1..900\n    sine note\n', 'more voices than this can build', 2, 3)
+    failsAt('synth v\n  sum k 1..4\n', 'sum needs an indented body', 2, 3)
+    failsAt('synth v\n  sum k 1.5..4\n    sine note\n', 'whole numbers', 2, 3)
   })
 
   it('unknown synth voice option points at the option token', () => {

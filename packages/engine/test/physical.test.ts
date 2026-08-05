@@ -110,3 +110,80 @@ describe('ModalKernel (resonator bank)', () => {
     expect(rms(idle)).toBe(0)
   })
 })
+
+/* THE PIANO MODEL. A piano is not a bell with different numbers: what makes
+ * the ear hear a struck STRING is that the partials sit sharp of the harmonic
+ * series, because a real string is stiff. With that off, the same bank is an
+ * organ stop. These pin the three properties that carry the illusion. */
+describe('ModalKernel: the piano model', () => {
+  const strike = (freq: number, n: number, cfg: Record<string, unknown> = {}): Float32Array => {
+    const k = new ModalKernel({ model: 'piano', decay: 6, ...cfg }, ctx)
+    const out = new Float32Array(n)
+    k.process(n, { gate: gateOn(n), freq: constBuf(n, freq) }, out, ctx)
+    return out
+  }
+  /** Cents by which partial `n` actually sits above the exact harmonic. */
+  const stretchCents = (x: Float32Array, f0: number, n: number): number => {
+    let best = 0
+    let bestF = n * f0
+    for (let f = n * f0 * 0.99; f < n * f0 * 1.06; f += 0.05) {
+      const m = goertzel(x, f, sr)
+      if (m > best) {
+        best = m
+        bestF = f
+      }
+    }
+    return 1200 * Math.log2(bestF / (n * f0))
+  }
+
+  it('puts the partials SHARP, by the amount stiffness predicts', () => {
+    // f_n = n*f0*sqrt(1 + B*n^2); at B = 0.0004 partial 8 is 21.9 cents sharp.
+    const x = strike(130.81, sr)
+    expect(stretchCents(x, 130.81, 8)).toBeGreaterThan(18)
+    expect(stretchCents(x, 130.81, 8)).toBeLessThan(26)
+    // and the stretch GROWS with partial number — that is the whole shape
+    expect(stretchCents(x, 130.81, 8)).toBeGreaterThan(stretchCents(x, 130.81, 4) + 8)
+  })
+
+  it('is harmonic again with stretch: 0, which is the tell', () => {
+    const x = strike(130.81, sr, { stretch: 0 })
+    expect(Math.abs(stretchCents(x, 130.81, 8))).toBeLessThan(2)
+  })
+
+  /** Seconds until the note falls to a tenth of its opening level. `decay: 2`
+   *  rather than the 6 above so the BASS also finishes inside the window: at
+   *  the real setting it rings past ten seconds, which is the point, but a
+   *  measurement that clamps cannot compare two clamped values. */
+  const ringSec = (freq: number, cfg: Record<string, unknown> = {}): number => {
+    const x = strike(freq, sr * 10, { decay: 2, ...cfg })
+    const open = rms(x, 0, Math.floor(sr * 0.2))
+    for (let t = 0.2; t < 9.6; t += 0.1) {
+      if (rms(x, Math.floor(t * sr), Math.floor((t + 0.2) * sr)) < open * 0.1) return t
+    }
+    return 10
+  }
+
+  it('rings longer in the bass than the treble', () => {
+    // a real piano holds its bottom notes for twenty seconds and its top for
+    // about one; a single decay time cannot be right for both
+    expect(ringSec(55)).toBeGreaterThan(ringSec(1047) * 2)
+  })
+
+  it('takes keyScale: 0 to make every pitch ring the same length', () => {
+    const ratio = ringSec(55, { keyScale: 0 }) / ringSec(1047, { keyScale: 0 })
+    expect(ratio).toBeGreaterThan(0.6)
+    expect(ratio).toBeLessThan(1.7)
+  })
+
+  it('leaves the percussion models exactly as they were', () => {
+    // stretch/keyScale default to the MODEL's values, and bell has none: a
+    // new option must not quietly retune every existing patch
+    const k = new ModalKernel({ model: 'bell', decay: 2 }, ctx)
+    const a = new Float32Array(sr)
+    k.process(sr, { gate: gateOn(sr), freq: constBuf(sr, 440) }, a, ctx)
+    const k2 = new ModalKernel({ model: 'bell', decay: 2, stretch: 0, keyScale: 0 }, ctx)
+    const b = new Float32Array(sr)
+    k2.process(sr, { gate: gateOn(sr), freq: constBuf(sr, 440) }, b, ctx)
+    for (let i = 0; i < a.length; i += 97) expect(a[i]).toBeCloseTo(b[i]!, 6)
+  })
+})

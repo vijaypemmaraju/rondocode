@@ -55,7 +55,7 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   // shape.ts ShapeType
   shape: { named: { type: ['soft', 'hard', 'sine', 'tube'] } },
   // physical.ts MODAL_MODELS keys
-  modal: { named: { model: ['bell', 'bar', 'drum', 'glass'] } },
+  modal: { named: { model: ['bell', 'bar', 'drum', 'glass', 'piano'] } },
   // width.ts MODE_DELAY keys (the decorrelation delay: 12 ms vs 3 ms)
   width: { pos: [null], named: { mode: ['wide', 'tight'] } },
   // wavetable.ts WAVETABLE_WARPS; table gets doc wavedefs appended at scan

@@ -541,9 +541,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'modal',
-    "modal(gate, freq, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass', decay?, damp? })",
-    'A struck modal resonator bank: a rising gate edge strikes a bank of tuned resonators at freq, ringing like a physical object. model picks the material (bell default, bar for marimba, drum, glass); decay (s, def 1.2) is the ring time; damp (0..1) mellows the strike by taming the higher modes. Self-enveloping like pluck.',
-    "modal(gate, note.freq, { model: 'bell', decay: 3 })",
+    "modal(gate, freq, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass' | 'piano', decay?, damp?, stretch?, keyScale? })",
+    "A struck modal resonator bank: a rising gate edge strikes a bank of tuned resonators at freq, ringing like a physical object. model picks the material (bell default, bar for marimba, drum, glass, piano); decay (s, def 1.2) is the ring time, measured at middle C when the model scales with pitch; damp (0..1) mellows the strike by taming the higher modes. Self-enveloping like pluck. stretch is INHARMONICITY -- partials pushed sharp of the harmonic series, which is what makes a struck string rather than an organ, and the whole of why 'piano' sounds like one (it brings 0.0004; the top octave of a real piano is nearer 0.001). keyScale is how fast the ring shortens with pitch, so a bass note can hold while the top of the keyboard is gone in a breath.",
+    "modal(gate, note.freq, { model: 'piano', decay: 6 })",
   ),
   sc(
     'svf',

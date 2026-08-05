@@ -225,7 +225,22 @@ export interface SynthCtx {
    *  ('bell' default, 'bar' marimba, 'drum', 'glass'); `decay` (s, def 1.2) is
    *  the ring time; `damp` (0..1) mellows the strike by taming higher modes.
    *  Self-enveloping like pluck. */
-  modal(gate: SigIn, freq: SigIn, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass'; decay?: number; damp?: number }): Sig
+  modal(
+    gate: SigIn,
+    freq: SigIn,
+    opts?: {
+      model?: 'bell' | 'bar' | 'drum' | 'glass' | 'piano'
+      decay?: number
+      damp?: number
+      /** Inharmonicity: partials sit sharp of the harmonic series, which is
+       *  what makes a struck STRING rather than an organ. The piano model
+       *  brings its own (0.0004); raise toward 0.001 for the top octave. */
+      stretch?: number
+      /** How strongly ring time falls with pitch. The piano model brings its
+       *  own (0.62); 0 means every pitch rings the same length. */
+      keyScale?: number
+    },
+  ): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -1021,7 +1036,13 @@ const makeCtx = (b: Builder): SynthCtx => {
       b.node(
         'modal',
         { gate: src(gate, 'modal gate'), freq: src(freq, 'modal freq') },
-        definedConfig({ model: opts?.model, decay: opts?.decay, damp: opts?.damp }),
+        definedConfig({
+          model: opts?.model,
+          decay: opts?.decay,
+          damp: opts?.damp,
+          stretch: opts?.stretch,
+          keyScale: opts?.keyScale,
+        }),
       ),
 
     adsr: (gate, opts) =>

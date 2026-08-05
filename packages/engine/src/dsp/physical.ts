@@ -128,10 +128,26 @@ export class PluckKernel implements Kernel {
 export interface ModalConfig {
   /** Resonator bank preset. Default 'bell'. */
   model?: string
-  /** Base ring time in seconds (per-mode scaled). Default 1.2. */
+  /** Base ring time in seconds (per-mode scaled), measured at C4 when the
+   *  model scales with pitch (see ModeSpec.keyScale). Default 1.2. */
   decay?: number
   /** 0..1 darkens the strike by attenuating higher modes. Default 0. */
   damp?: number
+  /** INHARMONICITY. A real string is stiff, so its partials sit sharp of the
+   *  harmonic series: r_n -> r_n * sqrt(1 + B*r_n^2). This is what separates a
+   *  struck STRING from an organ — with B = 0 a piano's partials are exact
+   *  multiples and the ear hears a flute stop, whatever the envelope does.
+   *
+   *  Piano B runs about 0.0001 in the bass to 0.001+ in the top octave; this
+   *  is one value for the whole keyboard, so a patch covering the extremes
+   *  wants two synths. Defaults to the model's own value (0 for the
+   *  percussion models, whose ratios are already inharmonic by measurement). */
+  stretch?: number
+  /** How strongly ring time falls with pitch: `decay * (C4/freq)^keyScale`.
+   *  A piano's bottom notes ring for twenty seconds and its top for one, and
+   *  a single decay time cannot be right for both. 0 (the percussion models'
+   *  default) means every pitch rings the same length. */
+  keyScale?: number
 }
 
 interface ModeSpec {
@@ -141,7 +157,15 @@ interface ModeSpec {
   amps: number[]
   /** Relative decay factors (× base decay). */
   decays: number[]
+  /** Default inharmonicity for this material (see ModalConfig.stretch). */
+  stretch?: number
+  /** Default pitch-scaling of ring time (see ModalConfig.keyScale). */
+  keyScale?: number
 }
+
+/** The pitch `decay` is measured at, so a model that scales with pitch still
+ *  takes a decay time a human can reason about. Middle C. */
+const KEY_SCALE_REF_HZ = 261.63
 
 /** Modal presets: ratios/amps/decays per struck material. Values are the usual
  *  textbook/STK approximations, not physical measurements. */
@@ -168,6 +192,35 @@ export const MODAL_MODELS: Record<string, ModeSpec> = {
     amps: [1, 0.5, 0.35, 0.2, 0.12],
     decays: [1, 0.9, 0.8, 0.7, 0.6],
   },
+  /* A STRUCK PIANO STRING, which is three things the percussion models above
+   * are not:
+   *
+   *  - HARMONIC ratios, 1..12, then bent sharp by `stretch`. The bend is the
+   *    identifying feature; the integers alone are an organ.
+   *  - PAIRED strings on the low partials. A piano note has two or three
+   *    strings a cent or so apart, and their slow drift out of phase is what
+   *    gives the shimmer AND the two-stage decay every real piano has: a
+   *    quick initial fall, then a long quiet aftersound. The pairs here sit
+   *    +0.7 cents with a slightly LONGER decay, which is that second stage.
+   *  - A decay per partial that falls with partial number, so the note gets
+   *    darker as it rings instead of holding its timbre like a bell.
+   */
+  piano: {
+    ratios: [
+      1, 1.0004, 2, 2.0008, 3, 3.0012, 4, 4.0016, 5, 5.002, 6, 6.0024,
+      7, 8, 9, 10, 11, 12,
+    ],
+    amps: [
+      1, 0.8, 0.44, 0.35, 0.26, 0.21, 0.18, 0.14, 0.13, 0.1, 0.1, 0.08,
+      0.07, 0.055, 0.045, 0.036, 0.03, 0.025,
+    ],
+    decays: [
+      1, 1.35, 0.63, 0.85, 0.48, 0.65, 0.4, 0.54, 0.35, 0.47, 0.31, 0.42,
+      0.28, 0.26, 0.24, 0.22, 0.2, 0.19,
+    ],
+    stretch: 0.0004,
+    keyScale: 0.62,
+  },
 }
 
 const isModel = (m: string): boolean => Object.prototype.hasOwnProperty.call(MODAL_MODELS, m)
@@ -181,6 +234,8 @@ export class ModalKernel implements Kernel {
   private readonly spec: ModeSpec
   private readonly decaySec: number
   private readonly damp: number
+  private readonly stretch: number
+  private readonly keyScale: number
   private readonly nModes: number
   private readonly a1: Float32Array
   private readonly a2: Float32Array
@@ -196,6 +251,9 @@ export class ModalKernel implements Kernel {
     this.spec = MODAL_MODELS[model]!
     this.decaySec = clamp(config.decay ?? 1.2, 0.02, 30)
     this.damp = clamp(config.damp ?? 0, 0, 1)
+    // config wins, then the material's own value, then "not a string at all"
+    this.stretch = clamp(config.stretch ?? this.spec.stretch ?? 0, 0, 0.05)
+    this.keyScale = clamp(config.keyScale ?? this.spec.keyScale ?? 0, 0, 2)
     this.nModes = this.spec.ratios.length
     this.a1 = new Float32Array(this.nModes)
     this.a2 = new Float32Array(this.nModes)
@@ -208,15 +266,21 @@ export class ModalKernel implements Kernel {
   private tune(freq: number, sr: number): void {
     const { ratios, amps, decays } = this.spec
     const damp = this.damp
+    const B = this.stretch
+    // Ring time at THIS pitch: bass strings are long and heavy and hold their
+    // energy, and the top of the keyboard is gone in a breath.
+    const keyed = this.keyScale === 0 ? 1 : Math.pow(KEY_SCALE_REF_HZ / freq, this.keyScale)
     for (let k = 0; k < this.nModes; k++) {
-      const fk = freq * ratios[k]!
+      const ratio = ratios[k]!
+      // stiffness bends every partial sharp, and the higher it is the more
+      const fk = freq * (B === 0 ? ratio : ratio * Math.sqrt(1 + B * ratio * ratio))
       if (fk >= sr * 0.49 || fk <= 0) {
         this.b0[k] = 0
         this.a1[k] = 0
         this.a2[k] = 0
         continue
       }
-      const decK = Math.max(0.01, this.decaySec * decays[k]!)
+      const decK = Math.max(0.01, this.decaySec * decays[k]! * keyed)
       const r = Math.exp(-1 / (decK * sr))
       const w = (2 * Math.PI * fk) / sr
       this.a1[k] = 2 * r * Math.cos(w)

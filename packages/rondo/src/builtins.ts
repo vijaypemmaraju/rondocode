@@ -78,7 +78,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     named: { pos: 'sig', root: 'num', rate: 'sig', size: 'num', density: 'num', spray: 'num', loop: 'bool' },
   },
   pluck: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { decay: 'num', damp: 'num', seed: 'num' } },
-  modal: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { model: 'enum', decay: 'num', damp: 'num' } },
+  modal: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { model: 'enum', decay: 'num', damp: 'num', stretch: 'num', keyScale: 'num' } },
   // breakpoint envelope — flat time/level pairs, special-parsed (variadic):
   // `e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1`
   env: { kind: 'gated', pos: [], named: { release: 'num', curve: 'num', loop: 'bool' } },

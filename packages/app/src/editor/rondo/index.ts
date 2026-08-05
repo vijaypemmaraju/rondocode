@@ -57,6 +57,10 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
       return 'var'
     }
     if ('+-*/^'.includes(ch)) { stream.next(); return 'op' }
+    // arithmetic grouping. In a NOTATION line `(` is euclid, which the
+    // notation branch below already paints as an atom — this only ever sees
+    // the ones in expressions.
+    if (ch === '(' || ch === ')') { stream.next(); return 'op' }
     if (ch === ':' || ch === '=') { stream.next(); return 'op' }
     // notation / mini-notation characters, highlighted as atoms
     if ('<>[]~@!'.includes(ch)) { stream.next(); return 'note' }

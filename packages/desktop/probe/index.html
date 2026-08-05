@@ -39,6 +39,19 @@ const section = (title) => {
   h.textContent = title
   out.append(h)
 }
+/* Every result ALSO goes back to the server that served this page, which
+ * prints it to the terminal. The window is the readable form for a human
+ * looking at the compositor; the terminal is the only form an agent, a CI log
+ * or a bug report can carry. Without it, "did the probe pass?" could only ever
+ * be answered by someone standing in front of the screen. */
+const report = (ok, label, detail) => {
+  try {
+    navigator.sendBeacon('/result', JSON.stringify({ ok, label, detail: detail ?? '' }))
+  } catch {
+    /* the window still shows it */
+  }
+}
+
 const line = (label) => {
   const d = document.createElement('div')
   d.className = 'row'
@@ -47,6 +60,7 @@ const line = (label) => {
   return (ok, detail) => {
     d.innerHTML = `<span class="${ok ? 'ok' : 'bad'}">${ok ? 'YES' : 'NO '}</span> ${label}` +
       (detail ? ` <small>${detail}</small>` : '')
+    report(ok, label, detail)
   }
 }
 
@@ -187,6 +201,41 @@ section('the command surface — invoked for real')
     await invoke('set_workspace_ext', { path: `${WS}/probe.js`, ext: '.rondo' })
     clash(false, 'IT OVERWROTE THE OTHER PROJECT')
   } catch (e) { clash(String(e).includes('already exists'), String(e)) }
+
+  // A project's samples live in <stem>.samples/ beside it, so that copying or
+  // committing the tune takes its takes with it.
+  const empty = line('list_project_samples is empty, not an error, before any take')
+  try {
+    const rows = await invoke('list_project_samples', { project: moved })
+    empty(Array.isArray(rows) && rows.length === 0, JSON.stringify(rows))
+  } catch (e) { empty(false, String(e)) }
+
+  const wrote = line('write_project_sample lands in <stem>.samples/')
+  try {
+    const p = await invoke('write_project_sample', { project: moved, name: 'take1', bytes: [82, 73, 70, 70, 1, 2, 3] })
+    wrote(p.includes('probe.samples') && p.endsWith('take1.wav'), p)
+  } catch (e) { wrote(false, String(e)) }
+
+  const read = line('…and reads back byte for byte')
+  try {
+    const rows = await invoke('list_project_samples', { project: moved })
+    const one = rows.find((r) => r[0] === 'take1')
+    read(one !== undefined && String(one[1]) === '82,73,70,70,1,2,3', JSON.stringify(rows.map((r) => r[0])))
+  } catch (e) { read(false, String(e)) }
+
+  const escape = line('a sample name cannot escape the project folder')
+  try {
+    const p = await invoke('write_project_sample', { project: moved, name: '../../evil', bytes: [1] })
+    escape(p.includes('probe.samples'), p)
+  } catch (e) { escape(false, String(e)) }
+
+  const gone = line('delete_project_sample removes it, and twice is fine')
+  try {
+    await invoke('delete_project_sample', { project: moved, name: 'take1' })
+    await invoke('delete_project_sample', { project: moved, name: 'take1' })
+    const rows = await invoke('list_project_samples', { project: moved })
+    gone(rows.every((r) => r[0] !== 'take1'), JSON.stringify(rows.map((r) => r[0])))
+  } catch (e) { gone(false, String(e)) }
 })()
 </script>
 <script>
@@ -198,6 +247,21 @@ section('the command surface — invoked for real')
     d.textContent = text
     document.body.append(d)
   }
-  window.addEventListener('error', (e) => shout(`SCRIPT ERROR: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`))
-  window.addEventListener('unhandledrejection', (e) => shout(`UNHANDLED REJECTION: ${e.reason}`))
+  const beacon = (text) => {
+    try {
+      navigator.sendBeacon('/result', JSON.stringify({ ok: false, label: text, detail: '' }))
+    } catch {
+      /* nothing more we can do */
+    }
+  }
+  window.addEventListener('error', (e) => {
+    const t = `SCRIPT ERROR: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`
+    shout(t)
+    beacon(t)
+  })
+  window.addEventListener('unhandledrejection', (e) => {
+    const t = `UNHANDLED REJECTION: ${e.reason}`
+    shout(t)
+    beacon(t)
+  })
 </script>

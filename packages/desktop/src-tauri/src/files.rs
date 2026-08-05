@@ -259,6 +259,84 @@ pub fn trash_file(path: String) -> Result<(), String> {
     osascript(&script).map(|_| ())
 }
 
+/* ---- a project's samples, beside the project ---------------------------- *
+ * The browser stores a project's takes in IndexedDB next to the project row.
+ * A workspace project has no row: it is a FILE, and the whole point of the
+ * workspace is that the file is the thing you copy, commit and hand to
+ * someone. Samples kept in a database beside it would be lost by every one of
+ * those, so `tune.rondo` keeps its samples in `tune.samples/` next to it.
+ *
+ * Deliberately a sibling FOLDER and not a bundle: it stays visible in Finder,
+ * `git add` takes it, and a WAV in there opens in anything. */
+
+/// `tune.rondo` -> `tune.samples`. Rejects a path with no file stem.
+fn samples_dir(project: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(project);
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("bad project path: {project}"))?;
+    let parent = p.parent().ok_or_else(|| format!("bad project path: {project}"))?;
+    Ok(parent.join(format!("{stem}.samples")))
+}
+
+/// The sample files beside `project`, as (name, bytes). Missing folder is not
+/// an error: a project simply has no samples yet, which is the common case.
+pub fn list_project_samples(project: String) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let dir = samples_dir(&project)?;
+    let rd = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", dir.display())),
+    };
+    let mut out = Vec::new();
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("wav") {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+        match std::fs::read(&path) {
+            Ok(bytes) => out.push((name.to_string(), bytes)),
+            // one unreadable take must not cost the project every other one
+            Err(e) => eprintln!("[samples] skipping {}: {e}", path.display()),
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+/// Write one sample beside `project`, creating the folder on first use.
+pub fn write_project_sample(project: String, name: String, bytes: Vec<u8>) -> Result<String, String> {
+    let dir = samples_dir(&project)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // basename only: a sample name comes from user text and must not escape
+    let base = Path::new(&name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("bad sample name: {name}"))?;
+    let p = dir.join(format!("{base}.wav"));
+    std::fs::write(&p, bytes).map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(p.display().to_string())
+}
+
+/// Delete one sample beside `project`. Unlinked, not trashed: unlike a project
+/// this is a derived file the user just asked to drop from the list, and
+/// filling the Trash with takes is noise.
+pub fn delete_project_sample(project: String, name: String) -> Result<(), String> {
+    let dir = samples_dir(&project)?;
+    let base = Path::new(&name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("bad sample name: {name}"))?;
+    let p = dir.join(format!("{base}.wav"));
+    match std::fs::remove_file(&p) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()), // already gone
+        Err(e) => Err(format!("{}: {e}", p.display())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,5 +467,69 @@ mod tests {
         let p = write_bytes(t.s(), "../../evil.wav".into(), vec![1, 2, 3]).unwrap();
         assert!(p.starts_with(&t.s()), "escaped the folder: {p}");
         assert!(p.ends_with("evil.wav"));
+    }
+
+    /* A project's samples live in `<stem>.samples/` beside it, so that copying
+     * or committing the tune takes its takes with it. */
+
+    #[test]
+    fn samples_round_trip_beside_the_project() {
+        let t = Tmp::new("samples");
+        let project = format!("{}/tune.rondo", t.s());
+        std::fs::write(&project, "play a\n  c3\n").unwrap();
+
+        // nothing yet, and that is not an error: most projects have no takes
+        assert!(list_project_samples(project.clone()).unwrap().is_empty());
+
+        let written = write_project_sample(project.clone(), "take1".into(), vec![1, 2, 3, 4]).unwrap();
+        assert!(written.ends_with("tune.samples/take1.wav"), "wrote {written}");
+        write_project_sample(project.clone(), "take2".into(), vec![9]).unwrap();
+
+        let got = list_project_samples(project.clone()).unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].0, "take1");
+        assert_eq!(got[0].1, vec![1, 2, 3, 4]);
+        assert_eq!(got[1].0, "take2");
+
+        delete_project_sample(project.clone(), "take1".into()).unwrap();
+        let got = list_project_samples(project.clone()).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, "take2");
+
+        // deleting what is already gone is success, not an error to handle
+        delete_project_sample(project, "take1".into()).unwrap();
+    }
+
+    #[test]
+    fn a_sample_name_cannot_escape_its_project_folder() {
+        let t = Tmp::new("escape");
+        let project = format!("{}/tune.rondo", t.s());
+        let p = write_project_sample(project, "../../evil".into(), vec![1]).unwrap();
+        assert!(p.contains("tune.samples"), "escaped the project folder: {p}");
+        assert!(p.ends_with("evil.wav"));
+    }
+
+    #[test]
+    fn only_wavs_count_as_samples() {
+        let t = Tmp::new("nonwav");
+        let project = format!("{}/tune.rondo", t.s());
+        write_project_sample(project.clone(), "take1".into(), vec![1]).unwrap();
+        // a README, a .DS_Store, anything else a folder collects
+        std::fs::write(format!("{}/tune.samples/notes.txt", t.s()), "hi").unwrap();
+        let got = list_project_samples(project).unwrap();
+        assert_eq!(got.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(), vec!["take1"]);
+    }
+
+    #[test]
+    fn each_project_in_a_workspace_keeps_its_own_samples() {
+        let t = Tmp::new("perproject");
+        let a = format!("{}/one.rondo", t.s());
+        let b = format!("{}/two.js", t.s());
+        write_project_sample(a.clone(), "take1".into(), vec![1]).unwrap();
+        write_project_sample(b.clone(), "take1".into(), vec![2]).unwrap();
+        // same NAME, different projects, different audio — the bug the browser
+        // side had before the project id was threaded through
+        assert_eq!(list_project_samples(a).unwrap()[0].1, vec![1]);
+        assert_eq!(list_project_samples(b).unwrap()[0].1, vec![2]);
     }
 }

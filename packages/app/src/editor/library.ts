@@ -19,6 +19,7 @@ import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
 import { mountSamplePersistence } from './samplestore'
+import { workspaceSampleStore } from './worksamples'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../session/share'
@@ -222,12 +223,27 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   // A project's samples are part of the project. Without this the takes a user
   // resamples, records or drops in live only as long as the tab does, and a
   // saved `sample(gate, 'take1')` renders silence the next morning.
+  // With a workspace the FILE is the project, so its samples belong beside it
+  // on disk (worksamples.ts) rather than in IndexedDB — a database next to a
+  // file the user copies, commits and hands over would be lost by all three.
+  // Same interface either way, so the persistence layer never branches.
   const samples = mountSamplePersistence({
     audio: editor.audio,
-    store,
+    store: hasWorkspace() ? workspaceSampleStore() : store,
     onError: (m) => console.warn(`[library] ${m}`),
   })
-  void samples.activate(activeId)
+  /** Point the sample layer at the current project. The KEY differs by mode:
+   *  an IndexedDB row id in the browser, the file's PATH in a workspace. In a
+   *  workspace with nothing open yet there is no key at all, and activating on
+   *  the IndexedDB id would have the workspace store resolving a uuid as a
+   *  file path — inventing folders next to nothing. */
+  const activateSamples = (): void => {
+    if (!hasWorkspace()) {
+      void samples.activate(activeId)
+      return
+    }
+    if (openPath !== null) void samples.activate(openPath)
+  }
 
   // Pending debounced autosave (see the autosave wiring below), captured with
   // the project id it belongs to. flushSave() writes it immediately — called
@@ -261,7 +277,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     setActiveId(activeId)
     writeDocOwner(activeId)
     // the fork is a different project, so its samples are its own from here
-    void samples.activate(forked.id)
+    activateSamples()
     if (pendingSave !== undefined) pendingSave = { id: forked.id, code: pendingSave.code }
     // the list is declared below; autosave only ever runs after mount
     await render()
@@ -347,7 +363,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     active = p
     // the outgoing project's samples leave the bank with it, and this one's
     // load in — a take belongs to the tune it was made for
-    void samples.activate(p.id)
+    activateSamples()
     // An IndexedDB project is not the file that was open: drop the path FIRST,
     // or the next autosave writes this project's code into that file, and the
     // language toggle below re-extensions it. (openFile sets its own path.)
@@ -380,6 +396,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     const openFile = async (path: string): Promise<void> => {
       const f = await openProjectPath(path)
       openPath = f.path
+      // a workspace project is identified by its PATH: that is the key its
+      // samples are filed under, and the previous file's leave the bank here
+      activateSamples()
       editor.setLang(f.lang)
       editor.loadCode(f.code)
       setLabel(f.name)
@@ -470,6 +489,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   /** Path of the workspace file currently open, or null. The single piece of
    *  state the file-backed library needs: everything else lives on disk. */
   let openPath: string | null = null
+  // Boot: in the browser this loads the active project's samples now. In a
+  // workspace it is a no-op until a file is opened, because until then there
+  // is no project to key them to.
+  activateSamples()
 
   const render = async (): Promise<void> => {
     projects = await store.listProjects()

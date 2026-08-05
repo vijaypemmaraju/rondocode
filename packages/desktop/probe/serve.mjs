@@ -19,7 +19,30 @@ import { fileURLToPath } from 'node:url'
 const PORT = Number(process.env.PROBE_PORT ?? 6099)
 const page = fileURLToPath(new URL('index.html', import.meta.url))
 
-const server = createServer((_req, res) => {
+/* The page beacons every row here so the run is READABLE OUTSIDE THE WINDOW.
+ * WKWebView has no devtools and the probe renders its own results, which means
+ * that until now the only way to know whether the shell was healthy was for a
+ * person to look at a screen — not something an agent, a CI job or a pasted
+ * bug report can do. */
+let pass = 0
+let fail = 0
+const server = createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/result') {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      try {
+        const r = JSON.parse(body)
+        if (r.ok) pass++
+        else fail++
+        process.stderr.write(`${r.ok ? 'YES' : 'NO '} ${r.label}${r.detail ? `  ${r.detail}` : ''}\n`)
+      } catch {
+        process.stderr.write(`?? unreadable result: ${body}\n`)
+      }
+      res.writeHead(204).end()
+    })
+    return
+  }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
   res.end(readFileSync(page)) // read per request, so an edit needs only a reload
 })
@@ -38,6 +61,9 @@ server.listen(PORT, () => {
   )
   shell.on('exit', (code) => {
     server.close()
-    process.exit(code ?? 0)
+    process.stderr.write(`\nprobe: ${pass} yes, ${fail} no\n`)
+    // A failing row fails the RUN, so this can be scripted. Closing the window
+    // with everything green still exits 0.
+    process.exit(fail > 0 ? 1 : (code ?? 0))
   })
 })

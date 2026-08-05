@@ -275,11 +275,72 @@ function parseKnob(c: Cursor): Expr {
 
 /* ---- blocks -------------------------------------------------------------- */
 
+/** Steps a single `sum` may unroll to. */
+const SUM_MAX_STEPS = 64
+
 function bodyLines(lines: Line[], start: number, min = 0): { body: Line[]; next: number } {
   const body: Line[] = []
   let j = start
   while (j < lines.length && lines[j]!.indent > min) { body.push(lines[j]!); j++ }
   return { body, next: j }
+}
+
+/**
+ * `sum k 1..16` — header and indented body into one Expr.
+ *
+ * The range is written with the same `..` the rest of the language uses, and
+ * both ends must be plain integers: this unrolls at compile time, so a range
+ * that is not known then is not a range this can take.
+ */
+function parseSum(header: Line, body: Line[], errors: RondoError[]): Expr | null {
+  const at = { line: header.line, col: header.rawCol }
+  const nameTok = header.toks[1]
+  if (!nameTok || nameTok.k !== 'ident') {
+    errors.push({ message: 'sum needs an index name and a range (`sum k 1..16`)', ...at })
+    return null
+  }
+  const lo = header.toks[2]
+  const dots = header.toks[3]
+  const hi = header.toks[4]
+  if (lo?.k !== 'num' || dots?.k !== 'range' || hi?.k !== 'num') {
+    errors.push({ message: `sum needs a range after the index (\`sum ${nameTok.v} 1..16\`)`, ...at })
+    return null
+  }
+  const loV = (lo as Tok & { v: number }).v
+  const hiV = (hi as Tok & { v: number }).v
+  if (!Number.isInteger(loV) || !Number.isInteger(hiV)) {
+    errors.push({ message: 'sum range ends must be whole numbers — the body is repeated once per step', ...at })
+    return null
+  }
+  if (hiV < loV) {
+    errors.push({ message: `sum range runs backwards (\`${loV}..${hiV}\`)`, ...at })
+    return null
+  }
+  // A guard, not a limit anyone will meet writing music: every step becomes
+  // real DSP nodes, so a typo'd `1..1000` should say so rather than build a
+  // graph that stalls the audio thread.
+  if (hiV - loV + 1 > SUM_MAX_STEPS) {
+    errors.push({ message: `sum of ${hiV - loV + 1} steps is more voices than this can build (max ${SUM_MAX_STEPS})`, ...at })
+    return null
+  }
+  if (body.length === 0) {
+    errors.push({ message: 'sum needs an indented body — the lines to repeat', ...at })
+    return null
+  }
+  const folded = foldSpine(body, null, errors)
+  if (folded.spine === null) {
+    errors.push({ message: 'sum body has no audio line', ...at })
+    return null
+  }
+  return {
+    t: 'sum',
+    index: nameTok.v,
+    lo: loV,
+    hi: hiV,
+    bindings: folded.bindings,
+    body: folded.spine,
+    pos: header.toks[0]!.pos,
+  }
 }
 
 /** Fold a run of body lines into one spine expression + a list of bindings.
@@ -288,9 +349,24 @@ function bodyLines(lines: Line[], start: number, min = 0): { body: Line[]; next:
 function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { spine: Expr | null; bindings: Binding[] } {
   const bindings: Binding[] = []
   let spine = initial
-  for (const ln of body) {
+  for (let li = 0; li < body.length; li++) {
+    const ln = body[li]!
     const c = new Cursor(ln.toks, errors, { line: ln.line, col: ln.rawCol })
     const t0 = ln.toks[0]
+    // `sum k 1..16` + an indented body: the body summed once per k. Parsed
+    // here rather than as an expression because it OWNS the lines under it,
+    // and only the line walker knows where they end. A following `=` means a
+    // binding, which `sum` is reserved against — but reading the header first
+    // would report the wrong error for it.
+    if (t0 && t0.k === 'ident' && t0.v === 'sum' && ln.toks[1]?.k !== 'eq') {
+      const sub = bodyLines(body, li + 1, ln.indent)
+      const sumExpr = parseSum(ln, sub.body, errors)
+      li = sub.next - 1
+      if (sumExpr === null) continue
+      if (spine === null) spine = sumExpr
+      else spine = { t: 'bin', op: '+', l: spine, r: sumExpr, pos: t0.pos }
+      continue
+    }
     // binding: NAME = …
     if (ln.toks.length >= 2 && t0 && t0.k === 'ident' && ln.toks[1]!.k === 'eq') {
       const bname = t0.v

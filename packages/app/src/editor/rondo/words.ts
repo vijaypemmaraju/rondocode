@@ -14,7 +14,7 @@ import { BLOCK_KEYWORDS } from '@rondocode/rondo'
  *  (imported, so a new block is coloured the day it parses), plus the two
  *  BODY-level words that open nothing at the top level but still read as
  *  keywords inside a block. */
-export const KEYWORDS: ReadonlySet<string> = new Set([...BLOCK_KEYWORDS, 'post', 'send'])
+export const KEYWORDS: ReadonlySet<string> = new Set([...BLOCK_KEYWORDS, 'post', 'send', 'sum'])
 
 /** Pattern modifiers / combinators on play lines. Kept in step with the
  *  OPTIONS table by a test: anything documented has to be highlighted. */

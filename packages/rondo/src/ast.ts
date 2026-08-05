@@ -25,6 +25,15 @@ export type Expr =
   | { t: 'enum'; name: string; pos: Pos }
   /** `x -> lo..hi` — map a unipolar signal into a range (codegen → .range). */
   | { t: 'map'; x: Expr; lo: Expr; hi: Expr; pos: Pos }
+  /** `sum k 1..16` — the body summed once per value of `k`.
+   *
+   *  An additive voice is N copies of one line with the numbers moving: a
+   *  piano's partials, a drawbar organ, a tap chain. Writing them out is the
+   *  only way rondo had, and sixteen near-identical lines is not a language
+   *  being terse. The body is an ordinary spine with ordinary bindings, and
+   *  `k` is in scope for both — which matters because bindings are how rondo
+   *  writes what other languages need parentheses for. */
+  | { t: 'sum'; index: string; lo: number; hi: number; bindings: Binding[]; body: Expr; pos: Pos }
   /** a live control declared on a binding: `knob DEF lo..hi curve`. */
   | { t: 'knob'; def: Expr; lo: Expr; hi: Expr; curve?: string; pos: Pos }
   /** A SWITCH: a knob with two fixed values instead of a range. `a` is the

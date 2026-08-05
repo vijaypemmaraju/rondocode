@@ -191,6 +191,7 @@ p('bassline',
 )
 
 setCps(0.5)
+masterGain(-1.4)
 `
 
 const edm = `// EDM, progressive house. A classic emotional chord progression
@@ -325,7 +326,7 @@ p('stab',
 // back over 180ms, the smooth sidechain that defines progressive house.
 sidechain('kick', { depth: 0.7, release: 0.18 })
 // glue the whole mix with a gentle master compressor (the last thing in chain)
-masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 0.4 })
 
 setCps(0.52) // ~125 bpm
 `
@@ -607,6 +608,7 @@ p('pad', prog.sound('pad').dur(0.95))
 p('bass', n('0 ~ 0 ~').overChord(prog).sub(12).sound('bass').dur(0.7))
 
 setCps(0.46)
+masterGain(-2.2)
 `
 
 const chordsArp = `// chords & arps, name chords instead of hand-stacking notes.
@@ -645,6 +647,7 @@ p('arp',
 )
 
 setCps(0.42)
+masterGain(-0.9)
 `
 
 const visuals = `// VISUALS: write a WGSL fragment shader with visual(\`…\`) and it renders
@@ -691,6 +694,7 @@ fn render(uv: vec2f) -> vec4f {
   return vec4f(min(col, vec3f(1.0)), 1.0);
 }
 \`)
+masterGain(-7.3)
 `
 
 const techno = `// TECHNO: dark, hypnotic, driving. Punchy saturated kick, a deep sustained
@@ -824,7 +828,7 @@ const full = stack(dKick, dSnare, dHat, mPad, bSub, bWob)
 const half = stack(dKick, dSnare, mPad, bSub)
 p('song', arrange([8, full], [4, half], [8, full], [4, intro]))
 sidechain('kick', { depth: 0.75, release: 0.16, duck: { sub: 1, wob: 0.55, pad: 0.8 } })
-masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: -3.4 })
 
 visual(\`
 fn render(uv: vec2f) -> vec4f {
@@ -918,7 +922,7 @@ const build = stack(dKick, dHat, bSub, bBass, mPad)
 const full = stack(dKick, dClap, dHat, bSub, bBass, mPad, mLead)
 p('song', arrange([8, full], [4, build], [8, full], [4, intro]))
 sidechain('kick', { depth: 0.9, release: 0.16, duck: { sub: 0.95, pad: 1, bass: 0.55, lead: 0.45 } })
-masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 0.3 })
 
 visual(\`
 fn render(uv: vec2f) -> vec4f {
@@ -1047,6 +1051,7 @@ p('bass', note('<c2 a1 f2 g2>').sound('bass'))
 p('keys', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('ep').dur(0.9).gain(0.9))
 p('brass', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('brass').dur(0.9).gain(0.5))
 p('bells', note('<c6 e6 g6 b6>').sound('bell').gain(0.4))
+masterGain(-7.9)
 `
 
 const chiptune = `// CHIPTUNE: NES-style. Two pulse voices, a bitcrushed 4-bit triangle bass,
@@ -1077,6 +1082,7 @@ p('harm', note('<g4 e4 c4 d4>').sound('harm').gain(0.8))
 p('bass', note('<c2 a1 f1 g1>').sound('bass'))
 p('hats', note('c5*8').sound('hat'))
 p('snare', note('~ c4 ~ c4').sound('snare'))
+masterGain(-4.3)
 `
 
 const singing = `// SINGING — a neural voice sings your lyrics over drums, bass and keys.
@@ -1132,6 +1138,7 @@ p('vox', sing('barbara',
    c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`,
   { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.25) })
   .gain(0.95)) // (.late()/.early() are free for feel — timing is on-beat already)
+masterGain(-1.7)
 `
 
 /** Locally-added examples from the gitignored `./local/` directory — each file
@@ -1334,7 +1341,7 @@ play bass
 
 sidechain kick depth:.6 release:.12 bass:.9
 
-master threshold:-7 ratio:2 makeup:1
+master threshold:-7 ratio:2 makeup:-4.2
 
 cps .58
 `
@@ -1425,6 +1432,7 @@ sing vox voice:barbara
   gain: .95
   post
     reverb mix:.25
+level -1.7
 `
 
 /** Polyrhythm showcase: euclidean rhythms + polymeter, pure rondo. */
@@ -1502,7 +1510,7 @@ play arp
 
 sidechain kick depth:.5 release:.12 bass:.9 arp:.7
 
-master threshold:-7 ratio:2 makeup:1
+master threshold:-7 ratio:2 makeup:0
 
 cps .5
 `
@@ -1617,6 +1625,7 @@ play arp synth:keys
   gain: .55
 
 cps .42
+level -0.9
 `
 
 
@@ -1718,6 +1727,7 @@ play snare
   ~ c4 ~ c4
 
 cps .5
+level -4.3
 `
 
 const samplerRondo = `# sampler. play loaded audio, not just
@@ -1800,6 +1810,7 @@ play bassline synth:bass
   dur: .6
 
 cps .5
+level -1.4
 `
 
 
@@ -1864,6 +1875,7 @@ play bells synth:bell
   gain: .4
 
 cps .44
+level -7.9
 `
 
 const visualsRondo = `# visuals. a WGSL shader renders live
@@ -1918,6 +1930,7 @@ visual
   }
 
 cps .5
+level -7.3
 `
 
 const technoRondo = `# techno. dark and driving: saturated
@@ -2207,7 +2220,7 @@ song full half full intro
 
 sidechain kick depth:.75 release:.16 sub:1 wob:.55 pad:.8
 
-master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+master threshold:-6 ratio:2 attack:25 release:150 makeup:-3.4
 
 visual
   fn render(uv: vec2f) -> vec4f {
@@ -2388,7 +2401,7 @@ song full build full intro
 
 sidechain kick depth:.9 release:.16 sub:.95 pad:1 bass:.55 lead:.45
 
-master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+master threshold:-6 ratio:2 attack:25 release:150 makeup:0.3
 
 visual
   fn render(uv: vec2f) -> vec4f {
@@ -2680,7 +2693,7 @@ play stab synth:pluck
 
 sidechain kick depth:.7 release:.18
 
-master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+master threshold:-6 ratio:2 attack:25 release:150 makeup:0.4
 
 cps .52
 `
@@ -3168,7 +3181,7 @@ play pad
 
 sidechain kick depth:.7 release:.14 sub:.9 pad:.5
 
-master threshold:-7 ratio:2 attack:25 release:150 makeup:1
+master threshold:-7 ratio:2 attack:25 release:150 makeup:-0.4
 
 bpm 126
 `
@@ -3227,6 +3240,7 @@ play bass
   dur: .7
 
 cps .46
+level -2.2
 `
 
 const waltzRondo = `# A WALTZ, IN 3/4. A cycle is one BAR, and timesig is how long a bar is:
@@ -3291,7 +3305,7 @@ play lead
   dur: .5
   gain: .6
 
-master threshold:-8 ratio:2 attack:25 release:150 makeup:1
+master threshold:-8 ratio:2 attack:25 release:150 makeup:-2.3
 `
 
 /** Compile a rondo example to its rondocode twin at module load — ONE source

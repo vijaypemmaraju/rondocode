@@ -750,6 +750,26 @@ describe('evalCode: custom-wavetable registry lifecycle (mirrors defineScale)', 
  * A build-up riser shipped that way and played straight through the drop it
  * was written for.
  * ------------------------------------------------------------------------- */
+describe('evalCode: masterGain', () => {
+  const SYNTH = "const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate))\np('x', note('c3').sound('a'))"
+  it('stages the level in dB, last call winning', () => {
+    expect(run(`${SYNTH}\nmasterGain(-6)`).masterGain).toBe(-6)
+    expect(run(`${SYNTH}\nmasterGain(-6)\nmasterGain(-2)`).masterGain).toBe(-2)
+  })
+  it('is absent when the code never sets one, so the default stands', () => {
+    expect(run(SYNTH).masterGain).toBeUndefined()
+  })
+  it('clamps to a sane range instead of letting a typo blow the output up', () => {
+    expect(run(`${SYNTH}\nmasterGain(400)`).masterGain).toBe(12)
+    expect(run(`${SYNTH}\nmasterGain(-999)`).masterGain).toBe(-60)
+  })
+  it('fails the eval on a non-number rather than silently doing nothing', () => {
+    const r = run(`${SYNTH}\nmasterGain('loud')`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toContain('masterGain()')
+  })
+})
+
 describe('evalCode: gate length', () => {
   const RISER = "const riser = synth(({ gate, adsr, noise }) => noise().mul(adsr(gate, { a: 5, d: 0.1, s: 1, r: 0.006 })))"
   const warns = (code: string) =>

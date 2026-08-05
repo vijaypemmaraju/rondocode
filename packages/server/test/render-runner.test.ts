@@ -200,6 +200,54 @@ p('pb', note('c3').sound('b'))
     expect(mix.normalizeDb).toBeGreaterThan(-12)
   })
 
+  /* masterGain is the only lever that scales EVERYTHING equally, which is what
+   * a mix past the 0.89 ceiling needs — every per-part gain up there is inert,
+   * so nothing smaller can bring the whole thing back under. It is therefore
+   * only useful if it is exactly a scale and nothing else. */
+  it('applies masterGain as a pure uniform scale, changing nothing else', () => {
+    const src = `const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(0.15))
+const b = synth(({ saw, note, gate }) => saw(note.freq).mul(gate).mul(0.1))
+p('x', note('c3*4').sound('a'))
+p('y', note('g4*3').sound('b'))`
+    const render = (masterGain?: number) => {
+      const staged = stageCode(src)
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 2, cps: 2 })
+      return renderMix(staged.synths, events, 1, { cps: 2, ...(masterGain !== undefined ? { masterGain } : {}) })
+    }
+    const plain = render()
+    const trimmed = render(-6)
+    expect(plain.normalized, 'the fixture must stay UNDER the ceiling, or normalization hides the effect').toBe(false)
+    expect(trimmed.normalized).toBe(false)
+    // undo the trim: the two must be the same signal to float noise
+    const k = Math.pow(10, 6 / 20)
+    let num = 0
+    let den = 0
+    for (let i = 0; i < plain.left.length; i++) {
+      const d = trimmed.left[i]! * k - plain.left[i]!
+      num += d * d
+      den += plain.left[i]! ** 2
+    }
+    expect(10 * Math.log10(num / den), 'masterGain must be a scale, not a filter').toBeLessThan(-100)
+  })
+
+  it('moves the normalization by exactly the dB it was given', () => {
+    // The reason it exists: a project mixed into the ceiling can be brought
+    // back under it, and the number says by how much.
+    const src = `const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(3))
+p('x', note('c3*4').sound('a'))`
+    const render = (masterGain?: number) => {
+      const staged = stageCode(src)
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 2, cps: 2 })
+      return renderMix(staged.synths, events, 1, { cps: 2, ...(masterGain !== undefined ? { masterGain } : {}) })
+    }
+    const before = render().normalizeDb
+    const after = render(-6).normalizeDb
+    expect(before).toBeLessThan(-6)
+    expect(after - before, 'a -6 dB trim must buy back exactly 6 dB of headroom').toBeCloseTo(6, 3)
+  })
+
   it('reports the exact dB it removed, and 0 when it removed nothing', () => {
     const at = (amp: number) => {
       const staged = stageCode(

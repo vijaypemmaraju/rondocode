@@ -28,7 +28,8 @@ import { analyze, sampleNamesIn, usesMicIn } from '../packages/engine/src/index'
 import { measureLoudness } from '../packages/engine/src/loudness'
 import { SHIPPED_EXAMPLES } from '../packages/app/src/examples/index'
 import { builtInSamples } from '../packages/app/src/audio/demo-samples'
-import { renderMix, runPatterns, stageCode } from '../packages/server/src/render-runner'
+import { stageCode } from '../packages/server/src/render-runner'
+import { renderStagedMix } from '../packages/app/src/editor/resample'
 
 const argv = process.argv.slice(2)
 const flag = (name: string): string | undefined => {
@@ -110,16 +111,20 @@ for (const ex of wanted) {
   const needsMic = [...staged.synths.values()].some(
     (d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)),
   )
-  const cps = staged.cps ?? 0.5
-  const events = runPatterns(staged.patterns, { cycles: CYCLES, cps })
-  const mix = renderMix(staged.synths, events, CYCLES / cps, {
-    sampleRate: 48000,
-    cps,
-    samples: BANK,
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
-    ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
-  })
+  // Through renderStagedMix, the ONE staged->renderMix option mapping (shared
+  // with the WAV export and resample-to-loop). This script used to build the
+  // option object itself, and the copy went stale the day masterGain landed:
+  // the sweep rendered seven examples WITHOUT their own output level and then
+  // reported them as still mixed into the ceiling. A sweep that disagrees with
+  // the app is worse than no sweep.
+  const mix = renderStagedMix(ex.code, CYCLES, BANK)
+  if ('error' in mix) {
+    rows.push({
+      name: ex.name, needsSamples, needsMic, silent: true, peakDb: -Infinity, lufs: -Infinity,
+      crestDb: 0, clipped: false, hasNaN: false, centroidHz: 0, normDb: 0, flags: ['render failed'],
+    })
+    continue
+  }
   const a = analyze(mix)
   const loud = measureLoudness(mix.left, mix.right, mix.sampleRate)
   const peakDb = db(a.peak)

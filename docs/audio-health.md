@@ -56,44 +56,51 @@ buses and master glue included). Every one healthy or explained:
 ```
 example             peak    LUFS  crest   norm  centroid  notes
 acid                -1.7   -13.4   13.9      -     366Hz
-visuals               -1   -13.2   13.9   -7.3     348Hz  mixed into the ceiling, normalized -7.3dB
+visuals               -1   -13.3     14      -     348Hz
 techno              -1.3    -9.5    7.6      -     202Hz
-dubstep               -1   -12.8   11.5   -4.4     533Hz  mixed into the ceiling, normalized -4.4dB
-trance                -1     -10    8.5   -0.7     150Hz  mixed into the ceiling, normalized -0.7dB
+dubstep               -1   -12.8   11.5      -     533Hz
+trance                -1     -10    8.6      -     150Hz
 future bass           -1    -9.3    9.1   -0.2    1141Hz
 ambient bells       -1.8   -13.6   17.9      -     706Hz
 drum groove         -1.2   -13.3   12.3      -     332Hz
 fm keys             -1.4   -11.4   12.4      -     437Hz
-fm presets            -1   -12.1   15.1   -7.9    1696Hz  mixed into the ceiling, normalized -7.9dB
-chiptune              -1   -15.2   14.7   -4.3     381Hz  mixed into the ceiling, normalized -4.3dB
-chords & arps         -1   -13.2   14.7   -0.9     537Hz  mixed into the ceiling, normalized -0.9dB
-over a chord          -1   -13.3   14.3   -2.2     354Hz  mixed into the ceiling, normalized -2.2dB
-generative            -1   -12.7   13.4   -1.4     379Hz  mixed into the ceiling, normalized -1.4dB
-edm                   -1     -13   13.2   -0.6     551Hz  mixed into the ceiling, normalized -0.6dB
+fm presets            -1   -12.1   15.1      -    1696Hz
+chiptune              -1   -15.2   14.7      -     381Hz
+chords & arps         -1   -13.2   14.7      -     537Hz
+over a chord          -1   -13.3   14.3      -     354Hz
+generative            -1   -12.8   13.4      -     379Hz
+edm                   -1     -13   13.2      -     551Hz
 synthscape          -1.3   -13.2   12.5      -     153Hz
 arrangement         -3.1   -13.6   12.6      -    2144Hz
 sampler               -3   -14.5   12.1      -     253Hz
 granular            -4.3   -16.2   14.1      -     305Hz
-singing               -1   -13.9   13.2   -1.7     264Hz  needs samples: singclipnl0399
+singing               -1   -13.9   13.2      -     264Hz  needs samples: singclipnl0399
 wobble              -8.4   -14.8    8.6      -     333Hz
 club                -3.4   -12.2   11.3      -     315Hz
-drum machine          -1   -14.4   15.3   -5.2    1771Hz  mixed into the ceiling, normalized -5.2dB
-polyrhythm            -1   -10.9   11.1     -1     378Hz  mixed into the ceiling, normalized -1dB
+drum machine          -1   -14.4   15.3      -    1771Hz
+polyrhythm            -1   -10.9   11.1      -     378Hz
 live mic         -Infinity -Infinity      0      -       0Hz  needs the live mic
 wavetable lead      -2.8   -15.7   17.5      -    2699Hz
 chop                -1.2   -15.8   13.6      -     682Hz
-macros                -1   -11.4   11.2   -1.4     182Hz  mixed into the ceiling, normalized -1.4dB
-waltz                 -1   -16.4   16.3   -3.3     317Hz  mixed into the ceiling, normalized -3.3dB
+macros                -1   -11.4   11.2      -     182Hz
+waltz                 -1   -16.4   16.3      -     317Hz
 reverse cymbal      -1.5   -14.8   15.6      -    2891Hz
 ```
 
 **The peak column cannot flag a hot example, and never could.** Anything over
 0.89 has already been scaled back down to it, so a project mixed 8 dB into the
-ceiling and a carefully levelled one both read -1.0 dBFS. That is why 13 of
-these rows sit at exactly -1: it is the ceiling, not their level. The `norm`
-column is the missing evidence, and it is the number to watch when a gain edit
-seems to do nothing. `fm presets` gives up 7.9 dB, `visuals` 7.3, `drum
-machine` 5.2.
+ceiling and a carefully levelled one both read -1.0 dBFS. The `norm` column is
+the missing evidence, and it is the number to watch when a gain edit seems to
+do nothing.
+
+It found 14 of them, up to 7.9 dB (`fm presets`), 7.3 (`visuals`), 5.2 (`drum
+machine`). All 14 are now trimmed and the column reads clean: an example with a
+master line lost the same amount off its `makeup`, which sits after the
+compressor and is therefore a pure output trim, and the rest gained a `level`
+line (`masterGain` in the JS DSL), which is the one control that scales every
+part equally. The audio is unchanged: normalization was applying that same
+uniform scale, so this only moves where it happens. What changed is that the
+gains inside those examples are live again, and editing one now does something.
 
 Rows worth knowing about rather than fixing: `sampler` and `chop` measure quiet
 because the parts you actually hear are the samples, and what is left is the
@@ -124,11 +131,12 @@ factor, because raising one would have remixed the piece.
 Three rules learned doing it, all measured:
 
 - **Gain is INERT above the normalizer.** The mix stage scales any peak over
-  0.89 back down, so for an example already at -1 dBFS peak (13 of them, now
-  named in the `norm` column) raising output gain changes the render by 0.1 dB.
-  Worse than inert: raising ONE part past the ceiling pulls every other part
-  down instead, so the edit reads as backwards. The app now says so on a
-  bounce, on stems, on a resampled take and in the loudness readout. `waltz` sits at -16.1 LUFS
+  0.89 back down, so raising one part's output gain up there changes the render
+  by a fraction of a dB. Worse than inert: raising ONE part past the ceiling
+  pulls every other part down instead, so the edit reads as backwards. The app
+  now says so on a bounce, on stems, on a resampled take and in the loudness
+  readout, and `level` / `masterGain` is the lever that gets a project back
+  under the ceiling so its own gains work again. `waltz` sits at -16.1 LUFS
   because it is sparse and dynamic, not because it is quiet, and no gain edit
   will move it. Compression would, at the cost of what it is.
 - **A sample-dependent example cannot be judged until it renders.** `chop`,

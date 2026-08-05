@@ -62,7 +62,11 @@ const MAX_SYNTHS_LIMIT = 64
 const DEFAULT_VOICES = 8
 const DEFAULT_CHANNEL_GAIN = 0.8
 const DEFAULT_PAN = 0.5
-const DEFAULT_MASTER_GAIN = 0.8
+/** The engine's output level before any project sets one. EXPORTED because
+ *  the app needs the same number to turn a project's masterGain(db) into the
+ *  absolute gain `setMaster` expects, and a second copy of it in the app is
+ *  exactly how this codebase's worst bugs start. */
+export const DEFAULT_MASTER_GAIN = 0.8
 const MAX_GAIN = 2
 const MAX_RAMP_MS = 10000
 /** setCps rails: wide enough for any real transport (0.001 cps is one cycle

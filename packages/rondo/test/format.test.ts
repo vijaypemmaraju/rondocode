@@ -126,6 +126,7 @@ describe('one-line statements, every one of them', () => {
       song: ['song    a', 'song a'],
       sidechain: ['sidechain    kick   depth:.7', 'sidechain kick depth:.7'],
       master: ['master    ratio:3', 'master ratio:3'],
+      level: ['level    -4', 'level -4'],
       macro: ['macro    drums   .5', 'macro drums .5'],
       scaledef: ['scaledef    myscale   cents   0   200', 'scaledef myscale cents 0 200'],
       wavedef: ['wavedef    mywave   1   .3   /   .5   1', 'wavedef mywave 1 .3 / .5 1'],

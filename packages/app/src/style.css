@@ -368,6 +368,14 @@ body {
   height: 100%;
 }
 
+/* Mini-notation inside a JS string (editor/mininotation.ts). The colours are
+   the ones rondo's own tokenizer produces for the same characters, so a
+   pattern looks the same in both languages instead of collapsing into one
+   flat string in the JS DSL. A rest especially: where the holes are IS the
+   rhythm, and it used to be the same colour as the notes. */
+.cm-mini-atom { color: var(--c-warn, #f2b155); }
+.cm-mini-op { color: var(--c-dim, #6f9284); }
+
 /* Event flash: a mini-notation atom lights up when its event fires and
  * STAYS lit for the event's duration (the decoration is removed by the
  * flasher when the note ends). The animation is just a quick attack into

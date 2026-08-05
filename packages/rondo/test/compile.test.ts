@@ -672,6 +672,45 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.mul(env)')
   })
 
+  /* MULTILINE NOTATION. Two notation lines already mean two STACKED voices,
+   * so a pattern can only be continued where the meaning is currently an
+   * ERROR: while a group is still open. That is also the rule with nothing to
+   * learn — you have not closed your bracket, so the pattern is not finished. */
+  describe('a pattern may run across lines while a group is open', () => {
+    const S = 'synth v\n  saw note\n\n'
+
+    it('joins the lines into one pattern', () => {
+      const out = ok(`${S}play v\n  <[c2 e2]\n   [f2 a2]>\n`)
+      expect(out).toMatch(/note\('<\[c2 e2\] +\[f2 a2\]>'\)/)
+      expect(out, 'not two voices').not.toContain('stack(')
+    })
+
+    it('leaves two BALANCED lines as the stacked voices they already were', () => {
+      const out = ok(`${S}play v\n  c2 e2\n  g3 b3\n`)
+      expect(out).toContain('stack(note(\'c2 e2\'), note(\'g3 b3\'))')
+    })
+
+    it('keeps every character at its DOCUMENT offset', () => {
+      // the join fills the gap with spaces rather than closing it up, so the
+      // note-play flash still lights the right characters on a continued line
+      const src = `${S}play v\n  <[c2 e2]\n   [f2 a2]>\n`
+      const out = ok(src)
+      const joined = /note\('([^']*)'\)/.exec(out)![1]!
+      const start = src.indexOf('<[c2 e2]')
+      expect(src.slice(start, start + joined.length).replace(/\s/g, ' ')).toBe(joined)
+    })
+
+    it('works in a beat block and across three lines', () => {
+      const out = ok('synth kick\n  sine 60\n\nbeat\n  <[kick ~]\n   [~ kick]\n   [kick kick]>\n')
+      expect(out).toContain('kick kick]>')
+    })
+
+    it('says so when the group is never closed', () => {
+      // reported on the line that OPENED the group, not where the body ran out
+      failsAt(`${S}play v\n  <[c2 e2]\n  dur: .9\n`, 'notation leaves a group open', 5, 3)
+    })
+  })
+
   it('level line → masterGain, in dB, negative included', () => {
     expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel -4.5\n`)).toContain('masterGain(-4.5)')
     expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel 2\n`)).toContain('masterGain(2)')

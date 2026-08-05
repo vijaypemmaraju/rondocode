@@ -627,6 +627,68 @@ function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: n
   return { notation, from: ln.offset, scale: m?.[1], synth: sy?.[1] }
 }
 
+/**
+ * How many notation groups a line leaves OPEN: `<` `[` `{` minus their closers.
+ *
+ * Only structural characters count. `(` is euclid (`rim(7,16)`) and never
+ * spans lines, and a `#` inside a note name has already gone.
+ */
+function openDepth(text: string): number {
+  let d = 0
+  for (const c of text) {
+    if (c === '<' || c === '[' || c === '{') d++
+    else if (c === '>' || c === ']' || c === '}') d--
+  }
+  return d
+}
+
+/**
+ * Join notation lines that are still INSIDE a group onto the line that opened
+ * it, so a long pattern can be broken across lines.
+ *
+ * The rule is "you haven't closed your bracket yet", which needs nothing new
+ * to learn and — the reason it is safe — can only change programs that do not
+ * work today. Two notation lines already mean two STACKED voices, so joining
+ * by adjacency or indentation would silently re-read working code; an
+ * unbalanced line is an eval error (`unclosed '<'`), so giving it a meaning
+ * takes nothing away.
+ *
+ * The join uses the EXACT gap between the two lines, filled with spaces, so
+ * every character of the merged notation sits at the offset it occupies in the
+ * document. That is what keeps note-play flash lighting the right characters
+ * on a continuation line, and mini-notation reads a run of spaces the same as
+ * the newline it replaced.
+ */
+function joinOpenLines(body: Line[], errors: RondoError[]): Line[] {
+  const out: Line[] = []
+  for (let i = 0; i < body.length; i++) {
+    let ln = body[i]!
+    if (openDepth(ln.raw) <= 0) {
+      out.push(ln)
+      continue
+    }
+    const startedAt = ln
+    let depth = openDepth(ln.raw)
+    let raw = ln.raw
+    while (depth > 0 && i + 1 < body.length) {
+      const nxt = body[++i]!
+      const gap = Math.max(1, nxt.offset - (ln.offset + raw.length))
+      raw += ' '.repeat(gap) + nxt.raw
+      depth += openDepth(nxt.raw)
+      ln = startedAt
+    }
+    if (depth > 0) {
+      errors.push({
+        message: 'notation leaves a group open — add the closing `>`, `]` or `}` (a pattern may run across lines while it is open)',
+        line: startedAt.line,
+        col: startedAt.rawCol,
+      })
+    }
+    out.push({ ...startedAt, raw })
+  }
+  return out
+}
+
 /** `irand N [seg:M]` as a notation line — random scale degrees. */
 const IRAND_RE = /^irand[ \t]+(\d+)(?:[ \t]+seg:(\d+))?$/
 
@@ -658,7 +720,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   // 1:1 — that's what lets note-play flash highlight the source.
   const noteLines: Line[] = []
   const modLines: Line[] = []
-  for (const ln of body) {
+  for (const ln of joinOpenLines(body, errors)) {
     if (modLines.length === 0 && !isModifierLine(ln, kind)) noteLines.push(ln)
     else modLines.push(ln)
   }

@@ -672,6 +672,48 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.mul(env)')
   })
 
+  /* PARENS. They were not rejected before this — they were DROPPED, along with
+   * every other character the lexer did not recognise, because notation lines
+   * read `(` from raw text as euclid. So `gate * (1 + gate)` lexed as
+   * `gate * 1 + gate` and computed something else with no error anywhere. */
+  describe('parens group arithmetic', () => {
+    const env = (line: string) => {
+      const out = ok(`synth v\n  saw note\n  * env\n  env = ${line}\n\nplay v\n  c3\n`)
+      return (out.split('\n').find((l) => l.includes('const env')) ?? '').trim()
+    }
+
+    it('changes the answer, where before they changed nothing', () => {
+      expect(env('1 + 2 * 3')).toContain('6.add(1)') // 7
+      expect(env('(1 + 2) * 3')).toContain('3.mul(3)') // 9 — silently 7 before
+    })
+
+    it('groups a signal operand instead of re-associating it', () => {
+      expect(env('gate * (1 + gate)')).toContain('gate.mul(gate.add(1))')
+    })
+
+    it('nests, and a group may hold a range map', () => {
+      // no constant folding outside a `sum` — the point is the SHAPE: the
+      // inner group is built first, which is what parens are for
+      expect(env('((1 + 1) * 2) ^ 2')).toContain('2.mul(2).pow(2)')
+      expect(ok('synth v\n  saw note\n  svf cut\n  cut = (gate -> 200..2000)\n\nplay v\n  c3\n')).toContain('range(200, 2000)')
+    })
+
+    it('may begin a space-separated argument', () => {
+      expect(ok('synth v\n  saw note\n  * adsr .002 (1 / 2) 0 .28\n\nplay v\n  c3\n')).toContain('d: 0.5')
+    })
+
+    it('says which paren is wrong', () => {
+      failsAt('synth v\n  saw note\n  * (1 + 2\n', 'unclosed `(`', 3, 5)
+      failsAt('synth v\n  saw note\n  * 1 + 2)\n', 'unmatched `)`', 3, 10)  // AT the paren
+    })
+
+    it('leaves euclid in a notation line alone', () => {
+      // `(` means something else there, and notation is read from raw text
+      const out = ok('synth rim\n  noise\n\nbeat\n  rim(7,16)\n')
+      expect(out).toContain('rim(7,16)')
+    })
+  })
+
   /* MULTILINE NOTATION. Two notation lines already mean two STACKED voices,
    * so a pattern can only be continued where the meaning is currently an
    * ERROR: while a group is still open. That is also the rule with nothing to

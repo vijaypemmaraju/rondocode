@@ -66,6 +66,13 @@ class Cursor {
   }
 }
 
+/** What to say about tokens left over at the end of a line. A stray `)` is
+ *  worth naming: "unexpected tokens" sends someone looking at the whole line
+ *  when one character is wrong. */
+function leftoverMsg(c: Cursor, fallback: string): string {
+  return c.peek()?.k === 'rparen' ? 'unmatched `)`' : fallback
+}
+
 /* ---- expressions --------------------------------------------------------- */
 
 function parseExpr(c: Cursor, minPrec: number): Expr {
@@ -99,7 +106,7 @@ function parseExpr(c: Cursor, minPrec: number): Expr {
 /** True if the next token can begin a space-separated argument. */
 function canStartArg(c: Cursor): boolean {
   const t = c.peek()
-  return !!t && t.sp && (t.k === 'num' || t.k === 'jsexpr' || (t.k === 'ident' && !c.atNamedArg()))
+  return !!t && t.sp && (t.k === 'num' || t.k === 'jsexpr' || t.k === 'lparen' || (t.k === 'ident' && !c.atNamedArg()))
 }
 
 /** Parse named args (`res:.85 mode:hp`). Enum-kind named values (per the
@@ -168,6 +175,24 @@ function parseEqBands(c: Cursor): Expr[] {
 function parseApp(c: Cursor): Expr {
   const t = c.peek()
   if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: c.pos() } }
+  // ( … ) groups arithmetic, and nothing else: the contents are a full
+  // expression, so precedence and `->` inside a group work as written.
+  if (t.k === 'lparen') {
+    c.next()
+    const inner = parseExpr(c, 0)
+    const close = c.peek()
+    if (!close || close.k !== 'rparen') {
+      c.err('unclosed `(`', t.pos)
+      return inner
+    }
+    c.next()
+    return inner
+  }
+  if (t.k === 'rparen') {
+    c.err('unmatched `)`', t.pos)
+    c.next()
+    return { t: 'num', v: 0, pos: t.pos }
+  }
   if (t.k === 'jsexpr') { c.next(); return { t: 'js', code: t.v, pos: t.pos } }
   if (t.k === 'num') { c.next(); return { t: 'num', v: t.v, pos: t.pos } }
   if (t.k === 'ident') {
@@ -372,7 +397,7 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       const bname = t0.v
       c.next(); c.next()
       const rhs = parseExpr(c, 0)
-      if (!c.eof()) c.err('unexpected tokens after binding')
+      if (!c.eof()) c.err(leftoverMsg(c, 'unexpected tokens after binding'))
       if (bindings.some((b) => b.name === bname)) {
         c.err(`duplicate binding '${bname}' — each name can be defined once`, t0.pos)
         continue
@@ -400,7 +425,7 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       c.err('expected a transform — an operator (`* env`), a filter/effect (`ladder …`, `delay …`), or a sig op (`tanh`).')
       continue
     }
-    if (!c.eof()) c.err('unexpected tokens at end of line')
+    if (!c.eof()) c.err(leftoverMsg(c, 'unexpected tokens at end of line'))
   }
   return { spine, bindings }
 }

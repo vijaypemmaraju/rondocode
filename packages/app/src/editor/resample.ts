@@ -1,7 +1,6 @@
 import { getCustomWavetables } from '@rondocode/engine'
 import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
 import type { MixStem } from '../../../server/src/render-runner'
-import type { AudioSession } from '../audio/AudioSession'
 import { normalize, toMono } from './micrec'
 
 /* RESAMPLE TO LOOP: bounce N cycles of the staged track back into the sample
@@ -124,11 +123,25 @@ export function renderTakePcm(
   return { data, sampleRate: mix.sampleRate, normalizeDb: mix.normalizeDb }
 }
 
+/** The slice of AudioSession a resample needs, declared STRUCTURALLY rather
+ *  than as Pick<AudioSession, …>.
+ *
+ *  Not a style choice: this module is now the one staged->renderMix mapping
+ *  for the MCP render tools and the headless scripts too, and importing
+ *  AudioSession dragged `./worklet/processor?worker&url` into a package that
+ *  has no Vite to resolve it. The app's own call site passes a real
+ *  AudioSession, so assignability is still checked where it matters. */
+export interface SampleBankHost {
+  loadedSamples: Record<string, { data: Float32Array; sampleRate: number }>
+  getSamples: () => { name: string }[]
+  loadSamplePcm: (name: string, data: Float32Array, sampleRate: number, builtIn?: boolean) => void
+}
+
 export interface ResampleOpts {
   /** the last successfully evaluated program (post-transpile JS in rondo mode) */
   code: string
   cycles: number
-  audio: Pick<AudioSession, 'loadedSamples' | 'getSamples' | 'loadSamplePcm'>
+  audio: SampleBankHost
 }
 
 /** Bounce `cycles` cycles of the staged track into the sample bank as the

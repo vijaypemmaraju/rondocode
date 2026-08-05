@@ -165,6 +165,11 @@ const toCmDiagnostics = (doc: Text, diags: Diagnostic[]): CmDiagnostic[] => {
 export interface EditorHandle {
   view: EditorView
   session: Session
+  /** The live audio device and sample bank. Exposed so the library can hand
+   *  the project's stored samples to it on open (see samplestore.ts) — the
+   *  bank is per-DEVICE and the samples are per-PROJECT, so something has to
+   *  join them, and only the library knows which project is active. */
+  audio: AudioSession
   /** The top bar element — extra chrome (viz toggle, project switcher) mounts
    *  here rather than each feature re-querying the DOM. */
   topbar: HTMLElement
@@ -1041,6 +1046,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   return {
     view,
     session,
+    audio,
     topbar,
     onEngineEvent: subscribeEngine,
     onState: subscribeState,

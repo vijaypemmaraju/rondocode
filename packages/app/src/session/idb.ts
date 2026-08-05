@@ -8,11 +8,13 @@
  * fall back to MemoryDb so the app still runs (just without persistence).
  * ------------------------------------------------------------------------- */
 
-import type { Db, Project, StoreName, Version } from './projects'
+import type { Db, Project, StoredSample, StoreName, Version } from './projects'
 
 const DB_NAME = 'rondocode'
-const DB_VERSION = 1
-const STORES: StoreName[] = ['projects', 'versions']
+// 2: added the `samples` store, so a project's takes outlive the tab. The
+// upgrade only CREATES a store; existing projects and versions are untouched.
+const DB_VERSION = 2
+const STORES: StoreName[] = ['projects', 'versions', 'samples']
 
 const promisify = <T>(req: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -35,7 +37,7 @@ export class IdbDb implements Db {
     return promisify(this.tx(store, 'readonly').get(id) as IDBRequest<T | undefined>)
   }
 
-  async put(store: StoreName, value: Project | Version): Promise<void> {
+  async put(store: StoreName, value: Project | Version | StoredSample): Promise<void> {
     await promisify(this.tx(store, 'readwrite').put(value))
   }
 

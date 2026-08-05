@@ -18,6 +18,7 @@ import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
+import { mountSamplePersistence } from './samplestore'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../session/share'
@@ -218,6 +219,16 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   setActiveId(activeId)
   writeDocOwner(activeId)
 
+  // A project's samples are part of the project. Without this the takes a user
+  // resamples, records or drops in live only as long as the tab does, and a
+  // saved `sample(gate, 'take1')` renders silence the next morning.
+  const samples = mountSamplePersistence({
+    audio: editor.audio,
+    store,
+    onError: (m) => console.warn(`[library] ${m}`),
+  })
+  void samples.activate(activeId)
+
   // Pending debounced autosave (see the autosave wiring below), captured with
   // the project id it belongs to. flushSave() writes it immediately — called
   // before every project switch and on dispose so no edit is lost or misfiled.
@@ -249,6 +260,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     baseVersion = forked.updatedAt
     setActiveId(activeId)
     writeDocOwner(activeId)
+    // the fork is a different project, so its samples are its own from here
+    void samples.activate(forked.id)
     if (pendingSave !== undefined) pendingSave = { id: forked.id, code: pendingSave.code }
     // the list is declared below; autosave only ever runs after mount
     await render()
@@ -332,6 +345,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     flushSave()
     activeId = p.id
     active = p
+    // the outgoing project's samples leave the bank with it, and this one's
+    // load in — a take belongs to the tune it was made for
+    void samples.activate(p.id)
     // An IndexedDB project is not the file that was open: drop the path FIRST,
     // or the next autosave writes this project's code into that file, and the
     // language toggle below re-extensions it. (openFile sets its own path.)
@@ -902,6 +918,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     offEval()
     offLang()
     flushSave() // persist any debounced edit before tearing down
+    samples.dispose()
     document.removeEventListener('keydown', onKey)
     backdrop.remove()
     projectBtn.remove()

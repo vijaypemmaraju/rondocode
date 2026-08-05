@@ -197,6 +197,28 @@ export const setWorkspaceLang = (path: string, lang: 'rondo' | 'rondocode'): Pro
 /** Move a project to the Trash — recoverable in Finder, unlike an unlink. */
 export const trashFile = (path: string): Promise<void> => invoke<void>('trash_file', { path })
 
+/* ---- a project's samples, beside the project ---------------------------- *
+ * The browser keeps a project's takes in IndexedDB beside its project row. A
+ * workspace project has no row: it is a FILE, and copying, committing or
+ * handing over that file is the whole point of a workspace. Samples in a
+ * database beside it would be lost by every one of those, so they live in a
+ * sibling `<stem>.samples/` folder as plain WAVs. */
+
+/** Every sample beside `project`, as name -> WAV bytes. Empty when the folder
+ *  does not exist yet, which is most projects. */
+export const listProjectSamples = async (project: string): Promise<{ name: string; wav: Uint8Array }[]> => {
+  const rows = await invoke<[string, number[]][]>('list_project_samples', { project })
+  return rows.map(([name, bytes]) => ({ name, wav: new Uint8Array(bytes) }))
+}
+
+/** Write one sample beside `project`; returns the path written. */
+export const writeProjectSample = (project: string, name: string, wav: Uint8Array): Promise<string> =>
+  invoke<string>('write_project_sample', { project, name, bytes: [...wav] })
+
+/** Drop one sample beside `project`. Already-gone is success. */
+export const deleteProjectSample = (project: string, name: string): Promise<void> =>
+  invoke<void>('delete_project_sample', { project, name })
+
 /** True when the desktop shell is running AND a workspace has been chosen:
  *  the condition for the library to read from disk instead of IndexedDB. */
 export const hasWorkspace = (): boolean => isDesktop() && workspaceDir() !== null

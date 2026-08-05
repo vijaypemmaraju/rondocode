@@ -59,6 +59,26 @@ fn set_workspace_ext(path: String, ext: String) -> Result<String, String> {
     files::set_workspace_ext(path, ext)
 }
 
+/* A workspace project keeps its samples in a sibling `<stem>.samples/` folder,
+ * because the FILE is the project there: a database beside it would be lost by
+ * the copy, the commit and the hand-off that the workspace exists to make
+ * work. */
+
+#[tauri::command]
+fn list_project_samples(project: String) -> Result<Vec<(String, Vec<u8>)>, String> {
+    files::list_project_samples(project)
+}
+
+#[tauri::command]
+fn write_project_sample(project: String, name: String, bytes: Vec<u8>) -> Result<String, String> {
+    files::write_project_sample(project, name, bytes)
+}
+
+#[tauri::command]
+fn delete_project_sample(project: String, name: String) -> Result<(), String> {
+    files::delete_project_sample(project, name)
+}
+
 #[tauri::command]
 fn trash_file(path: String) -> Result<(), String> {
     files::trash_file(path)
@@ -104,6 +124,9 @@ fn main() {
             set_workspace_ext,
             trash_file,
             write_render,
+            list_project_samples,
+            write_project_sample,
+            delete_project_sample,
             midi_open,
             midi_is_open,
             midi_send,

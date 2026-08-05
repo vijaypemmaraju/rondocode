@@ -22,6 +22,15 @@ language toggle *moves the file*: flip a `.js` project to rondo and it becomes
 hand rondo source to the JavaScript evaluator. A toggle that would collide with
 an existing file of the other extension is refused rather than clobbering it.
 
+A project's **samples** live beside it, in a sibling `<stem>.samples/` folder of
+plain WAVs. The browser keeps a project's takes in IndexedDB next to its project
+row; a workspace project has no row, it is a file, and copying, committing or
+handing over that file is the entire point. A database sitting next to it would
+be lost by all three, so `tune.rondo` carries `tune.samples/` with it. The
+folder is deliberately visible and ordinary: `git add` takes it, and a take
+opens in QuickTime or any DAW. They are written as 32-bit float, so a take
+round-trips through the folder unchanged however many times it is resampled.
+
 **A virtual MIDI port.** This is the DAW integration. WebMIDI can only open ports
 that already exist, so in a browser rondocode can drive hardware but cannot *be*
 an instrument. The desktop shell publishes a CoreMIDI source named `rondocode`,
@@ -46,6 +55,11 @@ server in development and its `dist/` in a build, so there is one UI codebase.
 pnpm --filter @rondocode/desktop probe
 ```
 
+Every row is printed to the TERMINAL as well as drawn in the window, and a
+failing row exits non-zero — so "is the shell healthy" is a question a script,
+a CI job or a pasted log can answer, not only someone standing in front of the
+screen. The window is still where you look at the compositor.
+
 Opens the shell on a page that checks, in the real WKWebView, everything the app
 depends on and CI cannot see: WebGPU (adapter, device, and a frame actually
 painted), AudioWorklet, WebAssembly, the model-download hosts including the
@@ -58,7 +72,7 @@ someone reports it not working in the app. WKWebView's inspector is not
 scriptable and the window has no devtools, so the page renders its own errors —
 an empty page means the script died before the first check.
 
-Last run (tauri 2.11.1, macOS): everything green, `requestAdapter()` reports
+Last run (tauri 2.11.1, macOS): **24 yes, 0 no**, `requestAdapter()` reports
 `apple` with `maxTextureDimension2D=8192`, and `cargo run --example midiports --
 --list` sees `rondocode` beside `Bus 1`.
 
@@ -67,7 +81,7 @@ Last run (tauri 2.11.1, macOS): everything green, `requestAdapter()` reports
 | file | what it holds |
 | --- | --- |
 | `src-tauri/src/main.rs` | command surface, and nothing else |
-| `src-tauri/src/files.rs` | open/save/render-folder, dialogs via `osascript` |
+| `src-tauri/src/files.rs` | open/save/render-folder, project samples, dialogs via `osascript` |
 | `src-tauri/src/midi.rs` | the CoreMIDI virtual source (direct FFI) |
 | `packages/app/src/desktop/bridge.ts` | the app's side; returns null in a browser |
 

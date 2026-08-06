@@ -9,7 +9,7 @@ import {
   lineNumbers,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { highlightSelectionMatches, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
+import { highlightSelectionMatches, search, searchKeymap, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
 import { autocompletion } from '@codemirror/autocomplete'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { javascript } from '@codemirror/lang-javascript'
@@ -103,7 +103,17 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     foldingExtension(gutter),
     ...(gutter ? [highlightActiveLine()] : []),
     highlightSelectionMatches(), // underline other occurrences of the selection
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    // FIND. Without this Cmd-F was the BROWSER's find, which cannot work here:
+    // CodeMirror only renders the lines you can see, so the browser has no
+    // text to match in the rest of the document and nothing to scroll to when
+    // it does match. CodeMirror's own search knows the whole document and
+    // dispatches its jumps with scrollIntoView, which is the actual fix for
+    // "next result doesn't scroll".
+    //
+    // Panel on top: at the bottom it lands under a phone's keyboard, which is
+    // exactly where you cannot see or reach it.
+    search({ top: true }),
+    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
     // the grammar the HighlightStyle colors. In the main editor this is wrapped
     // in a Compartment so it can be swapped for the rondo grammar at runtime;
     // docs rondo snippets pass `rondo: true` for a static rondo stack (grammar

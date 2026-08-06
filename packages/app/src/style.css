@@ -368,6 +368,27 @@ body {
   height: 100%;
 }
 
+/* Code folding (editor/folding.ts). The markers are quiet until you go
+   looking: a gutter arrow competing with the line numbers reads as clutter in
+   a document you are mostly just playing. The FOLDED placeholder is the
+   opposite — it has to be obvious that something is hidden there. */
+.cm-foldGutter span {
+  color: var(--c-dim);
+  opacity: 0.35;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.cm-foldGutter span:hover { opacity: 1; color: var(--c-accent); }
+.cm-foldPlaceholder {
+  background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 45%, transparent);
+  border-radius: 4px;
+  color: var(--c-accent);
+  margin: 0 4px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
 /* Mini-notation inside a JS string (editor/mininotation.ts). The colours are
    the ones rondo's own tokenizer produces for the same characters, so a
    pattern looks the same in both languages instead of collapsing into one

@@ -15,6 +15,7 @@ import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { javascript } from '@codemirror/lang-javascript'
 import { synthTheme } from './theme'
 import { flashExtension } from './flash'
+import { foldingExtension } from './folding'
 import { miniNotationHighlight } from './mininotation'
 import { rondocodeCompletionSource } from './complete'
 import { wgslHighlight, wgslCompletionSource } from './wgsl'
@@ -98,6 +99,8 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     drawSelection(),
     indentOnInput(),
     bracketMatching(),
+    // fold a block away: JS off its syntax tree, rondo off its indentation
+    foldingExtension(gutter),
     ...(gutter ? [highlightActiveLine()] : []),
     highlightSelectionMatches(), // underline other occurrences of the selection
     keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),

@@ -23,7 +23,9 @@ import { tooltip } from '../ui/tooltip'
 import { getSetting } from '../ui/settings'
 import { EXAMPLES } from '../examples'
 import { readLangPref } from '../ui/onboarding'
-import { EventFlasher, FLASH_MS, jsRegionLiterals, rondoNoteLiterals } from './flash'
+import { EventFlasher, FLASH_MS, collectStringLiterals, jsRegionLiterals, rondoNoteLiterals } from './flash'
+import { restHighlight } from './restview'
+import type { RestSource } from './rests'
 import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
@@ -440,8 +442,14 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // string literals; rondo can't (the eval'd source is transpiled JS), so
       // the compiler hands us each notation string + its buffer offset and we
       // build the flash literals from that — same highlighting, either language.
-      if (lang === 'rondo') flasher.onGoodEvalLiterals([...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)], rondoPulses)
-      else flasher.onGoodEval(source)
+      if (lang === 'rondo') {
+        const lits = [...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)]
+        flasher.onGoodEvalLiterals(lits, rondoPulses)
+        restLiterals = lits
+      } else {
+        flasher.onGoodEval(source)
+        restLiterals = collectStringLiterals(source)
+      }
       // LIVE MIC: connect the microphone iff the staged code uses mic()
       // (lazy permission prompt; disconnect + release when it stops)
       void audio.setMicEnabled(synthsUseMic(result.synths))
@@ -581,11 +589,24 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     return true
   }
 
+  /* REST HIGHLIGHTING reads the same notation strings the flasher does — one
+   * notion of "where is this pattern in the document", not two — but is driven
+   * by the TRANSPORT rather than by events, because a rest emits none. */
+  let restLiterals: readonly { content: string; pieces: readonly { assembledStart: number; sourceStart: number; length: number }[] }[] = []
+  const restSource: RestSource = {
+    literals: () => restLiterals,
+    cycle: () => {
+      if (!session.getState().playing) return null
+      return session.cycleAt(audio.currentTimeFrames / audio.sampleRate)
+    },
+  }
+
   const view: EditorView = new EditorView({
     parent: host,
     state: EditorState.create({
       doc: initialDoc,
       extensions: [
+        restHighlight(restSource), // the hole the playhead is inside
         // Transport keys live with the editor (docs blocks have their own ▶).
         // Highest precedence so nothing steals Mod-Enter / Mod-.
         Prec.highest(

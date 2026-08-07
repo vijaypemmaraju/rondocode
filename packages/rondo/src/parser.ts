@@ -753,7 +753,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   let notationFrom = body[0]?.offset ?? 0
   let scale: string | undefined
   let scalePos: Pos | undefined
-  let voices: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[] }[] | undefined
+  let voices: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]; notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[] }[] | undefined
   let lineSynth: string | undefined
   const noteInfos: { text: string; pos: Pos }[] = []
   for (let v = 0; v < noteLines.length; v++) {

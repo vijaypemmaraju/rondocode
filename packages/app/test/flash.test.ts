@@ -356,3 +356,44 @@ describe('EventFlasher', () => {
     expect(rig.dispatches).toHaveLength(0)
   })
 })
+
+/* A COMPOSED FIGURE has no notes of its own. `<openB tail openA tail>` is a
+ * reference to a reference, so while the arrangement it names plays, the one
+ * line a reader is watching — the only line that is not literal notation —
+ * was the only line that never moved. */
+describe('a patdef reference lights when its notes play', () => {
+  // `riff` on the play line stands for the whole figure; `tail` for part of it
+  const lit = {
+    contentStart: 100,
+    content: '<[0 0] [1 2] [3 4]>',
+    pieces: [{ assembledStart: 0, sourceStart: 100, length: 19 }],
+    refs: [
+      { from: 10, to: 14, assembledStart: 0, assembledEnd: 19 }, // `riff`, whole
+      { from: 40, to: 44, assembledStart: 7, assembledEnd: 18 }, // `tail`, part
+    ],
+  }
+
+  it('lights the reference AND the text it expands to', () => {
+    // an atom inside the tail: both the definition text and `tail` light
+    const out = locToDocRanges([lit], { start: 8, end: 9, src: lit.content }, { n: 1 })
+    expect(out).toContainEqual({ from: 40, to: 44 }) // `tail`
+    expect(out).toContainEqual({ from: 108, to: 109 }) // the atom itself
+  })
+
+  it('lights every enclosing reference, outermost included', () => {
+    const out = locToDocRanges([lit], { start: 8, end: 9, src: lit.content }, { n: 1 })
+    expect(out).toContainEqual({ from: 10, to: 14 }) // `riff` encloses everything
+  })
+
+  it('does NOT light a reference the atom sits outside of', () => {
+    // the `[0 0]` atom is before the tail begins
+    const out = locToDocRanges([lit], { start: 2, end: 3, src: lit.content }, { n: 0 })
+    expect(out).not.toContainEqual({ from: 40, to: 44 })
+    expect(out, 'the outer reference still covers it').toContainEqual({ from: 10, to: 14 })
+  })
+
+  it('a figure with no references behaves exactly as before', () => {
+    const plain = { contentStart: 0, content: '0 3', pieces: [{ assembledStart: 0, sourceStart: 0, length: 3 }] }
+    expect(locToDocRanges([plain], { start: 0, end: 1, src: '0 3' }, { n: 0 })).toEqual([{ from: 0, to: 1 }])
+  })
+})

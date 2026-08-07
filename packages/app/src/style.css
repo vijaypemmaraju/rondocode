@@ -397,6 +397,14 @@ body {
 .cm-mini-atom { color: var(--c-warn, #f2b155); }
 /* the REST, its own channel — see ui/palette.ts C_REST */
 .cm-mini-rest { color: var(--c-rest, #c39bf5); font-weight: 600; }
+/* A REST BEING PLAYED. Notes flash on their event; a rest has none, so this is
+   driven by the transport clock (see editor/restview.ts). Violet to match the
+   rest's own syntax channel, so the lit hole reads as the same thing louder
+   rather than as a different thing. */
+.cm-rest-lit {
+  border-radius: var(--r-sm);
+  background-color: color-mix(in srgb, var(--c-rest, #c39bf5) 42%, transparent);
+}
 .cm-mini-op { color: var(--c-dim, #6f9284); }
 
 /* Event flash: a mini-notation atom lights up when its event fires and

@@ -8,6 +8,18 @@
 import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue } from './ast'
 import { BUILTINS } from './builtins'
 
+/** May a patdef name be expanded INSIDE another figure?
+ *
+ *  No, when it reads as a note: notation is exactly where note names live, so
+ *  expanding `patdef e <…>` would rewrite every `e` in every figure. Such a
+ *  name still works on its own line — all it could do before composition — so
+ *  the restriction costs nothing that used to work.
+ *
+ *  Exported because the EDITOR needs the same answer to decide what to
+ *  highlight, and a second copy of this rule would drift from this one. */
+export const isComposablePatDefName = (name: string): boolean =>
+  !/^[a-gA-G](?:[#b]|s)?-?\d*$/.test(name)
+
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
 
 export const SCALE_MODE: Record<string, string> = {
@@ -998,8 +1010,7 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
    * every `e` in every figure in the document. Such a name still works on its
    * own line, which is all it could do before composition existed — so this
    * costs nothing that used to work. */
-  const NOTE_LIKE = /^[a-gA-G](?:[#b]|s)?-?\d*$/
-  const inlinable = new Set([...defs.keys()].filter((k) => !NOTE_LIKE.test(k)))
+  const inlinable = new Set([...defs.keys()].filter(isComposablePatDefName))
 
   /* PATDEFS COMPOSE. A figure is usually a variation on another one — three
    * riffs in a real arrangement shared the same three-bar tail and differed

@@ -35,6 +35,7 @@
  * v1 — the curve is static at the written values. */
 
 import { EditorView, WidgetType } from '@codemirror/view'
+import { activate } from './activation'
 import { formatNumber } from '../widgets/rewrite'
 import { LiveWriter, attachGesture } from './gesture'
 import type { Drag } from './gesture'
@@ -434,6 +435,8 @@ export function scanHandles(scan: FilterScan): Handle[] {
 }
 
 export class FilterCurveWidget extends WidgetType {
+  private unsub: (() => void) | null = null
+
   constructor(
     readonly scan: FilterScan,
     /** identity of everything drawn — a cheap eq() key. */
@@ -509,6 +512,25 @@ export class FilterCurveWidget extends WidgetType {
     // toDOM runs BEFORE CodeMirror inserts this node, and a detached element
     // computes to black — see paint.ts
     paintOnAttach(draw)
+
+    /* LIVE ON THE PLAYHEAD. The curve itself does not move — it is drawn at
+     * the WRITTEN values, and a signal-driven cutoff never reaches the UI at
+     * all (`cut = amp -> 1300..3000` is computed in the audio graph and
+     * appears in no note event), so animating the shape would mean inventing
+     * one — exactly what the honesty rules above forbid.
+     *
+     * What IS knowable is whether this filter is processing anything right
+     * now, and that was the question a dead curve left open while the roll
+     * above it lit up. So the whole surface lifts on each note of its synth.
+     * Redrawing on fire and again on idle is what recolours the ink: the
+     * canvas samples `color` through inkOf(), and the class is already on by
+     * the time onFire runs. Twice per note, not per frame — the curve has no
+     * animation loop and does not want one. */
+    this.unsub = activate(wrap, this.hooks, {
+      ...(scan.synth !== undefined ? { synth: scan.synth } : {}),
+      onFire: draw,
+      onIdle: draw,
+    })
 
     // any writable literal makes the surface a control
     const writable = handles.some((h) => h.fRange !== undefined || h.vRange !== undefined)
@@ -598,4 +620,10 @@ export class FilterCurveWidget extends WidgetType {
   }
 
   override ignoreEvent(): boolean { return true }
+
+  /** Widgets die on every rebuild — drop the subscription with the DOM. */
+  override destroy(): void {
+    this.unsub?.()
+    this.unsub = null
+  }
 }

@@ -3,6 +3,7 @@ import { AudioSession } from './audio/AudioSession'
 import { mountEditor } from './editor/editor'
 import type { EditorHandle } from './editor/editor'
 import { mountLibrary } from './editor/library'
+import type { ProjectStore } from './session/projects'
 import { mountDocs } from './editor/docspanel'
 import { mountSynthLib } from './editor/synthlib'
 import { mountShaderViz } from './shaderviz/shaderviz'
@@ -86,10 +87,15 @@ AudioSession.start().then(
   (audio) => {
     const editor = mountEditor(app, audio)
     // mixer + scopes panel removed for now (mountViz) — see viz/viz.ts to restore
+    // The library opens the store (IndexedDB, or an in-memory fallback) and
+    // it does so asynchronously. The shelf needs the SAME store to hold
+    // snippets — a second opener would be a second answer to which backend
+    // is in use — so it reads through a getter that is null until this lands.
+    let projectStore: ProjectStore | null = null
     const library = mountLibrary(editor)
-    void library.catch((e) => console.warn('[library] failed to mount', e))
+    void library.then((h) => { projectStore = h.store }).catch((e) => console.warn('[library] failed to mount', e))
     mountDocs(editor)
-    mountSynthLib(editor)
+    mountSynthLib(editor, () => projectStore)
     const shaderviz = mountShaderViz(app, editor, audio)
     mountProbes(editor) // inline live-value readouts on modulation expressions
     // First-run onboarding: a one-question survey sets the default language,

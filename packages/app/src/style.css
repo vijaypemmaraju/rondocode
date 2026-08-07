@@ -2244,3 +2244,36 @@ body.shaderviz-on .cm-content {
 .outline-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outline-line { flex: none; color: var(--c-dim); font-size: 12px; }
 .outline-empty { padding: 18px 14px; color: var(--c-dim); font-size: 13px; }
+
+/* SAVE A SELECTION as a snippet (editor/synthlib.ts + snippets.ts). The shelf
+   was 19 presets you could not add to; this is the row that changes that. */
+.synthlib-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--c-dim);
+  margin-bottom: 8px;
+}
+.synthlib-savename {
+  flex: 1;
+  min-width: 140px;
+  background: transparent;
+  border: 1px solid var(--c-dim);
+  border-radius: 6px;
+  color: var(--c-text);
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 9px;
+}
+.synthlib-savename:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.synthlib-savemsg { flex-basis: 100%; color: var(--c-dim); font-size: 12px; }
+.synthlib-del {
+  min-width: 34px;
+  padding: 0 8px;
+  color: var(--c-dim);
+  font-size: 16px;
+  line-height: 1;
+}
+.synthlib-del:hover { color: var(--c-warn); border-color: var(--c-warn); }

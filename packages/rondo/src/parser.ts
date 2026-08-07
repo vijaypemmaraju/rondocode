@@ -1101,13 +1101,21 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       // The notation is taken from the RAW line, not from tokens: it is
       // mini-notation, whose characters the lexer deliberately skips (they
       // belong to the notation sublanguage, not to expressions).
-      const after = ln.raw.slice(ln.raw.indexOf(name) + name.length).trim()
+      // Search past the KEYWORD. `indexOf(name)` alone found the `a` inside
+      // "p-a-tdef" for a one-character name, so `patdef a <[0 1]>` silently
+      // became the notation "tdef a <[0 1]>" — it compiled, and played
+      // nonsense.
+      const kwEnd = ln.raw.indexOf('patdef') + 'patdef'.length
+      const nameAt = ln.raw.indexOf(name, kwEnd)
+      const rest = ln.raw.slice(nameAt + name.length)
+      const after = rest.trim()
       if (after === '') {
         errors.push({ message: `patdef '${name}' has no notation`, line: ln.line, col: ln.rawCol })
         i++
         continue
       }
-      items.push({ t: 'patdef', name, notation: after, pos: head.pos })
+      const notationFrom = ln.offset + nameAt + name.length + (rest.length - rest.trimStart().length)
+      items.push({ t: 'patdef', name, notation: after, notationFrom, pos: head.pos })
       i++
     }
     // `scaledef pelog 0 1.2 2.7 5.4 6.7` → defineScale('pelog', [0, …]):

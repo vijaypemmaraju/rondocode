@@ -217,6 +217,11 @@ export interface PatDefItem {
   name: string
   /** the notation, verbatim — substituted where the name is used. */
   notation: string
+  /** buffer offset of the NOTATION (not the line). Substitution moves a
+   *  play block's notation here, and note-flash highlights the text at the
+   *  offset it is told — so without this it lit the reference, which is five
+   *  characters long, with a figure that is ninety. */
+  notationFrom: number
   pos: Pos
 }
 

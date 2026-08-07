@@ -614,7 +614,8 @@ masterGain(-2.2)
 const chordsArp = `// chords & arps, name chords instead of hand-stacking notes.
 // chord('<...>') expands each name to a STACK of notes (root octave 3);
 // .arp() spreads a chord's notes across its step. Qualities: maj m 7 maj7 m7
-// dim aug sus2 sus4 6 m6 add9 9 maj9 m9 11 13 m7b5, plus slash bass (C/E).
+// dim aug sus2 sus4 sus 6 m6 add9 9 maj9 m9 11 13 m7b5, added tones that keep
+// the third (2/add2, 4/add4, add11), plus slash bass (C/E).
 
 const keys = synth(({ note, gate, adsr, saw, svf, lfo }) => {
   const env = adsr(gate, { a: 0.008, d: 0.3, s: 0.5, r: 0.5 })

@@ -10,7 +10,7 @@ export type { Loc, MiniValue } from './mini'
 // function form n('0 3') that builds a {n} control pattern (see controls.ts).
 export { n, note, sound, s } from './controls'
 export type { ControlMap, ControlValue } from './controls'
-export { ARP_ORDERS, chord, chordDegree, parseChord } from './chords'
+export { ARP_ORDERS, CHORD_QUALITIES, chord, chordDegree, parseChord } from './chords'
 export {
   SCALES,
   parseScaleName,

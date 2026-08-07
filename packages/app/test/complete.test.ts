@@ -3,6 +3,8 @@ import { CompletionContext } from '@codemirror/autocomplete'
 import { EditorState } from '@codemirror/state'
 import { javascript } from '@codemirror/lang-javascript'
 import { syntacticContext, rondocodeCompletionSource } from '../src/editor/complete'
+import { CHORD_SUFFIXES } from '../src/editor/complete'
+import { CHORD_QUALITIES, parseChord } from '@rondocode/pattern'
 
 /* ------------------------------------------------------------------------- *
  * Headless completion tests: build a real EditorState with the javascript
@@ -160,5 +162,30 @@ describe('inside string literals', () => {
     expect(labels(doc)).toContain('bell') // defined in the doc
     expect(labels(doc)).toContain('vox') // built-in demo sample
     expect(labels("s('|')", true)).toContain('riser')
+  })
+})
+
+/* The chord suffixes the popup offers are a SECOND copy of the parser's
+ * quality table, and it had already drifted: `sus`, `min`, `dom7`, `5` and
+ * `7sus4` all parse and were offered by nothing. Worse in the other direction
+ * — an entry here that the parser does not know completes to a chord that
+ * throws the moment it runs. */
+describe('chord completions cannot drift from the parser', () => {
+  it('offers only suffixes parseChord actually accepts', () => {
+    for (const suf of CHORD_SUFFIXES) {
+      expect(parseChord(`C${suf}`), `C${suf} is offered but does not parse`).toBeDefined()
+    }
+  })
+
+  it('offers the chart spellings that prompted this', () => {
+    // <D2 Bm9 Gadd9 Asus> — `2` was neither parsed nor offered
+    for (const suf of ['2', 'add2', 'add9', '9', 'm9']) expect(CHORD_SUFFIXES).toContain(suf)
+  })
+
+  it('every offered suffix is one of CHORD_QUALITIES (or the bare major)', () => {
+    for (const suf of CHORD_SUFFIXES) {
+      if (suf === '') continue
+      expect(CHORD_QUALITIES, suf).toContain(suf)
+    }
   })
 })

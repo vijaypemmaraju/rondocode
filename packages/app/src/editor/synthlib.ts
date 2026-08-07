@@ -205,6 +205,48 @@ export const SYNTHS: LibrarySynth[] = [
     .mul(0.5))`,
     demoTail: `setCps(0.5)\np('demo', note('c5*8').sound('hat'))`,
   },
+  {
+    name: 'crash',
+    title: 'Crash cymbal',
+    tags: 'drum · metal · inharmonic',
+    code: `// A cymbal is a dense INHARMONIC cluster, not filtered noise. Six squares
+// at unrelated ratios (the 808 recipe) give it metal; noise alone measures a
+// spectral centroid near 15 kHz and reads as a long hi-hat.
+// The lowpass matters as much as the highpass: full-band noise drags the
+// centroid into the sizzle. This lands around 5.8 kHz, where a crash lives.
+const crash = synth(({ gate, adsr, noise, square, svf, eq, reverb }) => {
+  const ring = adsr(gate, { a: 0.0008, d: 2.4, s: 0, r: 2.2 })
+  const wash = adsr(gate, { a: 0.001, d: 0.3, s: 0.1, r: 1.8 })
+  const metal = [316, 428, 587, 703, 941, 1207]
+    .map((f) => square(f))
+    .reduce((a, b) => a.add(b))
+    .mul(0.1)
+  const body = svf(metal, 4000, { mode: 'hp' }).add(noise().mul(wash).mul(0.3))
+  const voice = svf(body, 8000, { res: 0.15 }).mul(ring).mul(2.6)
+  return reverb(eq(voice, [{ type: 'hp', freq: 1100 }, { type: 'peak', freq: 5200, gain: 4, q: 1.1 }]),
+    { room: 0.7, damp: 0.3, mix: 0.22 })
+})`,
+    demoTail: `setCps(0.4)\np('demo', note('c3 ~ ~ ~').sound('crash').dur(3))`,
+    rondo: `synth crash
+  square 316
+  + square 428
+  + square 587
+  + square 703
+  + square 941
+  + square 1207
+  * 0.10
+  svf 4000 mode:hp
+  + hiss
+  svf 8000 res:.15
+  * env
+  * 2.6
+  hiss = noise * hs * 0.30
+  hs = adsr .001 .3 .1 1.8
+  env = adsr .0008 2.4 0 2.2
+  post
+    eq hp 1100 peak 5200 4 1.1
+    reverb room:.7 damp:.3 mix:.22`,
+  },
 
   /* ---- the newer engine, which the library had nothing for ------------- *
    * Wavetables, unison supersaws, formant and physical modelling all shipped

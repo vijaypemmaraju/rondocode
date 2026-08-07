@@ -202,6 +202,24 @@ export interface ScaleDefItem {
   pos: Pos
 }
 
+/** `patdef NAME <notation>` — name a pattern so it is written once.
+ *
+ *  The gap this fills, measured on a real 472-line arrangement: 16% of the
+ *  file was a repeat of a line already in it, one 333-character riff four
+ *  times over. Editing that riff meant finding every copy, and missing one
+ *  let two sections drift apart with nothing to say so.
+ *
+ *  Deliberately the same shape as `macro` / `curvedef` / `scaledef` /
+ *  `wavedef`: the language already names numbers, curves, scales and
+ *  wavetables, and a pattern was the one thing it could not name. */
+export interface PatDefItem {
+  t: 'patdef'
+  name: string
+  /** the notation, verbatim — substituted where the name is used. */
+  notation: string
+  pos: Pos
+}
+
 /** `wavedef NAME p1 p2 / p1 p2 p3 …` — register a custom wavetable:
  *  '/'-separated FRAMES of harmonic partial amplitudes (frames[f][i] =
  *  harmonic i+1) → defineWavetable(NAME, [[…], […]]). */
@@ -297,7 +315,7 @@ export interface CurveDefItem {
 
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
-  | SidechainItem | MasterItem | LevelItem | BusBlock | VisualItem
+  | SidechainItem | MasterItem | LevelItem | PatDefItem | BusBlock | VisualItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
 
 export interface Program {

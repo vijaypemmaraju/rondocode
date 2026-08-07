@@ -1098,3 +1098,47 @@ describe('positioned diagnostics', () => {
       'the left side of `->` must be a signal', 4, 9)
   })
 })
+
+/* PATDEF and the two things that only break OUTSIDE the compiler.
+ *
+ * Both were silent. A one-character name compiled and played nonsense; a
+ * substituted play line reported the notation's text with the REFERENCE's
+ * offset, so the editor lit five characters of `riffA` with a ninety-character
+ * figure and note-flash went wrong everywhere the feature was used. */
+describe('patdef: the notation, and where it came from', () => {
+  it('takes the notation after the NAME, not after the first letter of it', () => {
+    // `indexOf(name)` found the `a` inside "p-a-tdef", so the notation became
+    // the string "tdef a <[0 1]>" — which compiled
+    const out = ok('patdef a <[0 1]>\n\nsynth p\n  saw\n\nplay p\n  a\n\ncps .5\n')
+    expect(out).toContain("n('<[0 1]>')")
+    expect(out, 'the keyword must not be eaten').not.toContain('tdef')
+  })
+
+  it('reports the substituted notation at the PATDEF line, not the reference', () => {
+    // the span note-flash highlights: content and offset have to agree, or the
+    // editor decorates whatever text happens to sit there
+    const src = 'patdef riff <[0 1 2 3]>\n\nsynth p\n  saw\n\nplay p\n  riff\n\ncps .5\n'
+    const c = compile(src)
+    if (!c.ok) throw new Error(JSON.stringify(c.errors))
+    expect(c.notes).toHaveLength(1)
+    const span = c.notes[0]!
+    expect(src.slice(span.from, span.from + span.content.length)).toBe(span.content)
+    expect(span.content).toBe('<[0 1 2 3]>')
+  })
+
+  it('does the same for every voice of a stacked play block', () => {
+    const src = 'patdef a1 <[0 1]>\npatdef b1 <[2 3]>\n\nsynth p\n  saw\n\nplay p\n  a1\n  b1\n\ncps .5\n'
+    const c = compile(src)
+    if (!c.ok) throw new Error(JSON.stringify(c.errors))
+    expect(c.notes).toHaveLength(2)
+    for (const s of c.notes) expect(src.slice(s.from, s.from + s.content.length)).toBe(s.content)
+  })
+
+  it('leaves an ordinary inline notation pointing at itself', () => {
+    const src = 'synth p\n  saw\n\nplay p\n  <[0 1 2]>\n\ncps .5\n'
+    const c = compile(src)
+    if (!c.ok) throw new Error(JSON.stringify(c.errors))
+    const s = c.notes[0]!
+    expect(src.slice(s.from, s.from + s.content.length)).toBe(s.content)
+  })
+})

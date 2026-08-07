@@ -972,14 +972,14 @@ function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
  * mean something a reader could not see the length of.
  */
 function applyPatDefs(program: Program, errors: RondoError[]): void {
-  const defs = new Map<string, string>()
+  const defs = new Map<string, { notation: string; from: number }>()
   for (const it of program.items) {
     if (it.t !== 'patdef') continue
     if (defs.has(it.name)) {
       errors.push({ message: `patdef '${it.name}' is defined twice`, line: it.pos.line, col: it.pos.col })
       continue
     }
-    defs.set(it.name, it.notation)
+    defs.set(it.name, { notation: it.notation, from: it.notationFrom })
   }
   if (defs.size === 0) return
   // A name that is ALSO a synth would be ambiguous in a beat block, where a
@@ -993,13 +993,21 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
       })
     }
   }
-  const sub = (text: string): string => defs.get(text.trim()) ?? text
+  // The notation moves AND so does where it came from: a substituted play
+  // line's text now lives on the patdef line, and note-flash lights whatever
+  // offset it is handed (see compile.ts's NoteSpan).
+  const sub = <T extends { notation: string; notationFrom: number }>(t: T): void => {
+    const d = defs.get(t.notation.trim())
+    if (d === undefined) return
+    t.notation = d.notation
+    t.notationFrom = d.from
+  }
   const walk = (items: TopItem[]): void => {
     for (const it of items) {
       if (it.t === 'section') { walk(it.plays); continue }
       if (it.t !== 'play') continue
-      it.notation = sub(it.notation)
-      if (it.voices !== undefined) for (const v of it.voices) v.notation = sub(v.notation)
+      sub(it)
+      if (it.voices !== undefined) for (const v of it.voices) sub(v)
     }
   }
   walk(program.items)

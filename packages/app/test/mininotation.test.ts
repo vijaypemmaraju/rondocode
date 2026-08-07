@@ -13,8 +13,27 @@ const marked = (literal: string, from = 0) =>
 describe('mini-notation inside a JS string', () => {
   it('marks the rest, which is what the report was about', () => {
     expect(marked("'c2 ~ g2 ~'")).toEqual([
-      { text: '~', kind: 'atom' },
-      { text: '~', kind: 'atom' },
+      { text: '~', kind: 'rest' },
+      { text: '~', kind: 'rest' },
+    ])
+  })
+
+  /* A rest marked as an ATOM is marked invisible: atoms are amber and so are
+   * the numbers, so in `[~ -7!7]` the one thing you scan a pattern for was the
+   * same colour as everything beside it. It needs its OWN kind, not merely a
+   * mark. */
+  it('gives the rest a kind of its own, distinct from the brackets', () => {
+    const kinds = miniMarks("'[~ -7]'", 0).map((m) => m.kind)
+    expect(kinds).toContain('rest')
+    expect(new Set(kinds).size, 'the rest must not share a kind with the brackets').toBeGreaterThan(1)
+  })
+
+  it('does not merge a rest into an adjacent bracket run', () => {
+    // `[~` are adjacent, and merging them would paint the rest as a bracket
+    expect(marked("'[~]'")).toEqual([
+      { text: '[', kind: 'atom' },
+      { text: '~', kind: 'rest' },
+      { text: ']', kind: 'atom' },
     ])
   })
 

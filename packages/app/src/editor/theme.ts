@@ -1,7 +1,7 @@
 import type { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { Tag, tags as t } from '@lezer/highlight'
 import {
   C_ACCENT,
   C_ACCENT_ALT,
@@ -13,6 +13,7 @@ import {
   C_GREEN,
   C_RAISED,
   C_TEXT,
+  C_REST,
   C_WARN,
 } from '../ui/palette'
 
@@ -161,12 +162,18 @@ const editorTheme = EditorView.theme(
   { dark: true },
 )
 
+/** A rest, as its own tag. `t.atom` already covers the grouping characters
+ *  and `t.number` the digits, and both are amber — so a rest painted as
+ *  either is painted invisible. */
+export const restTag = Tag.define()
+
 const highlight = HighlightStyle.define([
   { tag: t.comment, color: C_FAINT, fontStyle: 'italic' },
   { tag: t.string, color: C_ACCENT_ALT }, // cyan channel
   { tag: t.number, color: C_WARN }, // amber channel
   { tag: [t.keyword, t.definitionKeyword, t.modifier], color: '#a7f3d0' }, // bright mint
   { tag: [t.bool, t.null, t.atom], color: C_WARN },
+  { tag: restTag, color: C_REST, fontWeight: '600' },
   { tag: [t.function(t.variableName), t.function(t.propertyName)], color: C_ACCENT }, // phosphor
   { tag: t.propertyName, color: '#5ec8b0' },
   { tag: [t.definition(t.variableName), t.variableName], color: C_TEXT },

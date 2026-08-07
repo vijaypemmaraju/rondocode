@@ -208,25 +208,37 @@ export const SYNTHS: LibrarySynth[] = [
   {
     name: 'crash',
     title: 'Crash cymbal',
-    tags: 'drum · metal · inharmonic',
-    code: `// A cymbal is a dense INHARMONIC cluster, not filtered noise. Six squares
-// at unrelated ratios (the 808 recipe) give it metal; noise alone measures a
-// spectral centroid near 15 kHz and reads as a long hi-hat.
-// The lowpass matters as much as the highpass: full-band noise drags the
-// centroid into the sizzle. This lands around 5.8 kHz, where a crash lives.
-const crash = synth(({ gate, adsr, noise, square, svf, eq, reverb }) => {
-  const ring = adsr(gate, { a: 0.0008, d: 2.4, s: 0, r: 2.2 })
-  const wash = adsr(gate, { a: 0.001, d: 0.3, s: 0.1, r: 1.8 })
-  const metal = [316, 428, 587, 703, 941, 1207]
+    tags: 'drum · metal · inharmonic · wide',
+    code: `// A cymbal is a dense INHARMONIC cluster, and every obvious shortcut is
+// wrong in a way you can measure:
+//   noise through a highpass  -> centroid 14.6 kHz. A long hi-hat, no metal.
+//   six partials              -> the tones are individually audible. Twelve
+//                                dropped the top-20-bin share 6.2% -> 4.9%.
+//   one global filter         -> full-band noise drags the centroid into the
+//                                sizzle, so the noise gets its OWN lowpass.
+// The chorus is not decoration: measured mono, this was 0.996 L/R correlated —
+// a point source. It decorrelates to 0.602 for under 1 dB summed to mono,
+// where the width effect swings straight to -0.003 and costs 3 dB.
+const crash = synth(({ gate, adsr, noise, square, svf }) => {
+  const ring = adsr(gate, { a: 0.0008, d: 0.3, s: 0, r: 0.2 })
+  const wash = adsr(gate, { a: 0.001, d: 0.12, s: 0.06, r: 0.25 })
+  const metal = [316, 428, 587, 703, 941, 1207, 1523, 1811, 2237, 2683, 3121, 3677]
     .map((f) => square(f))
     .reduce((a, b) => a.add(b))
-    .mul(0.1)
-  const body = svf(metal, 4000, { mode: 'hp' }).add(noise().mul(wash).mul(0.3))
-  const voice = svf(body, 8000, { res: 0.15 }).mul(ring).mul(2.6)
-  return reverb(eq(voice, [{ type: 'hp', freq: 1100 }, { type: 'peak', freq: 5200, gain: 4, q: 1.1 }]),
-    { room: 0.7, damp: 0.3, mix: 0.22 })
+    .mul(0.045)
+  const hiss = svf(noise(), 15000, { res: 0.08 }).mul(wash).mul(1.1)
+  const body = svf(metal, 1800, { mode: 'hp' }).add(hiss)
+  return svf(body, 14000, { res: 0.12 }).mul(ring).mul(2.6)
+}, ({ input, eq, chorus, reverb }) => {
+  // THE POST CHAIN IS WHERE THE WIDTH IS. A chorus inside the voice runs mono
+  // and measures 1.000 L/R correlated; per stereo side out here it lands at
+  // 0.687. And reverb returns the WET TAIL ONLY, so it is mixed back rather
+  // than returned — returning it directly is a near-silent preset.
+  const toned = eq(input, [{ type: 'hp', freq: 900 }, { type: 'peak', freq: 5200, gain: 2, q: 0.8 }])
+  const wide = chorus(toned, { rate: 0.28, depth: 0.012, mix: 0.6 })
+  return wide.mix(reverb(wide, { roomSize: 0.28, damp: 0.4 }), 0.12)
 })`,
-    demoTail: `setCps(0.4)\np('demo', note('c3 ~ ~ ~').sound('crash').dur(3))`,
+    demoTail: `setCps(0.5)\np('demo', note('c3 ~ ~ ~').sound('crash').dur(1))`,
     rondo: `synth crash
   square 316
   + square 428
@@ -234,25 +246,28 @@ const crash = synth(({ gate, adsr, noise, square, svf, eq, reverb }) => {
   + square 703
   + square 941
   + square 1207
-  * 0.10
-  svf 4000 mode:hp
+  + square 1523
+  + square 1811
+  + square 2237
+  + square 2683
+  + square 3121
+  + square 3677
+  * 0.045
+  svf 1800 mode:hp
   + hiss
-  svf 8000 res:.15
+  svf 14000 res:.12
   * env
   * 2.6
-  hiss = noise * hs * 0.30
-  hs = adsr .001 .3 .1 1.8
-  env = adsr .0008 2.4 0 2.2
+  nz = noise
+  nzl = svf nz 15000 res:.08
+  hiss = nzl * hs * 1.10
+  hs = adsr .001 .12 .06 .25
+  env = adsr .0008 .3 0 .2
   post
-    eq hp 1100 peak 5200 4 1.1
-    reverb room:.7 damp:.3 mix:.22`,
+    eq hp 900 peak 5200 2 0.8
+    chorus rate:.28 depth:.012 mix:.6
+    reverb room:.28 damp:.4 mix:.12`,
   },
-
-  /* ---- the newer engine, which the library had nothing for ------------- *
-   * Wavetables, unison supersaws, formant and physical modelling all shipped
-   * without a preset to start from, so the only way to find them was reading
-   * the reference. These are the shapes the hand-tuned examples converged on. */
-
   {
     name: 'stab',
     title: 'Supersaw stab',

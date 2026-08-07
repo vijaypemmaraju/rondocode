@@ -85,12 +85,12 @@ export const SYNTHS: LibrarySynth[] = [
   { unison: 7, detune: 18, spread: 0.8 },
 )`,
     demoTail: `p('demo', n('0 2 4 7 4 2').scale('a minor').sound('lead'))`,
-    rondo: `synth lead
-  saw + square note*2 * 0.3
-  svf cut res:.3
+    rondo: `synth lead unison:7 detune:18 spread:.8
+  saw
   * env
-  env = adsr .01 .15 .6 .2
-  cut = knob 3000 400..9000 log`,
+  env = adsr .02 .2 .6 .2
+  post
+    reverb room:.7 mix:.25`,
   },
   {
     name: 'sync',
@@ -189,11 +189,15 @@ export const SYNTHS: LibrarySynth[] = [
 })`,
     demoTail: `setCps(0.5)\np('demo', note('~ c3 ~ c3').sound('snare'))`,
     rondo: `synth snare
-  noise
-  svf 2200 mode:bp
-  * env
-  * .6
-  env = adsr .001 .12 0 .08`,
+  body
+  + rattle
+  * .7
+  tanh
+  nz = noise
+  body = sine 190 * benv
+  rattle = svf nz 3000 mode:hp * renv
+  benv = adsr .001 .12 0 .05
+  renv = adsr .001 .18 0 .08`,
   },
   {
     name: 'hat',

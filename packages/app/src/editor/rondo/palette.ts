@@ -71,6 +71,7 @@ function topChips(doc: string): Chip[] {
     chip('level', `level -4\n`, 'kw'),
     chip('sum', `sum k 1..16\n  sine note * k\n`, 'kw'),
     chip('patdef', `patdef riff <[0 ~ 3] [5 ~ 7]>\n`, 'kw'),
+    chip('with', ` with drums`, 'kw'),
     chip('bpm', 'bpm 120\n', 'kw'),
     chip('cps', 'cps .5\n', 'kw'),
     chip('timesig', 'timesig 3 4\n', 'kw'),

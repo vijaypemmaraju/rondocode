@@ -255,6 +255,18 @@ export interface SectionBlock {
   name: string
   len: number
   plays: PlayBlock[]
+  /** Sections this one plays ON TOP OF (`section main 8 with drums`).
+   *
+   *  Measured on a real arrangement: `intro2` repeated 4 of its 8 parts
+   *  verbatim from `intro`, and `main` repeated 2 of 4 from `build`. A
+   *  section that is "that one plus these" had to be written out in full,
+   *  because `song` can only put sections in a ROW — nothing could put one
+   *  on top of another.
+   *
+   *  This is both of the things that were missing at once: layering (a
+   *  section that is only drums, stacked under several others) and variation
+   *  (a section that is another plus two more parts). */
+  with?: string[]
   pos: Pos
 }
 

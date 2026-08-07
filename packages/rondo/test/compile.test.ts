@@ -672,6 +672,58 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.mul(env)')
   })
 
+  /* `section NAME N with OTHER` — play a section on top of another.
+   *
+   * Measured on a real arrangement: `intro2` repeated 4 of its 8 parts
+   * verbatim from `intro`, and `main` repeated 2 of 4 from `build`. `song`
+   * can only put sections in a ROW, so a section that is "that one plus
+   * these" had to be written out in full. This is both missing things at
+   * once: LAYERING (a drums-only section stacked under several others) and
+   * VARIATION (a section that is another plus two more parts). */
+  describe('a section can play with another', () => {
+    const S = 'synth a\n  saw note\n\nsynth b\n  sine 60\n\n'
+
+    it('stacks the other section IN, by reference', () => {
+      const out = ok(`${S}section one 4\n  play a\n    c3\n\nsection two 4 with one\n  play b\n    c4\n`)
+      // a REFERENCE, not a copy: editing `one` must change `two`
+      expect(out).toContain('const __sec_two = stack(')
+      expect(out).toContain('__sec_one')
+      expect(out.match(/note\('c3'\)/g), "one's pattern is written ONCE").toHaveLength(1)
+    })
+
+    it('layers several, so a drum section can sit under anything', () => {
+      const out = ok(
+        `${S}section d 4\n  play a\n    c3\n\nsection m 4\n  play b\n    c4\n\nsection full 4 with d with m\n  play a\n    e3\n`,
+      )
+      expect(out).toContain('__sec_d')
+      expect(out).toContain('__sec_m')
+    })
+
+    it('is allowed to add nothing of its own — a pure layering', () => {
+      const out = ok(`${S}section one 4\n  play a\n    c3\n\nsection two 4 with one\n  play b\n    c4\n`)
+      expect(out).toContain('__sec_one')
+    })
+
+    it('refuses a section that is not defined ABOVE it', () => {
+      // sections emit in source order; a forward reference would be a const
+      // used before its declaration, which is a runtime error not a message
+      failsAt(
+        `${S}section two 4 with one\n  play a\n    c3\n\nsection one 4\n  play b\n    c4\n`,
+        "no section 'one' defined above 'two'",
+        7,
+        1,
+      )
+    })
+
+    it('refuses a section that plays with itself', () => {
+      failsAt(`${S}section one 4 with one\n  play a\n    c3\n`, 'cannot play with itself', 7, 1)
+    })
+
+    it('says what a malformed header is missing', () => {
+      failsAt(`${S}section one 4 with\n  play a\n    c3\n`, 'with needs a section name', 7, 15)
+    })
+  })
+
   /* PATDEF — name a pattern so it is written once.
    *
    * Measured on a real 472-line arrangement: 16% of the file was a repeat of

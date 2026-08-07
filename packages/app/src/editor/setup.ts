@@ -17,6 +17,7 @@ import { synthTheme } from './theme'
 import { flashExtension } from './flash'
 import { foldingExtension } from './folding'
 import { miniNotationHighlight } from './mininotation'
+import { patRefHighlight } from './rondo/patrefs'
 import { rondocodeCompletionSource } from './complete'
 import { wgslHighlight, wgslCompletionSource } from './wgsl'
 import { gotoDefExtension } from './gotodef'
@@ -136,6 +137,7 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     synthTheme,
     flashExtension, // renders .cm-flash decorations (host drives via EventFlasher)
     miniNotationHighlight, // the ~ and the brackets, inside a JS string
+    patRefHighlight, // a `patdef` name used as a pattern, not as a bare word
     // Widgets-in-code: slider()/toggle()/pick()/xy() calls render as inline
     // controls; any plain number is Alt-drag (long-press on touch) scrubbable.
     // Both rewrite the doc, then re-eval via requestEval. See widgets/*.ts.

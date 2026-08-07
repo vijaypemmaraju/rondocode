@@ -28,6 +28,7 @@ import { RONDO_WAVEDEF, WavetableRibbonWidget, previewFrames, scanWavedefs, scan
 import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable'
 import { cycleEnumEdit, scanEnumSpans } from './enums'
 import type { EnumSpan } from './enums'
+import { activate } from './activation'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
@@ -1942,6 +1943,8 @@ const EP_PAD = 4
 const EP_MIN_TIME = 0.001
 
 class EnvPointsWidget extends WidgetType {
+  private unsub: (() => void) | null = null
+
   constructor(
     readonly scan: EnvPointsScan,
     /** the source text of the whole call — part of eq(), so an edit anywhere
@@ -1963,6 +1966,10 @@ class EnvPointsWidget extends WidgetType {
     wrap.className = 'rondo-envpts'
     wrap.setAttribute('role', 'group')
     wrap.setAttribute('aria-label', `${pts.length}-point envelope`)
+    // EnvPointsScan.synth exists for exactly this and was never wired: the
+    // adsr curve beside it fired per note while the breakpoint editor — the
+    // same envelope, written the long way — sat still.
+    this.unsub = activate(wrap, this.hooks, this.scan.synth !== undefined ? { synth: this.scan.synth } : {})
     wrap.title = 'drag a point: sideways for time, up and down for level'
     const svg = `<svg width="${W}" height="${EP_H}" viewBox="0 0 ${W} ${EP_H}">` +
       `<line class="base" x1="${EP_PAD}" y1="${EP_H - EP_PAD}" x2="${W - EP_PAD}" y2="${EP_H - EP_PAD}"/>` +
@@ -2105,6 +2112,12 @@ class EnvPointsWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean { return true }
+
+  /** Widgets die on every rebuild — drop the subscription with the DOM. */
+  destroy(): void {
+    this.unsub?.()
+    this.unsub = null
+  }
 }
 
 
@@ -2116,6 +2129,8 @@ class EnvPointsWidget extends WidgetType {
  * that answers 120 ms late does not feel like a switch.
  * -------------------------------------------------------------------------- */
 class SwitchWidget extends WidgetType {
+  private unsub: (() => void) | null = null
+
   constructor(
     readonly m: SwitchMatch,
     readonly key: string,
@@ -2129,6 +2144,9 @@ class SwitchWidget extends WidgetType {
     const wrap = document.createElement('span')
     wrap.className = 'rondo-switch'
     wrap.setAttribute('role', 'switch')
+    // A project-wide switch has no owning synth (m.synth absent), so any note
+    // lights it — which is right: it reaches every destination at once.
+    this.unsub = activate(wrap, this.hooks, m.synth !== undefined ? { synth: m.synth } : {})
     const label = (v: number): string => formatNumber(v, { step: 0.001 })
     // ARIA needs an on/off reading; the SECOND value is arbitrarily "off",
     // which is honest for a control whose two states have no inherent order
@@ -2176,6 +2194,12 @@ class SwitchWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean { return true }
+
+  /** Widgets die on every rebuild — drop the subscription with the DOM. */
+  destroy(): void {
+    this.unsub?.()
+    this.unsub = null
+  }
 }
 
 class PianoRollWidget extends WidgetType {

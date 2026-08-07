@@ -748,9 +748,12 @@ function staticArgJs(
   const num = numTok(doc, node)
   if (num !== null) return { value: num.value, range: { from: num.from, to: num.to } }
   if (node.name !== 'VariableName') return null // a rich expression: no read
-  const def = bindings.get(`${synth ?? ''} ${slice(doc, node)}`)
-    ?? bindings.get(` ${slice(doc, node)}`)
-  return def !== undefined ? { value: def } : null
+  const name = slice(doc, node)
+  const def = bindings.get(`${synth ?? ''}\u0000${name}`) ?? bindings.get(`\u0000${name}`)
+  // Keep the NAME as well as the DEF: it is what the live cutoff dot looks
+  // up in NoteEv.controls. The rondo scanner does the same, and
+  // scan-parity.test.ts holds the two to the identical shape.
+  return def !== undefined ? { value: def, knob: name } : null
 }
 
 const isSvfMode = (s: string | null): s is SvfModeName => s !== null && SVF_MODES.has(s)

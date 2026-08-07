@@ -1944,6 +1944,7 @@ const EP_MIN_TIME = 0.001
 
 class EnvPointsWidget extends WidgetType {
   private unsub: (() => void) | null = null
+  private raf = 0
 
   constructor(
     readonly scan: EnvPointsScan,
@@ -1969,7 +1970,46 @@ class EnvPointsWidget extends WidgetType {
     // EnvPointsScan.synth exists for exactly this and was never wired: the
     // adsr curve beside it fired per note while the breakpoint editor — the
     // same envelope, written the long way — sat still.
-    this.unsub = activate(wrap, this.hooks, this.scan.synth !== undefined ? { synth: this.scan.synth } : {})
+    /* A MARKER THAT RIDES THE CURVE, not just a glow.
+     *
+     * Lighting the whole widget says "this is doing something" and stops
+     * there: a two-second pad and a 16th-note hat look the same apart from
+     * how long the glow lasts. Time is this widget's X AXIS, so the honest
+     * thing is to show WHERE in the envelope we are — which the adsr curve
+     * beside it has always done, and this one, the same envelope written the
+     * long way, never did. */
+    const emark = () => wrap.querySelector('.emark') as SVGCircleElement | null
+    const ride = (): void => {
+      const mark = emark()
+      if (mark === null) return
+      const live = pts.map((q, i) => ({ ...q, time: times[i]!, level: levels[i]! }))
+      const g = envGeometry(live, W, EP_H, EP_PAD)
+      const total = live.reduce((n, q) => n + q.time, 0)
+      if (!(total > 0)) return
+      const t0 = performance.now()
+      cancelAnimationFrame(this.raf)
+      const frame = (nowMs: number): void => {
+        const t = (nowMs - t0) / 1000
+        if (t >= total || this.drag.active) { mark.setAttribute('opacity', '0'); this.raf = 0; return }
+        // walk the breakpoints to find the segment this instant sits in
+        let acc = 0
+        let i = 0
+        while (i < live.length - 1 && acc + live[i + 1]!.time <= t) { acc += live[i + 1]!.time; i++ }
+        const span = live[i + 1]?.time ?? 0
+        const u = span > 0 ? (t - acc) / span : 0
+        const a = g[i]!
+        const b = g[Math.min(i + 1, g.length - 1)]!
+        mark.setAttribute('cx', (a.x + (b.x - a.x) * u).toFixed(1))
+        mark.setAttribute('cy', (a.y + (b.y - a.y) * u).toFixed(1))
+        mark.setAttribute('opacity', '1')
+        this.raf = requestAnimationFrame(frame)
+      }
+      this.raf = requestAnimationFrame(frame)
+    }
+    this.unsub = activate(wrap, this.hooks, {
+      ...(this.scan.synth !== undefined ? { synth: this.scan.synth } : {}),
+      onFire: ride,
+    })
     wrap.title = 'drag a point: sideways for time, up and down for level'
     const svg = `<svg width="${W}" height="${EP_H}" viewBox="0 0 ${W} ${EP_H}">` +
       `<line class="base" x1="${EP_PAD}" y1="${EP_H - EP_PAD}" x2="${W - EP_PAD}" y2="${EP_H - EP_PAD}"/>` +
@@ -1979,6 +2019,8 @@ class EnvPointsWidget extends WidgetType {
       // modifier is not reachable with a thumb anyway.
       pts.map((_, i) => `<line class="seg" data-i="${i}"/>`).join('') +
       pts.map((_, i) => `<circle class="h" data-i="${i}" r="4.5"/>`).join('') +
+      // the note-fired marker, riding the curve. Last so it draws on top.
+      '<circle class="emark" r="3.5" opacity="0"/>' +
       '</svg>'
     wrap.innerHTML = svg
     const line = wrap.querySelector('.line') as SVGPathElement
@@ -2117,6 +2159,7 @@ class EnvPointsWidget extends WidgetType {
   destroy(): void {
     this.unsub?.()
     this.unsub = null
+    cancelAnimationFrame(this.raf)
   }
 }
 

@@ -16,6 +16,7 @@ import { synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { builtInSamples } from '../audio/demo-samples'
+import { mountOutline } from './outlinepanel'
 import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
@@ -1009,6 +1010,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     },
   })
 
+  // outline: jump to any synth / section / play block in this document
+  const disposeOutline = mountOutline({ view, topbar, getLang: () => lang })
+
   // karaoke: light up the current sing() syllable + note as the vocal plays,
   // driven by the sing-trigger event's timing against the AudioContext clock.
   const disposeKaraoke = mountKaraoke(view, {
@@ -1034,6 +1038,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     flasher.dispose()
     meters.dispose()
     disposeSamples()
+    disposeOutline()
     disposeExport()
     disposeKaraoke()
     engineListeners.clear()

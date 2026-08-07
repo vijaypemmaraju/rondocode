@@ -721,3 +721,12 @@
   outline: 1px solid var(--c-accent, #6ea8fe);
   filter: brightness(1.35);
 }
+
+/* A `patdef` name used as a pattern (patrefs.ts). It stands where notation
+   normally is, so leaving it plain made the one line that is NOT literal
+   notation look most like it. Mint, matching the keyword that defined it,
+   with a dotted underline saying "this stands for something else". */
+.cm-patref {
+  color: var(--c-kw, #a7f3d0);
+  border-bottom: 1px dotted currentColor;
+}

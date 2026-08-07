@@ -144,9 +144,20 @@ const build = (kinds: DocEntry['kind'][], boost?: (e: DocEntry) => number | unde
 
 const NOTE_LETTERS = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
 const CHORD_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-const CHORD_SUFFIXES = [
-  '', 'm', '7', 'maj7', 'm7', 'm7b5', 'dim', 'dim7', 'aug',
+/* The suffixes OFFERED, in the order they are worth reaching for. Not every
+ * quality parseChord knows: all of them is 12 roots x 40-odd qualities, and a
+ * popup that long buries the triad you actually wanted under its own aliases
+ * (`maj`/`major`/`M` are one chord spelled three ways).
+ *
+ * A curated list is a second copy of a list, though, and this one had already
+ * drifted — `sus`, `min`, `dom7`, `5` and `7sus4` all parse and were offered
+ * nowhere. So complete.test.ts pins it as a SUBSET of CHORD_QUALITIES, which
+ * catches the failure that matters: completing to a chord that does not parse. */
+export const CHORD_SUFFIXES = [
+  '', 'm', '7', 'maj7', 'm7', 'm7b5', 'dim', 'dim7', 'aug', '5',
   'sus2', 'sus4', '6', 'm6', 'add9', '9', 'maj9', 'm9', '11', '13',
+  // added tones that keep the third — the pop/worship chart spellings
+  '2', 'add2', 'm2', '4', 'add4', 'add11',
 ]
 
 // note names c1..b7 (the register a live-coder actually reaches for)

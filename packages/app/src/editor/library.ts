@@ -399,6 +399,11 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     flushSave()
     activeId = p.id
     active = p
+    // …AND the version to compare-and-set against. Left on the OUTGOING
+    // project's updatedAt, the first autosave here mismatched and was reported
+    // as a foreign write: "changed in another tab" plus a fork, on a project
+    // nobody else had touched. Opening an example hit it every time.
+    baseVersion = p.updatedAt
     // the outgoing project's samples leave the bank with it, and this one's
     // load in — a take belongs to the tune it was made for
     activateSamples()

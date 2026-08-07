@@ -22,6 +22,7 @@ import { formatNumber, literalWidth, niceStep } from '../widgets/rewrite'
 import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, MultiLiveWriter, attachGesture, verifiedChanges } from './gesture'
+import { barSpans, cellToNote, editNote, grabKind, notesOf, parseBar, slotDelta, toSlots } from './rollnotes'
 import type { Drag } from './gesture'
 import { RONDO_WAVEDEF, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
 import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable'
@@ -790,6 +791,85 @@ export function euclidText(p: number, s: number, r: number): string {
   return r !== 0 ? `(${p},${s},${r})` : `(${p},${s})`
 }
 
+/**
+ * Make a roll's cells DRAGGABLE: sideways to move a note, right edge to
+ * change its length — the piano-roll gesture, writing mini-notation.
+ *
+ * Both are the same edit (see rollnotes.placeNote): a note is written at a
+ * slot for a length, and whatever it lands on is overwritten. The bar's slot
+ * count never changes, so a bar stays the same length however much it is
+ * dragged and the pattern cannot drift out of time.
+ *
+ * Written at gesture END, not live. Every other widget here rewrites as it
+ * moves, but those edits are a number in place — this one re-serializes a
+ * whole bar, so its length changes under the pointer and the cell the user is
+ * holding would move mid-drag. The cell layer previews instead.
+ *
+ * A bar that is not a flat slot grid (a nesting, a euclid) simply does not
+ * arm: there is nothing to move a note between, and refusing is better than
+ * restructuring somebody's notation behind their back.
+ */
+function attachNoteGesture(
+  cellEl: HTMLElement,
+  cell: { x0: number; x1: number },
+  view: EditorView,
+  drag: Drag,
+  hooks: Hooks,
+  opts: { srcFrom: number; content: string; period: number; bodyWidth: number },
+): void {
+  attachGesture(cellEl, drag, 'window', (e) => {
+    // gesture-time verify: the notation must still sit where the widget thinks
+    const doc = view.state.doc.toString()
+    if (doc.slice(opts.srcFrom, opts.srcFrom + opts.content.length) !== opts.content) return null
+    const bars = barSpans(opts.content, opts.srcFrom)
+    const hit = cellToNote(bars, cell.x0)
+    if (hit === null) return null
+    const notes = notesOf(toSlots(parseBar(hit.barText, hit.from)!))
+    const note = notes[hit.index]
+    if (note === undefined) return null
+
+    const rect = cellEl.getBoundingClientRect()
+    const kind = grabKind(e.clientX - rect.left, rect.width)
+    const barWidth = opts.bodyWidth / Math.max(opts.period, 1)
+    const x0 = e.clientX
+    let last = 0
+    cellEl.classList.add('dragging')
+
+    const apply = (dx: number, commit: boolean): void => {
+      const d = slotDelta(dx, barWidth, hit.slots)
+      const start = kind === 'move' ? note.start + d : note.start
+      const length = kind === 'move' ? note.length : note.length + d
+      if (!commit) {
+        // preview by moving the CELL, so the roll shows the edit before the
+        // document changes and the widget is rebuilt
+        if (d === last) return
+        last = d
+        const per = barWidth / Math.max(hit.slots, 1)
+        cellEl.style.transform = kind === 'move' ? `translateX(${d * per}px)` : ''
+        if (kind === 'resize') {
+          const w = Math.max(1, note.length + d) * per
+          cellEl.style.width = `${w - 1}px`
+        }
+        return
+      }
+      const edit = editNote(hit.barText, hit.from, hit.index, start, length)
+      if (edit === null) return
+      view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.text } })
+      hooks.requestEval(false)
+    }
+
+    return {
+      onMove: (ev: PointerEvent) => apply(ev.clientX - x0, false),
+      onEnd: (ev: PointerEvent) => {
+        cellEl.classList.remove('dragging')
+        cellEl.style.transform = ''
+        cellEl.style.width = ''
+        apply(ev.clientX - x0, true)
+      },
+    }
+  })
+}
+
 /** The whole-roll TRANSPOSE grab strip: a narrow left-edge handle (44px
  *  touch target via its CSS bleed) drawn as a subtle double chevron. */
 function makeGrabStrip(): HTMLElement {
@@ -1151,6 +1231,12 @@ export class RollOverviewWidget extends WidgetType {
       el.style.bottom = `${3 + c.row * rowH}px`
       el.style.height = `${rowH - 2}px`
       cellEls.push({ el, c })
+      attachNoteGesture(el, c, view, this.drag, this.hooks, {
+        srcFrom: this.srcFrom,
+        content: this.content,
+        period,
+        bodyWidth: this.width,
+      })
       layer.appendChild(el)
     }
     const head = document.createElement('span')

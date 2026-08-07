@@ -708,3 +708,16 @@
   stroke-dasharray: 2 3;
   opacity: 0.45;
 }
+
+/* DRAGGABLE NOTES (widgets.ts attachNoteGesture + rollnotes.ts). A cell is a
+   note you can move: sideways to reposition it, right edge to change its
+   length. The cursor is the whole affordance — the cells are small, so a
+   visible handle would cost more room than it earns. */
+.qr-cell { cursor: grab; }
+.qr-cell:active { cursor: grabbing; }
+.qr-cell.dragging {
+  cursor: grabbing;
+  z-index: 2;
+  outline: 1px solid var(--c-accent, #6ea8fe);
+  filter: brightness(1.35);
+}

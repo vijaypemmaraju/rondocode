@@ -139,7 +139,10 @@ describe('the library actually calls the bridge', () => {
     // the last workspace file that happened to be open.
     const sw = lib.indexOf('const switchTo =')
     expect(sw).toBeGreaterThan(-1)
-    expect(lib.slice(sw, sw + 800)).toMatch(/openPath = null/)
+    // to the END of switchTo, not a character count: a fixed window measures
+    // how much COMMENT the function carries, and adding four lines of it broke
+    // this test while the behaviour it names was untouched
+    expect(lib.slice(sw, lib.indexOf('\n  }', sw))).toMatch(/openPath = null/)
     const forget = lib.indexOf("'use app storage'")
     expect(forget).toBeGreaterThan(-1)
     expect(lib.slice(forget, forget + 600)).toMatch(/openPath = null/)

@@ -641,6 +641,20 @@
   color: var(--c-accent-alt, #6ea8fe);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent);
 }
+/* live on the playhead: this filter is processing a note right now. The colour
+   change is what the canvas picks up (it re-reads `color` through inkOf on the
+   redraw activation triggers); background and opacity carry the rest.
+   Deliberately no filter/blur and no per-frame work — see the roll-cell repaint
+   regression: compositor-only properties, twice per note. */
+.rondo-fcurve.armed {
+  opacity: 0.78;
+  transition: opacity 0.09s ease-out, background-color 0.09s ease-out;
+}
+.rondo-fcurve.firing {
+  opacity: 1;
+  color: var(--c-accent-alt, #6ea8fe);
+  background: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 14%, transparent);
+}
 
 /* --- the switch: a knob with two values, tapped rather than dragged --- */
 .rondo-switch {
@@ -730,3 +744,20 @@
   color: var(--c-kw, #a7f3d0);
   border-bottom: 1px dotted currentColor;
 }
+
+/* --- live on the playhead, the widgets that had no live state at all --- *
+   Same rule as the filter curve: `armed` means a transport is wired up (so the
+   resting style may sit dimmer), `firing` means this widget's synth is
+   sounding right now. Compositor-only properties and no per-frame work. */
+.rondo-envpts.armed,
+.rondo-switch.armed {
+  transition: opacity 0.09s ease-out, color 0.09s ease-out;
+  opacity: 0.8;
+}
+.rondo-envpts.firing,
+.rondo-switch.firing {
+  opacity: 1;
+  color: var(--c-accent-alt, #6ea8fe);
+}
+.rondo-envpts.firing .line { stroke: var(--c-accent-alt, #6ea8fe); }
+.rondo-envpts.firing .fill { fill: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 22%, transparent); }

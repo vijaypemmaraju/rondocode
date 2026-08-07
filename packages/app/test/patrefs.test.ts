@@ -48,3 +48,43 @@ describe('patdef references', () => {
     expect(spans('play lead\n  riff\n')).toEqual([])
   })
 })
+
+/* COMPOSED figures refer to other figures INSIDE the notation, which only
+ * became possible when patdefs learned to compose. Leaving those plain is
+ * worse than leaving a whole-line reference plain: they sit in the middle of
+ * notation, so unhighlighted they read as NOTES — which is exactly what they
+ * would be if the name were spelled a little differently. */
+describe('references inside a composed figure', () => {
+  it('marks every name used inside another figure', () => {
+    const doc = 'patdef tail [1 2]\npatdef openA [0]\npatdef riff <openA tail openA tail>\n'
+    expect(spans(doc)).toEqual(['openA', 'tail', 'openA', 'tail'])
+  })
+
+  it('points at the names, not at the notation around them', () => {
+    const doc = 'patdef tail [1 2]\npatdef riff <[0 0] tail>\n'
+    const [s] = patRefSpans(doc, patDefNames(doc))
+    expect(doc.slice(s!.from, s!.to)).toBe('tail')
+    expect(doc[s!.from - 1], 'the space before it is not included').toBe(' ')
+  })
+
+  it('does not mark the name being DEFINED as a use of itself', () => {
+    // a self-reference is an error, not a link worth dressing up
+    expect(spans('patdef loop <[0] loop>\n')).toEqual([])
+  })
+
+  it('leaves a NOTE that merely matches a name alone', () => {
+    // the compiler does not expand a note-like name inside a figure, so
+    // marking it would promise a substitution that never happens
+    const doc = 'patdef e [9]\npatdef tune <c3 e4 e g4>\n'
+    expect(spans(doc), 'e / e4 are notes here').toEqual([])
+  })
+
+  it('still marks a whole-line reference in a play block', () => {
+    const doc = 'patdef tail [1 2]\npatdef riff <[0] tail>\n\nplay lead\n  riff\n'
+    expect(spans(doc)).toEqual(['tail', 'riff'])
+  })
+
+  it('marks nothing inside a figure that references nothing', () => {
+    expect(spans('patdef riff <[0 1] [2 3]>\n')).toEqual([])
+  })
+})

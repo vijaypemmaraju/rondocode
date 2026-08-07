@@ -2,6 +2,7 @@ import { RangeSetBuilder } from '@codemirror/state'
 import type { Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
+import { isComposablePatDefName } from '@rondocode/rondo'
 import { rondoMode } from '../langflag'
 
 /* ------------------------------------------------------------------------- *
@@ -32,20 +33,51 @@ export function patDefNames(doc: string): string[] {
   return out
 }
 
-/** The spans of every USE of one of `names`: a body line that is exactly the
- *  name and nothing else, which is what a reference is (see codegen's
- *  applyPatDefs — substitution is whole-line, so anything else is a word).
- *  Pure, so the rule is testable without an editor. */
+/** The spans of every USE of one of `names`. Two shapes, because there are
+ *  two ways to refer to a figure:
+ *
+ *    play lead
+ *      riff              <- a body line that IS the name (whole-line
+ *                           substitution, see codegen's applyPatDefs)
+ *
+ *    patdef riffB <openB tail openA tail>
+ *                  ^^^^^ ^^^^ ^^^^^ ^^^^  <- INSIDE another figure
+ *
+ *  The second only became possible when patdefs learned to compose, and
+ *  leaving it plain is worse than it was for the first: those words sit in the
+ *  middle of notation, so unhighlighted they read as NOTES, which is exactly
+ *  what they would be if the name were spelled a little differently.
+ *
+ *  Which names can appear inside a figure is the compiler's rule, imported
+ *  rather than restated — a note-like name is not expanded there, so marking
+ *  it would promise a substitution that never happens.
+ *
+ *  Pure, so both rules are testable without an editor. */
 export function patRefSpans(doc: string, names: readonly string[]): { from: number; to: number }[] {
   if (names.length === 0) return []
   const defined = new Set(names)
+  const composable = new Set(names.filter(isComposablePatDefName))
   const out: { from: number; to: number }[] = []
   let at = 0
   for (const line of doc.split('\n')) {
     const text = line.trim()
+    const indent = line.length - line.trimStart().length
+    const def = /^patdef[ \t]+([A-Za-z]\w*)[ \t]+(.*)$/.exec(text)
+    if (def !== null) {
+      // references INSIDE this figure. The name being defined is skipped: a
+      // self-reference is an error, not a link worth dressing up.
+      const self = def[1]!
+      const bodyAt = at + indent + text.length - def[2]!.length
+      for (const m of def[2]!.matchAll(/[A-Za-z][A-Za-z0-9_]*/g)) {
+        if (m[0] === self || !composable.has(m[0])) continue
+        out.push({ from: bodyAt + m.index, to: bodyAt + m.index + m[0].length })
+      }
+      at += line.length + 1
+      continue
+    }
     // the DEFINITION is not a reference to itself
-    if (text !== '' && !text.startsWith('patdef') && defined.has(text)) {
-      const from = at + (line.length - line.trimStart().length)
+    if (text !== '' && defined.has(text)) {
+      const from = at + indent
       out.push({ from, to: from + text.length })
     }
     at += line.length + 1

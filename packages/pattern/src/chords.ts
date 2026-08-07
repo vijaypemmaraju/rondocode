@@ -28,10 +28,35 @@ const QUALITIES: Record<string, number[]> = {
   dim7: [0, 3, 6, 9],
   sus2: [0, 2, 7], sus4: [0, 5, 7], sus: [0, 5, 7], '7sus4': [0, 5, 7, 10],
   add9: [0, 4, 7, 14], madd9: [0, 3, 7, 14],
+  /* ADDED TONES, KEEPING THE THIRD. `D2` is the pop/worship chart spelling and
+   * it is NOT sus2: a sus chord REPLACES the third, while `D2` keeps it and
+   * adds the 2nd beside it — D E F# A. Written out, the difference is the one
+   * that matters here:
+   *
+   *   Dsus2  [0,2,7]      D  E  A      no third: open, unresolved
+   *   D2     [0,2,4,7]    D  E  F# A   major, with the 2nd rubbing against it
+   *   Dadd9  [0,4,7,14]   D  F# A  E   the same tone an octave up: no rub
+   *
+   * add9 already existed and put the 9th on top, which is a different voicing
+   * of the same idea and does not sound like the chart. So these are their own
+   * entries rather than aliases of anything. */
+  '2': [0, 2, 4, 7], add2: [0, 2, 4, 7],
+  m2: [0, 2, 3, 7], madd2: [0, 2, 3, 7],
+  '4': [0, 4, 5, 7], add4: [0, 4, 5, 7],
+  m4: [0, 3, 5, 7], madd4: [0, 3, 5, 7],
+  add11: [0, 4, 7, 17], madd11: [0, 3, 7, 17],
   '9': [0, 4, 7, 10, 14], maj9: [0, 4, 7, 11, 14], m9: [0, 3, 7, 10, 14],
   '11': [0, 4, 7, 10, 14, 17], m11: [0, 3, 7, 10, 14, 17],
   '13': [0, 4, 7, 10, 14, 21], m13: [0, 3, 7, 10, 14, 21],
 }
+
+/** Every quality name this understands, longest first so a caller listing them
+ *  shows `maj7` before `maj`. The completion list and the docs blurb both used
+ *  to spell their own copy of this and had already drifted — `sus`, `min`,
+ *  `dom7` and `5` all parse but were offered by neither. */
+export const CHORD_QUALITIES: readonly string[] = Object.keys(QUALITIES)
+  .filter((q) => q !== '')
+  .sort((a, b) => b.length - a.length || a.localeCompare(b))
 
 // A trailing number after the root is the QUALITY (C7 = dom7), never an octave —
 // chords sit in a fixed register (root octave 3); transpose with .add() if needed.

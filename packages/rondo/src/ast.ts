@@ -103,12 +103,17 @@ export interface PlayBlock {
   notation: string
   /** absolute char offset of `notation` in the source (for note-play flash). */
   notationFrom: number
+  /** Set when the notation was ASSEMBLED from patdefs rather than written
+   *  here: the text exists nowhere in the buffer as one run, so each chunk
+   *  maps back to wherever it came from. Note-flash needs this or it
+   *  highlights the reference with the expansion (see compile.ts NoteSpan). */
+  notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]
   /** additional stacked voice lines (multi-line play block → stack(...)).
    *  A voice may name its OWN synth with a trailing `synth:NAME`, which is
    *  what makes a layered drum pattern sayable: layers otherwise share the
    *  block's synth, which is right for a hand-built chord and wrong when
    *  each layer is a different instrument. */
-  voices?: { notation: string; notationFrom: number; synthName?: string }[]
+  voices?: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[] }[]
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
   /** modifier lines under the notation, applied in order. */

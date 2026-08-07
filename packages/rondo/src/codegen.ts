@@ -993,14 +993,108 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
       })
     }
   }
+  /* A NAME THAT IS ALSO A NOTE is not expanded INSIDE a figure, because that
+   * is exactly where note names live: expanding `patdef e <…>` would rewrite
+   * every `e` in every figure in the document. Such a name still works on its
+   * own line, which is all it could do before composition existed — so this
+   * costs nothing that used to work. */
+  const NOTE_LIKE = /^[a-gA-G](?:[#b]|s)?-?\d*$/
+  const inlinable = new Set([...defs.keys()].filter((k) => !NOTE_LIKE.test(k)))
+
+  /* PATDEFS COMPOSE. A figure is usually a variation on another one — three
+   * riffs in a real arrangement shared the same three-bar tail and differed
+   * only in the opening bar — and without this the shared part is written out
+   * once per figure, which is the duplication patdef exists to remove.
+   *
+   * Expansion is TEXTUAL and whole-word, matching how a reference on its own
+   * line already works: `<[-3 -7!7] tail>` becomes the four cells it stands
+   * for. Iterated to a fixed point so a definition may build on one that
+   * itself builds on another; a cycle is an error, not a hang. */
+  type Piece = { assembledStart: number; sourceStart: number; length: number }
+  const MAX_DEPTH = 16
+
+  /* Expand every reference in `text`, and REMEMBER WHERE EACH CHUNK CAME FROM.
+   *
+   * The map is not optional bookkeeping. An assembled figure exists nowhere in
+   * the buffer as one run — `<openA tail>` is twelve characters standing for
+   * forty-six — so note-flash, which highlights the text at the offset it is
+   * handed, would light the reference with the expansion. That is the exact
+   * bug composition would otherwise reintroduce, so each chunk carries its own
+   * origin: literal text points into this line, an expanded reference points
+   * into the patdef it came from, recursively. */
+  const expandPieces = (
+    text: string,
+    from: number,
+    self: string,
+    pos: Pos,
+    seen: ReadonlySet<string>,
+    depth: number,
+  ): { text: string; pieces: Piece[] } => {
+    if (depth > MAX_DEPTH) {
+      errors.push({
+        message: `patdef '${self}' expands forever — it refers to itself, directly or through another patdef`,
+        line: pos.line,
+        col: pos.col,
+      })
+      return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }] }
+    }
+    let out = ''
+    const pieces: Piece[] = []
+    const keep = (chunk: string, src: number): void => {
+      if (chunk === '') return
+      pieces.push({ assembledStart: out.length, sourceStart: src, length: chunk.length })
+      out += chunk
+    }
+    const re = /[A-Za-z][A-Za-z0-9_]*/g
+    let at = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      const word = m[0]
+      if (inlinable.has(word) && seen.has(word)) {
+        // `seen` stops the recursion; without this it would stop it SILENTLY
+        // and leave the name in the figure, where it reads as a note
+        errors.push({
+          message: `patdef '${word}' expands forever — it refers to itself, directly or through another patdef`,
+          line: pos.line,
+          col: pos.col,
+        })
+        return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }] }
+      }
+      const d = inlinable.has(word) ? defs.get(word) : undefined
+      if (d === undefined) continue
+      keep(text.slice(at, m.index), from + at)
+      const sub = expandPieces(d.notation, d.from, word, pos, new Set([...seen, self]), depth + 1)
+      for (const q of sub.pieces) {
+        pieces.push({ assembledStart: out.length + q.assembledStart, sourceStart: q.sourceStart, length: q.length })
+      }
+      out += sub.text
+      at = m.index + word.length
+    }
+    if (at === 0) return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }] }
+    keep(text.slice(at), from + at)
+    return { text: out, pieces }
+  }
+
+  const grown = new Map<string, { notation: string; from: number; pieces: Piece[] }>()
+  for (const it of program.items) {
+    if (it.t !== 'patdef') continue
+    const e = expandPieces(it.notation, it.notationFrom, it.name, it.pos, new Set([it.name]), 0)
+    grown.set(it.name, { notation: e.text, from: it.notationFrom, pieces: e.pieces })
+  }
+  for (const [name, g] of grown) defs.set(name, { notation: g.notation, from: g.from })
+
   // The notation moves AND so does where it came from: a substituted play
   // line's text now lives on the patdef line, and note-flash lights whatever
   // offset it is handed (see compile.ts's NoteSpan).
-  const sub = <T extends { notation: string; notationFrom: number }>(t: T): void => {
-    const d = defs.get(t.notation.trim())
+  const sub = <T extends { notation: string; notationFrom: number; notationPieces?: Piece[] }>(t: T): void => {
+    const key = t.notation.trim()
+    const d = defs.get(key)
     if (d === undefined) return
     t.notation = d.notation
     t.notationFrom = d.from
+    const g = grown.get(key)
+    // only when the figure was ASSEMBLED — a plain one still matches the buffer
+    if (g !== undefined && g.pieces.length > 1) t.notationPieces = g.pieces
   }
   const walk = (items: TopItem[]): void => {
     for (const it of items) {

@@ -924,7 +924,55 @@ function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
   return `visual(\`\n${body}\n\`)`
 }
 
+/**
+ * Substitute every `patdef` name used as a notation line with its notation.
+ *
+ * Textual and at COMPILE TIME, which is the same thing `macro` does for a
+ * number: nothing downstream — the scheduler, the roll widget, the offline
+ * render — ever learns that a name was involved, so a named pattern cannot
+ * behave differently from the notation written out by hand.
+ *
+ * A whole line only. That is not a shortcut: it covers the case this exists
+ * for exactly (every duplicated line measured in a real arrangement WAS a
+ * whole line), and substituting inside a bracket would make `<riff riff2>`
+ * mean something a reader could not see the length of.
+ */
+function applyPatDefs(program: Program, errors: RondoError[]): void {
+  const defs = new Map<string, string>()
+  for (const it of program.items) {
+    if (it.t !== 'patdef') continue
+    if (defs.has(it.name)) {
+      errors.push({ message: `patdef '${it.name}' is defined twice`, line: it.pos.line, col: it.pos.col })
+      continue
+    }
+    defs.set(it.name, it.notation)
+  }
+  if (defs.size === 0) return
+  // A name that is ALSO a synth would be ambiguous in a beat block, where a
+  // bare word already means a synth. Refuse rather than pick.
+  for (const it of program.items) {
+    if (it.t === 'synth' && defs.has(it.name)) {
+      errors.push({
+        message: `'${it.name}' is both a synth and a patdef — a beat line cannot mean both, rename one`,
+        line: it.pos.line,
+        col: it.pos.col,
+      })
+    }
+  }
+  const sub = (text: string): string => defs.get(text.trim()) ?? text
+  const walk = (items: TopItem[]): void => {
+    for (const it of items) {
+      if (it.t === 'section') { walk(it.plays); continue }
+      if (it.t !== 'play') continue
+      it.notation = sub(it.notation)
+      if (it.voices !== undefined) for (const v of it.voices) v.notation = sub(v.notation)
+    }
+  }
+  walk(program.items)
+}
+
 export function codegen(program: Program, errors: RondoError[]): string {
+  applyPatDefs(program, errors)
   const sections = program.items.filter((it): it is Extract<TopItem, { t: 'section' }> => it.t === 'section')
   const song = program.items.find((it): it is Extract<TopItem, { t: 'song' }> => it.t === 'song')
   // scaledef lines HOIST to the top: .scale('c pelog') parses eagerly at
@@ -977,6 +1025,9 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'section') return cgSection(item, errors, macroNames)
     if (item.t === 'song') return '' // assembled below, after all sections exist
+    // a patdef emits NOTHING: it was substituted into its use sites above,
+    // so by here it is a definition with no runtime existence at all
+    if (item.t === 'patdef') return ''
     // `timesig 3 4` → setTimeSig(3, 4). The evaluator resolves `bpm` against
     // it at the END of the eval, so the two lines commute.
     if (item.t === 'timesig') return `setTimeSig(${item.num}, ${item.den})`

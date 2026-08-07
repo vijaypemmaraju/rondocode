@@ -672,6 +672,59 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('.mul(env)')
   })
 
+  /* PATDEF — name a pattern so it is written once.
+   *
+   * Measured on a real 472-line arrangement: 16% of the file was a repeat of
+   * a line already in it, one 333-character riff four times over. Editing
+   * that riff meant finding every copy, and missing one let two sections
+   * drift apart with nothing to say so. */
+  describe('patdef names a pattern', () => {
+    const S = 'synth lead\n  saw note\n\n'
+
+    it('emits the notation at every use site', () => {
+      const out = ok(`patdef riff <[0 ~ 3] [5 ~ 7]>\n\n${S}play lead\n  riff\n\nplay lead\n  riff\n  add 7\n`)
+      const uses = [...out.matchAll(/\b(?:n|note|mini)\('([^']+)'\)/g)].map((m) => m[1])
+      expect(uses).toEqual(['<[0 ~ 3] [5 ~ 7]>', '<[0 ~ 3] [5 ~ 7]>'])
+    })
+
+    it('leaves NOTHING of itself at runtime', () => {
+      // it is a compile-time substitution, like macro — nothing downstream
+      // (scheduler, roll widget, offline render) learns a name was involved
+      expect(ok(`patdef riff <[0 ~ 3]>\n\n${S}play lead\n  riff\n`)).not.toContain('patdef')
+    })
+
+    it('works inside a section, and alongside modifiers', () => {
+      const out = ok(`patdef riff <[0 ~ 3]>\n\n${S}section a 2\n  play lead\n    riff\n    gain: .6\n\nsong a\n`)
+      expect(out).toContain('<[0 ~ 3]>')
+      expect(out).toContain('.gain(0.6)')
+    })
+
+    it('leaves a notation that merely CONTAINS the name alone', () => {
+      // only a whole line is a reference; `riff` inside a bracket is a word
+      const out = ok(`patdef riff <[0 ~ 3]>\n\nsynth riffy\n  saw note\n\nbeat\n  riffy ~ riffy ~\n`)
+      expect(out).toContain('riffy ~ riffy ~')
+    })
+
+    it('refuses a name that is ALSO a synth, rather than picking one', () => {
+      // a beat line's bare word already means a synth: it cannot mean both
+      failsAt(
+        'patdef kick <[0 ~ 3]>\n\nsynth kick\n  sine 60\n\nbeat\n  kick ~\n',
+        'both a synth and a patdef',
+        3,
+        1,
+      )
+    })
+
+    it('refuses a duplicate definition', () => {
+      failsAt('patdef riff <[0]>\n\npatdef riff <[3]>\n\nsynth s\n  saw\n', 'defined twice', 3, 1)
+    })
+
+    it('says which way the header is wrong', () => {
+      failsAt('patdef\n', 'patdef needs a name', 1, 1)
+      failsAt('patdef riff\n', "patdef 'riff' has no notation", 1, 1)
+    })
+  })
+
   /* PARENS. They were not rejected before this — they were DROPPED, along with
    * every other character the lexer did not recognise, because notation lines
    * read `(` from raw text as euclid. So `gate * (1 + gate)` lexed as

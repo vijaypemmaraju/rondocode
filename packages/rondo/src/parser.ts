@@ -895,7 +895,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
  *  BODY-level words (`post`, `send`) are NOT here: they open nothing at the
  *  top level. See words.ts, which adds them for highlighting. */
 export const BLOCK_KEYWORDS: readonly string[] = [
-  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level',
+  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'patdef',
   'bus', 'sidechain', 'master', 'macro', 'switch', 'curvedef', 'scaledef',
   'wavedef', 'visual', 'js',
 ]
@@ -906,7 +906,7 @@ export const BLOCK_KEYWORDS: readonly string[] = [
  *  added to one list and not the other — so it lives HERE, next to the dispatch
  *  that defines it, and the formatter imports it. */
 export const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
-  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef',
+  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef', 'patdef',
 ])
 
 /** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
@@ -1087,6 +1087,27 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
         }
       }
       items.push({ t: 'curvedef', name, points, pos: head.pos })
+      i++
+    }
+    // `patdef riff <[0 ~ 3] [5 ~ 7]>` — name a pattern, write it once
+    else if (head.v === 'patdef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'patdef needs a name (`patdef riff <[0 ~ 3]>`)', line: ln.line, col: ln.rawCol })
+        i++
+        continue
+      }
+      // The notation is taken from the RAW line, not from tokens: it is
+      // mini-notation, whose characters the lexer deliberately skips (they
+      // belong to the notation sublanguage, not to expressions).
+      const after = ln.raw.slice(ln.raw.indexOf(name) + name.length).trim()
+      if (after === '') {
+        errors.push({ message: `patdef '${name}' has no notation`, line: ln.line, col: ln.rawCol })
+        i++
+        continue
+      }
+      items.push({ t: 'patdef', name, notation: after, pos: head.pos })
       i++
     }
     // `scaledef pelog 0 1.2 2.7 5.4 6.7` → defineScale('pelog', [0, …]):

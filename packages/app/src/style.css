@@ -2138,3 +2138,41 @@ body.shaderviz-on .cm-content {
   font-size: var(--fs-meta);
   color: var(--c-dim);
 }
+
+/* LIBRARY NOTICE (editor/library.ts). The one event here that happens TO the
+   user: two tabs edited one project, so their work was moved to a copy. It
+   used to be a console.warn, which is the same as nothing. Stays until
+   dismissed — a fork that fades in three seconds is not a notice. */
+.lib-notice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border: 1px solid var(--c-warn, #f2b155);
+  border-radius: 8px;
+  background: var(--c-bg, #0b0f0d);
+  color: var(--c-text, #c8e6da);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.lib-notice.hidden { display: none; }
+.lib-notice-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--c-dim, #6f9284);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  min-width: 32px;
+  min-height: 32px;
+}
+.lib-notice-close:hover { color: var(--c-accent, #6ea8fe); }

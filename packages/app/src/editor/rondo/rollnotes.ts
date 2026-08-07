@@ -268,10 +268,58 @@ export function grabKind(offsetPx: number, widthPx: number): 'move' | 'resize' {
   return offsetPx >= widthPx - edge ? 'resize' : 'move'
 }
 
+/** Degree steps a vertical drag covers. Up is negative y and pitch climbs
+ *  the screen, so the sign flips. */
+export function pitchDelta(dy: number, rowH: number): number {
+  // `|| 0` normalizes -0: a downward nudge rounds to negative zero, which is
+  // not 0 to Object.is and would read as a step to anything comparing exactly.
+  return Math.round(-dy / Math.max(rowH, 1)) || 0
+}
+
 /** Slots a horizontal drag of `dx` pixels covers, given the bar's width. */
 export function slotDelta(dx: number, barWidthPx: number, slots: number): number {
   const per = barWidthPx / Math.max(slots, 1)
   return Math.round(dx / Math.max(per, 1))
+}
+
+/**
+ * Transpose ONE note of a bar by `steps` degrees.
+ *
+ * One roll row is one degree step, which is what the whole-roll transpose
+ * handle already means by a row (see transposeSteps) — so a single note moves
+ * by the same measure the whole pattern does, and dragging one note up a row
+ * lands where dragging all of them would have put it.
+ *
+ * DEGREES ONLY. The roll builds its rows from numeric values and skips
+ * anything else, so a note-name notation (`c3 e3`) draws no cells and cannot
+ * be dragged in the first place. Rather than invent note-name arithmetic for
+ * cells that do not exist, this declines a non-numeric token — which is also
+ * the honest answer for `bd` in a beat block.
+ *
+ * The new degree may have no row yet; the roll rebuilds from the document
+ * after the edit, so the row appears. That is the same path any other edit
+ * takes.
+ */
+export function transposeNote(
+  barText: string,
+  barFrom: number,
+  index: number,
+  steps: number,
+): BarEdit | null {
+  if (steps === 0) return null
+  const tokens = parseBar(barText, barFrom)
+  if (tokens === null) return null
+  const notes = notesOf(toSlots(tokens))
+  const note = notes[index]
+  if (note === undefined) return null
+  // the token this note came from: the note's id counts non-rest tokens
+  let seen = -1
+  const token = tokens.find((t) => t.value !== REST && ++seen === note.id)
+  if (token === undefined) return null
+  const deg = Number(token.value)
+  if (!Number.isFinite(deg)) return null
+  const next = String(deg + steps)
+  return { from: token.from, to: token.from + token.value.length, text: next }
 }
 
 /**

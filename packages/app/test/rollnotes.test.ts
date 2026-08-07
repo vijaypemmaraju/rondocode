@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mini, TimeSpan, F } from '@rondocode/pattern'
-import { barSpans, cellToNote, editNote, grabKind, slotDelta, notesOf, parseBar, placeNote, slotsToText, toSlots } from '../src/editor/rondo/rollnotes'
+import { barSpans, cellToNote, editNote, grabKind, pitchDelta, slotDelta, transposeNote, notesOf, parseBar, placeNote, slotsToText, toSlots } from '../src/editor/rondo/rollnotes'
 
 /* The roll draws cells by QUERYING the compiled pattern, so a cell has no
  * back-reference to its text. Dragging a note therefore needs a model that
@@ -225,5 +225,53 @@ describe('the drag maths', () => {
     expect(slotDelta(-100, 400, 8)).toBe(-2)
     // a nudge that has not reached half a slot must not move anything
     expect(slotDelta(20, 400, 8)).toBe(0)
+  })
+})
+
+describe('transposeNote', () => {
+  it('moves ONE note, leaving the rest of the bar alone', () => {
+    const bar = '0 3 5'
+    const e = transposeNote(bar, 0, 1, 2)!
+    expect(bar.slice(0, e.from) + e.text + bar.slice(e.to)).toBe('0 5 5')
+  })
+
+  it('rewrites only the value, keeping the note\'s weight', () => {
+    const bar = '4@2 0@2'
+    const e = transposeNote(bar, 0, 1, -3)!
+    expect(bar.slice(0, e.from) + e.text + bar.slice(e.to)).toBe('4@2 -3@2')
+  })
+
+  it('counts past rests to the right note', () => {
+    // the note id skips rests; matching by token index would hit the rest
+    const bar = '0 ~ ~ 7'
+    const e = transposeNote(bar, 0, 1, 1)!
+    expect(bar.slice(0, e.from) + e.text + bar.slice(e.to)).toBe('0 ~ ~ 8')
+  })
+
+  it('declines a value that is not a degree', () => {
+    // a beat block's `bd`, or a note name — the roll draws no cell for these
+    expect(transposeNote('bd sn', 0, 0, 1)).toBeNull()
+    expect(transposeNote('c3 e3', 0, 0, 1)).toBeNull()
+  })
+
+  it('writes nothing for a drag that did not cross a row', () => {
+    expect(transposeNote('0 3', 0, 0, 0)).toBeNull()
+  })
+
+  it('reads back as the pitch intended', () => {
+    const bar = '0 ~ 3 5'
+    const e = transposeNote(bar, 0, 2, 4)!
+    const after = bar.slice(0, e.from) + e.text + bar.slice(e.to)
+    const got = mini(`[${after}]`)
+      .query(new TimeSpan(F(0), F(1)))
+      .filter((h) => h.whole !== undefined)
+      .map((h) => String((h.value as { value?: unknown })?.value ?? h.value))
+    expect(got).toEqual(['0', '3', '9'])
+  })
+
+  it('takes a vertical drag as degree steps, up being positive', () => {
+    expect(pitchDelta(-12, 12)).toBe(1) // up one row
+    expect(pitchDelta(24, 12)).toBe(-2) // down two
+    expect(pitchDelta(4, 12)).toBe(0) // a nudge is not a step
   })
 })

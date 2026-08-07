@@ -262,14 +262,21 @@ describe('own writes move the base version', () => {
 
 describe('the fork name does not compound', () => {
   it('numbers instead of stacking suffixes', () => {
-    expect(forkName('language')).toBe('language (this tab)')
-    expect(forkName('language (this tab)')).toBe('language (this tab 2)')
-    expect(forkName('language (this tab 2)')).toBe('language (this tab 3)')
-    expect(forkName('language (this tab 9)')).toBe('language (this tab 10)')
+    // "(copy)", not "(this tab)": a name is read from every tab and outlives
+    // all of them, so "this tab" was never true of anything in the list
+    expect(forkName('language')).toBe('language (copy)')
+    expect(forkName('language (copy)')).toBe('language (copy 2)')
+    expect(forkName('language (copy 2)')).toBe('language (copy 3)')
+    // a project already carrying the OLD suffix numbers up rather than
+    // growing a second, different one
+    expect(forkName('language (this tab)')).toBe('language (copy 2)')
+    expect(forkName('language (this tab 2)')).toBe('language (copy 3)')
+    expect(forkName('language (this tab 9)')).toBe('language (copy 10)')
   })
 
-  it('leaves a name that merely mentions tabs alone', () => {
-    expect(forkName('two tabs')).toBe('two tabs (this tab)')
+  it('leaves a name that merely mentions the suffix words alone', () => {
+    expect(forkName('two tabs')).toBe('two tabs (copy)')
+    expect(forkName('copy that')).toBe('copy that (copy)')
   })
 })
 

@@ -55,14 +55,24 @@ const writeDocOwner = (id: string): void => {
 
 /** The name a conflicted tab forks under.
  *
- *  Numbered rather than suffixed again, because the suffix used to compound:
- *  a project that forked three times became "language (this tab) (this tab)
- *  (this tab)", which is both ugly and useless for telling the copies apart.
- *  Pure, so the naming is testable without a database. */
+ *  "(copy)", NOT "(this tab)". A name lives in the project list forever and
+ *  is read from every tab, where "this tab" is not true of anything: the
+ *  copy was made by whichever tab lost the race, is opened later from tabs
+ *  that had nothing to do with it, and outlives every tab involved. It read
+ *  as the app describing itself rather than the file.
+ *
+ *  Numbered rather than suffixed again, because the suffix compounds: a
+ *  project that forked three times became "language (copy) (copy) (copy)",
+ *  which is both ugly and useless for telling the copies apart.
+ *
+ *  It also still absorbs the OLD spelling, so a project already carrying
+ *  "(this tab)" from a previous version numbers up instead of growing a
+ *  second, different suffix. Pure, so the naming is testable without a
+ *  database. */
 export function forkName(base: string): string {
-  const m = /^(.*?) \(this tab(?: (\d+))?\)$/.exec(base)
-  if (m === null) return `${base} (this tab)`
-  return `${m[1]} (this tab ${m[2] === undefined ? 2 : Number(m[2]) + 1})`
+  const m = /^(.*?) \((?:copy|this tab)(?: (\d+))?\)$/.exec(base)
+  if (m === null) return `${base} (copy)`
+  return `${m[1]} (copy ${m[2] === undefined ? 2 : Number(m[2]) + 1})`
 }
 
 /** May the shared buffer be reconciled into `projectId`?
@@ -272,6 +282,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     if (r.kind === 'saved' || r.kind === 'unchanged') { baseVersion = r.updatedAt; return }
     if (r.kind === 'gone') return // deleted in another tab: nothing to write to
     const forked = await store.createProject(forkName(r.theirs.name), code, r.theirs.lang)
+    // SAY SO. This moves the user's work to a DIFFERENT project, and until now
+    // the only trace was a console.warn — so the project name changed under
+    // them with no explanation anywhere they were looking. Losing nothing is
+    // only half the job; the other half is knowing it happened.
     activeId = forked.id
     baseVersion = forked.updatedAt
     setActiveId(activeId)
@@ -281,7 +295,8 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     if (pendingSave !== undefined) pendingSave = { id: forked.id, code: pendingSave.code }
     // the list is declared below; autosave only ever runs after mount
     await render()
-    console.warn(`[library] '${r.theirs.name}' changed in another tab — this tab's edits are now '${forked.name}'`)
+    notice(`'${r.theirs.name}' was changed in another tab, so your edits here are now '${forked.name}'. Both are in the project list.`)
+    console.warn(`[library] '${r.theirs.name}' changed in another tab — these edits are now '${forked.name}'`)
   }
   const flushSave = (): void => {
     clearTimeout(saveTimer)
@@ -302,6 +317,24 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   }
 
   // ---- top-bar control -------------------------------------------------------
+  /* A line the user actually sees, for the one thing here that happens TO
+   * them rather than because of them. Dismissable, and it stays until it is
+   * dismissed: a fork that scrolls past in three seconds is the same as no
+   * notice at all. */
+  const noticeBar = el('div', 'lib-notice hidden')
+  noticeBar.setAttribute('role', 'status')
+  const noticeText = el('span', 'lib-notice-text')
+  const noticeClose = el('button', 'lib-notice-close', '\u00d7')
+  noticeClose.type = 'button'
+  noticeClose.setAttribute('aria-label', 'dismiss')
+  noticeClose.addEventListener('click', () => noticeBar.classList.add('hidden'))
+  noticeBar.append(noticeText, noticeClose)
+  document.body.append(noticeBar)
+  const notice = (msg: string): void => {
+    noticeText.textContent = msg
+    noticeBar.classList.remove('hidden')
+  }
+
   const projectBtn = el('button', 'btn project-btn')
   projectBtn.type = 'button'
   projectBtn.setAttribute('aria-expanded', 'false')
@@ -942,6 +975,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     offLang()
     flushSave() // persist any debounced edit before tearing down
     samples.dispose()
+    noticeBar.remove()
     document.removeEventListener('keydown', onKey)
     backdrop.remove()
     projectBtn.remove()

@@ -22,7 +22,7 @@ import { formatNumber, literalWidth, niceStep } from '../widgets/rewrite'
 import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, MultiLiveWriter, attachGesture, verifiedChanges } from './gesture'
-import { barSpans, cellToNote, editNote, grabKind, notesOf, parseBar, slotDelta, toSlots } from './rollnotes'
+import { barSpans, cellToNote, editNote, grabKind, notesOf, parseBar, pitchDelta, slotDelta, toSlots, transposeNote } from './rollnotes'
 import type { Drag } from './gesture'
 import { RONDO_WAVEDEF, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
 import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable'
@@ -792,8 +792,9 @@ export function euclidText(p: number, s: number, r: number): string {
 }
 
 /**
- * Make a roll's cells DRAGGABLE: sideways to move a note, right edge to
- * change its length — the piano-roll gesture, writing mini-notation.
+ * Make a roll's cells DRAGGABLE: sideways to move a note, UP AND DOWN to
+ * change its pitch, right edge to change its length — the piano-roll
+ * gesture, writing mini-notation.
  *
  * Both are the same edit (see rollnotes.placeNote): a note is written at a
  * slot for a length, and whatever it lands on is overwritten. The bar's slot
@@ -815,7 +816,7 @@ function attachNoteGesture(
   view: EditorView,
   drag: Drag,
   hooks: Hooks,
-  opts: { srcFrom: number; content: string; period: number; bodyWidth: number },
+  opts: { srcFrom: number; content: string; period: number; bodyWidth: number; rowH: number },
 ): void {
   attachGesture(cellEl, drag, 'window', (e) => {
     // gesture-time verify: the notation must still sit where the widget thinks
@@ -829,42 +830,56 @@ function attachNoteGesture(
     if (note === undefined) return null
 
     const rect = cellEl.getBoundingClientRect()
-    const kind = grabKind(e.clientX - rect.left, rect.width)
+    const edge = grabKind(e.clientX - rect.left, rect.width)
     const barWidth = opts.bodyWidth / Math.max(opts.period, 1)
+    const per = barWidth / Math.max(hit.slots, 1)
     const x0 = e.clientX
-    let last = 0
+    const y0 = e.clientY
+    let lastKey = ''
     cellEl.classList.add('dragging')
 
-    const apply = (dx: number, commit: boolean): void => {
-      const d = slotDelta(dx, barWidth, hit.slots)
-      const start = kind === 'move' ? note.start + d : note.start
-      const length = kind === 'move' ? note.length : note.length + d
+    /* WHICH AXIS. A grab on the right edge is always a resize — that handle
+     * means one thing. Otherwise the drag picks the axis it has travelled
+     * furthest in, and keeps re-picking: a gesture that starts sideways and
+     * curls upward is one someone means as a pitch move by the time they let
+     * go, and a locked axis would ignore the half they meant. */
+    const apply = (dx: number, dy: number, commit: boolean): void => {
+      const slots = slotDelta(dx, barWidth, hit.slots)
+      const steps = pitchDelta(dy, opts.rowH)
+      const kind = edge === 'resize' ? 'resize' : Math.abs(dy) > Math.abs(dx) ? 'pitch' : 'move'
+
       if (!commit) {
-        // preview by moving the CELL, so the roll shows the edit before the
-        // document changes and the widget is rebuilt
-        if (d === last) return
-        last = d
-        const per = barWidth / Math.max(hit.slots, 1)
-        cellEl.style.transform = kind === 'move' ? `translateX(${d * per}px)` : ''
-        if (kind === 'resize') {
-          const w = Math.max(1, note.length + d) * per
-          cellEl.style.width = `${w - 1}px`
-        }
+        // preview on the CELL: the roll shows the edit before the document
+        // changes, and nothing is written until the pointer comes up
+        const key = `${kind}:${slots}:${steps}`
+        if (key === lastKey) return
+        lastKey = key
+        cellEl.style.transform =
+          kind === 'pitch' ? `translateY(${-steps * opts.rowH}px)`
+          : kind === 'move' ? `translateX(${slots * per}px)`
+          : ''
+        cellEl.style.width = kind === 'resize' ? `${Math.max(1, note.length + slots) * per - 1}px` : ''
         return
       }
-      const edit = editNote(hit.barText, hit.from, hit.index, start, length)
+
+      const edit =
+        kind === 'pitch'
+          ? transposeNote(hit.barText, hit.from, hit.index, steps)
+          : kind === 'resize'
+            ? editNote(hit.barText, hit.from, hit.index, note.start, note.length + slots)
+            : editNote(hit.barText, hit.from, hit.index, note.start + slots, note.length)
       if (edit === null) return
       view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.text } })
       hooks.requestEval(false)
     }
 
     return {
-      onMove: (ev: PointerEvent) => apply(ev.clientX - x0, false),
+      onMove: (ev: PointerEvent) => apply(ev.clientX - x0, ev.clientY - y0, false),
       onEnd: (ev: PointerEvent) => {
         cellEl.classList.remove('dragging')
         cellEl.style.transform = ''
         cellEl.style.width = ''
-        apply(ev.clientX - x0, true)
+        apply(ev.clientX - x0, ev.clientY - y0, true)
       },
     }
   })
@@ -1236,6 +1251,7 @@ export class RollOverviewWidget extends WidgetType {
         content: this.content,
         period,
         bodyWidth: this.width,
+        rowH,
       })
       layer.appendChild(el)
     }

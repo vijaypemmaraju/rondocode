@@ -5,6 +5,8 @@ import { highlightFor } from '../docs/highlight'
 import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
+import { collectSnippet, insertableSnippet, referencedSynths } from './snippets'
+import type { ProjectStore, StoredSnippet } from '../session/projects'
 
 /* ------------------------------------------------------------------------- *
  * Synth library: a shelf of ready-made instruments. Each entry auditions a
@@ -365,7 +367,10 @@ function insertSynth(editor: EditorHandle, code: string): void {
   view.focus()
 }
 
-export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
+/** `getStore` supplies the project store once the library has opened it, so
+ *  the shelf can hold snippets. Absent (docs pages, tests) it shows presets
+ *  only rather than failing to mount. */
+export function mountSynthLib(editor: EditorHandle, getStore?: () => ProjectStore | null): SynthLibHandle {
   const player = new PreviewPlayer()
   let current: { btn: HTMLButtonElement; reset: () => void } | null = null
   player.onStop = () => {
@@ -398,7 +403,11 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
   }
   const open = (): void => {
     overlayOpened(close) // close any other open sheet
+    saveMsg.textContent = ''
     render(search.value) // pick up a language change made since it last opened
+    // re-read on OPEN: a snippet saved in another tab should be here, and the
+    // list is small enough that a read costs nothing worth caching for
+    void refreshSnippets().then(() => render(search.value))
     backdrop.classList.remove('hidden')
     btn.setAttribute('aria-expanded', 'true')
     search.focus()
@@ -418,7 +427,65 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
   search.setAttribute('aria-label', 'search synths')
 
   const list = el('div', 'synthlib-list')
-  sheet.append(head, el('p', 'sheet-hint', 'audition a synth, then insert its code at your cursor'), search, list)
+  /* SAVE THE SELECTION. The shelf was 19 fixed presets you could not add to,
+   * so anything you wrote yourself — a drum line, a bus, a section — could
+   * only be reused by copy-pasting between files and then owning two of it.
+   * A saved snippet carries the synths it plays (see snippets.ts), which is
+   * what makes a drum line paste into a document that has never heard of
+   * `kick` and still work. */
+  const saveRow = el('div', 'synthlib-save')
+  const saveName = el('input', 'synthlib-savename') as HTMLInputElement
+  saveName.placeholder = 'name this selection…'
+  saveName.setAttribute('aria-label', 'snippet name')
+  const saveBtn = el('button', 'btn', 'save selection')
+  saveBtn.type = 'button'
+  const saveMsg = el('span', 'synthlib-savemsg')
+  saveRow.append(saveName, saveBtn, saveMsg)
+  sheet.append(head, el('p', 'sheet-hint', 'audition a synth, then insert its code at your cursor'), search, saveRow, list)
+
+  /** Snippets the user saved, newest first. Re-read on open. */
+  let snippets: StoredSnippet[] = []
+  const store = getStore?.() ?? null
+
+  const refreshSnippets = async (): Promise<void> => {
+    if (store === null) return
+    try {
+      snippets = await store.listSnippets()
+    } catch (e) {
+      console.warn('[synthlib] could not read snippets', e)
+      snippets = []
+    }
+  }
+
+  const selectionText = (): string => {
+    const st = editor.view.state
+    const r = st.selection.main
+    return r.empty ? '' : st.sliceDoc(r.from, r.to)
+  }
+
+  saveBtn.addEventListener('click', () => {
+    void (async () => {
+      const sel = selectionText()
+      if (sel.trim() === '') { saveMsg.textContent = 'select some code first'; return }
+      const name = saveName.value.trim()
+      if (name === '') { saveMsg.textContent = 'give it a name'; return }
+      if (store === null) { saveMsg.textContent = 'storage unavailable'; return }
+      const lang = editor.getLang()
+      const code = collectSnippet(editor.getDoc(), sel, lang)
+      try {
+        await store.putSnippet(name, lang, code)
+      } catch (e) {
+        saveMsg.textContent = `could not save: ${e instanceof Error ? e.message : String(e)}`
+        return
+      }
+      // say what came ALONG, so a snippet that quietly grew is not a surprise
+      const extra = referencedSynths(sel, lang).filter((n) => !sel.includes(`synth ${n}`) && code.includes(n))
+      saveMsg.textContent = extra.length > 0 ? `saved with ${extra.join(', ')}` : 'saved'
+      saveName.value = ''
+      await refreshSnippets()
+      render(search.value)
+    })()
+  })
 
   const render = (query = ''): void => {
     list.replaceChildren()
@@ -430,10 +497,53 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
     const matches = SYNTHS.filter(
       (sy) => q === '' || `${sy.name} ${sy.title} ${sy.tags}`.toLowerCase().includes(q),
     )
-    if (matches.length === 0) {
+    if (matches.length === 0 && snippets.length === 0) {
       list.append(el('div', 'lib-empty', 'no matches'))
       return
     }
+    // YOURS FIRST. The presets are a starting point; what you saved is what
+    // you are actually looking for.
+    const mine = snippets.filter(
+      (sn) => sn.lang === lang && (q === '' || sn.name.toLowerCase().includes(q)),
+    )
+    for (const sn of mine) {
+      const row = el('div', 'synthlib-row')
+      const top = el('div', 'synthlib-top')
+      const meta = el('div', 'synthlib-meta')
+      meta.append(el('span', 'synthlib-name', sn.name))
+      meta.append(el('span', 'synthlib-tags', 'yours'))
+      top.append(meta)
+      const actions = el('div', 'synthlib-actions')
+      const ins = el('button', 'btn synthlib-insert', 'insert')
+      ins.type = 'button'
+      ins.addEventListener('click', () => {
+        const { text, skipped } = insertableSnippet(editor.getDoc(), sn.code, lang)
+        insertSynth(editor, text)
+        if (skipped.length > 0) {
+          // it delivered LESS than it holds; that is worth a word rather than
+          // a silent partial paste
+          saveMsg.textContent = `kept your own ${skipped.join(', ')}`
+        }
+        close()
+      })
+      const del = el('button', 'btn synthlib-del', '\u00d7')
+      del.type = 'button'
+      del.setAttribute('aria-label', `delete ${sn.name}`)
+      del.addEventListener('click', () => {
+        void (async () => {
+          if (store === null) return
+          await store.deleteSnippet(sn.id)
+          await refreshSnippets()
+          render(search.value)
+        })()
+      })
+      actions.append(ins, del)
+      top.append(actions)
+      row.append(top)
+      list.append(row)
+    }
+    if (matches.length === 0 && mine.length > 0) return
+
     for (const sy of matches) {
       const row = el('div', 'synthlib-row')
 

@@ -60,14 +60,26 @@ export interface StoredSample {
   createdAt: number
 }
 
-export type StoreName = 'projects' | 'versions' | 'samples'
+/** A saved SNIPPET: any chunk of code, with the synths it needs already in
+ *  it (see editor/snippets.ts). Not scoped to a project — the whole point is
+ *  to move material BETWEEN projects, so a snippet that lived inside one
+ *  would be the copy-paste problem with extra steps. */
+export interface StoredSnippet {
+  id: string
+  name: string
+  lang: 'rondo' | 'rondocode'
+  code: string
+  createdAt: number
+}
+
+export type StoreName = 'projects' | 'versions' | 'samples' | 'snippets'
 
 /** The minimal async storage the store needs — no indexes: version sets per
  *  project are small, so we filter in memory. Both backends implement this. */
 export interface Db {
   all<T>(store: StoreName): Promise<T[]>
   get<T>(store: StoreName, id: string): Promise<T | undefined>
-  put(store: StoreName, value: Project | Version | StoredSample): Promise<void>
+  put(store: StoreName, value: Project | Version | StoredSample | StoredSnippet): Promise<void>
   del(store: StoreName, id: string): Promise<void>
 }
 
@@ -191,6 +203,31 @@ export class ProjectStore {
     return rec
   }
 
+  /** Every saved snippet, newest first. */
+  async listSnippets(): Promise<StoredSnippet[]> {
+    const all = await this.db.all<StoredSnippet>('snippets')
+    return all.sort((a, b) => b.createdAt - a.createdAt)
+  }
+
+  /** Save a snippet, replacing one of the same NAME and language — saving
+   *  "drums" twice means the second one, not two rows called drums. */
+  async putSnippet(name: string, lang: 'rondo' | 'rondocode', code: string): Promise<StoredSnippet> {
+    const existing = (await this.listSnippets()).find((s) => s.name === name && s.lang === lang)
+    const rec: StoredSnippet = {
+      id: existing?.id ?? this.uid(),
+      name,
+      lang,
+      code,
+      createdAt: existing?.createdAt ?? this.now(),
+    }
+    await this.db.put('snippets', rec)
+    return rec
+  }
+
+  async deleteSnippet(id: string): Promise<void> {
+    await this.db.del('snippets', id)
+  }
+
   /** Forget one sample of a project, by the name programs address it by. */
   async deleteSample(projectId: string, name: string): Promise<void> {
     for (const s of await this.listSamples(projectId)) {
@@ -271,10 +308,11 @@ export class ProjectStore {
 /* ---- in-memory backend (tests, and a safe fallback if IDB is unavailable) --- */
 
 export class MemoryDb implements Db {
-  private stores: Record<StoreName, Map<string, Project | Version | StoredSample>> = {
+  private stores: Record<StoreName, Map<string, Project | Version | StoredSample | StoredSnippet>> = {
     projects: new Map(),
     versions: new Map(),
     samples: new Map(),
+    snippets: new Map(),
   }
 
   async all<T>(store: StoreName): Promise<T[]> {
@@ -286,7 +324,7 @@ export class MemoryDb implements Db {
     return v === undefined ? undefined : (structuredClone(v) as T)
   }
 
-  async put(store: StoreName, value: Project | Version | StoredSample): Promise<void> {
+  async put(store: StoreName, value: Project | Version | StoredSample | StoredSnippet): Promise<void> {
     this.stores[store].set(value.id, structuredClone(value))
   }
 

@@ -166,6 +166,11 @@ const ago = (t: number, now: number): string => {
 
 export interface LibraryHandle {
   dispose(): void
+  /** The project store this library opened. Exposed so the synth shelf can
+   *  hold SNIPPETS in it — the library is what decides whether that is
+   *  IndexedDB or the in-memory fallback, and a second opener would be a
+   *  second answer to that question. */
+  store: ProjectStore
   /** The "new" button's path, exposed for the onboarding flow: create a
    *  project and switch the editor to it. The current project is saved and
    *  kept, never clobbered. */
@@ -982,6 +987,7 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   }
 
   return {
+    store,
     dispose,
     createAndOpen: async (name, code, lang) => {
       const p = await store.createProject(name, code, lang)

@@ -209,6 +209,13 @@ export const magToDb = (mag: number): number => 20 * Math.log10(Math.max(mag, 1e
 export interface StaticArg {
   value: number
   range?: { from: number; to: number }
+  /** The KNOB this arg is bound to, when it is bound to one. The scanner
+   *  resolves such an arg to the knob's DEF so the curve can be drawn at all;
+   *  keeping the name as well is what lets the cutoff DOT follow the value
+   *  live, since a pattern-driven param arrives in NoteEv.controls under it.
+   *  Absent for a literal (nothing to follow) and for a signal binding (which
+   *  reaches no event — see the honesty rules above). */
+  knob?: string
 }
 
 export interface FilterScan {
@@ -261,7 +268,7 @@ const staticArg = (tok: Token | undefined, knobs: ReadonlyMap<string, number>): 
     return { value: Number(tok.text), range: { from: tok.from, to: tok.from + tok.text.length } }
   }
   const def = knobs.get(tok.text)
-  return def !== undefined ? { value: def } : null
+  return def !== undefined ? { value: def, knob: tok.text.split(' ').pop()! } : null
 }
 
 /** Find every svf/ladder/dualsvf/eq line with enough static values to draw an
@@ -436,6 +443,7 @@ export function scanHandles(scan: FilterScan): Handle[] {
 
 export class FilterCurveWidget extends WidgetType {
   private unsub: (() => void) | null = null
+  private unsubLive: (() => void) | null = null
 
   constructor(
     readonly scan: FilterScan,
@@ -526,6 +534,36 @@ export class FilterCurveWidget extends WidgetType {
      * canvas samples `color` through inkOf(), and the class is already on by
      * the time onFire runs. Twice per note, not per frame — the curve has no
      * animation loop and does not want one. */
+    /* THE CUTOFF DOT. Lighting the whole curve says the filter is processing
+     * something; it does not say WHERE the filter is, which for a swept filter
+     * is the only thing moving. A dot at the live cutoff, riding the curve, is
+     * the honest version of that — and the x axis here is FREQUENCY, so a
+     * playhead sweeping across it would draw a relationship that does not
+     * exist.
+     *
+     * Only where the value is genuinely knowable. A knob-bound cutoff arrives
+     * in NoteEv.controls under its name; a signal binding reaches no event at
+     * all, and inventing a position for it is exactly what the honesty rules
+     * at the top of this file forbid. So those keep the plain lift. */
+    const liveKnob = scan.kind === 'eq' ? undefined : scan.cutoffs[0]?.knob
+    if (liveKnob !== undefined && this.hooks.onNoteEvents !== undefined) {
+      const dot = document.createElement('span')
+      dot.className = 'rondo-fcurve-dot'
+      wrap.appendChild(dot)
+      this.unsubLive = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (scan.synth !== undefined && ev.sound !== scan.synth) continue
+          const v = ev.controls?.[liveKnob]
+          if (typeof v !== 'number' || !Number.isFinite(v)) continue
+          const x = freqToX(clamp(v, F_LO, F_HI), W)
+          const y = clamp(dbToY(scanResponseDb(live, v, DISPLAY_SR), H), 3, H - 3)
+          dot.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
+          dot.style.opacity = '1'
+          break
+        }
+      })
+    }
+
     this.unsub = activate(wrap, this.hooks, {
       ...(scan.synth !== undefined ? { synth: scan.synth } : {}),
       onFire: draw,
@@ -621,9 +659,11 @@ export class FilterCurveWidget extends WidgetType {
 
   override ignoreEvent(): boolean { return true }
 
-  /** Widgets die on every rebuild — drop the subscription with the DOM. */
+  /** Widgets die on every rebuild — drop the subscriptions with the DOM. */
   override destroy(): void {
     this.unsub?.()
     this.unsub = null
+    this.unsubLive?.()
+    this.unsubLive = null
   }
 }

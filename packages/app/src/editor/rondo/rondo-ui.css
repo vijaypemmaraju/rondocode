@@ -761,3 +761,30 @@
 }
 .rondo-envpts.firing .line { stroke: var(--c-accent-alt, #6ea8fe); }
 .rondo-envpts.firing .fill { fill: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 22%, transparent); }
+
+/* the note-fired marker riding the breakpoint curve — same language as the
+   adsr widget's .emark, because it is the same envelope written the long way */
+.rondo-envpts .emark {
+  fill: var(--c-accent-alt, #6ea8fe);
+  filter: drop-shadow(0 0 4px var(--c-accent-alt, #6ea8fe));
+  pointer-events: none;
+}
+
+/* the live cutoff, riding the response curve. Compositor-only (transform +
+   opacity) and moved per NOTE, not per frame — the curve itself never redraws
+   for this. */
+.rondo-fcurve { position: relative; }
+.rondo-fcurve-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--c-accent-alt, #6ea8fe);
+  box-shadow: 0 0 6px var(--c-accent-alt, #6ea8fe);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out;
+}

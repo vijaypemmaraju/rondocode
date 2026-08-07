@@ -1142,3 +1142,106 @@ describe('patdef: the notation, and where it came from', () => {
     expect(src.slice(s.from, s.from + s.content.length)).toBe(s.content)
   })
 })
+
+/* PATDEFS COMPOSE. A figure is usually a variation on another one: in a real
+ * arrangement three riffs shared the same three-bar tail and differed only in
+ * the opening bar. Without composition that tail is written out once per
+ * figure, which is the duplication patdef exists to remove. */
+describe('patdef composition', () => {
+  it('expands a reference INSIDE a figure, not just on its own line', () => {
+    const out = ok('patdef tail [1 2] [3 4]\npatdef riff <[0 0] tail>\n\nsynth p\n  saw\n\nplay p\n  riff\n\ncps .5\n')
+    expect(out).toContain("n('<[0 0] [1 2] [3 4]>')")
+  })
+
+  it('chains: a figure may build on one that builds on another', () => {
+    const out = ok('patdef inner [1 2]\npatdef mid <inner inner>\npatdef outer <[0] mid>\n\nsynth p\n  saw\n\nplay p\n  outer\n\ncps .5\n')
+    expect(out).toContain("n('<[0] <[1 2] [1 2]>>')")
+  })
+
+  it('a cycle is an ERROR, not a hang', () => {
+    failsAt('patdef loop <[0] loop>\n\nsynth p\n  saw\n\nplay p\n  loop\n\ncps .5\n', 'expands forever', 1, 1)
+  })
+
+  it('a mutual cycle is caught too', () => {
+    const c = compile('patdef x1 <[0] y1>\npatdef y1 <[1] x1>\n\nsynth p\n  saw\n\nplay p\n  x1\n\ncps .5\n')
+    expect(c.ok).toBe(false)
+    expect(c.errors[0]!.message).toMatch(/expands forever/)
+  })
+
+  /* The one that would silently ruin a document: a NOTE is spelled exactly
+   * like a name, and notation is where notes live. */
+  it('does not eat note names that match a patdef', () => {
+    const out = ok('patdef e <[0 1]>\npatdef tune <c3 e4 g4>\n\nsynth p\n  saw\n\nplay p\n  tune\n\ncps .5\n')
+    expect(out, 'e4 is a NOTE here, not a reference').toContain("note('<c3 e4 g4>')")
+  })
+
+  it('and a note-like name still works on its own line, as it always did', () => {
+    // backwards compatible: whole-line substitution predates composition
+    expect(ok('patdef e <[0 1]>\n\nsynth p\n  saw\n\nplay p\n  e\n\ncps .5\n')).toContain("n('<[0 1]>')")
+  })
+
+  it('leaves an ordinary figure with no references untouched', () => {
+    expect(ok('synth p\n  saw\n\nplay p\n  <[0 1] c3 e4>\n\ncps .5\n')).toContain("note('<[0 1] c3 e4>')")
+  })
+})
+
+/* WHERE AN ASSEMBLED FIGURE CAME FROM. `<openA tail>` is twelve characters
+ * standing for forty-six, so the expansion exists nowhere in the buffer as one
+ * run. Note-flash highlights the text at the offset it is handed, so without a
+ * chunk map composition would light the reference with the expansion — the
+ * same bug that broke highlighting when patdef substitution first shipped. */
+describe('patdef composition keeps its source map', () => {
+  const SRC = [
+    'patdef tail [1 2] [3 4]',
+    'patdef riff <[0 0] tail>',
+    '',
+    'synth p',
+    '  saw',
+    '',
+    'play p',
+    '  riff',
+    '',
+    'cps .5',
+    '',
+  ].join('\n')
+
+  const span = () => {
+    const c = compile(SRC)
+    if (!c.ok) throw new Error(JSON.stringify(c.errors))
+    expect(c.notes).toHaveLength(1)
+    return c.notes[0]!
+  }
+
+  it('carries pieces when the figure was assembled', () => {
+    const s = span()
+    expect(s.content).toBe('<[0 0] [1 2] [3 4]>')
+    expect(s.pieces, 'an assembled figure needs a chunk map').toBeDefined()
+  })
+
+  it('every chunk matches the buffer at the offset it claims', () => {
+    const s = span()
+    for (const q of s.pieces!) {
+      expect(SRC.slice(q.sourceStart, q.sourceStart + q.length)).toBe(
+        s.content.slice(q.assembledStart, q.assembledStart + q.length),
+      )
+    }
+  })
+
+  it('the chunks COVER the content — a gap is a note that flashes nothing', () => {
+    const s = span()
+    expect(s.pieces!.reduce((n, q) => n + q.length, 0)).toBe(s.content.length)
+  })
+
+  it('points the expanded part at the DEFINITION, not at the reference', () => {
+    const s = span()
+    // the `[1 2] [3 4]` chunk must resolve into the `patdef tail` line
+    const tailAt = SRC.indexOf('[1 2] [3 4]')
+    expect(s.pieces!.some((q) => q.sourceStart === tailAt)).toBe(true)
+  })
+
+  it('a figure written inline carries NO pieces (it matches the buffer already)', () => {
+    const c = compile('synth p\n  saw\n\nplay p\n  <[0 1]>\n\ncps .5\n')
+    if (!c.ok) throw new Error('failed')
+    expect(c.notes[0]!.pieces).toBeUndefined()
+  })
+})

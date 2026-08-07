@@ -76,10 +76,13 @@ export function compile(src: string): CompileResult {
     .flatMap((p) => {
       // beat lines may carry `word:v` suffixes the emitted mini won't have
       const span = p.entry === 'sound' ? beatSpan : (content: string, from: number): NoteSpan => ({ content, from })
-      return [
-        span(p.notation, p.notationFrom),
-        ...(p.voices ?? []).map((v) => span(v.notation, v.notationFrom)),
-      ]
+      // an ASSEMBLED notation (patdefs composed into one figure) exists nowhere
+      // in the buffer as a single run, so it carries its own chunk map
+      const one = (v: { notation: string; notationFrom: number; notationPieces?: NoteSpan['pieces'] }): NoteSpan =>
+        v.notationPieces === undefined
+          ? span(v.notation, v.notationFrom)
+          : { content: v.notation, from: v.notationFrom, pieces: v.notationPieces }
+      return [one(p), ...(p.voices ?? []).map(one)]
     })
     .filter((s) => s.content.length > 0)
   // irand notation lines produce loc-less events — pulse the whole line

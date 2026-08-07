@@ -15,6 +15,9 @@ export interface NoteSpan {
   content: string
   from: number
   pieces?: { assembledStart: number; sourceStart: number; length: number }[]
+  /** Spans that STAND FOR part of the content: a patdef reference, which has
+   *  no notes of its own but should light when the notes it expands to play. */
+  refs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[]
 }
 
 /** Span for a beat notation line: velocity suffixes (`hat:.6`) are stripped
@@ -78,10 +81,18 @@ export function compile(src: string): CompileResult {
       const span = p.entry === 'sound' ? beatSpan : (content: string, from: number): NoteSpan => ({ content, from })
       // an ASSEMBLED notation (patdefs composed into one figure) exists nowhere
       // in the buffer as a single run, so it carries its own chunk map
-      const one = (v: { notation: string; notationFrom: number; notationPieces?: NoteSpan['pieces'] }): NoteSpan =>
-        v.notationPieces === undefined
-          ? span(v.notation, v.notationFrom)
-          : { content: v.notation, from: v.notationFrom, pieces: v.notationPieces }
+      const one = (v: {
+        notation: string
+        notationFrom: number
+        notationPieces?: NoteSpan['pieces']
+        notationRefs?: NoteSpan['refs']
+      }): NoteSpan => {
+        const base =
+          v.notationPieces === undefined
+            ? span(v.notation, v.notationFrom)
+            : { content: v.notation, from: v.notationFrom, pieces: v.notationPieces }
+        return v.notationRefs === undefined || v.notationRefs.length === 0 ? base : { ...base, refs: v.notationRefs }
+      }
       return [one(p), ...(p.voices ?? []).map(one)]
     })
     .filter((s) => s.content.length > 0)

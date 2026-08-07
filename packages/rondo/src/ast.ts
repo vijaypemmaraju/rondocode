@@ -108,12 +108,16 @@ export interface PlayBlock {
    *  maps back to wherever it came from. Note-flash needs this or it
    *  highlights the reference with the expansion (see compile.ts NoteSpan). */
   notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]
+  /** Reference spans: a stretch of the assembled notation, and the WORD in the
+   *  buffer that stands for it. A note inside `tail` lights the word `tail`
+   *  where it is written, not only the definition it expands to. */
+  notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[]
   /** additional stacked voice lines (multi-line play block → stack(...)).
    *  A voice may name its OWN synth with a trailing `synth:NAME`, which is
    *  what makes a layered drum pattern sayable: layers otherwise share the
    *  block's synth, which is right for a hand-built chord and wrong when
    *  each layer is a different instrument. */
-  voices?: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[] }[]
+  voices?: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]; notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[] }[]
   /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
   scale?: string
   /** modifier lines under the notation, applied in order. */

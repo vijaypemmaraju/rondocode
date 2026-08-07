@@ -1022,6 +1022,7 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
    * for. Iterated to a fixed point so a definition may build on one that
    * itself builds on another; a cycle is an error, not a hang. */
   type Piece = { assembledStart: number; sourceStart: number; length: number }
+  type Ref = { from: number; to: number; assembledStart: number; assembledEnd: number }
   const MAX_DEPTH = 16
 
   /* Expand every reference in `text`, and REMEMBER WHERE EACH CHUNK CAME FROM.
@@ -1040,17 +1041,18 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
     pos: Pos,
     seen: ReadonlySet<string>,
     depth: number,
-  ): { text: string; pieces: Piece[] } => {
+  ): { text: string; pieces: Piece[]; refs: Ref[] } => {
     if (depth > MAX_DEPTH) {
       errors.push({
         message: `patdef '${self}' expands forever — it refers to itself, directly or through another patdef`,
         line: pos.line,
         col: pos.col,
       })
-      return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }] }
+      return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }], refs: [] }
     }
     let out = ''
     const pieces: Piece[] = []
+    const refs: Ref[] = []
     const keep = (chunk: string, src: number): void => {
       if (chunk === '') return
       pieces.push({ assembledStart: out.length, sourceStart: src, length: chunk.length })
@@ -1069,7 +1071,7 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
           line: pos.line,
           col: pos.col,
         })
-        return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }] }
+        return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }], refs: [] }
       }
       const d = inlinable.has(word) ? defs.get(word) : undefined
       if (d === undefined) continue
@@ -1078,34 +1080,55 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
       for (const q of sub.pieces) {
         pieces.push({ assembledStart: out.length + q.assembledStart, sourceStart: q.sourceStart, length: q.length })
       }
+      // THE REFERENCE ITSELF is a span worth lighting: a note inside `tail`
+      // should light the word `tail` where it stands, not only the definition
+      // it expands to. Nested references shift with the text around them.
+      for (const r of sub.refs) {
+        refs.push({ from: r.from, to: r.to, assembledStart: out.length + r.assembledStart, assembledEnd: out.length + r.assembledEnd })
+      }
+      refs.push({
+        from: from + m.index,
+        to: from + m.index + word.length,
+        assembledStart: out.length,
+        assembledEnd: out.length + sub.text.length,
+      })
       out += sub.text
       at = m.index + word.length
     }
-    if (at === 0) return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }] }
+    if (at === 0) return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }], refs: [] }
     keep(text.slice(at), from + at)
-    return { text: out, pieces }
+    return { text: out, pieces, refs }
   }
 
-  const grown = new Map<string, { notation: string; from: number; pieces: Piece[] }>()
+  const grown = new Map<string, { notation: string; from: number; pieces: Piece[]; refs: Ref[] }>()
   for (const it of program.items) {
     if (it.t !== 'patdef') continue
     const e = expandPieces(it.notation, it.notationFrom, it.name, it.pos, new Set([it.name]), 0)
-    grown.set(it.name, { notation: e.text, from: it.notationFrom, pieces: e.pieces })
+    grown.set(it.name, { notation: e.text, from: it.notationFrom, pieces: e.pieces, refs: e.refs })
   }
   for (const [name, g] of grown) defs.set(name, { notation: g.notation, from: g.from })
 
   // The notation moves AND so does where it came from: a substituted play
   // line's text now lives on the patdef line, and note-flash lights whatever
   // offset it is handed (see compile.ts's NoteSpan).
-  const sub = <T extends { notation: string; notationFrom: number; notationPieces?: Piece[] }>(t: T): void => {
+  const sub = <T extends { notation: string; notationFrom: number; notationPieces?: Piece[]; notationRefs?: Ref[] }>(t: T): void => {
     const key = t.notation.trim()
     const d = defs.get(key)
     if (d === undefined) return
+    const wasFrom = t.notationFrom
+    const wasLen = t.notation.trim().length
     t.notation = d.notation
     t.notationFrom = d.from
     const g = grown.get(key)
     // only when the figure was ASSEMBLED — a plain one still matches the buffer
     if (g !== undefined && g.pieces.length > 1) t.notationPieces = g.pieces
+    // The play line's OWN reference: `riffB` there stands for the whole figure,
+    // so any note in it should light that word too. Listed first so the
+    // outermost reference is the one a reader sees light up.
+    t.notationRefs = [
+      { from: wasFrom, to: wasFrom + wasLen, assembledStart: 0, assembledEnd: d.notation.length },
+      ...(g?.refs ?? []),
+    ]
   }
   const walk = (items: TopItem[]): void => {
     for (const it of items) {

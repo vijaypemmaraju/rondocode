@@ -89,6 +89,12 @@ export interface StringLit {
   contentStart: number
   content: string
   pieces: LitPiece[]
+  /** Spans that STAND FOR a stretch of the content rather than being it: a
+   *  patdef reference. `<openB tail openA tail>` has no notes of its own, so
+   *  without these the collapsed figure stays dark while the arrangement it
+   *  names plays — the reader is watching the one line that is not literal
+   *  notation, and it is the one line that never moves. */
+  refs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[]
 }
 
 /** If `node` is an escape-free string literal, or a `+` chain of them, return
@@ -228,6 +234,11 @@ export function locToDocRanges(
     // Map the assembled-string range back to the document via the chunk that
     // fully contains it. An atom that straddles a concatenation boundary maps to
     // no single chunk and is skipped (mini atoms don't span the `+` in practice).
+    // Any REFERENCE covering this atom lights too: the word that stands for
+    // the figure, and every reference nested inside it.
+    for (const r of lit.refs ?? []) {
+      if (loc.start >= r.assembledStart && loc.end <= r.assembledEnd) out.push({ from: r.from, to: r.to })
+    }
     const piece = lit.pieces.find(
       (p) => loc.start >= p.assembledStart && loc.end <= p.assembledStart + p.length,
     )
@@ -243,11 +254,12 @@ export function locToDocRanges(
  *  `from` is that string's char offset in the rondo buffer. One single-piece
  *  literal each — a mini Loc offset indexes straight into it. */
 export function rondoNoteLiterals(
-  notes: { content: string; from: number; pieces?: LitPiece[] }[],
+  notes: { content: string; from: number; pieces?: LitPiece[]; refs?: StringLit['refs'] }[],
 ): StringLit[] {
   return notes.map((n) => ({
     contentStart: n.from,
     content: n.content,
+    ...(n.refs !== undefined && n.refs.length > 0 ? { refs: n.refs } : {}),
     // a beat line with velocity suffixes compiles to a STRIPPED mini string —
     // the compiler supplies pieces mapping it back around each removed `:v`
     pieces: n.pieces ?? [{ assembledStart: 0, sourceStart: n.from, length: n.content.length }],

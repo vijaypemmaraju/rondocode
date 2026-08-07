@@ -1263,6 +1263,23 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       if (!name || !(len > 0)) {
         errors.push({ message: 'section needs a name and a length in cycles (`section drop 8`)', line: ln.line, col: ln.rawCol })
       }
+      // `section main 8 with drums with bass` — play those sections too
+      const withs: string[] = []
+      for (let k = 3; k < ln.toks.length; k++) {
+        const t = ln.toks[k]!
+        if (t.k === 'ident' && t.v === 'with') {
+          const nt = ln.toks[k + 1]
+          if (!nt || nt.k !== 'ident') {
+            errors.push({ message: 'with needs a section name (`section main 8 with drums`)', line: t.pos.line, col: t.pos.col })
+            break
+          }
+          withs.push(nt.v)
+          k += 1
+          continue
+        }
+        errors.push({ message: `unknown section option (only \`with NAME\`)`, line: t.pos.line, col: t.pos.col })
+        break
+      }
       const { body, next } = bodyLines(lines, i + 1)
       const plays: PlayBlock[] = []
       let j = 0
@@ -1281,7 +1298,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
         }
       }
       if (plays.length === 0) errors.push({ message: `section '${name}' has no plays`, line: ln.line, col: ln.rawCol })
-      items.push({ t: 'section', name, len, plays, pos: head.pos })
+      items.push({ t: 'section', name, len, plays, ...(withs.length > 0 ? { with: withs } : {}), pos: head.pos })
       i = next
     }
     else if (head.v === 'song') {

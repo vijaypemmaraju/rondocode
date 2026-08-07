@@ -825,8 +825,42 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], ma
   return `p(${q(block.name)}, ${pat})`
 }
 
-function cgSection(item: Extract<TopItem, { t: 'section' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
+/**
+ * A section is a stack of its plays — and now, of the sections it plays WITH.
+ *
+ * `with` is emitted as a reference to the other section's own const rather
+ * than by copying its plays, so editing the shared part changes every section
+ * that layers it. That is the whole point: the alternative is what the source
+ * already did, which is write it out again.
+ *
+ * Sections are emitted in source order, so a `with` must name one defined
+ * ABOVE it. That is a real constraint and it is stated in the error rather
+ * than worked around by hoisting: reading top to bottom, a layer should exist
+ * before the thing that layers it.
+ */
+function cgSection(
+  item: Extract<TopItem, { t: 'section' }>,
+  errors: RondoError[],
+  macros: ReadonlySet<string>,
+  defined: ReadonlySet<string>,
+): string {
   const pats = item.plays.map((pb) => cgPlayPat(pb, errors, macros))
+  for (const w of item.with ?? []) {
+    if (w === item.name) {
+      errors.push({ message: `section '${item.name}' cannot play with itself`, line: item.pos.line, col: item.pos.col })
+      continue
+    }
+    if (!defined.has(w)) {
+      errors.push({
+        message: `no section '${w}' defined above '${item.name}' — a section can only play with one written before it`,
+        line: item.pos.line,
+        col: item.pos.col,
+      })
+      continue
+    }
+    pats.push(`__sec_${w}`)
+  }
+  if (pats.length === 0) return `const __sec_${item.name} = silence`
   const body = pats.length === 1 ? pats[0]! : `stack(${pats.join(', ')})`
   return `const __sec_${item.name} = ${body}`
 }
@@ -1000,6 +1034,8 @@ export function codegen(program: Program, errors: RondoError[]): string {
     }
   }
   const scope = { synths: synthNames, jsNames }
+  /** Sections emitted so far — what a `with` may name (see cgSection). */
+  const sectionsSoFar = new Set<string>()
   for (const it of program.items) {
     if (it.t !== 'macro') continue
     if (BUILTINS[it.name] !== undefined) {
@@ -1023,7 +1059,11 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'bus') return cgBus(item, errors, macroNames)
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
-    if (item.t === 'section') return cgSection(item, errors, macroNames)
+    if (item.t === 'section') {
+      const out = cgSection(item, errors, macroNames, sectionsSoFar)
+      sectionsSoFar.add(item.name)
+      return out
+    }
     if (item.t === 'song') return '' // assembled below, after all sections exist
     // a patdef emits NOTHING: it was substituted into its use sites above,
     // so by here it is a definition with no runtime existence at all

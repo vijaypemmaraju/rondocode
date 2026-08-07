@@ -32,21 +32,25 @@ import { rondoMode } from './langflag'
  * because visual(`…`) holds WGSL, which is full of < > [ ] *.
  * ------------------------------------------------------------------------- */
 
-/** Grouping, alternation, rest, repeat, euclid — rondo tags these `note`,
- *  which the theme paints as an atom. */
-const ATOM_CHARS = '<>[]~@!'
+/** Grouping, alternation, repeat, euclid — rondo tags these `note`, which the
+ *  theme paints as an atom. */
+const ATOM_CHARS = '<>[]@!'
+/** The REST, on its own. It used to sit in ATOM_CHARS and come out amber, the
+ *  same colour as the grouping characters AND the numbers — so the one thing
+ *  you scan a pattern for was the hardest thing in it to see. */
+const REST_CHARS = '~'
 /** Speed and weight — rondo tags these as operators. */
 const OP_CHARS = '*/%,?'
 
 /** True when this string looks like mini-notation rather than a name. One
  *  structural character is enough: names never contain them. */
 export const looksLikeMini = (text: string): boolean =>
-  [...text].some((c) => ATOM_CHARS.includes(c) || OP_CHARS.includes(c))
+  [...text].some((c) => ATOM_CHARS.includes(c) || OP_CHARS.includes(c) || REST_CHARS.includes(c))
 
 export interface MiniMark {
   from: number
   to: number
-  kind: 'atom' | 'op'
+  kind: 'atom' | 'op' | 'rest'
 }
 
 /**
@@ -65,7 +69,7 @@ export function miniMarks(text: string, from: number): MiniMark[] {
   if (!looksLikeMini(body)) return out
   for (let i = 0; i < body.length; i++) {
     const c = body[i]!
-    const kind = ATOM_CHARS.includes(c) ? 'atom' : OP_CHARS.includes(c) ? 'op' : null
+    const kind = REST_CHARS.includes(c) ? 'rest' : ATOM_CHARS.includes(c) ? 'atom' : OP_CHARS.includes(c) ? 'op' : null
     if (kind === null) continue
     const at = from + 1 + i
     // merge runs of the same kind (`!!`, `*/`) into one mark
@@ -78,6 +82,7 @@ export function miniMarks(text: string, from: number): MiniMark[] {
 
 const atomMark = Decoration.mark({ class: 'cm-mini-atom' })
 const opMark = Decoration.mark({ class: 'cm-mini-op' })
+const restMark = Decoration.mark({ class: 'cm-mini-rest' })
 
 /** Decorate the visible ranges. Only the visible ones: a long document should
  *  not pay for patterns nobody is looking at. */
@@ -94,7 +99,7 @@ function build(view: EditorView): DecorationSet {
         if (node.name !== 'String') return
         const text = view.state.doc.sliceString(node.from, node.to)
         for (const m of miniMarks(text, node.from)) {
-          builder.add(m.from, m.to, m.kind === 'atom' ? atomMark : opMark)
+          builder.add(m.from, m.to, m.kind === 'rest' ? restMark : m.kind === 'atom' ? atomMark : opMark)
         }
       },
     })

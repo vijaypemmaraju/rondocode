@@ -395,6 +395,8 @@ body {
    flat string in the JS DSL. A rest especially: where the holes are IS the
    rhythm, and it used to be the same colour as the notes. */
 .cm-mini-atom { color: var(--c-warn, #f2b155); }
+/* the REST, its own channel — see ui/palette.ts C_REST */
+.cm-mini-rest { color: var(--c-rest, #c39bf5); font-weight: 600; }
 .cm-mini-op { color: var(--c-dim, #6f9284); }
 
 /* Event flash: a mini-notation atom lights up when its event fires and

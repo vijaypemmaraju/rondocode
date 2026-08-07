@@ -33,6 +33,12 @@ export const C_ACCENT_ALT = '#67e8f9' // cyan trace-tip (meter/scope gradient)
 export const C_GREEN = '#155e45' // run-button / selection phosphor
 export const C_GREEN_DEEP = '#0b2c20'
 export const C_WARN = '#f2b155' // amber channel
+/** RESTS. Their own channel because amber already carries both the numbers
+ *  and the grouping characters, so in `[~ -7!7]` the one thing you scan a
+ *  pattern for — where the holes are — was the same colour as everything
+ *  around it. Violet is the gap in a palette that is otherwise green, cyan
+ *  and amber. */
+export const C_REST = '#c39bf5'
 export const C_ERROR = '#ff6b6b'
 export const C_ERROR_BG = '#170c0a' // error surfaces (status strip, boot error)
 export const C_ERROR_BORDER = '#3a1e18'
@@ -53,6 +59,7 @@ export const CSS_VARS: Readonly<Record<string, string>> = {
   '--c-green': C_GREEN,
   '--c-green-deep': C_GREEN_DEEP,
   '--c-warn': C_WARN,
+  '--c-rest': C_REST,
   '--c-error': C_ERROR,
   '--c-error-bg': C_ERROR_BG,
   '--c-error-border': C_ERROR_BORDER,

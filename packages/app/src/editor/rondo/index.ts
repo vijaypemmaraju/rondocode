@@ -16,6 +16,7 @@ export { BUILTINS, KEYWORDS, MODIFIERS } from './words'
 import { renderDocBlock, renderDocBlocks } from '../docblock'
 import type { DocBlock } from '../docblock'
 import { autocompletion } from '@codemirror/autocomplete'
+import { restTag } from '../theme'
 import { rondoMode } from '../langflag'
 import { makeRondoCompletionSource } from './complete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
@@ -62,8 +63,12 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
     // the ones in expressions.
     if (ch === '(' || ch === ')') { stream.next(); return 'op' }
     if (ch === ':' || ch === '=') { stream.next(); return 'op' }
+    // A REST gets its own token. It used to fall in with the grouping
+    // characters below, which are amber — and so are the numbers — so in
+    // `[~ -7!7]` the rest was the same colour as everything beside it.
+    if (ch === '~') { stream.next(); return 'rest' }
     // notation / mini-notation characters, highlighted as atoms
-    if ('<>[]~@!'.includes(ch)) { stream.next(); return 'note' }
+    if ('<>[]@!'.includes(ch)) { stream.next(); return 'note' }
     stream.next()
     return null
   },
@@ -76,6 +81,7 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean }>({
     op: t.operator,
     var: t.variableName,
     note: t.atom,
+    rest: restTag,
   },
 })
 

@@ -20,12 +20,22 @@ export interface Settings {
    *  has no reliable single-line mode, so JS newline formatting would mean
    *  reflowing the whole doc on every Enter, which is not acceptable. */
   formatOnNewline: boolean
+  /** Preferred CAPTURE device, as a deviceId or a label fragment ('' = let the
+   *  OS choose). A label is stored rather than only an id because a deviceId
+   *  is an origin-scoped hash that rotates when permissions are cleared —
+   *  the name on the box survives that. */
+  inputDevice: string
+  /** Preferred PLAYBACK device, same form. Applied with setSinkId where the
+   *  browser has it; where it does not, the OS default stands. */
+  outputDevice: string
 }
 
 export const DEFAULTS: Settings = {
   liveValues: false,
   liveType: false,
   formatOnNewline: false,
+  inputDevice: '',
+  outputDevice: '',
 }
 
 /** Human-facing metadata for the Options panel — label + one-line help. */
@@ -41,6 +51,14 @@ export const SETTING_META: { [K in keyof Settings]: { label: string; help: strin
   formatOnNewline: {
     label: 'Format on new line',
     help: 'When you press Enter, tidy the line you just left: indentation, spacing, modifier colons. Rondo only; use the format button or Cmd/Ctrl+Shift+F anytime in either language.',
+  },
+  inputDevice: {
+    label: 'Input device',
+    help: 'Which microphone or interface mic() listens to. Blank uses the system default. Device names only appear once you have granted microphone permission at least once.',
+  },
+  outputDevice: {
+    label: 'Output device',
+    help: 'Where audio plays. Blank uses the system default. Not every browser can route output; where it cannot, the system default is used.',
   },
 }
 

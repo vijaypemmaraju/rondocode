@@ -394,4 +394,34 @@ export const MUTATIONS: Mutation[] = [
     replace: 'const head = null as RegExpExecArray | null',
     tests: 'packages/app/test/rondo-palette.test.ts',
   },
+
+  /* ---- audio devices: the precedence a live rig depends on --------------- */
+  {
+    label: 'devices: the code override stops beating the saved setting',
+    file: 'packages/app/src/audio/devices.ts',
+    find: "  if (requested !== undefined && requested !== '') {",
+    replace: '  if (false) {',
+    tests: 'packages/app/test/devices.test.ts',
+  },
+  {
+    label: 'devices: a device that is NOT in the room falls back SILENTLY',
+    file: 'packages/app/src/audio/devices.ts',
+    find: '  if (c.fellBackFrom === undefined) return null',
+    replace: '  return null',
+    tests: 'packages/app/test/devices.test.ts',
+  },
+  {
+    label: 'devices: matching by label stops working (ids only)',
+    file: 'packages/app/src/audio/devices.ts',
+    find: '  return w !== \'\' && norm(d.label).includes(w)',
+    replace: '  return false',
+    tests: 'packages/app/test/devices.test.ts',
+  },
+  {
+    label: 'devices: the engine quantum drops out of the latency budget',
+    file: 'packages/app/src/audio/devices.ts',
+    find: '    roundTripMs: baseMs + outputMs + inputMs + quantumMs,',
+    replace: '    roundTripMs: baseMs + outputMs + inputMs,',
+    tests: 'packages/app/test/devices.test.ts',
+  },
 ]

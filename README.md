@@ -84,7 +84,8 @@ they are not making:
    A differential test compiles a rondo program and requires both scanners to
    find the same widgets, so those cannot quietly drift. The newest two — the
    compressor transfer curve and the sidechain duck envelope — are rondo-only
-   so far, and the same test names them rather than leaving the gap unstated. The two languages convert both ways: the editor
+   so far, and the same test names them rather than leaving the gap unstated.
+   The two languages convert both ways: the editor
    decompiles JavaScript into rondo, and whatever the terse syntax cannot
    express is preserved verbatim inside a `js` block, so nothing is lost on the
    way in and choosing rondo never locks you out of the full API. The

@@ -208,7 +208,7 @@ export class Session {
   /** Live custom wavetables: name → JSON.stringify(frames), the diffing
    *  fingerprint (the specs are small partial lists — cheap to fingerprint). */
   private readonly liveWavetables = new Map<string, string>()
-  /** Live per-synth sends: `${synth} ${bus}` → amount, the diff base so an
+  /** Live per-synth sends: `${synth}\u0000${bus}` → amount, the diff base so an
    *  unchanged send isn't resent and a dropped one resets to 0. */
   private liveSends = new Map<string, number>()
   /** Slide notes whose release is deferred until the synth's next note lands
@@ -486,7 +486,7 @@ export class Session {
     // Sends: setSend for new/changed routes, reset a dropped route to 0 — but
     // only while both endpoints still exist (removeBus/removeSynth already drop
     // the routing engine-side, and setSend to a gone endpoint would error).
-    const sendKey = (synth: string, bus: string): string => `${synth} ${bus}`
+    const sendKey = (synth: string, bus: string): string => `${synth}\u0000${bus}`
     const newSends = new Map<string, number>()
     for (const s of result.sends) newSends.set(sendKey(s.synth, s.bus), s.amount)
     for (const s of result.sends) {
@@ -498,7 +498,7 @@ export class Session {
     }
     for (const key of this.liveSends.keys()) {
       if (newSends.has(key)) continue
-      const sep = key.indexOf(' ')
+      const sep = key.indexOf('\u0000')
       const synth = key.slice(0, sep)
       const bus = key.slice(sep + 1)
       if (this.liveSynths.has(synth) && this.liveBuses.has(bus)) {

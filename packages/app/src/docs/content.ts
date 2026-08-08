@@ -1464,6 +1464,42 @@ cps .55`,
     ],
   },
   {
+    id: 'rondo-patdef',
+    title: 'rondo: named figures',
+    group: 'the rondo language',
+    blocks: [
+      p('A `patdef NAME …` gives a run of notation a name. Write the name anywhere notation goes -- a `play` line, a `beat` row, another `patdef` -- and the figure is spliced in at that spot. It is a name for the TEXT, not a pattern object: the compiler substitutes it before anything else runs, so a named figure costs nothing and behaves exactly as if you had typed it out.'),
+      p('Figures COMPOSE. `patdef bar four offs` is the two figures above it, end to end, and a figure assembled that way can be named inside a third. That is how a chorus gets written once: name the parts, then name the arrangements of the parts. Stacking is still what rows do -- two `beat` rows play at the same time, one row names a sequence.'),
+      note('The editor follows the name back to the notes. A `patdef` reference flashes when any note inside the figure it stands for sounds, including a reference nested inside a composed figure, so a collapsed name still shows you the rhythm it is playing. `Cmd/Ctrl + click` a reference to jump to its definition.'),
+      rondo(
+        'Two figures, and a third built out of them.',
+        `synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 2 -> 45..160
+  amp = adsr .001 .2 0 .07
+
+synth hat
+  noise
+  svf 8200 mode:hp
+  * env
+  env = adsr .001 .03 0 .01
+
+# a name for a run of notation
+patdef four kick ~ kick ~
+patdef offs ~ hat ~ hat
+# and a figure built out of the two above
+patdef turn four offs
+
+beat
+  turn
+
+cps .5`,
+      ),
+    ],
+  },
+  {
     id: 'rondo-beat',
     title: 'rondo: beat blocks (the drum machine)',
     group: 'the rondo language',
@@ -1591,8 +1627,10 @@ cps .5`,
     group: 'the rondo language',
     blocks: [
       p('Full tracks: a `section NAME LEN` holds `play` and `beat` blocks, LEN in cycles; `song intro drop drop intro` sequences the sections (omit `song` to play them in definition order). Note-flash and grids keep working inside sections.'),
+      p('`section main 8 with drums` plays a section ON TOP of another one. The named section’s blocks are stacked under this one’s, so the parts every section shares -- the kit, the bass -- get written once and each section adds only what makes it different. Chain it: a section built `with` another may itself be built on a third.'),
       p('`sidechain kick depth:.8 release:.12 sub:.95` is the pump: every kick ducks the other channels, and extra `name:amount` pairs set per-channel duck depth. `master threshold:-6 ratio:2 makeup:1` is the glue compressor on the mix bus.'),
       p('Tempo is one line, in either unit: `bpm 128` is the unit you count in, `cps .5333` the engine unit. One cycle is one BAR of 4 beats, so multiplying cps by 240 gives bpm, and the two lines above are the same tempo. The unit you write is the unit that stays: switching a track to JavaScript and back keeps `bpm 128` as `bpm 128`. MIDI import and export share the convention, so an imported file keeps its tempo and one cycle stays one bar.'),
+      p('`timesig 3 4` sets the meter: beats per bar, then the beat unit. A cycle is still one BAR, so this is what makes a bar three quarters long instead of four -- it scales what `bpm` means, the header readout, the MIDI clock and the bar lines of an exported file. It does NOT change your notation: a line still fills one cycle, which is now a 3/4 bar. The unit must be a power of two, so 5/4 and 7/8 are ordinary and 4/6 is not a thing. Order does not matter, and without the line a project is in 4/4.'),
       table(
         'Tempos you already know, in both units.',
         ['bpm', 'cps', 'where it lives'],
@@ -1667,7 +1705,7 @@ bpm 132`,
     group: 'start here',
     blocks: [
       p('Code grows CONTROL SURFACES inline, in BOTH languages. Nothing is hidden in a panel: the widget sits on the line that made it, and it reads the source rather than the language, so the same gesture edits the same number whether you wrote it in rondo or in JavaScript.'),
-      note("The controls are not a rondo feature -- they read the SOURCE, so they work in JavaScript too, on the same code they always described. `param('cut', 900, { min: 100, max: 8000 })` grows a dial, `adsr(gate, { a: 0.005, ... })` and `env(gate, [[0.005, 1], ...])` grow envelopes, `n('0 3 5 7')` a grid, `stack(s('kick ~ kick ~'), ...)` a step sequencer, `svf(x, 900, { res: 0.4 })` grows a response curve, and a quoted enum like `{ mode: 'lp' }` cycles on a tap. A gesture writes back inside the string or the array literal it came from. A filter line grows its own response curve, in either language. A test compiles a rondo program and requires both scanners to find the same widgets, so the two cannot drift apart quietly."),
+      note("MOST controls are not a rondo feature -- they read the SOURCE, so they work in JavaScript too, on the same code they always described. `param('cut', 900, { min: 100, max: 8000 })` grows a dial, `adsr(gate, { a: 0.005, ... })` and `env(gate, [[0.005, 1], ...])` grow envelopes, `n('0 3 5 7')` a grid, `stack(s('kick ~ kick ~'), ...)` a step sequencer, `svf(x, 900, { res: 0.4 })` grows a response curve, and a quoted enum like `{ mode: 'lp' }` cycles on a tap. A gesture writes back inside the string or the array literal it came from. A test compiles a rondo program and requires both scanners to find the same widgets, so the two cannot drift apart quietly. Two are rondo-only so far -- the compressor transfer curve and the sidechain duck envelope -- and the same test names them, so the gap is recorded rather than merely absent."),
       table(
         'The inventory: what you write, and what it becomes.',
         ['in the code', 'the control it grows'],
@@ -1684,12 +1722,16 @@ bpm 132`,
           ['any plain number', 'a slider: drag it sideways.'],
           ['an enum word', 'a soft underline. Noise colors, filter modes, shape and warp types, table names: tap one to cycle it to the next legal value.'],
           ['`svf` `ladder` `dualsvf` `eq`', 'the exact frequency response. Drag a handle sideways for cutoff or band frequency, vertically for res or gain (signal-driven args stay handle-less).'],
+          ['`master` and `compress`', 'the transfer curve those numbers make: flat below the threshold, bending to the ratio above it, with the unity diagonal drawn behind so the gap between them is the gain reduction. (rondo only so far.)'],
+          ['`sidechain`', 'the pump, as an envelope: how far the gain drops and how fast it comes back, with one fainter curve per channel so a `lead:.99 sub:.8` spread is visible. (rondo only so far.)'],
+          ['`level` and `ott depth:`', 'a dial, like any other number with known bounds -- output level over -60..12 dB, ott depth over 0..1.'],
           ['a `warp:` wavetable line', "a ribbon of every frame through the kernel's real phase map (the sync tear, the bend tilt, the mirror palindrome) at the written `warpamt` or its .5 default."],
           ['`unison:` above 1', 'a small fan glyph on the `synth` header, one stroke per voice at its curved detune position, stroke height following `blend`, octave voices tinted.'],
         ],
       ),
       p('The text is always the source of truth: every gesture rewrites the code (watch it change as you drag), so anything you can touch you can also type, undo, and share. Undo and redo live as chips at the left of the bottom bar, in both languages, so history is one thumb-tap away on a phone.'),
-      p('While the transport runs, everything lights: notation characters flash as their notes sound (including inside `js` escapes), grids sweep a playhead, envelopes fire a marker per note, and lines built from signals (like `irand`) pulse whole.'),
+      p('While the transport runs, every widget MOVES, and each one moves in the way its own picture calls for rather than merely lighting up. Notation characters flash as their notes sound -- rests included, and inside `js` escapes -- and a `patdef` reference flashes for the notes it stands for. Grids sweep a playhead. An envelope fires a marker per note and rides it along the shape, so you see WHERE in the sound you are, not just that a note happened. A filter curve fills to the level going through it and carries a dot at the cutoff. A compressor curve puts a dot at the current input and draws the drop from unity, which is the gain reduction. A sidechain curve marks how far the duck is down right now. Lines built from signals (like `irand`) pulse whole.'),
+      note('A widget only animates where a REAL value backs it: a cutoff driven by an envelope has no single number to put a dot on, so it gets none, and a curve with no level to read simply sits still. Nothing here is a decorative animation -- if it moves, it is showing you a measurement.'),
       p('For playing live, the PERFORMANCE LOCK (the padlock in the header) freezes the text while every widget stays live: a stray tap cannot place a caret, open the keyboard, or convert the buffer, but knobs, grids, scrubs, undo and redo all keep working. Tap it again to edit.'),
     ],
   },
@@ -1714,6 +1756,23 @@ bpm 132`,
       p('Operators are `+ - * / ^`, with the usual precedence, and they bind OUTSIDE a finished call: `adsr .001 .09 0 .05 ^ 3` cubes the envelope rather than the release. `->` maps a 0..1 signal onto a range and binds loosest of all, so `env ^ 2 -> 48..190` squares first and then maps.'),
       note("A `#` starts a comment when it follows whitespace or begins a line. Glued to digits it does not, which is why an accidental is written AFTER its degree: `2#` is a raised second, while `2 #` is a 2 and then a comment eating the rest of the line."),
       p('A binding is `name = expr`, and it lives outside the pipe: bindings are the modulation and the control, the spine is the audio. Order does not matter, they are sorted by what they reference. A few names are reserved because the language leans on them: `note`, `gate`, `velocity` and `input` are the implicit signals, and `adsr`, `knob` and `switch` are spellings rather than values. An unknown name is a compile error pointing at the word, not a silent zero.'),
+      p('`sum k 1..16` plus an indented body is the one loop in the language: the body is built once per `k` and the results are added. Both ends must be whole numbers, because every step becomes real DSP nodes rather than a runtime loop -- a partial stack, a detuned unison, a comb bank, written once instead of pasted sixteen times. It unrolls at compile time, so what it costs is exactly what typing it out would have cost.'),
+      rondo(
+        'Six partials, written once. An additive organ.',
+        `synth organ
+  sum k 1..6
+    sine note*k * (1/k)
+  * env
+  * .25
+  env = adsr .01 .2 .6 .3
+
+play organ
+  0 3 5 7 <10 12> 7 5 3
+  scale: c-min
+  dur: .4
+
+cps .45`,
+      ),
       rondo(
         'positionals, named args, an operator outside the call, and a binding.',
         `synth lead
@@ -1761,18 +1820,25 @@ cps .5`,
           ['`name = expr`', 'a binding: an envelope, an LFO, a knob, any CV beside the pipe'],
           ['`knob DEF lo..hi [log]`', 'a live param, rendered as a dial'],
           ['`post`', 'a chain run once over that synth’s summed voices'],
+          ['`sum k lo..hi` + a body', 'the body built once per `k` and added, unrolled at compile time'],
           ['`play NAME`', 'notation lines, extra lines as voices, `scale:`, then modifier lines'],
           ['`beat [NAME]`', 'drum rows whose words ARE synth names (`word:v` sets that step’s velocity)'],
           ['`sing NAME voice:…`', 'lyric and melody line pairs, plus an optional `post`'],
-          ['`section NAME LEN` + `song …`', 'the arrangement: blocks per section, then the section order'],
+          ['`patdef NAME …`', 'a name for a run of notation, spliced in wherever the name appears (and inside another `patdef`)'],
+          ['`section NAME LEN [with OTHER]` + `song …`', 'the arrangement: blocks per section, optionally stacked on another section, then the section order'],
           ['`bus NAME` + `send SYNTH AMT`', 'one shared effect, fed by several synths'],
           ['`sidechain SRC depth:… name:duck`', 'the pump: one source ducking the other channels'],
           ['`master name:value`', 'the glue compressor on the mix bus'],
+          ['`level DB`', 'the output level of the whole mix, in dB'],
+          ['`macro NAME DEF lo..hi [log]`', 'one dial driving many destinations: write the name anywhere a number goes'],
+          ['`switch NAME A B`', 'a macro with only two values: a toggle rather than a range'],
           ['`scaledef NAME [cents|ratios] steps… [period:p]`', 'a custom tuning: semitones from the root, or the unit it was published in'],
           ['`wavedef NAME …`', 'a custom wavetable, as frames of harmonic amplitudes'],
+          ['`curvedef NAME t v t v …`', 'a named breakpoint shape, usable wherever a curve is'],
           ['`visual`', 'a WGSL fragment shader behind the code'],
           ['`js{ … }` and `js`', 'the escape hatch: a raw JavaScript expression, or raw statements'],
           ['`cps N` and `bpm N`', 'the tempo: cycles per second, or beats per minute (one cycle is one 4-beat bar)'],
+          ['`timesig N D`', 'the meter: beats per bar, then the beat unit. A cycle is still one bar'],
           ['`# …`', 'a comment'],
         ],
       ),

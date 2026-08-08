@@ -729,7 +729,7 @@ function paramBindings(doc: string, root: SyntaxNode): Map<string, number> {
       }
     }
     if (name === undefined || def === null) continue
-    out.set(`${enclosingSynth(doc, root, n.from) ?? ''} ${name}`, def.value)
+    out.set(`${enclosingSynth(doc, root, n.from) ?? ''}\u0000${name}`, def.value)
   }
   return out
 }

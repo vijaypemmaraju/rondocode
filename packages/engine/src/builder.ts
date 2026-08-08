@@ -302,6 +302,13 @@ export interface SynthCtx {
    *  closes (def 3). Hold and hysteresis are what stop it chattering on a
    *  signal sitting at the threshold, or chopping up a sung word. */
   noisegate(inp: SigIn, opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number }): Sig
+  /** DE-ESSER — a compressor that only hears the sibilance. Splits at `freq`
+   *  (Hz, def 6000) and compresses the HIGH band alone, so the vowels are not
+   *  merely un-ducked, they never enter the detector's path. `threshold` dB
+   *  (def -30), `ratio` (def 4), `attack` ms (def 1 — sibilance is a
+   *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
+   *  6000-9000 for a bright one. */
+  deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
   pan(inp: SigIn, pos: SigIn): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
@@ -395,6 +402,13 @@ export interface PostCtx {
    *  closes (def 3). Hold and hysteresis are what stop it chattering on a
    *  signal sitting at the threshold, or chopping up a sung word. */
   noisegate(inp: SigIn, opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number }): Sig
+  /** DE-ESSER — a compressor that only hears the sibilance. Splits at `freq`
+   *  (Hz, def 6000) and compresses the HIGH band alone, so the vowels are not
+   *  merely un-ducked, they never enter the detector's path. `threshold` dB
+   *  (def -30), `ratio` (def 4), `attack` ms (def 1 — sibilance is a
+   *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
+   *  6000-9000 for a bright one. */
+  deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
@@ -865,6 +879,21 @@ const makeShared = (b: Builder) => {
           hysteresis: opts?.hysteresis,
         }),
       ),
+    deess: (
+      inp: SigIn,
+      opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number },
+    ): Sig =>
+      b.node(
+        'deess',
+        { in: src(inp, 'deess in') },
+        definedConfig({
+          freq: opts?.freq,
+          threshold: opts?.threshold,
+          ratio: opts?.ratio,
+          attack: opts?.attack,
+          release: opts?.release,
+        }),
+      ),
     phaser: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig =>
       b.node(
         'phaser',
@@ -953,6 +982,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     shape: shared.shape,
     compress: shared.compress,
     noisegate: shared.noisegate,
+    deess: shared.deess,
     phaser: shared.phaser,
     formant: shared.formant,
     vocoder: shared.vocoder,

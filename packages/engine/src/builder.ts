@@ -292,6 +292,16 @@ export interface SynthCtx {
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
   compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  /** NOISE GATE / downward expander — turns QUIET things down, which is the
+   *  opposite of a compressor and the problem a stage has: kit bleed into a
+   *  vocal mic, amp hiss, room tone that becomes feedback once you add gain.
+   *  `threshold` dB to open (def -40), `range` dB of attenuation when closed
+   *  (def -60; -20..-40 removes bleed without leaving an audible hole),
+   *  `attack` ms (def 1), `hold` ms it stays open after the level drops (def
+   *  50), `release` ms (def 100), `hysteresis` dB below threshold before it
+   *  closes (def 3). Hold and hysteresis are what stop it chattering on a
+   *  signal sitting at the threshold, or chopping up a sung word. */
+  noisegate(inp: SigIn, opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number }): Sig
   pan(inp: SigIn, pos: SigIn): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
@@ -375,6 +385,16 @@ export interface PostCtx {
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
   compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  /** NOISE GATE / downward expander — turns QUIET things down, which is the
+   *  opposite of a compressor and the problem a stage has: kit bleed into a
+   *  vocal mic, amp hiss, room tone that becomes feedback once you add gain.
+   *  `threshold` dB to open (def -40), `range` dB of attenuation when closed
+   *  (def -60; -20..-40 removes bleed without leaving an audible hole),
+   *  `attack` ms (def 1), `hold` ms it stays open after the level drops (def
+   *  50), `release` ms (def 100), `hysteresis` dB below threshold before it
+   *  closes (def 3). Hold and hysteresis are what stop it chattering on a
+   *  signal sitting at the threshold, or chopping up a sung word. */
+  noisegate(inp: SigIn, opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number }): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
@@ -829,6 +849,22 @@ const makeShared = (b: Builder) => {
           makeup: opts?.makeup,
         }),
       ),
+    noisegate: (
+      inp: SigIn,
+      opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number },
+    ): Sig =>
+      b.node(
+        'noisegate',
+        { in: src(inp, 'noisegate in') },
+        definedConfig({
+          threshold: opts?.threshold,
+          range: opts?.range,
+          attack: opts?.attack,
+          hold: opts?.hold,
+          release: opts?.release,
+          hysteresis: opts?.hysteresis,
+        }),
+      ),
     phaser: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig =>
       b.node(
         'phaser',
@@ -916,6 +952,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     bitcrush: shared.bitcrush,
     shape: shared.shape,
     compress: shared.compress,
+    noisegate: shared.noisegate,
     phaser: shared.phaser,
     formant: shared.formant,
     vocoder: shared.vocoder,

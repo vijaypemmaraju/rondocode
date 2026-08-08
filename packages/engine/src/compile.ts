@@ -37,6 +37,7 @@ import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
+import { GateKernel } from './dsp/gate'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
 import { ExciterKernel } from './dsp/exciter'
@@ -50,6 +51,7 @@ import type { TransientConfig } from './dsp/transient'
 import { FlangerKernel } from './dsp/flanger'
 import type { FlangerConfig } from './dsp/flanger'
 import type { CompressConfig } from './dsp/compress'
+import type { GateConfig } from './dsp/gate'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
  *  may render any n <= BLOCK. */
@@ -191,6 +193,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   bitcrush: [{ name: 'in' }],
   shape: [{ name: 'in' }, { name: 'drive', def: 1 }],
   compress: [{ name: 'in' }],
+  noisegate: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
   vocoder: [{ name: 'carrier' }, { name: 'modulator' }],
@@ -272,6 +275,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   bitcrush: (c) => new BitcrushKernel(bitcrushCfg(c)),
   shape: (c) => new ShapeKernel((c['type'] as ShapeType | undefined) ?? 'soft'),
   compress: (c) => new CompressKernel(compressCfg(c)),
+  noisegate: (c) => new GateKernel(gateCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
   vocoder: (c, ctx) => new VocoderKernel(c as VocoderConfig, ctx),
@@ -342,6 +346,14 @@ const granularCfg = (c: Record<string, unknown>): GranularConfig => {
 const compressCfg = (c: Record<string, unknown>): CompressConfig => {
   const out: CompressConfig = {}
   for (const k of ['threshold', 'ratio', 'attack', 'release', 'knee', 'makeup'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const gateCfg = (c: Record<string, unknown>): GateConfig => {
+  const out: GateConfig = {}
+  for (const k of ['threshold', 'range', 'attack', 'hold', 'release', 'hysteresis'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out

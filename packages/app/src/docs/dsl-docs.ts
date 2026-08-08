@@ -607,6 +607,12 @@ const SYNTH_CTX: DocEntry[] = [
     'input.mix(chorus(input, { rate: 0.6, depth: 0.004 }), 1)',
   ),
   sc(
+    'noisegate',
+    'noisegate(input, opts?: { threshold, range, attack, hold, release, hysteresis })',
+    'A NOISE GATE: turns QUIET things down, which is the opposite of a compressor and the problem a live stage has -- kit bleed into a vocal mic, amp hiss, room tone that becomes feedback the moment you add gain. threshold is the level it opens at in dB (def -40); range is how far it pushes the signal down when closed, in dB (def -60, but -20 to -40 is usually better on a voice: a fully muted gate is audible as a hole, a partial one just removes the bleed). attack ms (def 1, because a slow one eats the front of a consonant), release ms (def 100). Two settings stop it misbehaving: hold is the minimum time it stays open after the level drops (def 50 ms), which keeps a sung word from being chopped at every momentary dip, and hysteresis is how far BELOW threshold the level must fall before it starts closing (def 3 dB), which stops a signal parked at the threshold from stuttering open and shut.',
+    "noisegate(mic(), { threshold: -38, hold: 60, range: -30 })",
+  ),
+  sc(
     'comb',
     'comb(input, freq, feedback?, opts?: { damp })',
     'A tuned resonator that rings at freq (Hz) like a plucked string or a metal bar, feedback (0..0.98) sets how long it sings, damp softens the highs. Great for physical, metallic, Karplus-Strong tones.',

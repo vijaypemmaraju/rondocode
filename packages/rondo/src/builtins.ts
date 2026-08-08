@@ -108,6 +108,13 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   // pseudo-stereo widener — the positional is `amount` 0..1 (`width .8 mode:tight`)
   width: { kind: 'proc', pos: ['sig'], posDefault: ['0.5'], named: { mode: 'enum' } },
   transient: { kind: 'proc', pos: [], named: { attack: 'num', sustain: 'num' } },
+  // the live-mic node: turns QUIET things down (bleed, hiss), the opposite
+  // problem to compress. hold + hysteresis are what stop it chattering.
+  noisegate: {
+    kind: 'proc',
+    pos: [],
+    named: { threshold: 'num', range: 'num', attack: 'num', hold: 'num', release: 'num', hysteresis: 'num' },
+  },
   flanger: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', mix: 'num' } },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },
   ott: { kind: 'proc', pos: [], named: { depth: 'num', low: 'num', high: 'num', makeup: 'num' } },

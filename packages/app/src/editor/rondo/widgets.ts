@@ -30,6 +30,7 @@ import { cycleEnumEdit, scanEnumSpans } from './enums'
 import type { EnumSpan } from './enums'
 import { activate } from './activation'
 import { CompCurveWidget, scanCompressors } from './compcurve'
+import { DuckCurveWidget, scanDucks } from './duckcurve'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
@@ -83,6 +84,11 @@ export interface Hooks {
    *  per-channel meters rather than as one of them, which is why a `master`
    *  line cannot just look itself up in `level`. */
   masterLevel?: () => number
+  /** The sidechain envelope AS APPLIED, 1 = open. Reported on the same meter
+   *  event as the levels — the same number the shader visualizer reads as
+   *  `duck`, so a widget showing the pump shows what the audio is doing
+   *  rather than what a formula says it should. */
+  duckLevel?: () => number
   /** TOUCH-TO-OVERRIDE: while a hand holds a knob, the held value plays and
    *  the pattern drive for that param is suppressed; releasing hands control
    *  back to the pattern on its next event. */
@@ -2940,6 +2946,12 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   // The compressor's transfer curve. `master`/`compress` were the last nodes
   // with no widget at all — five bare numbers and nothing saying what shape
   // they make, or how much they are pulling down right now.
+  // The sidechain duck: shape, spread, and where it is right now.
+  for (const ds of scanDucks(text)) {
+    items.push(
+      Decoration.widget({ widget: new DuckCurveWidget(ds, JSON.stringify(ds), fcW, hooks), side: 1 }).range(ds.at),
+    )
+  }
   for (const cs of scanCompressors(text)) {
     items.push(
       Decoration.widget({

@@ -19,3 +19,12 @@ target/
 
 # rust spike build output
 packages/dsp-rs/target/
+
+# Coverage reports. NOT just build noise: istanbul's HTML embeds the full
+# SOURCE of every file it covers, including src/examples/local/*, which is
+# gitignored precisely because it must never be published. A `git add -A`
+# after a --coverage run put twelve of those on GitHub.
+coverage/
+*.lcov
+*.log
+

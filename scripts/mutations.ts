@@ -583,4 +583,13 @@ export const MUTATIONS: Mutation[] = [
     replace: '    if (false) return String(d)',
     tests: 'packages/app/test/mic-device.test.ts',
   },
+
+  /* ---- open-source hygiene: things a public repo must not carry --------- */
+  {
+    label: 'repo: the render mirror is hardcoded to one person path again',
+    file: 'packages/server/src/render-tools.ts',
+    find: "  mirrorDir: process.env['RONDOCODE_RENDER_MIRROR'] ?? null,",
+    replace: "  mirrorDir: '/Users/vijaypemmaraju/Dropbox/rondocode-renders',",
+    tests: 'packages/app/test/repo-hygiene.test.ts',
+  },
 ]

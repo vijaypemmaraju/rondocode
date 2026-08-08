@@ -13,7 +13,7 @@
  *                     deltas: "did my change do what I intended".
  *
  * WAV output goes to `dirs.rendersDir` (repo-root renders/, gitignored) and
- * is mirrored fail-open into `dirs.mirrorDir` (a Dropbox folder the human
+ * is mirrored fail-open into `dirs.mirrorDir` (a synced folder the human
  * watches). Both are injectable so tests write to temp dirs instead.
  * ------------------------------------------------------------------------- */
 
@@ -40,9 +40,13 @@ export interface RenderDirs {
   mirrorDir: string | null
 }
 
+/* The mirror is OPT-IN via the environment, and used to be one developer's
+ * Dropbox path hardcoded here. That is not a secret, but it is a real
+ * username in a public repo, and for everyone else it was a path that simply
+ * does not exist — a fail-open copy that always failed. */
 const DEFAULT_DIRS: RenderDirs = {
   rendersDir: fileURLToPath(new URL('../../../renders', import.meta.url)),
-  mirrorDir: '/Users/vijaypemmaraju/Dropbox/rondocode-renders',
+  mirrorDir: process.env['RONDOCODE_RENDER_MIRROR'] ?? null,
 }
 
 /** Release tail appended after the last cycle so envelopes ring out. */
@@ -158,7 +162,7 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
     'render_code',
     {
       description:
-        `Render a COMPLETE rondocode program offline and LISTEN via analysis — no browser needed (works even when the live tools report no session; fully server-side and deterministic: same code + cycles + cps → identical analysis). Evals the source (see rondocode://docs/dsl-reference), drives the real pattern scheduler for N cycles, renders each synth's events, mixes the stems (peak-normalized to 0.89 when hot) with a ${TAIL_SEC}s release tail. Returns { analysis, perSynth: {name: {events, rms}}, durationSec, wavPath? } — perSynth with events 0 or rms ~0 pinpoints a synth that never sounds; unknownSounds lists .sound() targets no synth defines. ${READING} The WAV also lands in the human's Dropbox rondocode-renders folder so they can actually hear it — mention the filename when you want them to listen. This renders a COPY of the code you pass; it does not touch the live browser session.`,
+        `Render a COMPLETE rondocode program offline and LISTEN via analysis — no browser needed (works even when the live tools report no session; fully server-side and deterministic: same code + cycles + cps → identical analysis). Evals the source (see rondocode://docs/dsl-reference), drives the real pattern scheduler for N cycles, renders each synth's events, mixes the stems (peak-normalized to 0.89 when hot) with a ${TAIL_SEC}s release tail. Returns { analysis, perSynth: {name: {events, rms}}, durationSec, wavPath? } — perSynth with events 0 or rms ~0 pinpoints a synth that never sounds; unknownSounds lists .sound() targets no synth defines. ${READING} Mention the wavPath filename when you want the human to listen; it is a path on their machine, not bytes you can read. This renders a COPY of the code you pass; it does not touch the live browser session.`,
       inputSchema: {
         code: z.string().describe('Full rondocode program source (synths + p() patterns + optional setCps)'),
         cycles: z.number().optional().describe('Whole cycles to render (default 4, clamped 1..64)'),
@@ -194,7 +198,7 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
     'render_synth',
     {
       description:
-        `Quick single-synth audition, offline and deterministic (no browser needed): eval the code, play ONE note on one synth (noteOn at 0.05s, noteOff at 60% of durationSec, +1s release tail) and return its analysis + a WAV on disk (also mirrored to the human's Dropbox rondocode-renders folder). The fastest way to iterate on a patch's timbre before patterning it. ${READING}`,
+        `Quick single-synth audition, offline and deterministic (no browser needed): eval the code, play ONE note on one synth (noteOn at 0.05s, noteOff at 60% of durationSec, +1s release tail) and return its analysis + a WAV on disk. The fastest way to iterate on a patch's timbre before patterning it. ${READING}`,
       inputSchema: {
         code: z.string().describe('Rondocode source defining at least one synth (patterns are ignored here)'),
         synthName: z.string().optional().describe('Which synth to audition (default: the first one the code defines)'),

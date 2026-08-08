@@ -54,7 +54,10 @@ load (or record, or resample) a sample.
 ## Why another live-coding system?
 
 [TidalCycles](https://tidalcycles.org), [Strudel](https://strudel.cc) and
-[Gibber](https://gibber.cc) already exist and are excellent. If you live-code
+[Gibber](https://gibber.cc) already exist and are excellent. The pattern side
+of rondocode follows the model Tidal invented and the mini-notation Strudel
+carried to the browser — see [NOTICE.md](NOTICE.md) for what this project
+borrows and from whom. If you live-code
 on a laptop and love them, keep them. rondocode exists because of three bets
 they are not making:
 

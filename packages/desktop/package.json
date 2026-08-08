@@ -1,6 +1,7 @@
 {
   "name": "@rondocode/desktop",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "rondocode desktop shell (Tauri): local project files + a virtual MIDI port for DAWs",
   "scripts": {

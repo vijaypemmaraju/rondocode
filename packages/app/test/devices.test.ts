@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  RAW_CAPTURE,
   RENDER_QUANTUM,
+  resolveMicProcessing,
   explainChoice,
   latencyReport,
   latencyVerdict,
@@ -162,5 +164,51 @@ describe('latencyVerdict', () => {
       expect(r).toBeGreaterThanOrEqual(prev)
       prev = r
     }
+  })
+})
+
+
+/* ------------------------------------------------------------------------- *
+ * MIC PROCESSING — raw signal, or not howling.
+ *
+ * The capture has always been raw, which is right for a vocoder and wrong for
+ * a phone: the speaker sits two centimetres from the microphone, so without
+ * echo cancellation any live chain feeds back. The old advice was "use
+ * headphones", which nobody does on a phone.
+ *
+ * Stored as a three-way rather than a boolean so an UNTOUCHED install does the
+ * right thing on both, and an explicit choice always wins over the guess.
+ * ------------------------------------------------------------------------- */
+describe('resolveMicProcessing', () => {
+  it('auto turns echo cancellation ON for a phone', () => {
+    expect(resolveMicProcessing('auto', true).echoCancellation).toBe(true)
+  })
+
+  it('auto leaves the signal RAW on a desktop', () => {
+    const c = resolveMicProcessing('auto', false)
+    expect(c.echoCancellation).toBe(false)
+    expect(c.noiseSuppression).toBe(false)
+  })
+
+  it('an explicit choice beats the platform guess, both ways', () => {
+    expect(resolveMicProcessing('raw', true).echoCancellation, 'phone, forced raw').toBe(false)
+    expect(resolveMicProcessing('voice', false).echoCancellation, 'desktop, forced voice').toBe(true)
+  })
+
+  it('never turns on automatic GAIN, even on the voice path', () => {
+    // AEC stops the feedback; AGC would ride over a performance's dynamics,
+    // which is a different thing and never what a musician wants
+    for (const mode of ['auto', 'raw', 'voice'] as const) {
+      for (const mobile of [true, false]) {
+        expect(resolveMicProcessing(mode, mobile).autoGainControl, `${mode}/${mobile}`).toBe(false)
+      }
+    }
+  })
+
+  it('hands back a COPY, so a caller cannot mutate the shared constant', () => {
+    const a = resolveMicProcessing('raw', false)
+    a.echoCancellation = true
+    expect(resolveMicProcessing('raw', false).echoCancellation).toBe(false)
+    expect(RAW_CAPTURE.echoCancellation).toBe(false)
   })
 })

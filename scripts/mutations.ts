@@ -458,7 +458,7 @@ export const MUTATIONS: Mutation[] = [
   {
     label: 'gate: the js{} escape cannot see noisegate (decompile fixed point)',
     file: 'packages/rondo/src/codegen.ts',
-    find: "'compress', 'noisegate', 'phaser'",
+    find: "'compress', 'noisegate', 'deess', 'phaser'",
     replace: "'compress', 'phaser'",
     tests: 'packages/app/test/one-structural-list.test.ts packages/rondo/test/fuzz.test.ts',
   },
@@ -498,5 +498,27 @@ export const MUTATIONS: Mutation[] = [
     find: '  if (over <= 0) return 1',
     replace: '  if (over <= -200) return 1',
     tests: 'packages/engine/test/deess.test.ts',
+  },
+
+  {
+    label: 'mic: auto stops enabling echo cancellation on a phone (it howls)',
+    file: 'packages/app/src/audio/devices.ts',
+    find: '  return isMobile ? { ...VOICE_CAPTURE } : { ...RAW_CAPTURE }',
+    replace: '  return { ...RAW_CAPTURE }',
+    tests: 'packages/app/test/devices.test.ts',
+  },
+  {
+    label: 'mic: an explicit choice stops beating the platform guess',
+    file: 'packages/app/src/audio/devices.ts',
+    find: "  if (setting === 'raw') return { ...RAW_CAPTURE }",
+    replace: "  if (setting === 'raw' && !isMobile) return { ...RAW_CAPTURE }",
+    tests: 'packages/app/test/devices.test.ts',
+  },
+  {
+    label: 'mic: automatic GAIN control creeps in with the voice path',
+    file: 'packages/app/src/audio/devices.ts',
+    find: '  echoCancellation: true,\n  noiseSuppression: true,\n  autoGainControl: false,',
+    replace: '  echoCancellation: true,\n  noiseSuppression: true,\n  autoGainControl: true,',
+    tests: 'packages/app/test/devices.test.ts',
   },
 ]

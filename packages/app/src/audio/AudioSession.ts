@@ -1,7 +1,7 @@
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
 import workletUrl from './worklet/processor?worker&url'
-import { explainChoice, latencyReport, resolveDevice } from './devices'
-import type { DeviceChoice, DeviceInfo, LatencyReport } from './devices'
+import { explainChoice, latencyReport, resolveDevice, resolveMicProcessing } from './devices'
+import type { DeviceChoice, DeviceInfo, LatencyReport, MicProcessing } from './devices'
 
 /* Main-thread side of the audio stack: owns the AudioContext and the
  * AudioWorkletNode hosting RealtimeEngine (see ./processor.ts), and speaks
@@ -158,6 +158,10 @@ export class AudioSession {
   private savedInput: string | undefined
   private savedOutput: string | undefined
   private codeInput: string | undefined
+  /** raw / voice / auto — see resolveMicProcessing. Reopens the capture when
+   *  it changes, because the constraints are fixed at getUserMedia time. */
+  private micProcessing: MicProcessing = 'auto'
+  private micIsMobile = false
   /** The last resolution, so the UI can report a fallback rather than leaving
    *  a missing interface to be discovered by ear. */
   private lastInputChoice: DeviceChoice = { reason: 'default' }
@@ -176,6 +180,24 @@ export class AudioSession {
     const inputs = pick('audioinput')
     const outputs = pick('audiooutput')
     return { inputs, outputs, labelled: [...inputs, ...outputs].some((d) => d.label !== '') }
+  }
+
+  /** Raw capture or the voice-processing path. Reopens a live capture, since
+   *  the constraints can only be set when the stream is created. */
+  async setMicProcessing(mode: MicProcessing, isMobile: boolean): Promise<void> {
+    if (mode === this.micProcessing && isMobile === this.micIsMobile) return
+    this.micProcessing = mode
+    this.micIsMobile = isMobile
+    if (this.micStream !== null) {
+      await this.setMicEnabled(false)
+      await this.setMicEnabled(true)
+    }
+  }
+
+  /** What the capture is actually doing right now, for the options readout. */
+  micProcessingActive(): { echoCancellation: boolean; noiseSuppression: boolean } {
+    const c = resolveMicProcessing(this.micProcessing, this.micIsMobile)
+    return { echoCancellation: c.echoCancellation, noiseSuppression: c.noiseSuppression }
   }
 
   /** The saved rig. Re-applies immediately, so choosing a device in the
@@ -269,13 +291,14 @@ export class AudioSession {
       const { inputs } = await this.listDevices()
       const choice = resolveDevice(this.codeInput, this.savedInput, inputs)
       this.lastInputChoice = choice
+      /* RAW by default (phone voice-call DSP smears transients and would
+       * colour a vocoder badly) — but on a phone the speaker is two
+       * centimetres from the mic, and without echo cancellation a live chain
+       * simply howls. resolveMicProcessing owns that choice. */
+      const processing = resolveMicProcessing(this.micProcessing, this.micIsMobile)
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          // capture the true signal: phone voice-call DSP smears transients
-          // and would color a vocoder badly
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          ...processing,
           ...(choice.deviceId !== undefined ? { deviceId: { exact: choice.deviceId } } : {}),
         },
       })

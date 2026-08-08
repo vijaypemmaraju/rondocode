@@ -144,3 +144,71 @@ export function latencyVerdict(roundTripMs: number): 'tight' | 'usable' | 'distr
   if (roundTripMs <= 25) return 'usable'
   return 'distracting'
 }
+
+
+/* ---- mic processing: raw signal vs. not howling ---------------------------- *
+ * The capture has been RAW since it was written — echoCancellation,
+ * noiseSuppression and autoGainControl all off — because phone voice-call DSP
+ * smears transients and would colour a vocoder badly. That is the right
+ * default for a studio, and the wrong one for a phone.
+ *
+ * On a phone the speaker and the microphone are two centimetres apart. Without
+ * echo cancellation, any live mic chain feeds back, and the honest advice was
+ * "use headphones", which nobody does on a phone. AEC is what makes a live mic
+ * usable on the device most people are actually holding.
+ *
+ * IT IS NOT FREE, and the tooltip says so: the voice-processing path adds
+ * latency and often resamples, so a take that matters still wants `raw` and a
+ * pair of headphones.
+ * -------------------------------------------------------------------------- */
+
+export type MicProcessing = 'auto' | 'raw' | 'voice'
+
+export interface MicConstraints {
+  echoCancellation: boolean
+  noiseSuppression: boolean
+  autoGainControl: boolean
+}
+
+/** The raw capture: what a vocoder, a granulator or a resample wants. */
+export const RAW_CAPTURE: MicConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+}
+
+/** The voice path: what a phone playing through its own speaker needs. AGC is
+ *  left OFF even here — echo cancellation is what stops the feedback, while
+ *  automatic gain is what would ride over a performance's dynamics. */
+export const VOICE_CAPTURE: MicConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: false,
+}
+
+/**
+ * Which capture constraints to ask for.
+ *
+ * `auto` is platform-aware because the two reasons point opposite ways: raw
+ * exists for fidelity (a desktop concern, usually on headphones) and voice
+ * exists for not howling (a phone concern, usually on a speaker). An explicit
+ * setting always wins over the guess.
+ */
+export function resolveMicProcessing(setting: MicProcessing, isMobile: boolean): MicConstraints {
+  if (setting === 'raw') return { ...RAW_CAPTURE }
+  if (setting === 'voice') return { ...VOICE_CAPTURE }
+  return isMobile ? { ...VOICE_CAPTURE } : { ...RAW_CAPTURE }
+}
+
+/** Coarse pointer + no hover is the honest test for "this is a handheld
+ *  device with its speaker next to its microphone" — far more reliable than
+ *  sniffing a user-agent string, and it follows a tablet into desktop mode. */
+export function looksMobile(): boolean {
+  const mq = globalThis.matchMedia
+  if (typeof mq !== 'function') return false
+  try {
+    return mq('(pointer: coarse)').matches && !mq('(hover: hover)').matches
+  } catch {
+    return false
+  }
+}

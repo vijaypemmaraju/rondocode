@@ -23,7 +23,8 @@
     "dev": "pnpm --filter @rondocode/app dev",
     "bridge": "pnpm --filter @rondocode/server exec tsx src/main.ts",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mutate": "tsx scripts/mutate.ts"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "3",

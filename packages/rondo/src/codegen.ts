@@ -30,13 +30,20 @@ export const SCALE_MODE: Record<string, string> = {
 const num = (v: number): string => String(v)
 
 /** Synth/post ctx members — when a `js{ … }` escape hatch inside a synth body
- *  references one, we must destructure it so the raw JS can see it. */
-const KNOWN_CTX = [
+ *  references one, we must destructure it so the raw JS can see it.
+ *
+ *  EXPORTED because it is a second copy of the builtin list, and it broke the
+ *  decompile fixed point when `noisegate` was added here last: the escape
+ *  hatch under-destructured, the round trip stopped matching, and the fuzzer
+ *  reported it 200 seeds away from the cause. one-structural-list.test.ts now
+ *  pins every non-sigop BUILTIN as present here (sigops are Sig METHODS, not
+ *  ctx functions, which is why `tanh` and `clip` are correctly absent). */
+export const KNOWN_CTX = [
   'note', 'gate', 'velocity', 'param', 'input',
   'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr', 'noise',
   'sample', 'granular', 'pluck', 'modal', 'pan',
   'svf', 'dualsvf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
-  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
+  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'noisegate', 'phaser', 'formant', 'vocoder',
   'width', 'transient', 'flanger',
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
 ]

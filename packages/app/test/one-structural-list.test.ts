@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { RESERVED_PARAM_NAMES, SVF_MODES, EQ_BAND_TYPES } from '@rondocode/engine'
-import { BLOCK_KEYWORDS, STATEMENT_KEYWORDS, RONDO_EQ_BAND_TYPES } from '@rondocode/rondo'
+import { BLOCK_KEYWORDS, BUILTINS, KNOWN_CTX, STATEMENT_KEYWORDS, RONDO_EQ_BAND_TYPES } from '@rondocode/rondo'
 import { KEYWORDS } from '../src/editor/rondo/words'
 import { EQ_TYPE_CYCLES, SVF_MODES as EDITOR_SVF_MODES } from '../src/editor/rondo/enums'
 
@@ -209,5 +209,36 @@ describe('source files stay greppable', () => {
   it('holds no raw NUL byte -- write the escape, not the byte itself', () => {
     const binary = sources.filter((f) => readFileSync(f).includes(0))
     expect(binary, 'files grep will silently skip').toEqual([])
+  })
+})
+
+
+/* ------------------------------------------------------------------------- *
+ * KNOWN_CTX vs BUILTINS — the copy that broke the decompile fixed point.
+ *
+ * A `js{ … }` escape inside a synth body has to DESTRUCTURE the ctx members it
+ * mentions, and codegen decides which those are from KNOWN_CTX — a hand-kept
+ * second copy of the builtin list. Adding `noisegate` to BUILTINS and not to
+ * KNOWN_CTX under-destructured the escape, so compile → decompile → compile
+ * stopped matching. The fuzzer caught it, but reported it as "seed 211", two
+ * hundred seeds away from anything resembling the cause.
+ *
+ * SIGOPS ARE CORRECTLY ABSENT: `tanh` and `clip` are Sig METHODS (`sig.tanh()`)
+ * rather than ctx functions, so they are never destructured.
+ * ------------------------------------------------------------------------- */
+describe('the js{} escape knows every builtin it might have to destructure', () => {
+  it('every non-sigop BUILTIN is a KNOWN_CTX name', () => {
+    const known = new Set(KNOWN_CTX)
+    const missing = Object.entries(BUILTINS)
+      .filter(([, spec]) => spec.kind !== 'sigop')
+      .map(([name]) => name)
+      .filter((name) => !known.has(name))
+    expect(missing, 'builtins a js{} escape could not see').toEqual([])
+  })
+
+  it('and the implicit signals are there too', () => {
+    for (const n of ['note', 'gate', 'velocity', 'input', 'param']) {
+      expect(KNOWN_CTX, n).toContain(n)
+    }
   })
 })

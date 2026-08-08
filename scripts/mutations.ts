@@ -424,4 +424,42 @@ export const MUTATIONS: Mutation[] = [
     replace: '    roundTripMs: baseMs + outputMs + inputMs,',
     tests: 'packages/app/test/devices.test.ts',
   },
+
+  /* ---- the noise gate: the live-mic node ---------------------------------- */
+  {
+    label: 'gate: hysteresis collapses, so a signal at the threshold chatters',
+    file: 'packages/engine/src/dsp/gate.ts',
+    find: '  if (levelDb < threshold - Math.max(0, hysteresis)) return false',
+    replace: '  if (levelDb < threshold) return false',
+    tests: 'packages/engine/test/gate.test.ts',
+  },
+  {
+    label: 'gate: HOLD is ignored, so a sung word gets chopped at every dip',
+    file: 'packages/engine/src/dsp/gate.ts',
+    find: '      } else if (hold > 0) {',
+    replace: '      } else if (false) {',
+    tests: 'packages/engine/test/gate.test.ts',
+  },
+  {
+    label: 'gate: closed means MUTE instead of the configured range',
+    file: 'packages/engine/src/dsp/gate.ts',
+    find: '      const target = open ? 1 : floor',
+    replace: '      const target = open ? 1 : 0',
+    tests: 'packages/engine/test/gate.test.ts',
+  },
+  {
+    label: 'gate: it starts OPEN, letting a block of bleed through',
+    file: 'packages/engine/src/dsp/gate.ts',
+    find: '    this.gain = this.rangeLin\n  }\n\n  process(',
+    replace: '    this.gain = 1\n  }\n\n  process(',
+    tests: 'packages/engine/test/gate.test.ts',
+  },
+
+  {
+    label: 'gate: the js{} escape cannot see noisegate (decompile fixed point)',
+    file: 'packages/rondo/src/codegen.ts',
+    find: "'compress', 'noisegate', 'phaser'",
+    replace: "'compress', 'phaser'",
+    tests: 'packages/app/test/one-structural-list.test.ts packages/rondo/test/fuzz.test.ts',
+  },
 ]

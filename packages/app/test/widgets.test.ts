@@ -129,3 +129,20 @@ describe('the level line is a knob', () => {
     expect(scanKnobs('level 4.5\n')[0]!.value).toBe(4.5)
   })
 })
+
+/* `ott depth:.4` is one number in 0..1 — exactly what a dial is for, and it
+ * was bare text like the master level was. */
+describe('ott depth is a knob', () => {
+  it('finds the depth and points at its number', () => {
+    const doc = 'synth p\n  saw\n  post\n    ott depth:0.45\n'
+    const [k] = scanKnobs(doc).filter((m) => m.name === undefined)
+    expect(doc.slice(k!.defFrom, k!.defTo)).toBe('0.45')
+    expect(k!.value).toBe(0.45)
+    expect(k!.lo).toBe(0)
+    expect(k!.hi).toBe(1)
+  })
+
+  it('ignores an ott line with no depth', () => {
+    expect(scanKnobs('synth p\n  saw\n  post\n    ott\n')).toEqual([])
+  })
+})

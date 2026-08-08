@@ -249,6 +249,16 @@ export function scanKnobs(text: string): KnobMatch[] {
      * No `name`, so nothing drives it live: masterGain is not a per-note
      * param and there is no event carrying it. The dial moves when a hand
      * moves it, which is the whole job. */
+    /* OTT DEPTH is one number too — `ott depth:.4` — and 0..1 is exactly the
+     * range a dial is for. Same reasoning as `level`: no name, because the
+     * engine reports no per-note value for it, so the dial moves when a hand
+     * moves it and nothing pretends otherwise. */
+    const ott = /^ott\b.*?\bdepth[ \t]*:[ \t]*(\d*\.?\d+)/.exec(line.trim())
+    if (ott !== null) {
+      const at = off + line.lastIndexOf(ott[1]!)
+      out.push({ defFrom: at, defTo: at + ott[1]!.length, value: Number(ott[1]), lo: 0, hi: 1, log: false })
+      continue
+    }
     const lvl = /^level[ \t]+(-?\d*\.?\d+)/.exec(line.trim())
     if (lvl !== null) {
       const at = off + line.indexOf(lvl[1]!)

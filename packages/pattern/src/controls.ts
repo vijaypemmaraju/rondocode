@@ -39,6 +39,9 @@ export interface ControlMap {
    *  fold it into — and applied after the lookup, so `2#` means "the third
    *  degree, raised", whatever that degree happens to be in this scale. */
   nAcc?: number
+  /** Per-note expression value from a `'n` suffix in mini-notation. Ordinary
+   *  (not structural): it flows to the synth as a param named `expr`. */
+  expr?: number
   /** Absolute midi note (post-scale resolution, or set directly by `note()`). */
   note?: number
   /** Synth name the scheduler routes the event to. */
@@ -75,7 +78,7 @@ const numericMini = (src: string, what: string) => {
       throw new MiniError(`${what} requires numbers, got '${a.value}'`, a.loc.start, src)
     }
   }
-  return pattern as Pattern<{ value: number; loc: Loc; acc?: number }>
+  return pattern as Pattern<{ value: number; loc: Loc; acc?: number; expr?: number }>
 }
 
 /**
@@ -98,10 +101,14 @@ export function note(x: number | string | Pattern<number>): Pattern<ControlMap> 
         )
       }
     }
-    return pattern.withValue((v) => ({
-      note: typeof v.value === 'number' ? v.value : noteNameToMidi(v.value)!,
-      loc: v.loc,
-    }))
+    return pattern.withValue((v) => {
+      const out: ControlMap = {
+        note: typeof v.value === 'number' ? v.value : noteNameToMidi(v.value)!,
+        loc: v.loc,
+      }
+      if (v.expr !== undefined) out.expr = v.expr
+      return out
+    })
   }
   return reify(x).withValue((v): ControlMap => ({ note: v }))
 }
@@ -109,8 +116,17 @@ export function note(x: number | string | Pattern<number>): Pattern<ControlMap> 
 /** Function form of `n`: degrees are numbers only (use `note()` for names). */
 const nCtrl = (x: number | string | Pattern<number>): Pattern<ControlMap> => {
   if (typeof x === 'string') {
-    return numericMini(x, 'n()').withValue((v) =>
-      v.acc === undefined ? { n: v.value, loc: v.loc } : { n: v.value, nAcc: v.acc, loc: v.loc })
+    return numericMini(x, 'n()').withValue((v) => {
+      const out: ControlMap = { n: v.value, loc: v.loc }
+      if (v.acc !== undefined) out.nAcc = v.acc
+      // `0'2` — the note's own expression value. NOT reserved: it reaches a
+      // synth as an ordinary param, so a graph reads it with param('expr')
+      // exactly as it would any pattern-driven control. That is the whole
+      // trick — the notation only has to ATTACH it; the delivery path to the
+      // voice already existed.
+      if (v.expr !== undefined) out.expr = v.expr
+      return out
+    })
   }
   return reify(x).withValue((v): ControlMap => ({ n: v }))
 }
@@ -155,11 +171,12 @@ export function n(
  */
 export function sound(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
-    return miniParse(x).pattern.withValue((v) => ({
-      sound: String(v.value),
-      note: 60,
-      loc: v.loc,
-    }))
+    return miniParse(x).pattern.withValue((v) => {
+      const out: ControlMap = { sound: String(v.value), note: 60, loc: v.loc }
+      // a drum hit carries expression too: `kick'2 hat'0`
+      if (v.expr !== undefined) out.expr = v.expr
+      return out
+    })
   }
   return x.withValue((v): ControlMap => ({ sound: v, note: 60 }))
 }

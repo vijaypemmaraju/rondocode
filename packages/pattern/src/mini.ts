@@ -85,6 +85,16 @@ export interface MiniValue {
    *  name a pitch the scale does not contain; see the note on `nAcc` in
    *  controls.ts for why it stays separate from the degree. */
   readonly acc?: number
+  /** PER-NOTE EXPRESSION, from a trailing `'value` on the atom: `0'2`.
+   *
+   *  Attached LEXICALLY to the note rather than carried on a parallel control
+   *  pattern, which is the whole point. A modifier line (`amt: 2 0 1 3`) is a
+   *  pattern in its own right and aligns by TIME, so the moment the notation
+   *  grows a rest, a subgroup or an alternation the values stop corresponding
+   *  to the notes — `0 ~ [3 5] 7` against `2 0 1 3` gives BOTH subgroup notes
+   *  the same value and feeds one to the rest. A value written on the note
+   *  survives all of that, because it never leaves the note. */
+  readonly expr?: number
 }
 
 /** Quote a source string for the error header, truncated for huge inputs. */
@@ -153,9 +163,28 @@ interface Tok {
   readonly end: number
   /** Semitones from a trailing accidental run (`2#` → 1, `2b` → -1). */
   readonly acc?: number
+  /** Value of a trailing `'n` expression suffix (`0'2` → 2). */
+  readonly expr?: number
 }
 
 const PUNCT = new Set('[]<>{}(),|*/!@?%~_')
+
+/** Read an optional `'value` expression suffix at `k`. Returns the value and
+ *  the index after it, or undefined when there is none.
+ *
+ *  `'` is deliberately not a PUNCT and not a word character, so it can only
+ *  ever mean this. The value is a plain signed decimal — no expressions, so
+ *  that a widget can find it, rewrite it, and never have to parse. */
+function readExpr(src: string, k: number): { expr: number; next: number } | undefined {
+  if (src[k] !== "'") return undefined
+  let j = k + 1
+  if (src[j] === '-') j++
+  const digits = j
+  while (isDigit(src[j] ?? '')) j++
+  if (src[j] === '.') { j++; while (isDigit(src[j] ?? '')) j++ }
+  if (j === digits) return undefined // a lone quote is not an expression
+  return { expr: parseFloat(src.slice(k + 1, j)), next: j }
+}
 const isSpace = (c: string): boolean => /\s/.test(c)
 const isDigit = (c: string): boolean => c >= '0' && c <= '9'
 const isWordStart = (c: string): boolean => /[a-zA-Z]/.test(c)
@@ -174,6 +203,14 @@ function tokenize(src: string): Tok[] {
     if (isWordStart(c)) {
       let j = i + 1
       while (j < src.length && isWordChar(src[j]!)) j++
+      // a word takes the same `'value` suffix a number does, so an absolute
+      // note (`c4'2`) and a drum hit (`kick'2`) carry expression too
+      const wex = readExpr(src, j)
+      if (wex !== undefined) {
+        toks.push({ kind: 'word', text: src.slice(i, j), value: NaN, start: i, end: wex.next, expr: wex.expr })
+        i = wex.next
+        continue
+      }
       toks.push({ kind: 'word', text: src.slice(i, j), value: NaN, start: i, end: j })
       i = j
       continue
@@ -205,6 +242,12 @@ function tokenize(src: string): Tok[] {
       let k = j
       while (src[k] === '#' || src[k] === 'b') { acc += src[k] === '#' ? 1 : -1; k++ }
       if (k > j && isWordChar(src[k] ?? '')) { acc = 0; k = j }
+      const ex = readExpr(src, k)
+      if (ex !== undefined) {
+        toks.push({ kind: 'number', text: src.slice(i, ex.next), value: parseFloat(text), start: i, end: ex.next, acc, expr: ex.expr })
+        i = ex.next
+        continue
+      }
       toks.push({ kind: 'number', text: src.slice(i, k), value: parseFloat(text), start: i, end: k, acc })
       i = k
       continue
@@ -419,10 +462,11 @@ class Parser {
   }
 
   /** Record an atom (the `n` tag validates against the list) and build its pattern. */
-  private mkAtom(value: string | number, loc: Loc, acc = 0): Pattern<MiniValue> {
+  private mkAtom(value: string | number, loc: Loc, acc = 0, expr?: number): Pattern<MiniValue> {
     // Stamp the source so the editor can flash exactly this literal (see Loc).
     const located: Loc = { start: loc.start, end: loc.end, src: this.src }
-    const v: MiniValue = acc === 0 ? { value, loc: located } : { value, loc: located, acc }
+    const base = acc === 0 ? { value, loc: located } : { value, loc: located, acc }
+    const v: MiniValue = expr === undefined ? base : { ...base, expr }
     this.atoms.push(v)
     return Pattern.pure(v)
   }
@@ -436,7 +480,7 @@ class Parser {
       return this.mkAtom(t.kind === 'word' ? t.text : t.value, {
         start: t.start,
         end: t.end,
-      }, t.acc ?? 0)
+      }, t.acc ?? 0, t.expr)
     }
     if (t.text === '~') {
       this.next()

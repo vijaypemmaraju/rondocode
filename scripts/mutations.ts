@@ -643,4 +643,34 @@ export const MUTATIONS: Mutation[] = [
     replace: 'wavetable`',
     tests: 'packages/app/test/docs.test.ts',
   },
+
+  /* ---- per-note expression: the value belongs to the NOTE ---------------- */
+  {
+    label: 'notation: a note expression is dropped on the floor',
+    file: 'packages/pattern/src/mini.ts',
+    find: '    const v: MiniValue = expr === undefined ? base : { ...base, expr }',
+    replace: '    const v: MiniValue = base',
+    tests: 'packages/pattern/test/note-expression.test.ts',
+  },
+  {
+    label: 'notation: the expression suffix stops parsing (a lone quote passes)',
+    file: 'packages/pattern/src/mini.ts',
+    find: "  if (j === digits) return undefined // a lone quote is not an expression",
+    replace: '  if (j === digits) return { expr: 0, next: j }',
+    tests: 'packages/pattern/test/note-expression.test.ts',
+  },
+  {
+    label: "notation: words lose their expression (c4 and kick words)",
+    file: 'packages/pattern/src/mini.ts',
+    find: '      const wex = readExpr(src, j)',
+    replace: '      const wex = undefined as ReturnType<typeof readExpr>',
+    tests: 'packages/pattern/test/note-expression.test.ts',
+  },
+  {
+    label: 'controls: the expression never reaches the synth as a param',
+    file: 'packages/pattern/src/controls.ts',
+    find: '      if (v.expr !== undefined) out.expr = v.expr\n      return out\n    })\n  }\n  return reify(x).withValue',
+    replace: '      return out\n    })\n  }\n  return reify(x).withValue',
+    tests: 'packages/pattern/test/note-expression.test.ts',
+  },
 ]

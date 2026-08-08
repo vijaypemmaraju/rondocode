@@ -560,4 +560,18 @@ export const MUTATIONS: Mutation[] = [
     replace: '    this.gain = 1',
     tests: 'packages/engine/test/limiter.test.ts',
   },
+
+  /* ---- offline mic injection: the thing that made the chain testable ----- */
+  {
+    label: 'render: a supplied mic signal never reaches the graph (silence again)',
+    file: 'packages/engine/src/render.ts',
+    find: '      for (let i = 0; i < end - cursor; i++) blk[i] = micIn[cursor + i] ?? 0',
+    replace: '      for (let i = 0; i < end - cursor; i++) blk[i] = 0',
+    tests: 'packages/engine/test/mic-chain.test.ts',
+  },
+  // NOT mutated: clearing the mic block past a short chunk is defensive, and
+  // provably unobservable — kernels only read `n` samples, so the stale tail
+  // is never seen. Removing it leaves every test green because it genuinely
+  // changes nothing today. It stays because a kernel that read a whole block
+  // would otherwise see the previous chunk's audio, and it costs nothing.
 ]

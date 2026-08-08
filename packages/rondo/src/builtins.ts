@@ -110,6 +110,11 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   transient: { kind: 'proc', pos: [], named: { attack: 'num', sustain: 'num' } },
   // the live-mic node: turns QUIET things down (bleed, hiss), the opposite
   // problem to compress. hold + hysteresis are what stop it chattering.
+  limiter: {
+    kind: 'proc',
+    pos: [],
+    named: { ceiling: 'num', lookahead: 'num', release: 'num' },
+  },
   deess: {
     kind: 'proc',
     pos: [],

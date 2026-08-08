@@ -309,6 +309,13 @@ export interface SynthCtx {
    *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
    *  6000-9000 for a bright one. */
   deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
+  /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
+   *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
+   *  already reduced when the peak arrives; that delay is the latency it adds.
+   *  `ceiling` dBFS (def -0.3), `release` ms (def 60). There is no attack
+   *  control on purpose: the attack IS the lookahead. The ceiling is a
+   *  guarantee, not a target — no sample leaves above it. */
+  limiter(inp: SigIn, opts?: { ceiling?: number; lookahead?: number; release?: number }): Sig
   pan(inp: SigIn, pos: SigIn): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
@@ -409,6 +416,13 @@ export interface PostCtx {
    *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
    *  6000-9000 for a bright one. */
   deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
+  /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
+   *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
+   *  already reduced when the peak arrives; that delay is the latency it adds.
+   *  `ceiling` dBFS (def -0.3), `release` ms (def 60). There is no attack
+   *  control on purpose: the attack IS the lookahead. The ceiling is a
+   *  guarantee, not a target — no sample leaves above it. */
+  limiter(inp: SigIn, opts?: { ceiling?: number; lookahead?: number; release?: number }): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
@@ -894,6 +908,12 @@ const makeShared = (b: Builder) => {
           release: opts?.release,
         }),
       ),
+    limiter: (inp: SigIn, opts?: { ceiling?: number; lookahead?: number; release?: number }): Sig =>
+      b.node(
+        'limiter',
+        { in: src(inp, 'limiter in') },
+        definedConfig({ ceiling: opts?.ceiling, lookahead: opts?.lookahead, release: opts?.release }),
+      ),
     phaser: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig =>
       b.node(
         'phaser',
@@ -983,6 +1003,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     compress: shared.compress,
     noisegate: shared.noisegate,
     deess: shared.deess,
+    limiter: shared.limiter,
     phaser: shared.phaser,
     formant: shared.formant,
     vocoder: shared.vocoder,

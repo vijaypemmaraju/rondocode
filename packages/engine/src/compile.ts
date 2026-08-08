@@ -39,6 +39,7 @@ import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
 import { GateKernel } from './dsp/gate'
 import { DeessKernel } from './dsp/deess'
+import { LimiterKernel } from './dsp/limiter'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
 import { ExciterKernel } from './dsp/exciter'
@@ -54,6 +55,7 @@ import type { FlangerConfig } from './dsp/flanger'
 import type { CompressConfig } from './dsp/compress'
 import type { GateConfig } from './dsp/gate'
 import type { DeessConfig } from './dsp/deess'
+import type { LimiterConfig } from './dsp/limiter'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
  *  may render any n <= BLOCK. */
@@ -197,6 +199,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   compress: [{ name: 'in' }],
   noisegate: [{ name: 'in' }],
   deess: [{ name: 'in' }],
+  limiter: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
   vocoder: [{ name: 'carrier' }, { name: 'modulator' }],
@@ -280,6 +283,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   compress: (c) => new CompressKernel(compressCfg(c)),
   noisegate: (c) => new GateKernel(gateCfg(c)),
   deess: (c) => new DeessKernel(deessCfg(c)),
+  limiter: (c) => new LimiterKernel(limiterCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
   vocoder: (c, ctx) => new VocoderKernel(c as VocoderConfig, ctx),
@@ -366,6 +370,14 @@ const gateCfg = (c: Record<string, unknown>): GateConfig => {
 const deessCfg = (c: Record<string, unknown>): DeessConfig => {
   const out: DeessConfig = {}
   for (const k of ['freq', 'threshold', 'ratio', 'attack', 'release'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const limiterCfg = (c: Record<string, unknown>): LimiterConfig => {
+  const out: LimiterConfig = {}
+  for (const k of ['ceiling', 'lookahead', 'release'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out

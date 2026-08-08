@@ -680,4 +680,27 @@ export const MUTATIONS: Mutation[] = [
   // proves nothing. The data flow it depends on IS pinned, by the four
   // `notation:`/`controls:` mutations above; the audio is pinned by
   // note-curve.test.ts.
+
+  /* ---- the note-bends example: its header makes four claims -------------- */
+  {
+    label: 'example: the note value stops signing the bend (all notes alike)',
+    file: 'packages/app/src/examples/index.ts',
+    find: '  bend = shape * expr + 1',
+    replace: '  bend = shape + 1',
+    tests: 'packages/app/test/note-bends-example.test.ts',
+  },
+  {
+    label: 'example: the bend never resolves back to the written pitch',
+    file: 'packages/app/src/examples/index.ts',
+    find: '  shape = env .07 .06 .2 0 .3 0',
+    replace: '  shape = env .07 .06 .2 .06 .3 .06',
+    tests: 'packages/app/test/note-bends-example.test.ts',
+  },
+  {
+    label: 'example: the subgroup notes lose their own values',
+    file: 'packages/app/src/examples/index.ts',
+    find: "  ~ ~ [12'1 11'-1] ~",
+    replace: '  ~ ~ [12 11] ~',
+    tests: 'packages/app/test/note-bends-example.test.ts',
+  },
 ]

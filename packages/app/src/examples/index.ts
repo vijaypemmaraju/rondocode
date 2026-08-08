@@ -3074,6 +3074,54 @@ cps .5
 `
 
 
+/** NOTE BENDS: per-note expression. The `'value` suffix belongs to the note it
+ *  is written on, so every note in one line can bend its own way through one
+ *  synth. The sign does the work: one shape, mirrored by a negative. */
+const noteBendsRondo = `# NOTE BENDS. every note carries its
+# OWN value, written on the note as
+# 'n - and the synth decides what that
+# means. here it is a pitch bend:
+#
+#   '1   scoops UP into the note
+#   '0   plays it straight
+#   '-1  falls INTO it from above
+#   '.5  half a scoop (it morphs,
+#        it does not switch)
+#
+# drag any of those numbers to hear it.
+
+synth lead
+  saw note*bend
+  ladder cut res:.35
+  * amp
+  amp = adsr .01 .12 .7 .18
+  cut = amp ^ 2 -> 500..4200
+
+  # the note's own value, and ONE shape
+  # it signs: negative mirrors the curve
+  expr = knob 0 -1..1
+  shape = env .07 .06 .2 0 .3 0
+  bend = shape * expr + 1
+
+play lead
+  0'1 3'0 5'-1 7'0 9'1 7'-.5 5'0 3'1
+  scale: a-min
+  dur: .9
+
+# a value written on the note cannot
+# drift: it survives rests, subgroups
+# and alternations, because it never
+# leaves the note.
+play lead
+  ~ ~ [12'1 11'-1] ~
+  scale: a-min
+  dur: .4
+  gain: .5
+
+cps .5
+`
+
+
 /** WAVETABLE LEAD: a hand-drawn custom table (wavedef), scanned by the
  *  envelope - the most sweepable sound in the engine, showcased. */
 const waveleadRondo = `# WAVETABLE LEAD. the wavedef line
@@ -3562,6 +3610,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
   { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
+  { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
   { name: 'macros', code: fromRondo(macrosRondo), rondo: macrosRondo },

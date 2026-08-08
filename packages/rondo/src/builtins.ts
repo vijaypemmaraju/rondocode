@@ -61,14 +61,13 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   // per cycle, .25 = a quarter note) instead of Hz — it follows the tempo
   lfo: { kind: 'osc', pos: ['sig', 'enum'], named: { sync: 'bool' } },
   // the LIVE microphone as a source (silence offline / when unconnected)
-  // NOTE: mic deliberately declares NO named args. Giving it `device:` broke
-  // the shipped live-mic example: in `vocoder mic bands:24` the `bands:` had
-  // always been absorbed by `vocoder`, and a `mic` that accepts named args
-  // takes it instead ("mic has no bands: argument"). Binding a named arg to
-  // the nearest call that ACCEPTS THAT NAME is a parser change, not a builtin
-  // one. The JS API has mic({ device }) today; rondo needs that fix, or a
-  // top-level `input NAME` line, before it can say the same thing.
-  mic: { kind: 'osc', pos: [] },
+  // `device` names which input to open — an id, or any part of the label.
+  // Config the GRAPH never reads: the capture is opened on the main thread,
+  // so this is how a program tells the host what to open. This once broke
+  // `vocoder mic bands:24` (mic swallowed `bands:`); named args now bind to
+  // the nearest call that ACCEPTS them, so a nested builtin declaring one
+  // no longer changes how a following one binds.
+  mic: { kind: 'osc', pos: [], named: { device: 'enum' } },
 
   // ---- gated sources (samplers, physical models) ----
   // start/end window the buffer (fractions 0..1), slices chops that window and

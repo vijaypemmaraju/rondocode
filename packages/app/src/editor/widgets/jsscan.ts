@@ -906,7 +906,8 @@ export function scanEnumSpansJs(text: string): EnumSpan[] {
         const tok = strTok(text, node)
         // `table:` accepts any registered wavedef, not just the built-ins
         const list = key === 'table' ? tables : values
-        if (tok === null || !list.includes(tok.value)) continue
+        // a null list is a runtime set: nothing to cycle through
+        if (tok === null || list === null || !list.includes(tok.value)) continue
         out.push({ from: tok.from, to: tok.to, word: tok.value, values: list })
       }
     }

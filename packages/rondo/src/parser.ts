@@ -64,13 +64,50 @@ class Cursor {
     const a = this.peek(), b = this.peek2()
     return !!a && a.k === 'ident' && !!b && b.k === 'colon'
   }
+
+  /* A named argument now walks OUTWARD until some call declares it (see
+   * parseNamed). That is the right rule and it costs a diagnostic: when
+   * nothing accepts `rez:`, the leftover surfaces at end of line, and
+   * "unexpected tokens" is a much worse thing to read than "`svf` has no
+   * `rez:` argument". So each refusal is remembered, innermost last, and the
+   * end-of-line message spends them. */
+  readonly declined: { arg: string; by: string }[] = []
+
+  /** `name` was refused by builtin `by`. */
+  decline(arg: string, by: string): void {
+    this.declined.push({ arg, by })
+  }
+
+  /** Some enclosing call took `arg` after all — it is nobody's error. */
+  accepted(arg: string): void {
+    for (let i = this.declined.length - 1; i >= 0; i--) {
+      if (this.declined[i]!.arg === arg) this.declined.splice(i, 1)
+    }
+  }
+
+  /** The innermost call that refused `arg`, if any. */
+  refuser(arg: string): string | undefined {
+    for (let i = this.declined.length - 1; i >= 0; i--) {
+      if (this.declined[i]!.arg === arg) return this.declined[i]!.by
+    }
+    return undefined
+  }
 }
 
 /** What to say about tokens left over at the end of a line. A stray `)` is
  *  worth naming: "unexpected tokens" sends someone looking at the whole line
  *  when one character is wrong. */
 function leftoverMsg(c: Cursor, fallback: string): string {
-  return c.peek()?.k === 'rparen' ? 'unmatched `)`' : fallback
+  if (c.peek()?.k === 'rparen') return 'unmatched `)`'
+  if (c.atNamedArg()) {
+    const arg = (c.peek() as Tok & { v: string }).v
+    const by = c.refuser(arg)
+    // name the INNERMOST call that refused it: that is where the author was
+    // looking when they typed it
+    if (by !== undefined) return `\`${by}\` has no \`${arg}:\` argument`
+    return `no call here takes a \`${arg}:\` argument`
+  }
+  return fallback
 }
 
 /* ---- expressions --------------------------------------------------------- */
@@ -111,11 +148,27 @@ function canStartArg(c: Cursor): boolean {
 
 /** Parse named args (`res:.85 mode:hp`). Enum-kind named values (per the
  *  builtin's spec) take a bare word as a quoted enum, not a binding ref. */
-function parseNamed(c: Cursor, spec?: BuiltinSpec): Record<string, Expr> {
+function parseNamed(c: Cursor, spec?: BuiltinSpec, by = '?'): Record<string, Expr> {
   const named: Record<string, Expr> = {}
   while (c.atNamedArg()) {
+    /* ONLY WHAT THIS CALL DECLARES. A named argument belongs to the nearest
+     * enclosing call that ACCEPTS THAT NAME, so anything else is left in the
+     * stream for an outer call to claim.
+     *
+     * This used to be all-or-nothing — declare any named arg and the call
+     * swallowed every pair that followed — which made `vocoder supersaw
+     * detune:.4 bands:16` a parse error (supersaw ate `bands:`), and meant
+     * giving `mic` a `device:` argument broke `vocoder mic bands:24`. Adding a
+     * named argument to a NESTED builtin should not change how a following
+     * one binds. */
+    const peeked = c.peek() as Tok & { v: string }
+    if (spec?.named?.[peeked.v] === undefined) {
+      c.decline(peeked.v, by)
+      break
+    }
     const nameTok = c.next() as Tok & { v: string }
     c.next() // colon
+    c.accepted(nameTok.v)
     const vt = c.peek()
     if (spec?.named?.[nameTok.v] === 'enum' && vt && vt.k === 'ident') {
       c.next()
@@ -223,7 +276,7 @@ function parseApp(c: Cursor): Expr {
         }
         args.push(arg)
       }
-      const named = parseNamed(c, BUILTINS['env'])
+      const named = parseNamed(c, BUILTINS['env'], 'env')
       if (args.length === 0 && Object.keys(named).length === 0) return { t: 'ident', name, pos: t.pos }
       if (args.length === 0 || args.length % 2 !== 0) c.err('env takes time/level pairs, e.g. `env .005 1 .15 .4 release:.3`', t.pos)
       return { t: 'call', name, args, named, pos: t.pos }
@@ -246,7 +299,7 @@ function parseApp(c: Cursor): Expr {
       // a builtin that declares NO named args consumes none — trailing
       // `key:value` pairs belong to an ENCLOSING call (`vocoder mic bands:24`
       // must give bands: to the vocoder, not the nested mic)
-      const named = spec.named !== undefined && Object.keys(spec.named).length > 0 ? parseNamed(c, spec) : {}
+      const named = parseNamed(c, spec, name)
       return { t: 'call', name, args, named, pos: t.pos }
     }
     // a plain reference: a binding name, or note / gate / velocity / input
@@ -419,7 +472,7 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       const name = t0.v; c.next()
       const spec = BUILTINS[name]!
       const args: Expr[] = [spine, ...(name === 'eq' ? parseEqBands(c) : parsePositionals(c, spec))]
-      const named = parseNamed(c, spec)
+      const named = parseNamed(c, spec, name)
       spine = { t: 'call', name, args, named, pos: t0.pos }
     } else {
       c.err('expected a transform — an operator (`* env`), a filter/effect (`ladder …`, `delay …`), or a sig op (`tanh`).')

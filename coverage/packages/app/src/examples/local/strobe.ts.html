@@ -1,0 +1,832 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for packages/app/src/examples/local/strobe.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../../../../index.html">All files</a> / <a href="index.html">packages/app/src/examples/local</a> strobe.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>5/5</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">0% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>0/1</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>0/0</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>5/5</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a>
+<a name='L207'></a><a href='#L207'>207</a>
+<a name='L208'></a><a href='#L208'>208</a>
+<a name='L209'></a><a href='#L209'>209</a>
+<a name='L210'></a><a href='#L210'>210</a>
+<a name='L211'></a><a href='#L211'>211</a>
+<a name='L212'></a><a href='#L212'>212</a>
+<a name='L213'></a><a href='#L213'>213</a>
+<a name='L214'></a><a href='#L214'>214</a>
+<a name='L215'></a><a href='#L215'>215</a>
+<a name='L216'></a><a href='#L216'>216</a>
+<a name='L217'></a><a href='#L217'>217</a>
+<a name='L218'></a><a href='#L218'>218</a>
+<a name='L219'></a><a href='#L219'>219</a>
+<a name='L220'></a><a href='#L220'>220</a>
+<a name='L221'></a><a href='#L221'>221</a>
+<a name='L222'></a><a href='#L222'>222</a>
+<a name='L223'></a><a href='#L223'>223</a>
+<a name='L224'></a><a href='#L224'>224</a>
+<a name='L225'></a><a href='#L225'>225</a>
+<a name='L226'></a><a href='#L226'>226</a>
+<a name='L227'></a><a href='#L227'>227</a>
+<a name='L228'></a><a href='#L228'>228</a>
+<a name='L229'></a><a href='#L229'>229</a>
+<a name='L230'></a><a href='#L230'>230</a>
+<a name='L231'></a><a href='#L231'>231</a>
+<a name='L232'></a><a href='#L232'>232</a>
+<a name='L233'></a><a href='#L233'>233</a>
+<a name='L234'></a><a href='#L234'>234</a>
+<a name='L235'></a><a href='#L235'>235</a>
+<a name='L236'></a><a href='#L236'>236</a>
+<a name='L237'></a><a href='#L237'>237</a>
+<a name='L238'></a><a href='#L238'>238</a>
+<a name='L239'></a><a href='#L239'>239</a>
+<a name='L240'></a><a href='#L240'>240</a>
+<a name='L241'></a><a href='#L241'>241</a>
+<a name='L242'></a><a href='#L242'>242</a>
+<a name='L243'></a><a href='#L243'>243</a>
+<a name='L244'></a><a href='#L244'>244</a>
+<a name='L245'></a><a href='#L245'>245</a>
+<a name='L246'></a><a href='#L246'>246</a>
+<a name='L247'></a><a href='#L247'>247</a>
+<a name='L248'></a><a href='#L248'>248</a>
+<a name='L249'></a><a href='#L249'>249</a>
+<a name='L250'></a><a href='#L250'>250</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/* LOCAL ONLY — gitignored, and a production build aliases the loader away.
+ *
+ * "Strobe" (deadmau5), measures 108-115 of strobe-by-deadmau5.mid.
+ *
+ * The RONDO source is the truth: it is what is edited in the app, and the
+ * rondocode twin is transpiled from it at load, so the two cannot drift. */
+&nbsp;
+import { compile } from '@rondocode/rondo'
+&nbsp;
+const rondo = `# STROBE (deadmau5) — measures 108-115 of
+# strobe-by-deadmau5.mid, transcribed. 84 bpm.
+#
+# NOTE: the whole 4-bar figure is ONE line with
+# \`slow 8\`. Four separate notation lines would
+# STACK as simultaneous voices, not play in
+# sequence — which is how the first attempt at
+# this ended up as four bars at once.
+#
+# SERUM-ISMS, and why each one is here:
+#   detune  — unison WITHOUT detune is just 9 copies of the same pitch. The
+#             supersaw character IS the spread; this is the one that matters.
+#   unison  — clamps to 9 in the engine, so 9 is the honest number to write.
+#   curve 5 — pulls the inner voices toward the centre ("Serum-style focus"),
+#             so the stack keeps a defined pitch instead of smearing.
+#   w2/w3   — the stacked, slightly-detuned wavetable layers. They were
+#             DEFINED and never mixed in, so two thirds of the oscillator
+#             section was dead code.
+#   drift   — a slow LFO on the wavetable position, on top of the envelope's
+#             sweep, so a held note keeps moving instead of freezing.
+#   ott     — the multiband glue every Serum patch is printed through.
+#   width   — the stereo pull unison spread alone does not give.
+&nbsp;
+macro bright 7200 700..7200
+&nbsp;
+# DRUMS on/off, from one tap. Both halves have to move together: the duck is
+# triggered by kick noteOns, not by the kick's level, so a kick muted to gain 0
+# would keep pumping everything else against a beat you cannot hear.
+switch drums 1 0
+&nbsp;
+synth bell unison:9 detune:.28 spread:1 voices:32 humanize:0.5 curve:5
+  wavetable note scan warp:bend table:pwm
+  mix w2 0.2
+  mix w3 0.2
+  inv = 7000 - bright
+  svf 534 res:0.3
+  * env
+  dec = bright * 5.6 / 72300
+  dec2 = min dec 0.705
+    env = adsr .002 dec2 0 0
+  base = env -&gt; 0.364..0.63
+  scan = base
+  * max inv/20000 0
+&nbsp;
+  w2 = wavetable note*1 scan table:harmonic warp:mirror warpamt:0.584
+  w3 = wavetable note/1 scan table:harmonic
+&nbsp;
+  post
+    # normalize to 0..1, then tilt DOWN: dark = long echoes, bright = short
+    norm = bright / 8500
+    mx = 0.25 - norm * 0.25 
+    delay .125 0.25 sync:1 mix:mx
+    # mix rv .32
+    # compress threshold:-20 ratio:3 attack:8 release:120 makeup:4
+    ott depth:0.3
+    width 1
+    exciter freq:100 amount:.9
+    # ch = chorus input rate:.5 depth:.003 mix:.35
+    # rv = reverb ch room:0.545 damp:0.436
+&nbsp;
+synth lead unison:9 detune:.22 spread:.9 voices:32 humanize:.3 curve:4
+  wavetable note scan table:harmonic
+  mix w2 0.536
+  mix w3 0.84
+  * env
+  powbright = bright ^ 1.8
+  svf powbright * .001 res:0.36
+  rel = bright * 1.08 / 72300
+  env = adsr .002 0.81 0.47 0
+  base = env -&gt; 0.272..0.53
+  drift = lfo .05 -&gt; -0.04..0.04
+  scan = base + drift
+  # * bright ^ 1.4 / 14030
+&nbsp;
+  w2 = wavetable note*1.004 scan table:harmonic warp:bend warpamt:0.764
+  w3 = wavetable note/1.006 scan table:basic
+&nbsp;
+  post
+    norm = bright / 7300
+    fb = 0.6 - norm * 0.55
+    compress threshold:-20 ratio:3 attack:8 release:120 makeup:1
+    ott depth:.28
+    width .5
+&nbsp;
+synth sub
+  wavetable note scan warp:bend table:basic
+  * env
+  scan = env -&gt; 0.272..0.53
+  tanh
+  * 1.7
+&nbsp;
+  svf bright / 3 res:0.24
+  env = adsr .01 .4 .7 0.314
+  post
+    reverb room:.15 damp:.5 mix:.35
+&nbsp;
+synth kick
+  body + click
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -&gt; 48..190
+  bs = sine drop
+  body = bs * amp
+  amp = adsr .001 .16 0 .06
+  cn = noise
+  cf = svf cn 4000 mode:hp
+  click = cf * cenv * .45
+  cenv = adsr .0004 .012 0 .004
+&nbsp;
+play lead
+  &lt;b3 ~ e4 c#4 ~ e4 g#3 ~ e4 d#4 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 a#3 ~ b3 ~ f#4 b3 ~ f#4 c#4 ~ f#4 d#4 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 a#3 ~ b3 ~ g#4 b3 ~ b4 b3 ~ e4 d#4 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 d#4 ~ e4 b3 ~ f#4 b3 ~ f#4 a#3 ~ b3 ~ f#4 b3 ~ f#4 c#4 ~ f#4 d#4 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~&gt;*16
+  dur: 2
+&nbsp;
+play bell
+  &lt;b3 ~ e4 c#4 ~ e4 g#3 ~ e4 d#4 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 a#3 ~ b3 ~ f#4 b3 ~ f#4 c#4 ~ f#4 d#4 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 a#3 ~ b3 ~ g#4 b3 ~ b4 b3 ~ e4 d#4 ~ e4 b3 ~ e4 b3 ~ e4 b3 ~ e4 d#4 ~ e4 b3 ~ f#4 b3 ~ f#4 a#3 ~ b3 ~ f#4 b3 ~ f#4 c#4 ~ f#4 d#4 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~ f#4 b3 ~&gt;*16
+  dur: 2
+  gain: 0.3
+&nbsp;
+play sub
+  &lt;g#2 ~ ~ g#2 ~ ~ c#2 ~ ~ c#2 ~ ~ e2 ~ ~ e2 ~ ~ e2 ~ ~ e2 ~ ~ e2 ~ ~ e2 ~ ~ e2 ~ c#2 ~ ~ c#2 ~ ~ f#2 ~ ~ f#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ g#2 ~ ~ g#2 ~ ~ b2 ~ ~ b2 ~ ~ c#2 ~ ~ c#2 ~ ~ c#2 ~ ~ c#2 ~ ~ c#2 ~ ~ c#2 ~ ~ c#2 ~ c#2 ~ ~ c#2 ~ ~ f#2 ~ ~ f#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~ ~ g#2 ~&gt;*16
+  dur: 1.96
+&nbsp;
+play kick
+  c2 c2 c2 c2
+  gain: drums * 0.42
+&nbsp;
+sidechain kick depth:drums release:.5
+&nbsp;
+&nbsp;
+cps .525
+&nbsp;
+# A LIGHT SHOW, not a spectrum analyser. Every element is wired to something
+# the arrangement actually does, so it reads as a rig responding to the track
+# rather than a meter that happens to wiggle:
+#
+#   hit_kick  -&gt; the strobe and the blinders. Kick is four-on-the-floor here,
+#                so this is the pulse everything else is felt against.
+#   hit_lead  -&gt; beams 0 and 3, and the laser scan.
+#   hit_bell  -&gt; beams 1 and 4 (the bell plays the same figure as the lead an
+#                octave apart, so the two banks fire together and stay a pair).
+#   hit_sub   -&gt; beams 2 and 5, the slow ones. Sub moves once per three steps.
+#   bass      -&gt; the floor wash. Continuous, so the room never goes fully dark.
+#   phase     -&gt; hue rotation. One cycle is one bar, so the colour walks with
+#                the 4-bar figure instead of drifting at some unrelated rate.
+#
+# hit_&lt;name&gt; is an onset envelope with a 0.12 s decay, which is roughly a
+# moving head's snap. beat is bass-driven with a 0.18 s decay.
+&nbsp;
+visual
+  // sRGB-ish hue wheel. Procedural rather than a palette array so a beam
+  // index can pick a colour without a dynamically-indexed const array.
+  fn hue(h: f32) -&gt; vec3f {
+    let k = abs(fract(h + vec3f(0.0, 0.66667, 0.33333)) * 6.0 - 3.0) - 1.0;
+    return clamp(k, vec3f(0.0), vec3f(1.0));
+  }
+&nbsp;
+  // One volumetric beam from \`origin\` at \`ang\`. The cone WIDENS with distance
+  // and dims with it, which is the whole reason a beam in haze reads as a
+  // beam: a constant-width line looks like a drawn stroke, not a light.
+  fn beam(p: vec2f, origin: vec2f, ang: f32) -&gt; f32 {
+    let d = vec2f(cos(ang), sin(ang));
+    let rel = p - origin;
+    let t = dot(rel, d);
+    if (t &lt; 0.0) { return 0.0; }
+    let perp = length(rel - d * t);
+    let w = 0.035 + t * 0.075;
+    return exp(-(perp * perp) / (w * w)) * exp(-t * 0.5);
+  }
+&nbsp;
+  fn render(uv: vec2f) -&gt; vec4f {
+    let asp = res.x / max(res.y, 1.0);
+    let p = (uv - 0.5) * vec2f(2.0 * asp, 2.0);
+    var col = vec3f(0.0);
+&nbsp;
+    // haze: denser low in the room, and it swells on the bass so the air
+    // itself pumps rather than only the fixtures
+    let low = smoothstep(1.0, -1.0, p.y);
+    col += vec3f(0.045, 0.06, 0.11) * (0.35 + low) * (1.0 + bass * 1.8);
+&nbsp;
+    // the truss sits above frame, so the beams enter already fanned
+    let truss = vec2f(0.0, 1.3);
+    for (var i: i32 = 0; i &lt; 6; i++) {
+      let fi = f32(i);
+      // each bank gets its own envelope; 0/3 lead, 1/4 bell, 2/5 sub
+      let m = i % 3;
+      var env = hit_lead;
+      if (m == 1) { env = hit_bell; }
+      if (m == 2) { env = hit_sub; }
+      // fan, then sweep. The sub pair sweeps at a third the rate, so the rig
+      // has slow movement under the fast movement instead of one busy speed.
+      let rate = select(0.55, 0.18, m == 2);
+      let fan = (fi - 2.5) * 0.245;
+      let ang = -1.5708 + fan + sin(time * rate + fi * 1.15) * 0.30;
+      // idle glow so the rig is visible between notes, then flare on the hit
+      col += hue(fract(0.56 + fi * 0.075 + phase * 0.12))
+           * beam(p, truss, ang) * (0.10 + env * 1.7);
+    }
+&nbsp;
+    // KICK: a hard white strobe plus two warm blinders at the truss corners.
+    // Pow'd hard so it is a snap, not a throb -- a linear envelope here reads
+    // as the whole screen breathing, which is the opposite of a strobe.
+    let flash = pow(clamp(hit_kick, 0.0, 1.0), 2.5);
+    col += vec3f(1.0, 0.97, 0.93) * flash * 0.42;
+    let bl = exp(-length(p - vec2f(-0.82, 0.72)) * 2.6)
+           + exp(-length(p - vec2f(0.82, 0.72)) * 2.6);
+    col += vec3f(1.0, 0.78, 0.45) * bl * flash * 1.1;
+&nbsp;
+    // floor wash: a bass-driven pool the beams appear to land in
+    let floorGlow = smoothstep(0.0, 1.0, (-p.y - 0.30) / 0.70);
+    col += vec3f(0.25, 0.10, 0.55) * floorGlow * (0.10 + bass * 0.9);
+&nbsp;
+    // LED batten along the bottom, fed from the low 60% of the spectrum --
+    // above that this patch is mostly air and the bars just sit still
+    let s = spectrum(uv.x * 0.6);
+    let top = -0.94 + s * 0.30;
+    let lit = step(p.y, top) * step(-0.985, p.y);
+    let cap = smoothstep(0.012, 0.0, abs(p.y - top));
+    col += hue(fract(uv.x * 0.7 + phase * 0.18)) * (lit * 0.5 + cap) * (0.35 + level);
+&nbsp;
+    // laser scan: the waveform as a single thin line, gated by the lead so it
+    // only cuts the room when the lead is actually playing
+    let w = waveform(uv.x);
+    col += vec3f(0.35, 1.0, 0.85)
+         * smoothstep(0.018, 0.0, abs(p.y - w * 0.42)) * (0.10 + hit_lead * 0.55);
+&nbsp;
+    // room bloom on the beat, then vignette
+    let r = length(p);
+    col += vec3f(0.42, 0.16, 0.95) * beat * 0.22 / (r * 2.4 + 0.55);
+    col *= 1.0 - 0.38 * smoothstep(0.55, 1.7, r);
+&nbsp;
+    // Reinhard, so a kick strobe stacked on six beams rolls off instead of
+    // clipping to flat white and losing the beams inside it
+    col = col / (col + vec3f(1.0));
+    return vec4f(pow(col, vec3f(0.85)), 1.0);
+  }
+`
+&nbsp;
+const out = compile(rondo)
+if (!out.ok) <span class="branch-0 cbranch-no" title="branch not covered" >throw new Error(`strobe (local) failed to compile: ${JSON.stringify(out.errors)}`)</span>
+&nbsp;
+export default { name: 'strobe (local)', code: out.code, rondo }
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-08T13:32:06.208Z
+            </div>
+        <script src="../../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../../sorter.js"></script>
+        <script src="../../../../../block-navigation.js"></script>
+    </body>
+</html>
+    

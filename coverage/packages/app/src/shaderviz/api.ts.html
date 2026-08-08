@@ -1,0 +1,544 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for packages/app/src/shaderviz/api.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../../../index.html">All files</a> / <a href="index.html">packages/app/src/shaderviz</a> api.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>69/69</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>11/11</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>2/2</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>69/69</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">434x</span>
+<span class="cline-any cline-yes">434x</span>
+<span class="cline-any cline-yes">433x</span>
+<span class="cline-any cline-yes">433x</span>
+<span class="cline-any cline-yes">433x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">66x</span>
+<span class="cline-any cline-yes">66x</span>
+<span class="cline-any cline-yes">66x</span>
+<span class="cline-any cline-yes">66x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/* ------------------------------------------------------------------------- *
+ * THE VISUAL API, DECLARED ONCE.
+ *
+ * A `visual(…)` shader reads a set of module globals — time, level, bass, a
+ * hit_&lt;synth&gt; per synth, and so on. That set used to be written out in FOUR
+ * places: the WGSL prelude in renderer.ts, the uniform packing in its frame
+ * loop, the highlighter's API_VARS plus its completion list in editor/wgsl.ts,
+ * and the docs. Adding one global meant editing all four, and `dt` proves what
+ * happens when you don't: it was packed into the uniform buffer and uploaded
+ * every frame for months, with no `var&lt;private&gt; dt` for a shader to read it
+ * through. Paid for, unreachable, and nothing failed.
+ *
+ * So the list lives here and everything else is derived from it:
+ *
+ *   renderer.ts      struct fields, globals, the fs() assigns, and the float
+ *                    index each value is written to
+ *   editor/wgsl.ts   highlighting + completions (with these descriptions)
+ *   docs/content.ts  the reference table
+ *
+ * `packages/app/test/viz-api.test.ts` walks the source and fails if any of
+ * them rebuilds the list instead of importing it.
+ * ------------------------------------------------------------------------- */
+&nbsp;
+export type VizType = 'f32' | 'vec2f'
+&nbsp;
+/** Where a value comes from, which is how the docs group them. */
+export type VizGroup = 'canvas' | 'transport' | 'audio' | 'input'
+&nbsp;
+export interface VizGlobal {
+  name: string
+  type: VizType
+  /** One line. Used as the completion detail AND the docs cell, so it has to
+   *  read as a definition rather than a hint. */
+  detail: string
+  group: VizGroup
+}
+&nbsp;
+/** Every scalar/vector global. ORDER IS FREE: vizLayout() places vec2f values
+ *  first so the std140-ish alignment rules hold however this list is sorted. */
+export const VIZ_GLOBALS: readonly VizGlobal[] = [
+  { name: 'res', type: 'vec2f', detail: 'canvas resolution in px', group: 'canvas' },
+  { name: 'pointer', type: 'vec2f', detail: 'pointer position in uv space, 0..1 (centre when untouched)', group: 'input' },
+&nbsp;
+  { name: 'time', type: 'f32', detail: 'a smooth, monotonic clock in seconds for animation; use `phase` or `cycle` for anything that must land with the music', group: 'transport' },
+  { name: 'dt', type: 'f32', detail: 'seconds since the previous frame, clamped to 0.1 so a backgrounded tab does not return with one enormous step', group: 'transport' },
+  { name: 'cps', type: 'f32', detail: 'tempo, cycles per second', group: 'transport' },
+  { name: 'phase', type: 'f32', detail: 'position within the current cycle, 0..1, locked to the audio clock', group: 'transport' },
+  { name: 'cycle', type: 'f32', detail: 'cycles elapsed since play, counting from 0; the whole number `phase` drops', group: 'transport' },
+  { name: 'playing', type: 'f32', detail: '1 while the transport runs, 0 when stopped', group: 'transport' },
+&nbsp;
+  { name: 'level', type: 'f32', detail: 'overall loudness 0..1', group: 'audio' },
+  { name: 'bass', type: 'f32', detail: 'low-band energy 0..1 (30-200 Hz)', group: 'audio' },
+  { name: 'mid', type: 'f32', detail: 'mid-band energy 0..1 (200-2000 Hz)', group: 'audio' },
+  { name: 'treble', type: 'f32', detail: 'high-band energy 0..1 (2-12 kHz)', group: 'audio' },
+  { name: 'centroid', type: 'f32', detail: 'spectral centroid 0..1: where the energy sits, i.e. brightness as ONE number', group: 'audio' },
+  { name: 'flux', type: 'f32', detail: 'spectral flux 0..1: how much the spectrum just changed, so it catches onsets from the mic and samples that `hit_` cannot see', group: 'audio' },
+  { name: 'peak', type: 'f32', detail: 'loudest sample this frame, 0..1', group: 'audio' },
+  { name: 'crest', type: 'f32', detail: 'peak over rms: high is punchy and dynamic, near 1 is a limited wall', group: 'audio' },
+  { name: 'left', type: 'f32', detail: 'left-channel loudness 0..1', group: 'audio' },
+  { name: 'right', type: 'f32', detail: 'right-channel loudness 0..1', group: 'audio' },
+  { name: 'width', type: 'f32', detail: 'stereo width 0..1, where 0 is mono and higher is wider', group: 'audio' },
+  { name: 'duck', type: 'f32', detail: 'the sidechain envelope itself, 1 open and dipping toward 1-depth on every source hit: the real pump, not an approximation of it', group: 'audio' },
+  { name: 'mic', type: 'f32', detail: 'live input loudness 0..1, 0 when the mic is off', group: 'audio' },
+  { name: 'beat', type: 'f32', detail: 'bass-driven pulse 0..1', group: 'audio' },
+  { name: 'hit', type: 'f32', detail: 'note-onset envelope 0..1, loudest across all synths', group: 'audio' },
+  { name: 'click', type: 'f32', detail: 'pointer-press envelope 0..1, decaying like a note onset', group: 'input' },
+]
+&nbsp;
+/** Texture-backed helpers. */
+export const VIZ_FNS: readonly { name: string; sig: string; detail: string }[] = [
+  { name: 'spectrum', sig: 'spectrum(x: f32) -&gt; f32', detail: 'FFT magnitude 0..1 at x (0..1 across the spectrum)' },
+  { name: 'waveform', sig: 'waveform(x: f32) -&gt; f32', detail: 'waveform sample -1..1 at x (0..1 across the window)' },
+]
+&nbsp;
+/** Up to this many synths get per-synth globals, and this many params get a
+ *  ctl_ global. Both are packed as array&lt;vec4f, 4&gt;. */
+export const MAX_CHANNELS = 16
+&nbsp;
+/** Globals generated PER SYNTH in the program, as `&lt;prefix&gt;&lt;synth&gt;`. `field`
+ *  is the uniform array each one is packed into. */
+export const VIZ_SYNTH_GLOBALS: readonly { prefix: string; field: string; detail: string }[] = [
+  { prefix: 'hit_', field: 'hits', detail: 'onset envelope for that synth, 0..1, decaying over ~0.12 s' },
+  { prefix: 'lvl_', field: 'lvls', detail: "that synth's own loudness 0..1; unlike hit_, it stays up while a note is held, so a pad that swells reads as a swell" },
+  { prefix: 'note_', field: 'notes', detail: 'the last note that synth played, as a MIDI number (0 before its first note)' },
+  { prefix: 'vel_', field: 'vels', detail: 'the last velocity (pattern gain) that synth was sent, 0..1' },
+]
+&nbsp;
+/** A macro / knob / switch declared in the program, as `ctl_&lt;name&gt;`. */
+export const VIZ_PARAM_PREFIX = 'ctl_'
+export const VIZ_PARAM_FIELD = 'ctls'
+export const VIZ_PARAM_DETAIL =
+  'the live value of the macro, knob or switch of that name, in its own units, so the visual answers the control you are actually turning'
+&nbsp;
+/* ---- meter smoothing ----------------------------------------------------- */
+&nbsp;
+/** Ease `cur` toward `target`, frame-rate independently.
+ *
+ *  The engine reports meters every 10 blocks, about 37 Hz, while frames run at
+ *  60 or 120. A meter value written straight through is held for a frame and
+ *  jumps the next, so `lvl_` and `duck` visibly step.
+ *
+ *  ASYMMETRIC on purpose. A duck snaps down on the kick and releases slowly; a
+ *  symmetric filter rounds off the snap, which is exactly the part you feel.
+ *  So the direction that should be immediate gets the short constant. Same
+ *  reason a level meter has a fast attack and a slow release.
+ *
+ *  Time constants are in MILLISECONDS and `dtSec` in seconds, because that is
+ *  how each is already carried at the call site. 0 means "jump".
+ */
+export function follow(cur: number, target: number, dtSec: number, upMs: number, downMs: number): number {
+  const ms = target &gt; cur ? upMs : downMs
+  if (!(ms &gt; 0)) return target
+  const k = 1 - Math.exp((-Math.max(0, dtSec) * 1000) / ms)
+  return cur + (target - cur) * k
+}
+&nbsp;
+/* ---- uniform layout ------------------------------------------------------ */
+&nbsp;
+/** A vec2f needs 8-byte alignment and array&lt;vec4f&gt; needs 16, so the vec2f
+ *  values go first and the scalar block is padded to a multiple of 4 floats.
+ *  Doing it here rather than by hand is what lets a row be added to the list
+ *  above at any position without anyone reasoning about offsets. */
+export interface VizLayout {
+  /** WGSL struct field lines, in order. */
+  fields: string[]
+  /** Float index into the uniform array for each global. */
+  index: Record&lt;string, number&gt;
+  /** Float index where the per-synth channel block starts (16-byte aligned). */
+  base: number
+}
+&nbsp;
+export function vizLayout(): VizLayout {
+  const vecs = VIZ_GLOBALS.filter((g) =&gt; g.type === 'vec2f')
+  const scalars = VIZ_GLOBALS.filter((g) =&gt; g.type === 'f32')
+  const fields: string[] = []
+  const index: Record&lt;string, number&gt; = {}
+  let at = 0
+  for (const g of vecs) {
+    fields.push(`  ${g.name}: vec2f,`)
+    index[g.name] = at
+    at += 2
+  }
+  for (const g of scalars) {
+    fields.push(`  ${g.name}: f32,`)
+    index[g.name] = at
+    at += 1
+  }
+  while (at % 4 !== 0) {
+    fields.push(`  _pad${at}: f32,`)
+    at += 1
+  }
+  return { fields, index, base: at }
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-08T13:32:06.208Z
+            </div>
+        <script src="../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../sorter.js"></script>
+        <script src="../../../../block-navigation.js"></script>
+    </body>
+</html>
+    

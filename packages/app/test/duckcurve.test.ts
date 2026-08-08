@@ -22,10 +22,21 @@ describe('duckGain', () => {
   })
 
   it('recovers FASTEST just after the hit, which is what makes it a pump', () => {
-    // exponential, not linear: a linear ramp back reads as a fade
-    const early = duckGain(0.05, 0.7, 0.3) - duckGain(0, 0.7, 0.3)
-    const late = duckGain(0.55, 0.7, 0.3) - duckGain(0.5, 0.7, 0.3)
-    expect(early).toBeGreaterThan(late * 3)
+    /* Exponential, not linear: a linear ramp back reads as a fade.
+     *
+     * This used to sample two points — 0..0.05 against 0.5..0.55 — and a
+     * LINEAR ramp passed it, because by 0.5s a linear recovery has already
+     * finished and its late delta is exactly 0, which any positive early
+     * delta beats. The contract is the SHAPE, so assert the shape: each
+     * increment strictly smaller than the one before it, the whole way up.
+     * A straight line has constant increments and fails on the first pair. */
+    const step = 0.02
+    let prevDelta = Infinity
+    for (let t = 0; t < 0.6; t += step) {
+      const delta = duckGain(t + step, 0.7, 0.3) - duckGain(t, 0.7, 0.3)
+      expect(delta, `increment at t=${t.toFixed(2)} did not shrink`).toBeLessThan(prevDelta)
+      prevDelta = delta
+    }
   })
 
   it('a longer release holds the duck down longer', () => {
@@ -58,6 +69,26 @@ describe('scanDucks', () => {
     expect(d!.depth).toBe(DUCK_DEFAULTS.depth)
     expect(d!.release).toBe(DUCK_DEFAULTS.release)
     expect(d!.channels).toEqual([{ name: 'lead', amount: 0.5 }])
+  })
+
+  /* The test above compares the scanner against DUCK_DEFAULTS, so it says
+   * nothing about whether DUCK_DEFAULTS is RIGHT — and it wasn't. The widget
+   * shipped at 0.7 / 0.2 while a bare `sidechain kick` actually ducks 0.6 and
+   * recovers over 180 ms, so the drawn pump was deeper and slower than the
+   * one playing. Three copies of these two numbers exist; this is the seam
+   * that holds them together. */
+  it('and DUCK_DEFAULTS is what an omitted arg REALLY does, all three copies', async () => {
+    const [{ DEFAULT_SIDECHAIN_DEPTH, DEFAULT_SIDECHAIN_RELEASE_SEC }, engine] = await Promise.all([
+      import('../src/session/evalCode'),
+      import('@rondocode/engine'),
+    ])
+    // the DSL layer is what a bare `sidechain('kick')` hits
+    expect(DUCK_DEFAULTS.depth, 'widget vs the DSL default').toBe(DEFAULT_SIDECHAIN_DEPTH)
+    expect(DUCK_DEFAULTS.release, 'widget vs the DSL default').toBe(DEFAULT_SIDECHAIN_RELEASE_SEC)
+    // and the DSL layer must agree with the engine it is defaulting FOR
+    expect(DEFAULT_SIDECHAIN_DEPTH, 'DSL vs engine').toBe(engine.DEFAULT_DUCK_DEPTH)
+    expect(DEFAULT_SIDECHAIN_RELEASE_SEC * 1000, 'DSL vs engine (sec -> ms)')
+      .toBeCloseTo(engine.DEFAULT_DUCK_RELEASE_MS, 6)
   })
 
   it('a bare sidechain still draws — the trigger is the only required part', () => {

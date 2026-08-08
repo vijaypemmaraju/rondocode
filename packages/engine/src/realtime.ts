@@ -88,9 +88,16 @@ const RANK_ON = 1
 export const masterSafety = (v: number): number =>
   Number.isFinite(v) ? softClipTanh(v, CLIP_THRESHOLD) : 0
 
-/** Sidechain duck bounds. */
-const DEFAULT_DUCK_DEPTH = 0.6
-const DEFAULT_DUCK_RELEASE_MS = 180
+/** Sidechain duck bounds.
+ *
+ *  The defaults are EXPORTED because they are copied twice more — the DSL
+ *  layer applies them when `sidechain('kick')` names no options, and the
+ *  editor's duck-curve widget draws the shape they make. Those copies had
+ *  drifted (0.7 / 0.2 against this 0.6 / 180 ms), so the widget drew a deeper,
+ *  slower pump than the one you were hearing, and nothing noticed because each
+ *  copy was only ever compared against itself. */
+export const DEFAULT_DUCK_DEPTH = 0.6
+export const DEFAULT_DUCK_RELEASE_MS = 180
 const MIN_DUCK_RELEASE_MS = 1
 const MAX_DUCK_RELEASE_MS = 5000
 

@@ -25,9 +25,13 @@ import { inkOf, paintOnAttach } from './paint'
 import { activate } from './activation'
 import type { Hooks } from './widgets'
 
-/** Engine defaults for an omitted arg. A curve drawn at the wrong default
- *  lies exactly as loudly as one drawn at the wrong value. */
-export const DUCK_DEFAULTS = { depth: 0.7, release: 0.2 }
+/** Engine defaults for an omitted arg. A curve drawn at the wrong default lies
+ *  exactly as loudly as one drawn at the wrong value — and this shipped at
+ *  0.7 / 0.2 against the real 0.6 / 0.18, so `sidechain kick` drew a deeper,
+ *  slower pump than it played. The test that was supposed to catch that
+ *  compared the scanner against THIS constant, which is no comparison at all;
+ *  duckcurve.test.ts now pins it against the DSL layer that applies it. */
+export const DUCK_DEFAULTS = { depth: 0.6, release: 0.18 }
 
 export interface DuckScan {
   /** the synth whose onsets trigger the duck. */

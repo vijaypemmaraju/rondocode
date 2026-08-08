@@ -1,0 +1,1531 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for packages/app/src/sing/neural.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../../../index.html">All files</a> / <a href="index.html">packages/app/src/sing</a> neural.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">30.74% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>99/322</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">90.32% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>28/31</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">43.75% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>7/16</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">30.74% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>99/322</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line low'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a>
+<a name='L207'></a><a href='#L207'>207</a>
+<a name='L208'></a><a href='#L208'>208</a>
+<a name='L209'></a><a href='#L209'>209</a>
+<a name='L210'></a><a href='#L210'>210</a>
+<a name='L211'></a><a href='#L211'>211</a>
+<a name='L212'></a><a href='#L212'>212</a>
+<a name='L213'></a><a href='#L213'>213</a>
+<a name='L214'></a><a href='#L214'>214</a>
+<a name='L215'></a><a href='#L215'>215</a>
+<a name='L216'></a><a href='#L216'>216</a>
+<a name='L217'></a><a href='#L217'>217</a>
+<a name='L218'></a><a href='#L218'>218</a>
+<a name='L219'></a><a href='#L219'>219</a>
+<a name='L220'></a><a href='#L220'>220</a>
+<a name='L221'></a><a href='#L221'>221</a>
+<a name='L222'></a><a href='#L222'>222</a>
+<a name='L223'></a><a href='#L223'>223</a>
+<a name='L224'></a><a href='#L224'>224</a>
+<a name='L225'></a><a href='#L225'>225</a>
+<a name='L226'></a><a href='#L226'>226</a>
+<a name='L227'></a><a href='#L227'>227</a>
+<a name='L228'></a><a href='#L228'>228</a>
+<a name='L229'></a><a href='#L229'>229</a>
+<a name='L230'></a><a href='#L230'>230</a>
+<a name='L231'></a><a href='#L231'>231</a>
+<a name='L232'></a><a href='#L232'>232</a>
+<a name='L233'></a><a href='#L233'>233</a>
+<a name='L234'></a><a href='#L234'>234</a>
+<a name='L235'></a><a href='#L235'>235</a>
+<a name='L236'></a><a href='#L236'>236</a>
+<a name='L237'></a><a href='#L237'>237</a>
+<a name='L238'></a><a href='#L238'>238</a>
+<a name='L239'></a><a href='#L239'>239</a>
+<a name='L240'></a><a href='#L240'>240</a>
+<a name='L241'></a><a href='#L241'>241</a>
+<a name='L242'></a><a href='#L242'>242</a>
+<a name='L243'></a><a href='#L243'>243</a>
+<a name='L244'></a><a href='#L244'>244</a>
+<a name='L245'></a><a href='#L245'>245</a>
+<a name='L246'></a><a href='#L246'>246</a>
+<a name='L247'></a><a href='#L247'>247</a>
+<a name='L248'></a><a href='#L248'>248</a>
+<a name='L249'></a><a href='#L249'>249</a>
+<a name='L250'></a><a href='#L250'>250</a>
+<a name='L251'></a><a href='#L251'>251</a>
+<a name='L252'></a><a href='#L252'>252</a>
+<a name='L253'></a><a href='#L253'>253</a>
+<a name='L254'></a><a href='#L254'>254</a>
+<a name='L255'></a><a href='#L255'>255</a>
+<a name='L256'></a><a href='#L256'>256</a>
+<a name='L257'></a><a href='#L257'>257</a>
+<a name='L258'></a><a href='#L258'>258</a>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a>
+<a name='L270'></a><a href='#L270'>270</a>
+<a name='L271'></a><a href='#L271'>271</a>
+<a name='L272'></a><a href='#L272'>272</a>
+<a name='L273'></a><a href='#L273'>273</a>
+<a name='L274'></a><a href='#L274'>274</a>
+<a name='L275'></a><a href='#L275'>275</a>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a>
+<a name='L278'></a><a href='#L278'>278</a>
+<a name='L279'></a><a href='#L279'>279</a>
+<a name='L280'></a><a href='#L280'>280</a>
+<a name='L281'></a><a href='#L281'>281</a>
+<a name='L282'></a><a href='#L282'>282</a>
+<a name='L283'></a><a href='#L283'>283</a>
+<a name='L284'></a><a href='#L284'>284</a>
+<a name='L285'></a><a href='#L285'>285</a>
+<a name='L286'></a><a href='#L286'>286</a>
+<a name='L287'></a><a href='#L287'>287</a>
+<a name='L288'></a><a href='#L288'>288</a>
+<a name='L289'></a><a href='#L289'>289</a>
+<a name='L290'></a><a href='#L290'>290</a>
+<a name='L291'></a><a href='#L291'>291</a>
+<a name='L292'></a><a href='#L292'>292</a>
+<a name='L293'></a><a href='#L293'>293</a>
+<a name='L294'></a><a href='#L294'>294</a>
+<a name='L295'></a><a href='#L295'>295</a>
+<a name='L296'></a><a href='#L296'>296</a>
+<a name='L297'></a><a href='#L297'>297</a>
+<a name='L298'></a><a href='#L298'>298</a>
+<a name='L299'></a><a href='#L299'>299</a>
+<a name='L300'></a><a href='#L300'>300</a>
+<a name='L301'></a><a href='#L301'>301</a>
+<a name='L302'></a><a href='#L302'>302</a>
+<a name='L303'></a><a href='#L303'>303</a>
+<a name='L304'></a><a href='#L304'>304</a>
+<a name='L305'></a><a href='#L305'>305</a>
+<a name='L306'></a><a href='#L306'>306</a>
+<a name='L307'></a><a href='#L307'>307</a>
+<a name='L308'></a><a href='#L308'>308</a>
+<a name='L309'></a><a href='#L309'>309</a>
+<a name='L310'></a><a href='#L310'>310</a>
+<a name='L311'></a><a href='#L311'>311</a>
+<a name='L312'></a><a href='#L312'>312</a>
+<a name='L313'></a><a href='#L313'>313</a>
+<a name='L314'></a><a href='#L314'>314</a>
+<a name='L315'></a><a href='#L315'>315</a>
+<a name='L316'></a><a href='#L316'>316</a>
+<a name='L317'></a><a href='#L317'>317</a>
+<a name='L318'></a><a href='#L318'>318</a>
+<a name='L319'></a><a href='#L319'>319</a>
+<a name='L320'></a><a href='#L320'>320</a>
+<a name='L321'></a><a href='#L321'>321</a>
+<a name='L322'></a><a href='#L322'>322</a>
+<a name='L323'></a><a href='#L323'>323</a>
+<a name='L324'></a><a href='#L324'>324</a>
+<a name='L325'></a><a href='#L325'>325</a>
+<a name='L326'></a><a href='#L326'>326</a>
+<a name='L327'></a><a href='#L327'>327</a>
+<a name='L328'></a><a href='#L328'>328</a>
+<a name='L329'></a><a href='#L329'>329</a>
+<a name='L330'></a><a href='#L330'>330</a>
+<a name='L331'></a><a href='#L331'>331</a>
+<a name='L332'></a><a href='#L332'>332</a>
+<a name='L333'></a><a href='#L333'>333</a>
+<a name='L334'></a><a href='#L334'>334</a>
+<a name='L335'></a><a href='#L335'>335</a>
+<a name='L336'></a><a href='#L336'>336</a>
+<a name='L337'></a><a href='#L337'>337</a>
+<a name='L338'></a><a href='#L338'>338</a>
+<a name='L339'></a><a href='#L339'>339</a>
+<a name='L340'></a><a href='#L340'>340</a>
+<a name='L341'></a><a href='#L341'>341</a>
+<a name='L342'></a><a href='#L342'>342</a>
+<a name='L343'></a><a href='#L343'>343</a>
+<a name='L344'></a><a href='#L344'>344</a>
+<a name='L345'></a><a href='#L345'>345</a>
+<a name='L346'></a><a href='#L346'>346</a>
+<a name='L347'></a><a href='#L347'>347</a>
+<a name='L348'></a><a href='#L348'>348</a>
+<a name='L349'></a><a href='#L349'>349</a>
+<a name='L350'></a><a href='#L350'>350</a>
+<a name='L351'></a><a href='#L351'>351</a>
+<a name='L352'></a><a href='#L352'>352</a>
+<a name='L353'></a><a href='#L353'>353</a>
+<a name='L354'></a><a href='#L354'>354</a>
+<a name='L355'></a><a href='#L355'>355</a>
+<a name='L356'></a><a href='#L356'>356</a>
+<a name='L357'></a><a href='#L357'>357</a>
+<a name='L358'></a><a href='#L358'>358</a>
+<a name='L359'></a><a href='#L359'>359</a>
+<a name='L360'></a><a href='#L360'>360</a>
+<a name='L361'></a><a href='#L361'>361</a>
+<a name='L362'></a><a href='#L362'>362</a>
+<a name='L363'></a><a href='#L363'>363</a>
+<a name='L364'></a><a href='#L364'>364</a>
+<a name='L365'></a><a href='#L365'>365</a>
+<a name='L366'></a><a href='#L366'>366</a>
+<a name='L367'></a><a href='#L367'>367</a>
+<a name='L368'></a><a href='#L368'>368</a>
+<a name='L369'></a><a href='#L369'>369</a>
+<a name='L370'></a><a href='#L370'>370</a>
+<a name='L371'></a><a href='#L371'>371</a>
+<a name='L372'></a><a href='#L372'>372</a>
+<a name='L373'></a><a href='#L373'>373</a>
+<a name='L374'></a><a href='#L374'>374</a>
+<a name='L375'></a><a href='#L375'>375</a>
+<a name='L376'></a><a href='#L376'>376</a>
+<a name='L377'></a><a href='#L377'>377</a>
+<a name='L378'></a><a href='#L378'>378</a>
+<a name='L379'></a><a href='#L379'>379</a>
+<a name='L380'></a><a href='#L380'>380</a>
+<a name='L381'></a><a href='#L381'>381</a>
+<a name='L382'></a><a href='#L382'>382</a>
+<a name='L383'></a><a href='#L383'>383</a>
+<a name='L384'></a><a href='#L384'>384</a>
+<a name='L385'></a><a href='#L385'>385</a>
+<a name='L386'></a><a href='#L386'>386</a>
+<a name='L387'></a><a href='#L387'>387</a>
+<a name='L388'></a><a href='#L388'>388</a>
+<a name='L389'></a><a href='#L389'>389</a>
+<a name='L390'></a><a href='#L390'>390</a>
+<a name='L391'></a><a href='#L391'>391</a>
+<a name='L392'></a><a href='#L392'>392</a>
+<a name='L393'></a><a href='#L393'>393</a>
+<a name='L394'></a><a href='#L394'>394</a>
+<a name='L395'></a><a href='#L395'>395</a>
+<a name='L396'></a><a href='#L396'>396</a>
+<a name='L397'></a><a href='#L397'>397</a>
+<a name='L398'></a><a href='#L398'>398</a>
+<a name='L399'></a><a href='#L399'>399</a>
+<a name='L400'></a><a href='#L400'>400</a>
+<a name='L401'></a><a href='#L401'>401</a>
+<a name='L402'></a><a href='#L402'>402</a>
+<a name='L403'></a><a href='#L403'>403</a>
+<a name='L404'></a><a href='#L404'>404</a>
+<a name='L405'></a><a href='#L405'>405</a>
+<a name='L406'></a><a href='#L406'>406</a>
+<a name='L407'></a><a href='#L407'>407</a>
+<a name='L408'></a><a href='#L408'>408</a>
+<a name='L409'></a><a href='#L409'>409</a>
+<a name='L410'></a><a href='#L410'>410</a>
+<a name='L411'></a><a href='#L411'>411</a>
+<a name='L412'></a><a href='#L412'>412</a>
+<a name='L413'></a><a href='#L413'>413</a>
+<a name='L414'></a><a href='#L414'>414</a>
+<a name='L415'></a><a href='#L415'>415</a>
+<a name='L416'></a><a href='#L416'>416</a>
+<a name='L417'></a><a href='#L417'>417</a>
+<a name='L418'></a><a href='#L418'>418</a>
+<a name='L419'></a><a href='#L419'>419</a>
+<a name='L420'></a><a href='#L420'>420</a>
+<a name='L421'></a><a href='#L421'>421</a>
+<a name='L422'></a><a href='#L422'>422</a>
+<a name='L423'></a><a href='#L423'>423</a>
+<a name='L424'></a><a href='#L424'>424</a>
+<a name='L425'></a><a href='#L425'>425</a>
+<a name='L426'></a><a href='#L426'>426</a>
+<a name='L427'></a><a href='#L427'>427</a>
+<a name='L428'></a><a href='#L428'>428</a>
+<a name='L429'></a><a href='#L429'>429</a>
+<a name='L430'></a><a href='#L430'>430</a>
+<a name='L431'></a><a href='#L431'>431</a>
+<a name='L432'></a><a href='#L432'>432</a>
+<a name='L433'></a><a href='#L433'>433</a>
+<a name='L434'></a><a href='#L434'>434</a>
+<a name='L435'></a><a href='#L435'>435</a>
+<a name='L436'></a><a href='#L436'>436</a>
+<a name='L437'></a><a href='#L437'>437</a>
+<a name='L438'></a><a href='#L438'>438</a>
+<a name='L439'></a><a href='#L439'>439</a>
+<a name='L440'></a><a href='#L440'>440</a>
+<a name='L441'></a><a href='#L441'>441</a>
+<a name='L442'></a><a href='#L442'>442</a>
+<a name='L443'></a><a href='#L443'>443</a>
+<a name='L444'></a><a href='#L444'>444</a>
+<a name='L445'></a><a href='#L445'>445</a>
+<a name='L446'></a><a href='#L446'>446</a>
+<a name='L447'></a><a href='#L447'>447</a>
+<a name='L448'></a><a href='#L448'>448</a>
+<a name='L449'></a><a href='#L449'>449</a>
+<a name='L450'></a><a href='#L450'>450</a>
+<a name='L451'></a><a href='#L451'>451</a>
+<a name='L452'></a><a href='#L452'>452</a>
+<a name='L453'></a><a href='#L453'>453</a>
+<a name='L454'></a><a href='#L454'>454</a>
+<a name='L455'></a><a href='#L455'>455</a>
+<a name='L456'></a><a href='#L456'>456</a>
+<a name='L457'></a><a href='#L457'>457</a>
+<a name='L458'></a><a href='#L458'>458</a>
+<a name='L459'></a><a href='#L459'>459</a>
+<a name='L460'></a><a href='#L460'>460</a>
+<a name='L461'></a><a href='#L461'>461</a>
+<a name='L462'></a><a href='#L462'>462</a>
+<a name='L463'></a><a href='#L463'>463</a>
+<a name='L464'></a><a href='#L464'>464</a>
+<a name='L465'></a><a href='#L465'>465</a>
+<a name='L466'></a><a href='#L466'>466</a>
+<a name='L467'></a><a href='#L467'>467</a>
+<a name='L468'></a><a href='#L468'>468</a>
+<a name='L469'></a><a href='#L469'>469</a>
+<a name='L470'></a><a href='#L470'>470</a>
+<a name='L471'></a><a href='#L471'>471</a>
+<a name='L472'></a><a href='#L472'>472</a>
+<a name='L473'></a><a href='#L473'>473</a>
+<a name='L474'></a><a href='#L474'>474</a>
+<a name='L475'></a><a href='#L475'>475</a>
+<a name='L476'></a><a href='#L476'>476</a>
+<a name='L477'></a><a href='#L477'>477</a>
+<a name='L478'></a><a href='#L478'>478</a>
+<a name='L479'></a><a href='#L479'>479</a>
+<a name='L480'></a><a href='#L480'>480</a>
+<a name='L481'></a><a href='#L481'>481</a>
+<a name='L482'></a><a href='#L482'>482</a>
+<a name='L483'></a><a href='#L483'>483</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">572088x</span>
+<span class="cline-any cline-yes">572088x</span>
+<span class="cline-any cline-yes">572088x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">6001x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-yes">1010x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-yes">37x</span>
+<span class="cline-any cline-yes">37x</span>
+<span class="cline-any cline-yes">37x</span>
+<span class="cline-any cline-yes">1016x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/* ------------------------------------------------------------------------- *
+ * renderNeural: the full text→singing pipeline as one call, used by both the
+ * dev hook and the editor's sing() render manager. Both lyrics and notes are
+ * mini-notation; `cps` sets the tempo (note durations resolve through the
+ * pattern engine). Returns a mono clip + sample rate.
+ *   Supertonic TTS → wav2vec2 phoneme CTC → vowel-aware warp → RVC(voice).
+ * ------------------------------------------------------------------------- */
+import { loadEngine, disposeEngine } from './supertonic'
+import { parseLyrics, type WordSpan } from './lyrics'
+import { loadPhonemes, disposePhonemes } from './phonemes'
+import { assembleGuide, parseMelodyMini, type Seg } from './warp'
+import { alignedSegments, type WordReq } from './segment'
+import { psola, estimateF0 } from './psola'
+import type { MelodyNote } from './warp'
+import { loadRvc, rvcConvert, disposeRvc } from './rvc'
+import { sequentialSingSessions } from './config'
+import { runStages, type SingStage } from './lifecycle'
+import { markPhase } from './bakephase'
+&nbsp;
+/** Coarse progress for the render dialog. `phase` names the stage; when a model
+ *  is downloading, done/total are bytes. */
+export interface SingProgress {
+  phase: string
+  label: string
+  done: number
+  total: number
+}
+&nbsp;
+/** Trim leading/trailing near-silence (TTS pre/post-roll). Left in, the leading
+ *  silence rides the first syllable's onset and pushes its vowel — hence the
+ *  whole chunk — late off the beat. */
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function trimSilence(x: Float32Array): Float32Array {</span></span>
+<span class="cstat-no" title="statement not covered" >  let peak = 0</span>
+<span class="cstat-no" title="statement not covered" >  for (let i = 0; i &lt; x.length; i++) peak = Math.max(peak, Math.abs(x[i]!))</span>
+<span class="cstat-no" title="statement not covered" >  if (peak &lt; 1e-6) return x</span>
+<span class="cstat-no" title="statement not covered" >  const thr = peak * 0.02</span>
+<span class="cstat-no" title="statement not covered" >  let a = 0</span>
+<span class="cstat-no" title="statement not covered" >  while (a &lt; x.length &amp;&amp; Math.abs(x[a]!) &lt; thr) a++</span>
+<span class="cstat-no" title="statement not covered" >  let b = x.length</span>
+<span class="cstat-no" title="statement not covered" >  while (b &gt; a &amp;&amp; Math.abs(x[b - 1]!) &lt; thr) b--</span>
+  // keep a touch of pre-onset so a hard consonant isn't clipped at the very edge
+<span class="cstat-no" title="statement not covered" >  a = Math.max(0, a - 32)</span>
+<span class="cstat-no" title="statement not covered" >  return x.subarray(a, b)</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** One TTS phrase: the words it covers and the alignment requests for them. */
+interface Phrase {
+  words: WordSpan[]
+  text: string
+  reqs: WordReq[]
+}
+&nbsp;
+/** Best-of-N takes per phrase: Supertonic is non-deterministic and can render
+ *  a syllable weakly, so we try a few takes and keep the strongest. */
+const TAKES = 3
+&nbsp;
+/** How many takes to synthesize per phrase. On the sequential (phone) path
+ *  this is 1, not 3: alignment can't interleave with the TTS there, so every
+ *  take is synthesized UP FRONT and held as raw audio across the stage
+ *  boundary - N takes multiply both the peak TTS inference work and the held
+ *  audio on exactly the device that is already at the memory kill line.
+ *  The honest quality tradeoff: best-of-3 exists because Supertonic
+ *  occasionally renders a syllable weakly, and with one take a weak take is
+ *  used as-is. Forced alignment still assigns every syllable its region (no
+ *  dropped words); a weak syllable just sings quieter. Desktop keeps
+ *  best-of-3. Exported for tests. */
+export function takeCount(sequential: boolean): number {
+  return sequential ? 1 : TAKES
+}
+&nbsp;
+/** Split the song into TTS phrases at the sustained (&gt;=1.4x median duration)
+ *  notes = line ends, where a singer breathes. This is the sweet spot for
+ *  Supertonic:
+ *  - a whole verse is too long — the CTC/segmentation loses syllables;
+ *  - a single word is too short — Supertonic renders isolated function words
+ *    ("I", "a") and even "twinkle" as near-silence;
+ *  - and SLOW speed makes it drop the second of a repeated word ("twinkle
+ *    twinkle"). A normal-speed phrase keeps every syllable audible and gives
+ *    the segmenter enough context. */
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function splitPhrases(words: WordSpan[], melody: MelodyNote[]): Phrase[] {</span></span>
+<span class="cstat-no" title="statement not covered" >  const sortedDurs = melody.map((n) =&gt; n.dur).sort((a, b) =&gt; a - b)</span>
+<span class="cstat-no" title="statement not covered" >  const medDur = sortedDurs[sortedDurs.length &gt;&gt; 1] ?? 0</span>
+<span class="cstat-no" title="statement not covered" >  const bounds: number[] = []</span>
+<span class="cstat-no" title="statement not covered" >  for (let i = 0; i &lt; melody.length; i++) {</span>
+<span class="cstat-no" title="statement not covered" >    if (melody[i]!.dur &gt;= medDur * 1.4 || i === melody.length - 1) bounds.push(i + 1)</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" >  const phrases: Phrase[] = []</span>
+<span class="cstat-no" title="statement not covered" >  let from = 0</span>
+<span class="cstat-no" title="statement not covered" >  for (const to of bounds) {</span>
+    // words whose syllable slots fall in [from,to) make this phrase
+<span class="cstat-no" title="statement not covered" >    const phraseWords = words.filter((w) =&gt; w.slots[0]! &gt;= from &amp;&amp; w.slots[0]! &lt; to)</span>
+<span class="cstat-no" title="statement not covered" >    from = to</span>
+<span class="cstat-no" title="statement not covered" >    const text = phraseWords.map((w) =&gt; w.text).join(' ')</span>
+<span class="cstat-no" title="statement not covered" >    if (!text) continue</span>
+<span class="cstat-no" title="statement not covered" >    phrases.push({ words: phraseWords, text, reqs: phraseWords.map((w) =&gt; ({ text: w.text, syllableCount: w.syllableCount })) })</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" >  return phrases</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** BEST-OF-N: align takes in order and keep the one whose WEAKEST syllable is
+ *  loudest, stopping early once a take clears a comfortable floor. (Forced
+ *  alignment already prevents dropped words; this just favours a cleaner
+ *  take.) `nextTake` yields successive takes and null when out: synthesized
+ *  lazily on desktop (the early stop skips unneeded synthesis), pre-rendered
+ *  on constrained devices (the TTS sessions are already disposed by then). */
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >async function pickBestTake(nextTake: () =&gt; Promise&lt;Float32Array | null&gt;, sr: number, reqs: WordReq[]): Promise&lt;Seg[]&gt; {</span></span>
+<span class="cstat-no" title="statement not covered" >  let best: Seg[] | null = null</span>
+<span class="cstat-no" title="statement not covered" >  let bestScore = -1</span>
+<span class="cstat-no" title="statement not covered" >  for (;;) {</span>
+<span class="cstat-no" title="statement not covered" >    const spoken = await nextTake()</span>
+<span class="cstat-no" title="statement not covered" >    if (spoken === null) break</span>
+<span class="cstat-no" title="statement not covered" >    markPhase('align')</span>
+<span class="cstat-no" title="statement not covered" >    const ws = await alignedSegments(spoken, sr, reqs)</span>
+<span class="cstat-no" title="statement not covered" >    let minRms = Infinity</span>
+<span class="cstat-no" title="statement not covered" >    for (const s of ws) minRms = Math.min(minRms, rms(s.vowel))</span>
+<span class="cstat-no" title="statement not covered" >    if (minRms &gt; bestScore) { bestScore = minRms; best = ws }</span>
+<span class="cstat-no" title="statement not covered" >    if (minRms &gt; 0.02) break</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" >  return best ?? []</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** One segment per SLOT of a word: its real syllables, then its melisma
+ *  continuations. A melisma HOLDS a vowel across notes, so a continuation
+ *  must not re-articulate the syllable's consonants: repeating the whole
+ *  segment sang "call-ing _" as "call ling ling". The onset consonant is
+ *  dropped from every continuation, and the closing coda moves to the LAST
+ *  note of the hold so the word closes once, at the end. Pure. */
+export function melismaSegs(
+  w: { slots: number[]; syllableCount: number },
+  syllSegs: readonly Seg[],
+  silent: Seg,
+): Seg[] {
+  const empty = new Float32Array(0)
+  const out: Seg[] = []
+  const held = w.slots.length &gt; w.syllableCount // this word is sung across extra notes
+  for (let s = 0; s &lt; w.slots.length; s++) {
+    const base = syllSegs[Math.min(s, w.syllableCount - 1)<span class="branch-0 cbranch-no" title="branch not covered" >] ?? silent</span>
+    if (s &lt; w.syllableCount) {
+      // the syllable that begins a hold keeps its onset but defers its coda
+      const startsHold = held &amp;&amp; s === w.syllableCount - 1
+      out.push(startsHold ? { onset: base.onset, vowel: base.vowel, coda: empty } : base)
+      continue
+    }
+    // a continuation: vowel only, with the coda on the final note
+    out.push({ onset: empty, vowel: base.vowel, coda: s === w.slots.length - 1 ? base.coda : empty })
+  }
+  return out
+}
+&nbsp;
+/* ------------------------------------------------------------------------- *
+ * SHARED SPEECH CACHE. A harmony arrangement sings the SAME WORDS in every
+ * part - a barbershop quartet is four bakes of one lyric. The speech render
+ * and the phoneme alignment depend only on the words and how they split into
+ * phrases, never on the pitches or the RVC voice, so the second through
+ * fourth parts can reuse the first part's segments and skip straight to the
+ * warp + voice conversion. That is the whole TTS stage (three takes each on
+ * desktop) plus the whole alignment stage, saved per extra part.
+ *
+ * Keyed by the phrase texts (which encode both the lyrics and the split), so
+ * two parts only share when they really do sing the same thing the same way.
+ * Small and FIFO: this exists to serve one arrangement's parts baked back to
+ * back, not to be a long-lived store. */
+const SEG_CACHE_MAX = 4
+/** Cached speech: the per-slot segments AND the TTS sample rate they were
+ *  rendered at. The rate MUST travel with them: it is produced by the TTS
+ *  stage, so a cache hit that skipped that stage would otherwise assemble the
+ *  guide at rate 0 and bake silence (exactly what shipped for one hour: in a
+ *  four-part arrangement only the first part sounded). */
+interface CachedSpeech {
+  segs: Seg[]
+  sr: number
+}
+const segCache = new Map&lt;string, CachedSpeech&gt;()
+&nbsp;
+const segCacheKey = <span class="fstat-no" title="function not covered" >(phrases: { text: string }[]): string =&gt; phrases.map((p) =&gt; p.text).join('\u0001')</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function cacheSegs(key: string, segs: Seg[], sr: number): void {</span></span>
+<span class="cstat-no" title="statement not covered" >  if (sr &lt;= 0) return // never cache an unusable rate</span>
+<span class="cstat-no" title="statement not covered" >  segCache.set(key, { segs, sr })</span>
+<span class="cstat-no" title="statement not covered" >  while (segCache.size &gt; SEG_CACHE_MAX) {</span>
+<span class="cstat-no" title="statement not covered" >    const oldest = segCache.keys().next().value</span>
+<span class="cstat-no" title="statement not covered" >    if (oldest === undefined) break</span>
+<span class="cstat-no" title="statement not covered" >    segCache.delete(oldest)</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** Drop the shared speech cache (a language/model change invalidates it). */
+export function clearSegCache(): void {
+  segCache.clear()
+}
+&nbsp;
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >export async function renderNeural(</span></span>
+<span class="cstat-no" title="statement not covered" >  lyrics: string,</span>
+<span class="cstat-no" title="statement not covered" >  notes: string,</span>
+<span class="cstat-no" title="statement not covered" >  cps: number,</span>
+<span class="cstat-no" title="statement not covered" >  voice: string,</span>
+<span class="cstat-no" title="statement not covered" >  onProgress?: (p: SingProgress) =&gt; void,</span>
+<span class="cstat-no" title="statement not covered" >  cycles = 1,</span>
+<span class="cstat-no" title="statement not covered" >): Promise&lt;{ audio: Float32Array; sr: number }&gt; {</span>
+<span class="cstat-no" title="statement not covered" >  const parsed = parseLyrics(lyrics)</span>
+<span class="cstat-no" title="statement not covered" >  const melody = parseMelodyMini(notes, cps, cycles)</span>
+<span class="cstat-no" title="statement not covered" >  if (parsed.slots.length !== melody.length) {</span>
+<span class="cstat-no" title="statement not covered" >    throw new Error(`sing(): ${parsed.slots.length} syllables but ${melody.length} notes`)</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >  const phrases = splitPhrases(parsed.words, melody)</span>
+<span class="cstat-no" title="statement not covered" >  const empty = new Float32Array(0)</span>
+<span class="cstat-no" title="statement not covered" >  const silent: Seg = { onset: empty, vowel: empty, coda: empty }</span>
+<span class="cstat-no" title="statement not covered" >  const segs: Seg[] = new Array&lt;Seg&gt;(parsed.slots.length).fill(silent)</span>
+<span class="cstat-no" title="statement not covered" >  const applySegs = (phrase: Phrase, ws: Seg[]): void =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >    let k = 0</span>
+<span class="cstat-no" title="statement not covered" >    for (const w of phrase.words) {</span>
+<span class="cstat-no" title="statement not covered" >      const wordSegs = melismaSegs(w, ws.slice(k, k + w.syllableCount), silent)</span>
+<span class="cstat-no" title="statement not covered" >      for (let s = 0; s &lt; w.slots.length; s++) segs[w.slots[s]!] = wordSegs[s]!</span>
+<span class="cstat-no" title="statement not covered" >      k += w.syllableCount</span>
+<span class="cstat-no" title="statement not covered" >    }</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+&nbsp;
+  // On constrained devices (sequential=true) the three model stages run one at
+  // a time and each stage's sessions are DISPOSED before the next stage loads,
+  // so peak session memory is the largest single stage, not the sum — the
+  // model BYTES stay in the Cache API, so a later bake re-creates sessions
+  // from disk without re-downloading. The price: TTS and alignment can't
+  // interleave, so every phrase synthesizes its takeCount(sequential) takes up
+  // front (ONE on phones - see takeCount for the tradeoff) and the aligner
+  // scores them afterwards. On desktop the singletons persist and
+  // TTS+alignment interleave exactly as before.
+<span class="cstat-no" title="statement not covered" >  const sequential = sequentialSingSessions()</span>
+<span class="cstat-no" title="statement not covered" >  const nTakes = takeCount(sequential)</span>
+  // another part of the same arrangement may already have rendered these words
+<span class="cstat-no" title="statement not covered" >  const segKey = segCacheKey(phrases)</span>
+<span class="cstat-no" title="statement not covered" >  const cached = segCache.get(segKey)</span>
+<span class="cstat-no" title="statement not covered" >  const haveSegs = cached !== undefined &amp;&amp; cached.segs.length === segs.length &amp;&amp; cached.sr &gt; 0</span>
+<span class="cstat-no" title="statement not covered" >  const takesByPhrase: Float32Array[][] = []</span>
+<span class="cstat-no" title="statement not covered" >  let sr = 0</span>
+<span class="cstat-no" title="statement not covered" >  if (haveSegs &amp;&amp; cached !== undefined) {</span>
+<span class="cstat-no" title="statement not covered" >    for (let i = 0; i &lt; cached.segs.length; i++) segs[i] = cached.segs[i]!</span>
+<span class="cstat-no" title="statement not covered" >    sr = cached.sr // the rate travels WITH the words, or the guide is empty</span>
+<span class="cstat-no" title="statement not covered" >    onProgress?.({ phase: 'align', label: 'reusing this arrangement’s words', done: 1, total: 1 })</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" >  let guide!: Float32Array</span>
+<span class="cstat-no" title="statement not covered" >  let loopN = 0</span>
+<span class="cstat-no" title="statement not covered" >  let audio!: Float32Array</span>
+<span class="cstat-no" title="statement not covered" >  let osr = 0</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >  const stages: SingStage[] = [</span>
+<span class="cstat-no" title="statement not covered" >    {</span>
+<span class="cstat-no" title="statement not covered" >      name: 'tts',</span>
+<span class="cstat-no" title="statement not covered" >      run: async (): Promise&lt;void&gt; =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        if (haveSegs) return // words already rendered by a sibling part</span>
+<span class="cstat-no" title="statement not covered" >        markPhase('create:tts')</span>
+<span class="cstat-no" title="statement not covered" >        const engine = await loadEngine((p) =&gt; onProgress?.({ phase: p.phase, label: p.label, done: p.done, total: p.total }))</span>
+<span class="cstat-no" title="statement not covered" >        sr = engine.sampleRate</span>
+<span class="cstat-no" title="statement not covered" >        if (sequential) {</span>
+          // synth-only pass: every take now, alignment scores them later
+<span class="cstat-no" title="statement not covered" >          for (let pi = 0; pi &lt; phrases.length; pi++) {</span>
+<span class="cstat-no" title="statement not covered" >            onProgress?.({ phase: 'synthesize', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })</span>
+<span class="cstat-no" title="statement not covered" >            const takes: Float32Array[] = []</span>
+<span class="cstat-no" title="statement not covered" >            for (let t = 0; t &lt; nTakes; t++) {</span>
+<span class="cstat-no" title="statement not covered" >              markPhase('render:tts')</span>
+<span class="cstat-no" title="statement not covered" >              takes.push(trimSilence(await engine.synthesize(phrases[pi]!.text, { speed: 1.0 })))</span>
+<span class="cstat-no" title="statement not covered" >            }</span>
+<span class="cstat-no" title="statement not covered" >            takesByPhrase.push(takes)</span>
+<span class="cstat-no" title="statement not covered" >          }</span>
+<span class="cstat-no" title="statement not covered" >          return</span>
+<span class="cstat-no" title="statement not covered" >        }</span>
+        // desktop: aligner alongside the TTS, synth/align interleaved so the
+        // best-take early stop skips unneeded synthesis
+<span class="cstat-no" title="statement not covered" >        await loadPhonemes((p) =&gt; onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))</span>
+<span class="cstat-no" title="statement not covered" >        for (let pi = 0; pi &lt; phrases.length; pi++) {</span>
+<span class="cstat-no" title="statement not covered" >          const phrase = phrases[pi]!</span>
+<span class="cstat-no" title="statement not covered" >          onProgress?.({ phase: 'synthesize', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })</span>
+<span class="cstat-no" title="statement not covered" >          let take = 0</span>
+<span class="cstat-no" title="statement not covered" >          const ws = await pickBestTake(async () =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >            if (take++ &gt;= nTakes) return null</span>
+<span class="cstat-no" title="statement not covered" >            markPhase('render:tts')</span>
+<span class="cstat-no" title="statement not covered" >            return trimSilence(await engine.synthesize(phrase.text, { speed: 1.0 }))</span>
+<span class="cstat-no" title="statement not covered" >          }, sr, phrase.reqs)</span>
+<span class="cstat-no" title="statement not covered" >          applySegs(phrase, ws)</span>
+<span class="cstat-no" title="statement not covered" >        }</span>
+<span class="cstat-no" title="statement not covered" >      },</span>
+<span class="cstat-no" title="statement not covered" >      dispose: disposeEngine,</span>
+<span class="cstat-no" title="statement not covered" >    },</span>
+<span class="cstat-no" title="statement not covered" >    {</span>
+<span class="cstat-no" title="statement not covered" >      name: 'align',</span>
+<span class="cstat-no" title="statement not covered" >      run: async (): Promise&lt;void&gt; =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        if (haveSegs) return // words already aligned by a sibling part</span>
+<span class="cstat-no" title="statement not covered" >        if (!sequential) return // already aligned interleaved with the TTS</span>
+<span class="cstat-no" title="statement not covered" >        await loadPhonemes((p) =&gt; onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))</span>
+<span class="cstat-no" title="statement not covered" >        for (let pi = 0; pi &lt; phrases.length; pi++) {</span>
+<span class="cstat-no" title="statement not covered" >          onProgress?.({ phase: 'align', label: `phrase ${pi + 1}/${phrases.length}`, done: pi, total: phrases.length })</span>
+<span class="cstat-no" title="statement not covered" >          const takes = takesByPhrase[pi] ?? []</span>
+<span class="cstat-no" title="statement not covered" >          let i = 0</span>
+<span class="cstat-no" title="statement not covered" >          const ws = await pickBestTake(async () =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >            const t = takes[i]</span>
+<span class="cstat-no" title="statement not covered" >            if (t === undefined) return null</span>
+<span class="cstat-no" title="statement not covered" >            takes[i++] = empty // drop the reference once consumed</span>
+<span class="cstat-no" title="statement not covered" >            return t</span>
+<span class="cstat-no" title="statement not covered" >          }, sr, phrases[pi]!.reqs)</span>
+<span class="cstat-no" title="statement not covered" >          applySegs(phrases[pi]!, ws)</span>
+<span class="cstat-no" title="statement not covered" >        }</span>
+<span class="cstat-no" title="statement not covered" >        takesByPhrase.length = 0</span>
+<span class="cstat-no" title="statement not covered" >      },</span>
+<span class="cstat-no" title="statement not covered" >      dispose: disposePhonemes,</span>
+<span class="cstat-no" title="statement not covered" >    },</span>
+<span class="cstat-no" title="statement not covered" >    {</span>
+<span class="cstat-no" title="statement not covered" >      name: 'rvc',</span>
+<span class="cstat-no" title="statement not covered" >      run: async (): Promise&lt;void&gt; =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        if (!haveSegs) cacheSegs(segKey, segs.slice(), sr)</span>
+<span class="cstat-no" title="statement not covered" >        markPhase('warp')</span>
+<span class="cstat-no" title="statement not covered" >        const { guide: g, f0 } = assembleGuide(segs, melody, sr, cycles / cps)</span>
+<span class="cstat-no" title="statement not covered" >        guide = g</span>
+<span class="cstat-no" title="statement not covered" >        loopN = guide.length // samples at `sr` = the melody's `cycles` cycles</span>
+&nbsp;
+        // TAIL PAD: RVC's generator rolls its pitch off at the very END of the
+        // clip, so the final held note renders ~50 cents flat (proven: the same
+        // word mid-song is in tune). Repeat the last chunk of the guide + hold
+        // its f0 so the roll-off lands on throwaway padding, then trim it back
+        // to the exact loop length.
+<span class="cstat-no" title="statement not covered" >        const padN = Math.floor(RVC_TAILPAD_S * sr)</span>
+<span class="cstat-no" title="statement not covered" >        const padF = Math.floor(RVC_TAILPAD_S * 100)</span>
+<span class="cstat-no" title="statement not covered" >        const gp = new Float32Array(loopN + padN)</span>
+<span class="cstat-no" title="statement not covered" >        gp.set(guide)</span>
+<span class="cstat-no" title="statement not covered" >        gp.set(guide.subarray(Math.max(0, loopN - padN)), loopN)</span>
+<span class="cstat-no" title="statement not covered" >        const fp = new Float32Array(f0.length + padF)</span>
+<span class="cstat-no" title="statement not covered" >        fp.set(f0)</span>
+<span class="cstat-no" title="statement not covered" >        fp.fill(f0[f0.length - 1] ?? 0, f0.length)</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >        await loadRvc(voice, (p) =&gt; onProgress?.({ phase: 'download', label: p.label, done: p.done, total: p.total }))</span>
+<span class="cstat-no" title="statement not covered" >        onProgress?.({ phase: 'sing', label: 'singing', done: 0, total: 1 })</span>
+<span class="cstat-no" title="statement not covered" >        markPhase('rvc')</span>
+<span class="cstat-no" title="statement not covered" >        const out = await rvcConvert(gp, sr, fp, voice)</span>
+<span class="cstat-no" title="statement not covered" >        audio = out.audio</span>
+<span class="cstat-no" title="statement not covered" >        osr = out.sr</span>
+<span class="cstat-no" title="statement not covered" >      },</span>
+<span class="cstat-no" title="statement not covered" >      dispose: disposeRvc,</span>
+<span class="cstat-no" title="statement not covered" >    },</span>
+<span class="cstat-no" title="statement not covered" >  ]</span>
+<span class="cstat-no" title="statement not covered" >  await runStages(stages, sequential)</span>
+&nbsp;
+  // HARD-TUNE off notes to the known melody. RVC leaks a little of the content's
+  // own pitch, so some sustained notes (esp. phrase-final ones, low from
+  // declination) render up to ~50 cents flat. We KNOW the exact target pitch per
+  // note, so TD-PSOLA any note that lands &gt;25 cents off back onto it (formants
+  // preserved); in-tune notes are left untouched.
+<span class="cstat-no" title="statement not covered" >  hardTune(audio, osr, melody)</span>
+&nbsp;
+  // Trim the padding (+ the roll-off it absorbed) back to the loop length, then
+  // MEASURE how far RVC shifted the vocal off the beat and cancel exactly that.
+  // The `guide` we fed RVC is beat-aligned by construction (vowel-on-beat
+  // assembly, tested), so cross-correlating the output's energy envelope
+  // against the guide's recovers RVC's group delay per clip — no magic delay.
+  // The loop is one cycle, so rotating wraps cleanly (a pickup off one edge
+  // reappears at the other). `.late()`/`.early()` are then free for feel.
+<span class="cstat-no" title="statement not covered" >  const keep = Math.min(audio.length, Math.round((loopN / sr) * osr))</span>
+<span class="cstat-no" title="statement not covered" >  const loop = audio.subarray(0, keep)</span>
+<span class="cstat-no" title="statement not covered" >  const rotated = rotateLeft(loop, measureLagSamples(guide, sr, loop, osr))</span>
+<span class="cstat-no" title="statement not covered" >  markPhase('done')</span>
+<span class="cstat-no" title="statement not covered" >  return { audio: rotated, sr: osr }</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** Energy envelope of `x` sampled at `frameHz` frames/sec (RMS per hop). Sampling
+ *  by TIME makes envelopes at different sample rates share one frame grid. */
+function energyEnv(x: Float32Array, rate: number, frameHz: number): Float32Array {
+  const hop = Math.max(1, Math.round(rate / frameHz))
+  const nF = Math.floor(x.length / hop)
+  const e = new Float32Array(nF)
+  for (let f = 0; f &lt; nF; f++) {
+    let s = 0
+    const a = f * hop
+    for (let k = 0; k &lt; hop; k++) {
+      const v = x[a + k]!
+      s += v * v
+    }
+    e[f] = Math.sqrt(s / hop)
+  }
+  return e
+}
+&nbsp;
+/** Zero-mean, unit-norm in place (so a dot product is a correlation, blind to
+ *  the two envelopes' differing overall loudness). Returns the same array. */
+function normEnv(e: Float32Array): Float32Array {
+  const n = e.<span class="branch-0 cbranch-no" title="branch not covered" >length || 1</span>
+  let mean = 0
+  for (let i = 0; i &lt; e.length; i++) mean += e[i]!
+  mean /= n
+  let norm = 0
+  for (let i = 0; i &lt; e.length; i++) {
+    e[i]! -= mean
+    norm += e[i]! * e[i]!
+  }
+  norm = Math.sqrt(norm) || 1
+  for (let i = 0; i &lt; e.length; i++) e[i]! /= norm
+  return e
+}
+&nbsp;
+/** How far `audio` (at `osr`) lags the beat-aligned `guide` (at `sr`), in
+ *  `audio` samples — i.e. how much to rotate `audio` LEFT to seat it on the
+ *  beat. Circular cross-correlation of their energy envelopes (both share a
+ *  time-based frame grid), bounded to ±maxLagS since RVC's group delay is
+ *  small; a flat/silent envelope yields 0 (no shift). Exported for testing. */
+export function measureLagSamples(
+  guide: Float32Array,
+  sr: number,
+  audio: Float32Array,
+  osr: number,
+  maxLagS = 0.2,
+): number {
+  const frameHz = 500
+  const ge = normEnv(energyEnv(guide, sr, frameHz))
+  const ae = normEnv(energyEnv(audio, osr, frameHz))
+  const n = Math.min(ge.length, ae.length)
+  if (n &lt; 4) <span class="branch-0 cbranch-no" title="branch not covered" >return 0</span>
+  const maxLag = Math.min(n - 1, Math.round(maxLagS * frameHz))
+  const corr = (lag: number): number =&gt; {
+    let s = 0
+    for (let i = 0; i &lt; n; i++) s += ge[i]! * ae[(((i + lag) % n) + n) % n]!
+    return s
+  }
+  // Seed at lag 0 and only accept a STRICTLY better lag, so a flat/silent
+  // envelope (all correlations equal) stays put instead of drifting to an edge.
+  let bestLag = 0
+  let best = corr(0)
+  for (let lag = -maxLag; lag &lt;= maxLag; lag++) {
+    if (lag === 0) continue
+    const s = corr(lag)
+    if (s &gt; best) {
+      best = s
+      bestLag = lag
+    }
+  }
+  return Math.round((bestLag / frameHz) * osr)
+}
+/** Guide tail repeated before RVC so its end-of-clip pitch roll-off falls on
+ *  padding, not the final sung note; trimmed off afterwards. */
+const RVC_TAILPAD_S = 0.8
+&nbsp;
+/** Snap notes that RVC rendered off-pitch back onto the known melody, in place.
+ *  Each note's output region is measured; if it's &gt;25 cents off, TD-PSOLA retunes
+ *  it to the exact target (formant-preserving, tiny jitter to avoid buzz), with a
+ *  short crossfade at the edges so untouched neighbours don't click. */
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function hardTune(audio: Float32Array, osr: number, notes: MelodyNote[]): void {</span></span>
+<span class="cstat-no" title="statement not covered" >  const mtof = (m: number): number =&gt; 440 * 2 ** ((m - 69) / 12)</span>
+<span class="cstat-no" title="statement not covered" >  const edge = Math.floor(0.006 * osr)</span>
+<span class="cstat-no" title="statement not covered" >  for (const n of notes) {</span>
+<span class="cstat-no" title="statement not covered" >    const a = Math.round(n.start * osr)</span>
+<span class="cstat-no" title="statement not covered" >    const b = Math.min(audio.length, Math.round((n.start + n.dur) * osr))</span>
+<span class="cstat-no" title="statement not covered" >    if (b - a &lt; Math.floor(0.06 * osr)) continue</span>
+<span class="cstat-no" title="statement not covered" >    const region = audio.slice(a, b)</span>
+<span class="cstat-no" title="statement not covered" >    const target = mtof(n.midi)</span>
+<span class="cstat-no" title="statement not covered" >    const f0In = estimateF0(region, osr, 90, 700)</span>
+<span class="cstat-no" title="statement not covered" >    if (f0In &lt;= 0) continue</span>
+<span class="cstat-no" title="statement not covered" >    const cents = 1200 * Math.log2(f0In / target)</span>
+<span class="cstat-no" title="statement not covered" >    if (Math.abs(cents) &lt; 25) continue</span>
+<span class="cstat-no" title="statement not covered" >    const tuned = psola(region, osr, 1, target, f0In, 0.02)</span>
+<span class="cstat-no" title="statement not covered" >    const L = Math.min(tuned.length, b - a)</span>
+<span class="cstat-no" title="statement not covered" >    for (let k = 0; k &lt; L; k++) {</span>
+<span class="cstat-no" title="statement not covered" >      const g = k &lt; edge ? k / edge : k &gt; L - edge ? (L - k) / edge : 1</span>
+<span class="cstat-no" title="statement not covered" >      audio[a + k] = audio[a + k]! * (1 - g) + tuned[k]! * g</span>
+<span class="cstat-no" title="statement not covered" >    }</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** RMS of a buffer (0 for empty), used to score synthesis takes. */
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function rms(a: Float32Array): number {</span></span>
+<span class="cstat-no" title="statement not covered" >  if (a.length === 0) return 0</span>
+<span class="cstat-no" title="statement not covered" >  let s = 0</span>
+<span class="cstat-no" title="statement not covered" >  for (let i = 0; i &lt; a.length; i++) s += a[i]! * a[i]!</span>
+<span class="cstat-no" title="statement not covered" >  return Math.sqrt(s / a.length)</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+/** Rotate a looped buffer left by k samples (wraps front→back). */
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function rotateLeft(a: Float32Array, k: number): Float32Array {</span></span>
+<span class="cstat-no" title="statement not covered" >  const n = a.length</span>
+<span class="cstat-no" title="statement not covered" >  if (n === 0) return a</span>
+<span class="cstat-no" title="statement not covered" >  const s = ((k % n) + n) % n</span>
+<span class="cstat-no" title="statement not covered" >  if (s === 0) return a</span>
+<span class="cstat-no" title="statement not covered" >  const out = new Float32Array(n)</span>
+<span class="cstat-no" title="statement not covered" >  out.set(a.subarray(s), 0)</span>
+<span class="cstat-no" title="statement not covered" >  out.set(a.subarray(0, s), n - s)</span>
+<span class="cstat-no" title="statement not covered" >  return out</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-08T13:32:06.208Z
+            </div>
+        <script src="../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../sorter.js"></script>
+        <script src="../../../../block-navigation.js"></script>
+    </body>
+</html>
+    

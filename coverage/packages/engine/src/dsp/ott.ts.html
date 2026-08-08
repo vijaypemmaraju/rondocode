@@ -1,0 +1,457 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for packages/engine/src/dsp/ott.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../../../index.html">All files</a> / <a href="index.html">packages/engine/src/dsp</a> ott.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">95.69% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>89/93</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">96.55% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>28/29</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">85.71% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>6/7</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">95.69% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>89/93</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">28x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">1113856x</span>
+<span class="cline-any cline-yes">1113856x</span>
+<span class="cline-any cline-yes">1113856x</span>
+<span class="cline-any cline-yes">1113856x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-yes">22x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">835392x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-yes">278464x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-yes">1232x</span>
+<span class="cline-any cline-yes">1232x</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-yes">924x</span>
+<span class="cline-any cline-yes">924x</span>
+<span class="cline-any cline-yes">308x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import type { DspContext, Kernel } from './types'
+import { clamp, flush } from './util'
+import { smoothCoeff } from './compress'
+&nbsp;
+export interface OttConfig {
+  /** Dry→fully-processed blend, 0..1. Default 0.5. OTT is aggressive; this is
+   *  the main "how much" knob. */
+  depth?: number
+  /** Low/mid crossover Hz. Default 240. */
+  low?: number
+  /** Mid/high crossover Hz. Default 2500. */
+  high?: number
+  /** Output makeup gain in dB. Default 0. */
+  makeup?: number
+}
+&nbsp;
+interface BQ { b0: number; b1: number; b2: number; a1: number; a2: number; x1: number; x2: number; y1: number; y2: number }
+const mkBQ = (): BQ =&gt; ({ b0: 1, b1: 0, b2: 0, a1: 0, a2: 0, x1: 0, x2: 0, y1: 0, y2: 0 })
+&nbsp;
+/** 2nd-order Butterworth (Q≈0.707) LP or HP coefficients (RBJ). */
+const setLpHp = (f: BQ, freq: number, sr: number, hp: boolean): void =&gt; {
+  const w0 = (2 * Math.PI * clamp(freq, 20, sr * 0.49)) / sr
+  const c = Math.cos(w0)
+  const s = Math.sin(w0)
+  const al = s / (2 * 0.707)
+  const a0 = 1 + al
+  let b0: number, b1: number, b2: number
+  if (hp) { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = (1 + c) / 2 } else { b0 = (1 - c) / 2; b1 = 1 - c; b2 = (1 - c) / 2 }
+  f.b0 = b0 / a0; f.b1 = b1 / a0; f.b2 = b2 / a0; f.a1 = (-2 * c) / a0; f.a2 = (1 - al) / a0
+}
+const runBQ = (f: BQ, x: number): number =&gt; {
+  const y = f.b0 * x + f.b1 * f.x1 + f.b2 * f.x2 - f.a1 * f.y1 - f.a2 * f.y2
+  f.x2 = f.x1; f.x1 = x; f.y2 = f.y1; f.y1 = y
+  return y
+}
+&nbsp;
+// OTT-flavoured band dynamics: compress DOWN above -20 dB, expand UP below
+// -30 dB, both ~4:1. Gains are clamped so quiet bands can't run away into noise.
+const DOWN_THRESH = -20
+const UP_THRESH = -30
+const SLOPE = 1 - 1 / 4 // 4:1
+const UP_FLOOR = -55 // below this, don't upward-boost (it's noise/silence)
+const MAX_UP = 24
+const MAX_DOWN = 40
+&nbsp;
+/** Multiband (3-band) upward+downward compressor — the "OTT" glue/brightener.
+ *  Splits the signal at `low`/`high`, applies OTT-style dynamics per band, and
+ *  recombines, blended with the dry by `depth`. Mono. Squashes dynamics and
+ *  pulls up detail, which reads as louder, fuller, brighter. */
+export class OttKernel implements Kernel {
+  private readonly depth: number
+  private readonly lowF: number
+  private readonly highF: number
+  private readonly makeupLin: number
+  private sr = 0
+  private readonly lpLow = mkBQ()
+  private readonly hpMid = mkBQ()
+  private readonly lpMid = mkBQ()
+  private readonly hpHigh = mkBQ()
+  private readonly env = [0, 0, 0]
+  private readonly gDb = [0, 0, 0]
+  private atk = 0
+  private rel = 0
+&nbsp;
+  constructor(cfg: OttConfig = {}) {
+    this.depth = clamp(cfg.<span class="branch-0 cbranch-no" title="branch not covered" >depth ?? 0.5, 0</span>, 1)
+    this.lowF = clamp(cfg.low ?? 240, 60, 1200)
+    this.highF = clamp(cfg.high ?? 2500, 800, 14000)
+    this.makeupLin = Math.pow(10, (cfg.makeup ?? 0) / 20)
+  }
+&nbsp;
+  process(n: number, inputs: Record&lt;string, Float32Array&gt;, out: Float32Array, ctx: DspContext): void {
+    const input = inputs['in']!
+    if (ctx.sampleRate !== this.sr) {
+      this.sr = ctx.sampleRate
+      setLpHp(this.lpLow, this.lowF, this.sr, false)
+      setLpHp(this.hpMid, this.lowF, this.sr, true)
+      setLpHp(this.lpMid, this.highF, this.sr, false)
+      setLpHp(this.hpHigh, this.highF, this.sr, true)
+      this.atk = smoothCoeff(5, this.sr)
+      this.rel = smoothCoeff(60, this.sr)
+    }
+    const { depth, makeupLin: makeup, env, gDb, atk, rel } = this
+    for (let i = 0; i &lt; n; i++) {
+      const dry = input[i]!
+      const low = runBQ(this.lpLow, dry)
+      const high = runBQ(this.hpHigh, dry)
+      const mid = runBQ(this.lpMid, runBQ(this.hpMid, dry))
+      const bands = [low, mid, high]
+      let wet = 0
+      for (let bnd = 0; bnd &lt; 3; bnd++) {
+        const x = bands[bnd]!
+        const lin = Math.abs(x)
+        // envelope follower (per-band)
+        const ec = lin &gt; env[bnd]! ? atk : rel
+        env[bnd] = env[bnd]! + (lin - env[bnd]!) * ec
+        const e = env[bnd]!
+        const db = e &gt; 1e-6 ? 20 * Math.log10(e) : -120
+        const down = db &gt; DOWN_THRESH ? clamp((db - DOWN_THRESH) * SLOPE, 0, MAX_DOWN) : 0
+        const up = db &lt; UP_THRESH &amp;&amp; db &gt; UP_FLOOR ? clamp((UP_THRESH - db) * SLOPE, 0, MAX_UP) : 0
+        const target = up - down
+        const gc = target &lt; gDb[bnd]! ? atk : rel
+        gDb[bnd] = gDb[bnd]! + (target - gDb[bnd]!) * gc
+        wet += x * Math.pow(10, gDb[bnd]! / 20)
+      }
+      const y = (dry * (1 - depth) + wet * depth) * makeup
+      out[i] = Number.isFinite(y) ? y : 0
+    }
+    // Scrub state so a transient NaN/denormal can't latch the bands into
+    // permanent silence (crossover biquads + per-band envelope + gain).
+    for (const f of [this.lpLow, this.hpMid, this.lpMid, this.hpHigh]) {
+      f.x1 = flush(f.x1); f.x2 = flush(f.x2); f.y1 = flush(f.y1); f.y2 = flush(f.y2)
+    }
+    for (let bnd = 0; bnd &lt; 3; bnd++) {
+      env[bnd] = flush(env[bnd]!); gDb[bnd] = flush(gDb[bnd]!)
+    }
+  }
+&nbsp;
+<span class="fstat-no" title="function not covered" >  reset(): void {</span>
+<span class="cstat-no" title="statement not covered" >    this.env[0] = this.env[1] = this.env[2] = 0</span>
+<span class="cstat-no" title="statement not covered" >    this.gDb[0] = this.gDb[1] = this.gDb[2] = 0</span>
+<span class="cstat-no" title="statement not covered" >    for (const f of [this.lpLow, this.hpMid, this.lpMid, this.hpHigh]) { f.x1 = f.x2 = f.y1 = f.y2 = 0 }</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-08T13:32:06.208Z
+            </div>
+        <script src="../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../sorter.js"></script>
+        <script src="../../../../block-navigation.js"></script>
+    </body>
+</html>
+    

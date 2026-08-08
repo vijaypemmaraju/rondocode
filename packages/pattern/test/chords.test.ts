@@ -293,3 +293,91 @@ describe('voiceLead', () => {
     expect(Math.abs(mean - 72)).toBeLessThan(8)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * WHAT EVERY QUALITY ACTUALLY SPELLS.
+ *
+ * The suite checked the table with `expect(parseChord(`C${q}`)).toBeDefined()`
+ * — which passes for ANY intervals. A mutation audit changed `dim7` from
+ * [0,3,6,9] to a plain [0,3,6] and the whole suite stayed green; 29 of the 43
+ * qualities had no assertion about the notes they produce at all.
+ *
+ * This is data where a mistake is silent: nothing crashes when a chord is
+ * spelled wrong, it just sounds wrong, in a project, later. So every quality
+ * is pinned to its semitones from the root.
+ * ------------------------------------------------------------------------- */
+const SPELLINGS: [string, number[]][] = [
+  // triads and the power chord
+  ['maj', [0, 4, 7]],
+  ['major', [0, 4, 7]],
+  ['M', [0, 4, 7]],
+  ['min', [0, 3, 7]],
+  ['minor', [0, 3, 7]],
+  ['m', [0, 3, 7]],
+  ['dim', [0, 3, 6]],
+  ['aug', [0, 4, 8]],
+  ['5', [0, 7]],
+  // sevenths
+  ['7', [0, 4, 7, 10]],
+  ['dom7', [0, 4, 7, 10]],
+  ['maj7', [0, 4, 7, 11]],
+  ['M7', [0, 4, 7, 11]],
+  ['m7', [0, 3, 7, 10]],
+  ['min7', [0, 3, 7, 10]],
+  ['m7b5', [0, 3, 6, 10]],
+  ['dim7', [0, 3, 6, 9]],
+  // sixths
+  ['6', [0, 4, 7, 9]],
+  ['m6', [0, 3, 7, 9]],
+  ['min6', [0, 3, 7, 9]],
+  // extensions
+  ['9', [0, 4, 7, 10, 14]],
+  ['maj9', [0, 4, 7, 11, 14]],
+  ['m9', [0, 3, 7, 10, 14]],
+  ['11', [0, 4, 7, 10, 14, 17]],
+  ['m11', [0, 3, 7, 10, 14, 17]],
+  ['13', [0, 4, 7, 10, 14, 21]],
+  ['m13', [0, 3, 7, 10, 14, 21]],
+  // suspensions
+  ['sus2', [0, 2, 7]],
+  ['sus4', [0, 5, 7]],
+  ['sus', [0, 5, 7]],
+  ['7sus4', [0, 5, 7, 10]],
+  // added tones (the third stays)
+  ['2', [0, 2, 4, 7]],
+  ['add2', [0, 2, 4, 7]],
+  ['4', [0, 4, 5, 7]],
+  ['add4', [0, 4, 5, 7]],
+  ['add9', [0, 4, 7, 14]],
+  ['add11', [0, 4, 7, 17]],
+  // added tones over a minor third
+  ['m2', [0, 2, 3, 7]],
+  ['madd2', [0, 2, 3, 7]],
+  ['m4', [0, 3, 5, 7]],
+  ['madd4', [0, 3, 5, 7]],
+  ['madd9', [0, 3, 7, 14]],
+  ['madd11', [0, 3, 7, 17]],
+]
+
+describe('every chord quality spells the chord it names', () => {
+  it('covers the whole table (a short list here would hide a new quality)', () => {
+    expect(SPELLINGS.map(([q]) => q).sort()).toEqual([...CHORD_QUALITIES].sort())
+  })
+
+  it.each(SPELLINGS)('C%s is %j semitones from the root', (quality, intervals) => {
+    const notes = parseChord(`C${quality}`)
+    expect(notes, `C${quality} did not parse`).toBeDefined()
+    expect(notes!.map((n) => n - notes![0])).toEqual(intervals)
+  })
+
+  it('the aliases really are aliases, not near-misses', () => {
+    // maj/major/M and min/minor/m are three spellings of one chord each; a
+    // table this long is exactly where one of them drifts a semitone
+    for (const group of [['maj', 'major', 'M'], ['min', 'minor', 'm'], ['7', 'dom7'],
+                         ['maj7', 'M7'], ['m7', 'min7'], ['m6', 'min6'], ['sus4', 'sus'],
+                         ['2', 'add2'], ['4', 'add4'], ['m2', 'madd2'], ['m4', 'madd4']]) {
+      const spellings = group.map((q) => JSON.stringify(parseChord(`C${q}`)))
+      expect(new Set(spellings).size, `${group.join(' / ')} disagree`).toBe(1)
+    }
+  })
+})

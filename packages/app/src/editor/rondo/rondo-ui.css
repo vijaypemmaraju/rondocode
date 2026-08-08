@@ -804,3 +804,19 @@
 .rondo-ccurve canvas { display: block; }
 .rondo-ccurve.armed { opacity: 0.78; transition: opacity 0.09s ease-out; }
 .rondo-ccurve.firing { opacity: 1; color: var(--c-accent-alt, #67e8f9); }
+
+/* the sidechain duck envelope */
+.rondo-dcurve {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 6px;
+  color: var(--c-accent, #6ee7b7);
+  background: color-mix(in srgb, var(--c-border, #1e352c) 22%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rondo-dcurve canvas { display: block; }
+.rondo-dcurve.armed { opacity: 0.78; transition: opacity 0.09s ease-out; }
+.rondo-dcurve.firing { opacity: 1; color: var(--c-accent-alt, #67e8f9); }

@@ -444,6 +444,7 @@ export function scanHandles(scan: FilterScan): Handle[] {
 export class FilterCurveWidget extends WidgetType {
   private unsub: (() => void) | null = null
   private unsubLive: (() => void) | null = null
+  private levelRaf = 0
 
   constructor(
     readonly scan: FilterScan,
@@ -473,6 +474,8 @@ export class FilterCurveWidget extends WidgetType {
 
     // a live copy of the scan the gesture mutates + redraws from
     const live: FilterScan = JSON.parse(JSON.stringify(scan)) as FilterScan
+    /** current loudness of this line's synth, 0..1 — see the fill in draw(). */
+    let lvl = 0
     const handles = scanHandles(scan)
 
     const draw = (): void => {
@@ -504,6 +507,29 @@ export class FilterCurveWidget extends WidgetType {
         else g.lineTo((i / CURVE.samples) * W, y)
       }
       g.stroke()
+      /* HOW MUCH IS GOING THROUGH IT. The curve is the SHAPE the filter makes
+       * and it is the same shape whether the transport is running or stopped —
+       * so for `ladder 500`, where the cutoff is a literal and never moves,
+       * there was nothing on this widget that ever changed. The signal is the
+       * thing that moves, and the engine already measures it per channel for
+       * the visualizer, so this costs no new analysis.
+       *
+       * Drawn UNDER the response, so the curve stays the brightest thing:
+       * the shape is what you are reading, the fill is how hard it is working. */
+      if (lvl > 0.004) {
+        g.globalAlpha = Math.min(0.42, lvl * 0.75)
+        g.fillStyle = color
+        g.beginPath()
+        g.moveTo(0, H)
+        for (let i = 0; i <= CURVE.samples; i++) {
+          const f = xToFreq((i / CURVE.samples) * W, W)
+          g.lineTo((i / CURVE.samples) * W, dbToY(scanResponseDb(live, f, DISPLAY_SR), H))
+        }
+        g.lineTo(W, H)
+        g.closePath()
+        g.fill()
+        g.globalAlpha = 1
+      }
       // handles ride the curve at their frequency
       const liveHandles = scanHandles(live)
       for (const h of liveHandles) {
@@ -562,6 +588,20 @@ export class FilterCurveWidget extends WidgetType {
           break
         }
       })
+    }
+
+    /* Follow the level while the synth sounds. Redraw only when it MOVES
+     * enough to see: this is a canvas repaint, and one per frame regardless of
+     * change is the roll-cell regression over again. */
+    const readLevel = this.hooks.level
+    if (readLevel !== undefined && scan.synth !== undefined) {
+      const synthName = scan.synth
+      const follow = (): void => {
+        const next = readLevel(synthName)
+        if (Math.abs(next - lvl) > 0.02) { lvl = next; draw() }
+        this.levelRaf = requestAnimationFrame(follow)
+      }
+      this.levelRaf = requestAnimationFrame(follow)
     }
 
     this.unsub = activate(wrap, this.hooks, {
@@ -665,5 +705,6 @@ export class FilterCurveWidget extends WidgetType {
     this.unsub = null
     this.unsubLive?.()
     this.unsubLive = null
+    cancelAnimationFrame(this.levelRaf)
   }
 }

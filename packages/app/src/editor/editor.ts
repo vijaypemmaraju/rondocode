@@ -708,6 +708,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       }
     },
     level: (name) => chanLevel.get(name) ?? 0,
+    masterLevel: () => masterLvl,
     onNoteEvents: (fn) =>
       subscribePatternEvents((evs) => {
         const notes = toNoteEvs(evs)
@@ -816,6 +817,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
    * cadence — the same events the header meter and the shader visualizer
    * already consume, so this adds no new analysis. */
   const chanLevel = new Map<string, number>()
+  let masterLvl = 0
   const flasher = new EventFlasher(
     view,
     () => audio.currentTimeFrames / audio.sampleRate,
@@ -860,6 +862,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   subscribeEngine((ev) => {
     if (ev.kind !== 'meters') return
     for (const [k, v] of Object.entries(ev.channels)) chanLevel.set(k, typeof v === 'number' ? v : 0)
+    masterLvl = typeof ev.master === 'number' ? ev.master : 0
   })
   const stateListeners = new Set<(s: SessionState) => void>()
   const subscribeState = (fn: (s: SessionState) => void): (() => void) => {

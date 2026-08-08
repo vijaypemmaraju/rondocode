@@ -29,6 +29,7 @@ import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable
 import { cycleEnumEdit, scanEnumSpans } from './enums'
 import type { EnumSpan } from './enums'
 import { activate } from './activation'
+import { CompCurveWidget, scanCompressors } from './compcurve'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
@@ -78,6 +79,10 @@ export interface Hooks {
    *  this says how much is going through it, which for a filter written with
    *  a literal cutoff is the only thing that ever moves. */
   level?: (synth: string) => number
+  /** The whole mix's loudness, 0..1. Reported by the engine ALONGSIDE the
+   *  per-channel meters rather than as one of them, which is why a `master`
+   *  line cannot just look itself up in `level`. */
+  masterLevel?: () => number
   /** TOUCH-TO-OVERRIDE: while a hand holds a knob, the held value plays and
    *  the pattern drive for that param is suppressed; releasing hands control
    *  back to the pattern on its next event. */
@@ -2922,6 +2927,17 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   // filter response curves under svf/ladder/dualsvf/eq lines (static values
   // only — see filtercurve.ts's honesty rules)
   const fcW = Math.min(envWidth(view), 420)
+  // The compressor's transfer curve. `master`/`compress` were the last nodes
+  // with no widget at all — five bare numbers and nothing saying what shape
+  // they make, or how much they are pulling down right now.
+  for (const cs of scanCompressors(text)) {
+    items.push(
+      Decoration.widget({
+        widget: new CompCurveWidget(cs, JSON.stringify(cs), fcW, hooks),
+        side: 1,
+      }).range(cs.at),
+    )
+  }
   for (const fs of scan.filters(text, knobs)) {
     items.push(
       Decoration.widget({

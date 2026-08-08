@@ -788,3 +788,19 @@
   pointer-events: none;
   transition: opacity 0.12s ease-out;
 }
+
+/* the compressor transfer curve — same surface language as the filter curve */
+.rondo-ccurve {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 6px;
+  color: var(--c-accent, #6ee7b7);
+  background: color-mix(in srgb, var(--c-border, #1e352c) 22%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rondo-ccurve canvas { display: block; }
+.rondo-ccurve.armed { opacity: 0.78; transition: opacity 0.09s ease-out; }
+.rondo-ccurve.firing { opacity: 1; color: var(--c-accent-alt, #67e8f9); }

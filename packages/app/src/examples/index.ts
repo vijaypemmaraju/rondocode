@@ -3022,6 +3022,58 @@ cps .45
 `
 
 
+/** MIC CHANNEL STRIP: the chain a stage puts in front of a voice, in order.
+ *  Distinct from 'live mic', which is a talkbox EFFECT — this one is the
+ *  boring, load-bearing thing that makes a microphone usable. Each node fixes
+ *  a problem the one above it cannot, which is why the order is the lesson. */
+const micStripRondo = `# MIC CHANNEL STRIP. run this and TALK
+# or SING. this is the chain a stage puts
+# in front of a voice, in the order it
+# goes - each line fixes one problem the
+# line above it cannot:
+#
+#   noisegate  the room, the bleed, the
+#              hiss between phrases
+#   eq         hp cuts rumble and plosive
+#              thump; the peak adds
+#              presence where words live
+#   deess      the "s" that the peak just
+#              made sharper
+#   compress   evens out how far you are
+#              from the mic
+#   limiter    a ceiling nothing crosses
+#
+# HEADPHONES - or switch echo cancelling
+# on in options, which is already on if
+# you are on a phone.
+#
+# the mic asks permission on first run,
+# and renders SILENT in an offline
+# export: record the session instead to
+# capture your voice.
+
+synth voice
+  mic
+  noisegate threshold:-42 range:-35 hold:60 release:120
+  eq hp 90 peak 3000 2 1.2
+  deess freq:6200 threshold:-28 ratio:5
+  compress threshold:-20 ratio:3 attack:8 release:120 makeup:6
+  post
+    reverb room:.5 damp:.4 mix:.14
+    limiter ceiling:-1 lookahead:5
+
+# ONE held note holds the channel open.
+# dur: .99 retriggers every cycle with no
+# gap and no click - there is no envelope
+# on the spine, so nothing re-attacks.
+play voice
+  c3
+  dur: .99
+
+cps .5
+`
+
+
 /** WAVETABLE LEAD: a hand-drawn custom table (wavedef), scanned by the
  *  envelope - the most sweepable sound in the engine, showcased. */
 const waveleadRondo = `# WAVETABLE LEAD. the wavedef line
@@ -3509,6 +3561,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'drum machine', code: fromRondo(drumMachineRondo), rondo: drumMachineRondo },
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
+  { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
   { name: 'macros', code: fromRondo(macrosRondo), rondo: macrosRondo },

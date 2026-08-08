@@ -236,6 +236,20 @@ function codeLines(text: string): { line: string; off: number; synth?: string }[
 export function scanKnobs(text: string): KnobMatch[] {
   const out: KnobMatch[] = []
   for (const { line, off, synth } of codeLines(text)) {
+    /* MASTER VOLUME. `level -3` compiles to masterGain, so the control has
+     * always been there — as a number you retype. It is a knob in every way
+     * that matters (one value, a sensible range, worth nudging while it
+     * plays), so it gets the dial the same as any other.
+     *
+     * No `name`, so nothing drives it live: masterGain is not a per-note
+     * param and there is no event carrying it. The dial moves when a hand
+     * moves it, which is the whole job. */
+    const lvl = /^level[ \t]+(-?\d*\.?\d+)/.exec(line.trim())
+    if (lvl !== null) {
+      const at = off + line.indexOf(lvl[1]!)
+      out.push({ defFrom: at, defTo: at + lvl[1]!.length, value: Number(lvl[1]), lo: -60, hi: 12, log: false })
+      continue
+    }
     // a `macro` declaration IS a knob — the same dial, the same drag, but it
     // holds every site of the macro instead of one synth's param
     for (const d of scanMacroDecls(line)) {

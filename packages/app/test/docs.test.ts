@@ -432,3 +432,34 @@ describe('the chord blurb names every quality the parser accepts', () => {
     expect(missing, 'chord qualities the docs never name').toEqual([])
   })
 })
+
+
+/* ------------------------------------------------------------------------- *
+ * EVERY DSP NODE IS TAUGHT SOMEWHERE, not only listed.
+ *
+ * The reference (dsl-docs) is pinned bidirectionally against the live objects,
+ * so a node cannot exist without an entry. Nothing pinned the GUIDE, and the
+ * difference showed: `noisegate`, `deess` and `limiter` shipped with full
+ * reference entries and no mention in the guide at all. They only stopped
+ * being invisible because a paragraph about the mic strip happened to name
+ * them.
+ *
+ * "Mentioned once" is a low bar on purpose — this cannot judge whether the
+ * prose is any good. What it can do is stop a node from being reference-only,
+ * which is how someone learns a feature exists: by reading the guide, not by
+ * scrolling the API list.
+ * ------------------------------------------------------------------------- */
+describe('the guide teaches every node the reference documents', () => {
+  const guide = SECTIONS.flatMap((s) => s.blocks.map(blockText)).join(' ')
+
+  it('finds the guide text (an empty string would pass everything)', () => {
+    expect(guide.length).toBeGreaterThan(20_000)
+  })
+
+  it('names every synth-ctx node somewhere in the guide', () => {
+    const missing = docsOfKind('synth-ctx')
+      .map((e) => e.name)
+      .filter((n) => !new RegExp(`\\b${n}\\b`).test(guide))
+    expect(missing, 'nodes documented in the reference but never in the guide').toEqual([])
+  })
+})

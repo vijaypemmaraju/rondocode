@@ -630,4 +630,17 @@ export const MUTATIONS: Mutation[] = [
     replace: '  compress threshold:-20 ratio:1 attack:8 release:120 makeup:6',
     tests: 'packages/app/test/mic-strip-example.test.ts',
   },
+
+  {
+    /* `syncsaw` is named in exactly ONE place in the guide, so dropping it
+     * from that list is precisely the state this guard exists to catch: a node
+     * fully documented in the reference and invisible to anyone reading the
+     * guide. Renaming a section id was the first attempt and proved nothing —
+     * the prose was still there. */
+    label: 'docs: a DSP node is reference-only, never taught in the guide',
+    file: 'packages/app/src/docs/content.ts',
+    find: 'wavetable syncsaw`',
+    replace: 'wavetable`',
+    tests: 'packages/app/test/docs.test.ts',
+  },
 ]

@@ -877,6 +877,48 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'dynamics',
+    group: 'effects & mix',
+    title: 'Dynamics: four ways to change level',
+    blocks: [
+      p('EQ and exciter shape TONE. These four shape LEVEL, and they are easy to confuse because they all turn something down. What separates them is WHAT they turn down, and each exists because the others cannot do its job.'),
+      table(
+        'What each one is actually for.',
+        ['node', 'turns down', 'reach for it when'],
+        [
+          ['`compress`', 'the LOUD parts', 'a part jumps out of the mix, or a drum bus needs gluing into one thing'],
+          ['`noisegate`', 'the QUIET parts -- the opposite job', 'there is bleed, hiss or room tone between the notes. Mostly a live-input tool, but a noisy sample or a resonant filter tail wants it too'],
+          ['`deess`', 'one BAND, and only when that band is loud', 'a bright source is harsh on some notes and fine on others. A plain compressor cannot fix that: ducking enough to tame the harsh note ducks the whole part with it'],
+          ['`limiter`', 'whatever would cross a CEILING', 'you need a hard guarantee -- a bounce, a PA feed. It holds the ceiling by turning down BEFORE the peak arrives, which is why it delays the signal'],
+        ],
+      ),
+      p('THE ORDER MATTERS, and it is the same order a hardware channel runs: gate first, so nothing downstream amplifies the noise you were about to remove; tone shaping next; then the de-esser, because adding presence is usually what made the sibilance sharp; then the compressor, which now sees a signal that is only the part you meant; and the limiter last, because a ceiling is only a ceiling if nothing comes after it.'),
+      note('A limiter is a SAFETY NET, not a sound. If it is working hard all the time, the thing in front of it is set wrong -- turn the makeup down rather than leaning on the ceiling. The one exception is when you are deliberately pushing for loudness, and then it is doing exactly what you asked.'),
+      p('The engine also applies a final soft clip to the master output, which is not a limiter: it holds the signal inside \u00b11 by bending the waveform. That is the right last resort and the wrong way to hold a ceiling, which is why `limiter` exists as a node you place yourself.'),
+      code(
+        'A stab bus: compress to glue the hits together, then a ceiling.',
+        `const stab = synth(
+  ({ note, gate, adsr, saw, ladder }) => {
+    const env = adsr(gate, { a: 0.002, d: 0.18, s: 0, r: 0.1 })
+    const f = note.freq
+    const sup = saw(f).add(saw(f.mul(1.006))).add(saw(f.mul(0.994))).mul(0.3)
+    return ladder(sup, env.pow(2).range(400, 3800), { res: 0.5 }).mul(env)
+  },
+  ({ input, compress, limiter }) => {
+    // glue: fast enough to catch the transient, slow enough to breathe
+    const glued = compress(input, { threshold: -20, ratio: 4, attack: 5, release: 120, makeup: 5 })
+    // and a ceiling nothing crosses, whatever the makeup above is set to
+    return limiter(glued, { ceiling: -1, lookahead: 5 })
+  },
+)
+
+p('stab', chord('<Am9 Fmaj9 Cmaj9 G>').sound('stab').struct(mini('1 0 1 1 0 1 0 1')).dur(0.2))
+setCps(0.55)`,
+      ),
+      p('For the live-input side of this -- gate, de-esser and all four in the order above -- open the **mic channel strip** example, which is that chain end to end with a comment on every line.'),
+    ],
+  },
+  {
     id: 'samples',
     group: 'sound design',
     title: 'Samples & granular',

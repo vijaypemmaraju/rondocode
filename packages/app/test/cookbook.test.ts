@@ -46,10 +46,21 @@ describe.each(RECIPES.map((r) => [r.id, r] as const))('recipe: %s', (_id, r) => 
   })
 
   it('round-trips to JavaScript and back', () => {
-    // a recipe that only exists in rondo would be unusable to half the readers
+    /* A recipe that only exists in rondo would be unusable to half the
+     * readers. This used to assert `decompile` merely did not THROW, which a
+     * decompiler returning the empty string for every recipe also satisfies —
+     * verified: stubbing it to `''` left this green.
+     *
+     * The real contract is the one the README states: compile, decompile,
+     * compile again, and the JavaScript is byte-identical. That is what makes
+     * the two languages the same program rather than two similar ones. */
     const c = compile(r.code)
     if (!c.ok) return
-    expect(() => decompile(c.code)).not.toThrow()
+    const back = decompile(c.code)
+    expect(back.trim(), 'decompiled to nothing').not.toBe('')
+    const again = compile(back)
+    expect(again.ok, again.ok ? '' : `recompile failed: ${JSON.stringify(again.errors)}`).toBe(true)
+    expect(again.ok ? again.code : '', 'the round trip is not a fixed point').toBe(c.code)
   })
 })
 

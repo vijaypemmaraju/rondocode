@@ -1,0 +1,520 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for packages/engine/src/dsp/transient.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../../../prettify.css" />
+    <link rel="stylesheet" href="../../../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../../../index.html">All files</a> / <a href="index.html">packages/engine/src/dsp</a> transient.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>64/64</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>21/21</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>5/5</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>64/64</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-yes">34x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">8763x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8763x</span>
+<span class="cline-any cline-yes">1125x</span>
+<span class="cline-any cline-yes">1125x</span>
+<span class="cline-any cline-yes">1125x</span>
+<span class="cline-any cline-yes">8763x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8763x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-yes">977228x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">7638x</span>
+<span class="cline-any cline-yes">8763x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import type { DspContext, Kernel } from './types'
+import { clamp, flush } from './util'
+&nbsp;
+export interface TransientConfig {
+  /** Onset shaping, -1..1. Positive sharpens the attack (a harder click on a
+   *  drum, more pick on a bass); negative softens it. 0 (default) = untouched. */
+  attack?: number
+  /** Tail shaping, -1..1. Positive lifts the body/decay (more room, longer
+   *  ring); negative cuts it (drier, tighter, less room mic). 0 (default) =
+   *  untouched. */
+  sustain?: number
+}
+&nbsp;
+/** Envelope time constants, in ms.
+ *
+ *  FAST is an asymmetric peak follower on |x| (quick up, slower down) followed
+ *  by a short symmetric DERIPPLE smoother. The deripple stage is not cosmetic:
+ *  a rectified waveform dips to zero twice per cycle, so a raw peak follower
+ *  ripples by tens of percent on low material and the ratio below would
+ *  modulate the gain at twice the fundamental. With it, a steady 220 Hz tone
+ *  holds the ratio inside 1.000..1.024 and a 55 Hz tone inside 0.985..1.034.
+ *
+ *  SLOW is a symmetric smoother OF the fast envelope, not an independent
+ *  follower on |x|. That is what makes the ratio sit at exactly 1 in steady
+ *  state: two independent followers with different attack times settle at
+ *  different fractions of the peak, so their ratio is biased away from 1
+ *  forever and one of the two shaping branches can never fire. */
+const FAST_ATTACK_MS = 1
+const FAST_RELEASE_MS = 40
+const DERIPPLE_MS = 4
+const SLOW_MS = 130
+&nbsp;
+/** One-pole smoothing coefficient for a time constant `ms` at `sr`. */
+const coeff = (ms: number, sr: number): number =&gt; 1 - Math.exp(-1 / ((ms / 1000) * sr))
+&nbsp;
+/** Additive floor on both envelopes so their ratio is 1 (unity gain) in
+ *  silence instead of 0/0. At -100 dBFS it perturbs the ratio by ~1e-5; above
+ *  that it is inaudible, and level independence holds to better than 1e-5
+ *  relative for any signal above about -80 dBFS. */
+const EPS = 1e-10
+&nbsp;
+/** The detector ratio is clamped to [1/8, 8] before the exponent (a hard onset
+ *  out of silence would otherwise read in the thousands and make every setting
+ *  slam the same ceiling), and the resulting gain to ±12 dB. */
+const MAX_RATIO = 8
+const MIN_RATIO = 1 / 8
+const MAX_GAIN = 4
+const MIN_GAIN = 1 / 4
+&nbsp;
+/** Transient shaper (mono). Input 'in'; attack/sustain are construction
+ *  config. A FAST envelope (1 ms attack / 40 ms release peak follower, then a
+ *  4 ms deripple smoother) and a SLOW one (a 130 ms smoothing of the fast
+ *  envelope) run on |x|, and their RATIO r = fast/slow is the transient
+ *  detector:
+ *
+ *    r &gt; 1  the signal is rising faster than the reference: an ONSET
+ *    r ≈ 1  steady state
+ *    r &lt; 1  the signal is falling away from the reference: the TAIL
+ *
+ *  The gain is `r^attack` on the onset side and `r^(-sustain)` on the tail
+ *  side, clamped to ±12 dB. Both branches meet at exactly 1 when r = 1, so the
+ *  gain is continuous; `attack = sustain = 0` is a bit-exact passthrough.
+ *
+ *  THIS IS NOT A COMPRESSOR, and the difference is structural, not a matter of
+ *  taste: the gain depends only on the RATIO of two envelopes, never on the
+ *  absolute level. Scale the input by any k and both envelopes scale by k, the
+ *  ratio is unchanged, and the SAME gain curve is applied — a quiet hit and a
+ *  loud hit are shaped identically. A compressor's threshold makes exactly the
+ *  opposite promise. The corollary is that it does not control level: it will
+ *  happily make a loud hit louder, so leave headroom (or follow it with
+ *  compress()).
+ *
+ *  Limits worth knowing: the follower times are fixed, so the onset window is
+ *  fixed too — this reads drum-shaped material (a fast rise over a slower
+ *  body) and does very little to a sustained pad, where r sits at 1. On dense
+ *  polyphonic material the detector hears the SUM, so it shapes the mix's
+ *  transients, not each note's. And a bass-heavy source still ripples the
+ *  detector a few percent (see DERIPPLE_MS), so extreme settings can add a
+ *  faint amplitude wobble at twice the fundamental.
+ *
+ *  Hygiene: all three envelope states are flushed at block end (flush()), so a
+ *  NaN arriving on the input poisons at most one block, and a silent tail
+ *  settles to exact 0. */
+export class TransientKernel implements Kernel {
+  private readonly attack: number
+  private readonly sustain: number
+  private envFast = 0
+  private envSmooth = 0
+  private envSlow = 0
+  private sr = 0
+  private fastAtk = 0
+  private fastRel = 0
+  private deripple = 0
+  private slowK = 0
+&nbsp;
+  constructor(cfg: TransientConfig = {}) {
+    this.attack = clamp(cfg.attack ?? 0, -1, 1)
+    this.sustain = clamp(cfg.sustain ?? 0, -1, 1)
+  }
+&nbsp;
+  process(n: number, inputs: Record&lt;string, Float32Array&gt;, out: Float32Array, ctx: DspContext): void {
+    const input = inputs['in']!
+    // Neutral settings are the identity — skip the followers entirely (the
+    // general path would compute r^0 === 1 and multiply by it, same result).
+    if (this.attack === 0 &amp;&amp; this.sustain === 0) {
+      for (let i = 0; i &lt; n; i++) out[i] = input[i]!
+      return
+    }
+    if (ctx.sampleRate !== this.sr) {
+      this.sr = ctx.sampleRate
+      this.fastAtk = coeff(FAST_ATTACK_MS, this.sr)
+      this.fastRel = coeff(FAST_RELEASE_MS, this.sr)
+      this.deripple = coeff(DERIPPLE_MS, this.sr)
+      this.slowK = coeff(SLOW_MS, this.sr)
+    }
+    const atkExp = this.attack
+    const susExp = -this.sustain
+    let ef = this.envFast
+    let em = this.envSmooth
+    let es = this.envSlow
+&nbsp;
+    for (let i = 0; i &lt; n; i++) {
+      const x = input[i]!
+      const ax = x &lt; 0 ? -x : x
+      ef += (ax - ef) * (ax &gt; ef ? this.fastAtk : this.fastRel)
+      em += (ef - em) * this.deripple
+      es += (em - es) * this.slowK
+      const r = clamp((em + EPS) / (es + EPS), MIN_RATIO, MAX_RATIO)
+      // r &gt; 1 is the onset half of the detector, r &lt; 1 the tail half; both
+      // exponents give exactly 1 at r === 1, so the gain never steps.
+      const g = clamp(Math.pow(r, r &gt; 1 ? atkExp : susExp), MIN_GAIN, MAX_GAIN)
+      out[i] = x * g
+    }
+&nbsp;
+    this.envFast = flush(ef)
+    this.envSmooth = flush(em)
+    this.envSlow = flush(es)
+  }
+&nbsp;
+  reset(): void {
+    this.envFast = 0
+    this.envSmooth = 0
+    this.envSlow = 0
+  }
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-08T13:32:06.208Z
+            </div>
+        <script src="../../../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../../../sorter.js"></script>
+        <script src="../../../../block-navigation.js"></script>
+    </body>
+</html>
+    

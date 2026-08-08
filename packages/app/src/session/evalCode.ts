@@ -159,9 +159,11 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
  *  instead of keeping a second copy that drifts (docs.test.ts). */
 export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'visual', 'bus', 'sing', '__rcTap'])
 
-/** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
-const DEFAULT_SIDECHAIN_DEPTH = 0.6
-const DEFAULT_SIDECHAIN_RELEASE_SEC = 0.18
+/** DSL sidechain defaults (release in SECONDS, converted to ms downstream).
+ *  Exported so the editor's duck-curve widget can draw the shape an omitted
+ *  arg actually makes rather than keeping a third copy of these numbers. */
+export const DEFAULT_SIDECHAIN_DEPTH = 0.6
+export const DEFAULT_SIDECHAIN_RELEASE_SEC = 0.18
 
 /** Lines added ahead of user code inside the compiled function: V8 renders
  *  `new Function(a, b, body)` as `function anonymous(a,b\n) {\n<body>\n}`

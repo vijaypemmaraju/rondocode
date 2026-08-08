@@ -607,4 +607,27 @@ export const MUTATIONS: Mutation[] = [
     replace: '    if (false) return fallback',
     tests: 'packages/rondo/test/compile.test.ts',
   },
+
+  /* ---- the mic channel strip example: its comments are claims ------------ */
+  {
+    label: 'example: the strip loses its gate (room tone comes through)',
+    file: 'packages/app/src/examples/index.ts',
+    find: '  noisegate threshold:-42 range:-35 hold:60 release:120\n  eq hp 90 peak 3000 2 1.2',
+    replace: '  eq hp 90 peak 3000 2 1.2',
+    tests: 'packages/app/test/mic-strip-example.test.ts',
+  },
+  {
+    label: 'example: the strip loses its limiter (no ceiling)',
+    file: 'packages/app/src/examples/index.ts',
+    find: '    limiter ceiling:-1 lookahead:5',
+    replace: '',
+    tests: 'packages/app/test/mic-strip-example.test.ts',
+  },
+  {
+    label: 'example: the compressor is turned off (ratio 1)',
+    file: 'packages/app/src/examples/index.ts',
+    find: '  compress threshold:-20 ratio:3 attack:8 release:120 makeup:6',
+    replace: '  compress threshold:-20 ratio:1 attack:8 release:120 makeup:6',
+    tests: 'packages/app/test/mic-strip-example.test.ts',
+  },
 ]

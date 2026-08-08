@@ -607,6 +607,12 @@ const SYNTH_CTX: DocEntry[] = [
     'input.mix(chorus(input, { rate: 0.6, depth: 0.004 }), 1)',
   ),
   sc(
+    'deess',
+    'deess(input, opts?: { freq, threshold, ratio, attack, release })',
+    'A DE-ESSER: a compressor that only hears the sibilance. "s", "sh" and "t" carry far more energy than the vowels around them, and a close mic plus a compressor turns them into blades -- but a broadband compressor cannot fix it, because ducking enough to tame the "s" ducks the whole word with it. This splits the signal at freq (Hz, def 6000; 4000-6000 for a low voice, 6000-9000 for a bright one) and compresses the HIGH band alone, so the vowels are not merely un-ducked, they never enter the detector path. threshold dB (def -30), ratio (def 4), attack ms (def 1, because sibilance is a transient), release ms (def 60). The two bands sum back to the input exactly, so below the threshold it is a bit-for-bit passthrough.',
+    "deess(mic(), { freq: 6500, threshold: -28, ratio: 5 })",
+  ),
+  sc(
     'noisegate',
     'noisegate(input, opts?: { threshold, range, attack, hold, release, hysteresis })',
     'A NOISE GATE: turns QUIET things down, which is the opposite of a compressor and the problem a live stage has -- kit bleed into a vocal mic, amp hiss, room tone that becomes feedback the moment you add gain. threshold is the level it opens at in dB (def -40); range is how far it pushes the signal down when closed, in dB (def -60, but -20 to -40 is usually better on a voice: a fully muted gate is audible as a hole, a partial one just removes the bleed). attack ms (def 1, because a slow one eats the front of a consonant), release ms (def 100). Two settings stop it misbehaving: hold is the minimum time it stays open after the level drops (def 50 ms), which keeps a sung word from being chopped at every momentary dip, and hysteresis is how far BELOW threshold the level must fall before it starts closing (def 3 dB), which stops a signal parked at the threshold from stuttering open and shut.',

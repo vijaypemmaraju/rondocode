@@ -462,4 +462,41 @@ export const MUTATIONS: Mutation[] = [
     replace: "'compress', 'phaser'",
     tests: 'packages/app/test/one-structural-list.test.ts packages/rondo/test/fuzz.test.ts',
   },
+
+  /* ---- the de-esser: selectivity is the whole contract ------------------- */
+  {
+    label: 'deess: the detector goes full-band, so a vowel ducks the sibilance',
+    file: 'packages/engine/src/dsp/deess.ts',
+    find: '      const lin = Math.abs(det)',
+    replace: '      const lin = Math.abs(x)',
+    tests: 'packages/engine/test/deess.test.ts',
+  },
+  {
+    label: 'deess: the LOW band gets ducked too (a broadband compressor again)',
+    file: 'packages/engine/src/dsp/deess.ts',
+    find: '      out[i] = low + high * g',
+    replace: '      out[i] = (low + high) * g',
+    tests: 'packages/engine/test/deess.test.ts',
+  },
+  {
+    label: 'deess: the detector falls back to the leaky subtracted band',
+    file: 'packages/engine/src/dsp/deess.ts',
+    find: '      const lin = Math.abs(det)',
+    replace: '      const lin = Math.abs(high)',
+    tests: 'packages/engine/test/deess.test.ts',
+  },
+  {
+    label: 'deess: the split collapses to one pole and stops separating',
+    file: 'packages/engine/src/dsp/deess.ts',
+    find: '      low2 += (low1 - low2) * this.lp',
+    replace: '      low2 = low1',
+    tests: 'packages/engine/test/deess.test.ts',
+  },
+  {
+    label: 'deess: it ducks below the threshold as well as above',
+    file: 'packages/engine/src/dsp/deess.ts',
+    find: '  if (over <= 0) return 1',
+    replace: '  if (over <= -200) return 1',
+    tests: 'packages/engine/test/deess.test.ts',
+  },
 ]

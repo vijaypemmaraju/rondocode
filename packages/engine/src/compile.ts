@@ -38,6 +38,7 @@ import type { PluckConfig, ModalConfig } from './dsp/physical'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
 import { GateKernel } from './dsp/gate'
+import { DeessKernel } from './dsp/deess'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
 import { ExciterKernel } from './dsp/exciter'
@@ -52,6 +53,7 @@ import { FlangerKernel } from './dsp/flanger'
 import type { FlangerConfig } from './dsp/flanger'
 import type { CompressConfig } from './dsp/compress'
 import type { GateConfig } from './dsp/gate'
+import type { DeessConfig } from './dsp/deess'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
  *  may render any n <= BLOCK. */
@@ -194,6 +196,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   shape: [{ name: 'in' }, { name: 'drive', def: 1 }],
   compress: [{ name: 'in' }],
   noisegate: [{ name: 'in' }],
+  deess: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
   vocoder: [{ name: 'carrier' }, { name: 'modulator' }],
@@ -276,6 +279,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   shape: (c) => new ShapeKernel((c['type'] as ShapeType | undefined) ?? 'soft'),
   compress: (c) => new CompressKernel(compressCfg(c)),
   noisegate: (c) => new GateKernel(gateCfg(c)),
+  deess: (c) => new DeessKernel(deessCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
   vocoder: (c, ctx) => new VocoderKernel(c as VocoderConfig, ctx),
@@ -354,6 +358,14 @@ const compressCfg = (c: Record<string, unknown>): CompressConfig => {
 const gateCfg = (c: Record<string, unknown>): GateConfig => {
   const out: GateConfig = {}
   for (const k of ['threshold', 'range', 'attack', 'hold', 'release', 'hysteresis'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const deessCfg = (c: Record<string, unknown>): DeessConfig => {
+  const out: DeessConfig = {}
+  for (const k of ['freq', 'threshold', 'ratio', 'attack', 'release'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out

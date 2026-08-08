@@ -195,4 +195,173 @@ export const MUTATIONS: Mutation[] = [
     replace: 'export function decompile(src_UNUSED_FOR_MUTATION: string): string { return "" }\nfunction decompileReal(',
     tests: 'packages/app/test/cookbook.test.ts',
   },
+
+  /* ======================================================================= *
+   * THE OLDER CODE. The mutations above cover work added recently, which is
+   * the code most likely to be remembered and least likely to have rotted.
+   * These cover the load-bearing parts that have been stable long enough for
+   * a contract to go quietly unasserted.
+   * ======================================================================= */
+
+  /* ---- pattern: the arithmetic everything else stands on ----------------- */
+  {
+    label: 'fraction: results stop reducing to lowest terms',
+    file: 'packages/pattern/src/fraction.ts',
+    find: 'const g = gcd(Math.abs(n), d) // >= 1: d is positive here',
+    replace: 'const g = 1 // >= 1: d is positive here',
+    tests: 'packages/pattern/test/fraction.test.ts',
+  },
+  {
+    label: 'scales: the minor scale gets a major seventh',
+    file: 'packages/pattern/src/scales.ts',
+    find: 'minor: [0, 2, 3, 5, 7, 8, 10],',
+    replace: 'minor: [0, 2, 3, 5, 7, 8, 11],',
+    tests: 'packages/pattern/test/scales.test.ts',
+  },
+  {
+    label: 'scales: a degree past the scale length stops climbing octaves',
+    file: 'packages/pattern/src/scales.ts',
+    find: 'return intervals[idx]! + period * oct',
+    replace: 'return intervals[idx]!',
+    tests: 'packages/pattern/test/scales.test.ts',
+  },
+  {
+    label: 'euclid: a saturated rhythm (pulses >= steps) goes silent',
+    file: 'packages/pattern/src/euclid.ts',
+    find: 'if (pulses >= steps) return new Array<boolean>(steps).fill(true)',
+    replace: 'if (pulses >= steps) return new Array<boolean>(steps).fill(false)',
+    tests: 'packages/pattern/test/euclid.test.ts',
+  },
+  {
+    label: 'chords: drop2 drops the wrong voice',
+    file: 'packages/pattern/src/chords.ts',
+    find: 'drop2: (ns) => ns.map((x, i) => (i === ns.length - 2 ? x - 12 : x)),',
+    replace: 'drop2: (ns) => ns.map((x, i) => (i === ns.length - 3 ? x - 12 : x)),',
+    tests: 'packages/pattern/test/chords.test.ts',
+  },
+  {
+    label: 'midi export: the tick division silently halves',
+    file: 'packages/pattern/src/midiExport.ts',
+    find: 'const tpq = opts.ticksPerQuarter ?? 480',
+    replace: 'const tpq = opts.ticksPerQuarter ?? 240',
+    tests: 'packages/pattern/test/midiExport.test.ts',
+  },
+
+  /* ---- engine: the last line of defence before the speakers -------------- */
+  {
+    label: 'engine: the master clip ceiling stops clipping',
+    file: 'packages/engine/src/realtime.ts',
+    find: 'export const CLIP_THRESHOLD = 0.95',
+    replace: 'export const CLIP_THRESHOLD = 100',
+    tests: 'packages/engine/test/realtime.test.ts',
+  },
+  {
+    label: 'engine: a NaN sample reaches the output instead of being zeroed',
+    file: 'packages/engine/src/realtime.ts',
+    find: 'Number.isFinite(v) ? softClipTanh(v, CLIP_THRESHOLD) : 0',
+    replace: 'softClipTanh(v, CLIP_THRESHOLD)',
+    tests: 'packages/engine/test/realtime.test.ts',
+  },
+  {
+    label: 'compressor: the knee band stops easing (the engine kernel)',
+    file: 'packages/engine/src/dsp/compress.ts',
+    find: 'const slope = 1 - 1 / ratio // 0 at 1:1, ->1 at ∞:1',
+    replace: 'const slope = 1 // 0 at 1:1, ->1 at ∞:1',
+    tests: 'packages/engine/test/compress.test.ts packages/app/test/compcurve.test.ts',
+  },
+
+  /* ---- the app: tempo and the export ceiling ---------------------------- */
+  {
+    label: 'session: the cps clamp lets a program run at any tempo',
+    file: 'packages/app/src/session/evalCode.ts',
+    find: 'export const clampCps = (x: number): number => Math.min(4, Math.max(0.05, x))',
+    replace: 'export const clampCps = (x: number): number => x',
+    tests: 'packages/app/test/evalCode.test.ts',
+  },
+  {
+    label: 'render: the 0.89 peak ceiling stops applying',
+    file: 'packages/server/src/render-runner.ts',
+    find: 'const normalized = peak > 0.89',
+    replace: 'const normalized = false && peak > 0.89',
+    tests: 'packages/server/test/render-runner.test.ts',
+  },
+
+  /* ---- pattern: the seams a partial query window exposes ----------------- */
+  {
+    label: 'types: a hap that merely OVERLAPS the window counts as an onset',
+    file: 'packages/pattern/src/types.ts',
+    find: 'return h.whole !== undefined && h.whole.begin.eq(h.part.begin)',
+    replace: 'return h.whole !== undefined',
+    tests: 'packages/pattern/test/types.test.ts packages/pattern/test/scheduler.test.ts',
+  },
+  {
+    label: 'scheduler: a window is re-queried, so onsets fire twice',
+    file: 'packages/pattern/src/scheduler.ts',
+    find: 'this.queried = end',
+    replace: '',
+    tests: 'packages/pattern/test/scheduler.test.ts',
+  },
+  {
+    label: 'rand: the time hash stops depending on the DENOMINATOR',
+    file: 'packages/pattern/src/rand.ts',
+    find: '  h = mix(h, dLo)\n  h = mix(h, dHi)',
+    replace: '',
+    tests: 'packages/pattern/test/signal.test.ts packages/pattern/test/combinators.test.ts',
+  },
+  {
+    label: 'midi import: running status is not reused (events go unparsed)',
+    file: 'packages/pattern/src/midi.ts',
+    find: 'status = running // running status: reuse last status byte',
+    replace: '// running status dropped',
+    tests: 'packages/pattern/test/midi.test.ts packages/app/test/midi-import.test.ts',
+  },
+
+  /* ---- rondo: the two languages, and where errors point ------------------ */
+  {
+    label: 'format: formatting is no longer idempotent',
+    file: 'packages/rondo/src/format.ts',
+    find: 'export function formatRondo(src: string): string {',
+    replace: 'export function formatRondo(src: string): string {\n  if (src.endsWith("\\n\\n")) return src.slice(0, -1)',
+    tests: 'packages/rondo/test/format.test.ts packages/app/test/format.test.ts',
+  },
+
+  /* ---- the singing pipeline: numeric code with no ear on it -------------- */
+  {
+    label: 'sing: F0 estimation takes the FIRST peak, not the best one',
+    file: 'packages/app/src/sing/psola.ts',
+    find: 'const minLag = Math.floor(sr / fmax)',
+    replace: 'const minLag = Math.max(1, Math.floor(sr / fmax) >> 1)',
+    tests: 'packages/app/test/psola.test.ts',
+  },
+  {
+    label: 'sing: forced alignment cannot stay in a state (no self-loop)',
+    file: 'packages/app/src/sing/forcedalign.ts',
+    find: 'for (let s = 0; s < S; s++) ext[s] = s % 2 === 0 ? blank : tokens[(s - 1) >> 1]!',
+    replace: 'for (let s = 0; s < S; s++) ext[s] = s % 2 === 1 ? blank : tokens[(s - 1) >> 1] ?? blank',
+    tests: 'packages/app/test/forcedalign.test.ts',
+  },
+
+  /* ---- the visual API, which the docs table is generated FROM ------------ */
+  {
+    label: 'viz: a uniform is exposed to shaders but not in the struct',
+    file: 'packages/app/src/shaderviz/api.ts',
+    find: "const scalars = VIZ_GLOBALS.filter((g) => g.type === 'f32')",
+    replace: "const scalars = VIZ_GLOBALS.filter((g) => g.type === 'f32').slice(1)",
+    tests: 'packages/app/test/viz-api.test.ts packages/app/test/docs.test.ts',
+  },
+
+  {
+    label: 'sing: estimateF0 ignores the fmax it was handed',
+    file: 'packages/app/src/sing/psola.ts',
+    find: 'const minLag = Math.floor(sr / fmax)',
+    replace: 'const minLag = Math.floor(sr / 500)',
+    tests: 'packages/app/test/psola.test.ts',
+  },
+  {
+    label: 'sing: a silent frame is treated as pitched instead of skipped',
+    file: 'packages/app/src/sing/psola.ts',
+    find: 'if (e0 < 1e-6) continue',
+    replace: '',
+    tests: 'packages/app/test/psola.test.ts',
+  },
 ]

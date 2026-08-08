@@ -170,3 +170,28 @@ describe('the README says which view is still rondo-only', () => {
     expect(JS_SCAN.filters(c.code, JS_SCAN.knobs(c.code)).length).toBeGreaterThan(0)
   })
 })
+
+/* THE NEWEST WIDGETS ARE RONDO-ONLY, and this says so out loud.
+ *
+ * The list above is hand-maintained, so a widget family registered straight
+ * into build() — as the compressor and sidechain curves were — is invisible to
+ * it: the suite stayed green while the README's "they work in both" claim
+ * quietly stopped being true. A docs audit found that, which is later than a
+ * test should.
+ *
+ * Naming them here turns a silent gap into a stated one. Deleting an entry is
+ * how you record that a family reached JS; the test then holds it to parity
+ * like every other. */
+describe('the families that are still rondo-only', () => {
+  const RONDO_ONLY = ['compressors', 'ducks'] as const
+
+  it('is exactly the compressor and sidechain curves', () => {
+    expect([...RONDO_ONLY]).toEqual(['compressors', 'ducks'])
+  })
+
+  it('and none of them pretends to be in the parity list', () => {
+    // if one gets a JS scanner it belongs in FAMILIES, not here — being in
+    // both would mean the parity check and this claim disagree
+    for (const name of RONDO_ONLY) expect(FAMILIES).not.toContain(name)
+  })
+})

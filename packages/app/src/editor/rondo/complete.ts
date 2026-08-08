@@ -162,8 +162,10 @@ export function optionsFor(
   ctx: { locals: string[]; macros: string[] },
 ): Completion[] {
   if (where.kind === 'named') {
+    // null = a RUNTIME set (a connected device, a loaded sample): the slot
+    // takes a bare word, but there is no list to offer
     const values = ENUM_VALUE_TABLE[where.builtin]?.named?.[where.arg]
-    if (values === undefined) return []
+    if (values === undefined || values === null) return []
     return values.map((v) => opt(v, 'enum', `${where.builtin} ${where.arg}:${v}`))
   }
 

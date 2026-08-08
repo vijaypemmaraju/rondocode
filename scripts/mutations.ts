@@ -592,4 +592,19 @@ export const MUTATIONS: Mutation[] = [
     replace: "  mirrorDir: '/Users/vijaypemmaraju/Dropbox/rondocode-renders',",
     tests: 'packages/app/test/repo-hygiene.test.ts',
   },
+
+  {
+    label: 'parser: a named arg binds to the nearest call, not the nearest that ACCEPTS it',
+    file: 'packages/rondo/src/parser.ts',
+    find: "    if (spec?.named?.[peeked.v] === undefined) {\n      c.decline(peeked.v, by)\n      break\n    }",
+    replace: '',
+    tests: 'packages/rondo/test/compile.test.ts packages/app/test/mic-device.test.ts',
+  },
+  {
+    label: 'parser: the "no such named arg" diagnostic degrades to "unexpected tokens"',
+    file: 'packages/rondo/src/parser.ts',
+    find: '    if (by !== undefined) return `\\`${by}\\` has no \\`${arg}:\\` argument`',
+    replace: '    if (false) return fallback',
+    tests: 'packages/rondo/test/compile.test.ts',
+  },
 ]

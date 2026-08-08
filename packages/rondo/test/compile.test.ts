@@ -594,9 +594,29 @@ describe('rondo → rondocode codegen', () => {
     expect(ok(`synth c\n  sample take1 reverse:0\n`)).toContain("sample(gate, 'take1', { reverse: false })")
   })
 
-  it('rejects a named arg the builtin does not declare', () => {
-    failsAt(`synth s\n  supersaw wobble:3\n`, '`supersaw` has no `wobble:` argument', 2, 3)
-    failsAt(`synth s\n  sample take1 slice:3\n`, '`sample` has no `slice:` argument', 2, 3)
+  it('rejects a named arg the builtin does not declare, AT the argument', () => {
+    /* The column moved from the start of the call to the offending argument
+     * itself (3 -> 12 / 16) when named args started binding to the nearest
+     * call that ACCEPTS them. That is the better place for it: the author was
+     * looking at `wobble:` when they typed it, not at `supersaw`. */
+    failsAt(`synth s\n  supersaw wobble:3\n`, '`supersaw` has no `wobble:` argument', 2, 12)
+    failsAt(`synth s\n  sample take1 slice:3\n`, '`sample` has no `slice:` argument', 2, 16)
+  })
+
+  it('a named arg binds to the nearest call that ACCEPTS it, not the nearest call', () => {
+    /* `supersaw` declares `detune:` and not `bands:`, so `bands:` belongs to
+     * the vocoder wrapped around it. This used to be a parse error, and it is
+     * why giving `mic` a `device:` argument broke `vocoder mic bands:24`:
+     * adding a named argument to a NESTED builtin must not change how a
+     * following one binds. */
+    const out = ok(`synth s\n  vocoder supersaw detune:.4 bands:16\n`)
+    expect(out).toContain('{ detune: 0.4 }')
+    expect(out).toContain('{ bands: 16 }')
+  })
+
+  it('and still rejects one that NOBODY takes', () => {
+    // walking outward must not turn a typo into silence
+    failsAt(`synth s\n  vocoder supersaw nonsense:1\n`, 'has no `nonsense:` argument', 2, 20)
   })
 
   it('synth header voice options → the synth() opts arg', () => {

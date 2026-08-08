@@ -204,7 +204,7 @@ function argChips(doc: string, pos: number): Chip[] | null {
   const where = rondoPositionAt(doc, pos)
   if (where.kind === 'named') {
     const values = ENUM_VALUE_TABLE[where.builtin]?.named?.[where.arg]
-    if (values !== undefined && values.length > 0) return values.map((v) => chip(v, v, 'kw'))
+    if (values !== undefined && values !== null && values.length > 0) return values.map((v) => chip(v, v, 'kw'))
     /* A value slot whose values are NOT an enum — `res:`, `voices:`, any
      * number or signal. Falling through to the block chips here is what made
      * `supersaw voices:` offer to start a new oscillator, so do not: an

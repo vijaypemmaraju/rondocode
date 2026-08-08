@@ -1751,6 +1751,7 @@ bpm 132`,
         [
           ['`ladder 900`', 'the running signal, cutoff 900. A processor takes the running signal implicitly, so you never name it.'],
           ['`ladder 900 res:.4`', 'positionals first, then named. A named argument SEALS the list: a bare word after `res:.4` is an error rather than another positional.'],
+          ['`vocoder mic bands:24`', 'a named argument binds to the nearest call that ACCEPTS it. `mic` does not take `bands:`, so the vocoder does. Adding a named argument to a nested call never changes where a following one lands.'],
           ['`svf cut res:.3`', 'a positional may be a binding name, not just a number.'],
           ['`mix saw note .3`', 'nested call as an argument. `saw note` is closed, so .3 belongs to `mix`.'],
           ['`reverb input room:.7`', 'an ERROR on a chain line: the input is already implicit, so this is one argument too many. `input` is for bindings that need the incoming signal by name.'],

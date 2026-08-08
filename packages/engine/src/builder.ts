@@ -365,7 +365,11 @@ export interface SynthCtx {
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
-  mic(): Sig
+  /** The live microphone. `device` names which input to open — an id or any
+   *  part of the device's label ('scarlett'), matched by the host. It is
+   *  config the GRAPH never reads: the capture is opened on the main thread,
+   *  so this is how the program tells it what to open. */
+  mic(opts?: { device?: string }): Sig
 }
 
 /** The post graph's build context: a SEPARATE build (its own node-id space)
@@ -471,7 +475,11 @@ export interface PostCtx {
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
-  mic(): Sig
+  /** The live microphone. `device` names which input to open — an id or any
+   *  part of the device's label ('scarlett'), matched by the host. It is
+   *  config the GRAPH never reads: the capture is opened on the main thread,
+   *  so this is how the program tells it what to open. */
+  mic(opts?: { device?: string }): Sig
 }
 
 /** User-facing voice options passed to synth() — every field optional. See
@@ -970,7 +978,7 @@ const makeShared = (b: Builder) => {
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
     // LIVE MIC: the device microphone as a signal (silence offline / when no
     // mic is connected). Use headphones — a speaker feeding the mic howls.
-    mic: (): Sig => b.node('mic', {}),
+    mic: (opts?: { device?: string }): Sig => b.node('mic', {}, definedConfig({ device: opts?.device })),
   }
 }
 

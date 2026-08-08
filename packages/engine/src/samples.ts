@@ -62,3 +62,19 @@ export function sampleNamesIn(graph: { nodes: { type: string; config?: Record<st
 export function usesMicIn(graph: { nodes: { type: string }[] }): boolean {
   return graph.nodes.some((n) => n.type === 'mic')
 }
+
+/** The input device a graph's mic() asks for, if any — an id or part of a
+ *  label. Lives beside usesMicIn because it is the SAME walk over the same
+ *  node type, and two walks are how they drift. First one wins: a program
+ *  with two mic() calls naming different devices has asked for something the
+ *  hardware cannot do. */
+export function micDeviceIn(
+  graph: { nodes: { type: string; config?: Record<string, unknown> }[] },
+): string | undefined {
+  for (const n of graph.nodes) {
+    if (n.type !== 'mic') continue
+    const d = n.config?.['device']
+    if (typeof d === 'string' && d !== '') return d
+  }
+  return undefined
+}

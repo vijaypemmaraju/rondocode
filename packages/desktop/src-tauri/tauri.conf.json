@@ -42,7 +42,6 @@
       "icons/icon.png"
     ],
     "macOS": {
-      "signingIdentity": "Developer ID Application: Vijay Pemmaraju (VBU344XYXP)",
       "hardenedRuntime": true,
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "10.15",

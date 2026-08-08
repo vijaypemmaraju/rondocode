@@ -112,10 +112,23 @@ Both keep the dependency list at tauri + serde + core-foundation.
 
 ## Signed + notarized builds
 
-`cargo tauri build` signs automatically: the identity, hardened runtime and
-entitlements live in `tauri.conf.json`, so a plain build already produces a
-`.app` and `.dmg` signed by **Developer ID Application (VBU344XYXP)** with a
-full Apple chain.
+`cargo tauri build` signs automatically. The hardened runtime and entitlements
+live in `tauri.conf.json`; the IDENTITY does not, and deliberately.
+
+Set it in the environment instead:
+
+```sh
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+cargo tauri build
+```
+
+A hardcoded identity is not a secret -- a Team ID is public, and `codesign
+-dvvv` reads it straight off any signed `.app` -- but it makes this repo
+unbuildable for anyone else. Without your certificate in their Keychain the
+build fails, and the only way past it is editing a tracked file, which then
+shows up as a dirty diff in every clone. With the identity unset, `cargo tauri
+build` produces an unsigned `.app` that runs locally, which is what a
+contributor actually wants.
 
 The entitlements are not boilerplate — each one is load-bearing:
 

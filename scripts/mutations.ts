@@ -673,4 +673,11 @@ export const MUTATIONS: Mutation[] = [
     replace: '      return out\n    })\n  }\n  return reify(x).withValue',
     tests: 'packages/pattern/test/note-expression.test.ts',
   },
+
+  // NOT mutated: the per-note CURVE is a composition of primitives, not new
+  // shipped code — a synth blending two envelopes by a per-note param. There
+  // is nothing to break but the test's own fixture, and a mutation of that
+  // proves nothing. The data flow it depends on IS pinned, by the four
+  // `notation:`/`controls:` mutations above; the audio is pinned by
+  // note-curve.test.ts.
 ]

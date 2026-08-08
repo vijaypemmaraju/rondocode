@@ -9,6 +9,7 @@ import { mountSynthLib } from './editor/synthlib'
 import { mountShaderViz } from './shaderviz/shaderviz'
 import { mountProbes } from './editor/probes'
 import { mountOptions } from './ui/options'
+import { getSetting } from './ui/settings'
 import { mountTour } from './ui/tour'
 import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
@@ -104,7 +105,20 @@ AudioSession.start().then(
     // anchors (docs button, chip bar) exist; auto-shows for first-time
     // visitors only (never over a share link).
     const tour = mountTour(editor, { library })
-    mountOptions(editor, { showTour: () => tour.start() }) // user settings popover (gear)
+    /* The saved rig, applied before anything listens. Output routing takes
+     * effect immediately; the input choice is held until mic() actually opens
+     * a capture, so this never triggers a permission prompt on its own. */
+    void audio.setPreferredDevices(getSetting('inputDevice'), getSetting('outputDevice'))
+      .catch((e) => console.warn('[audio] preferred devices', e))
+    mountOptions(editor, {
+      showTour: () => tour.start(),
+      audio: {
+        listDevices: () => audio.listDevices(),
+        setPreferredDevices: (i, o) => audio.setPreferredDevices(i, o),
+        latency: () => audio.latency(),
+        deviceWarnings: () => audio.deviceWarnings(),
+      },
+    }) // user settings popover (gear)
     mountMidi(editor, audio)
     mountHeaderOverflow(editor.topbar) // after every module has added its button
     startBridge(editor)

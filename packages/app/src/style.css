@@ -2287,3 +2287,42 @@ body.shaderviz-on .cm-content {
   line-height: 1;
 }
 .synthlib-del:hover { color: var(--c-warn); border-color: var(--c-warn); }
+
+/* ---- options: audio devices ---------------------------------------------- *
+ * A static (non-toggle) row shape, because a device choice is a SELECT rather
+ * than an on/off — .opt-row's pointer cursor and hover would otherwise promise
+ * that the whole row is tappable. */
+.opt-section {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-border);
+}
+.opt-section-head {
+  padding: 0 var(--sp-2) var(--sp-1);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-dim);
+}
+.opt-row-static {
+  cursor: default;
+}
+.opt-row-static:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.opt-select {
+  flex: 0 1 auto;
+  max-width: 12rem;
+  padding: 2px var(--sp-1);
+  background: var(--c-bg);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  font: inherit;
+  font-size: 0.8rem;
+}
+.opt-audio-status {
+  padding: var(--sp-1) var(--sp-2) 0;
+  font-variant-numeric: tabular-nums;
+}

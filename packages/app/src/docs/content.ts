@@ -1057,6 +1057,9 @@ play talkbox
 cps .45`,
       ),
       p("The JS spelling is `mic()`: `vocoder(supersaw(note.freq), mic(), { bands: 24 })`. The shipped 'live mic' example layers this vocoder with a breathy hi-passed copy of the raw mic for intelligibility."),
+      p('A LIVE CHANNEL STRIP is the other thing the mic is for: not an effect on your voice, but the chain a stage needs in front of it. `noisegate` first (it removes the bleed and the room tone before anything amplifies them), then `deess`, then `compress`, and `limiter` last if the ceiling matters. Each is documented on its own in the reference; the order is the point.'),
+      p('The channel is kept open by a HELD note: `dur: .99` on a one-note pattern. That looks like it should click on every retrigger and it does not: with no envelope on the spine there is nothing to re-attack, and the largest sample-to-sample step across a retrigger measures smaller than the signal\'s own slope.'),
+      note('Turn ECHO CANCELLATION on in options when you are playing through a speaker rather than headphones. On a phone it is on by default, because the speaker is a couple of centimetres from the microphone and a live chain would otherwise howl. It costs some latency and may resample, so a take that matters still wants the raw signal and headphones. The options panel shows the measured round trip either way.'),
     ],
   },
   {

@@ -65,7 +65,7 @@ const GLOBALS: DocEntry[] = [
   g(
     'chord',
     'chord(names: string | Pattern<string>)',
-    "Named chords, each expanded to a stack of notes (root octave 3). Qualities: maj min 7 maj7 m7 dim aug sus2 sus4 sus 6 m6 add9 9 m9 maj9 11 13 m7b5, added tones that keep the third (2/add2, 4/add4, add11), plus slash bass (C/E). Pair with .arp() to arpeggiate.",
+    "Named chords, each expanded to a stack of notes (root octave 3). Triads: maj (also major, M, or a bare root), min (also minor, m), dim, aug, and 5 for the bare fifth. Sevenths: 7 (dom7), maj7 (M7), m7 (min7), m7b5, dim7. Sixths: 6, m6 (min6). Extensions: 9, maj9, m9, 11, m11, 13, m13. Suspended: sus2, sus4 (sus), 7sus4. Added tones, which keep the third: 2/add2, 4/add4, add9, add11, each with a minor form (m2/madd2, m4/madd4, madd9, madd11). Plus slash bass (C/E). Pair with .arp() to arpeggiate.",
     "chord('<Cmaj7 Am7 Dm7 G7>').sound('keys')",
   ),
   g(

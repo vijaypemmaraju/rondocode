@@ -8,6 +8,9 @@ import { STAGING_NAMES } from '../src/session/evalCode'
 import type { PostCtx, Sig, SynthCtx } from '@rondocode/engine'
 import { baseScope } from '../src/session/scope'
 import { DSL_DOCS, docsByName, docsOfKind } from '../src/docs/dsl-docs'
+import { BLOCK_KEYWORDS } from '@rondocode/rondo'
+import { CHORD_QUALITIES } from '@rondocode/pattern'
+import type { TableBlock } from '../src/docs/content'
 
 /* ------------------------------------------------------------------------- *
  * Anti-drift: the docs data is pinned BIDIRECTIONALLY against the live
@@ -360,5 +363,72 @@ describe('copy accuracy (claims must match the code)', () => {
 
   it('does not claim an export is identical to what you heard', () => {
     expect(text).not.toMatch(/identical to what you (just )?heard/i)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * THE INVENTORIES, pinned to the code that defines them.
+ *
+ * An audit found the rondo cheat sheet promising "every block shape in the
+ * language" while missing six of them (`patdef`, `timesig`, `level`, `macro`,
+ * `switch`, `curvedef`), and the chord blurb listing a subset of the qualities
+ * the parser accepts — including three the very commit that touched it had
+ * just added. Both are the repo's usual bug: a list maintained by hand, with
+ * nothing to notice when the real one grows.
+ *
+ * These do NOT check that the prose is good, only that it NAMES everything.
+ * A row that says nothing useful still passes — but a keyword that exists and
+ * is nowhere on the page cannot.
+ * ------------------------------------------------------------------------- */
+
+describe('the rondo cheat sheet really is every block shape', () => {
+  const cheatSheet = ((): TableBlock => {
+    const t = SECTIONS.flatMap((s) => s.blocks).find(
+      (b): b is TableBlock => b.kind === 'table' && (b.caption ?? '').startsWith('Cheat sheet'),
+    )
+    if (t === undefined) throw new Error('the cheat sheet table is gone — this suite would be vacuous')
+    return t
+  })()
+
+  const cells = cheatSheet.rows.map((r) => r[0] ?? '').join(' ')
+
+  it('names every top-level block keyword the parser dispatches on', () => {
+    // BLOCK_KEYWORDS is the parser's own list, imported rather than retyped:
+    // adding a keyword there and not here is exactly the drift this catches.
+    const missing = BLOCK_KEYWORDS.filter((k) => !new RegExp(`\`[^\`]*\\b${k}\\b`).test(cells))
+    expect(missing, 'block keywords absent from the cheat sheet').toEqual([])
+  })
+
+  it('names the body-level words too, which open nothing at the top level', () => {
+    // `post`/`send`/`sum`/`with` are not BLOCK_KEYWORDS (words.ts adds them for
+    // highlighting), and `sum` — the language's only loop — was undocumented.
+    for (const w of ['post', 'send', 'sum', 'with']) {
+      expect(cells, `\`${w}\` is a keyword with no cheat-sheet row`).toContain(w)
+    }
+  })
+
+  it('the guide explains each block keyword somewhere, not just the table', () => {
+    // a cheat-sheet row on its own is a reminder, not documentation
+    const prose = SECTIONS.flatMap((s) => s.blocks.map(blockText)).join(' ')
+    const unexplained = BLOCK_KEYWORDS.filter(
+      (k) => (prose.match(new RegExp(`\\b${k}\\b`, 'g')) ?? []).length < 2,
+    )
+    expect(unexplained, 'block keywords the guide only lists, never explains').toEqual([])
+  })
+})
+
+describe('the chord blurb names every quality the parser accepts', () => {
+  it('lists all of CHORD_QUALITIES, aliases included', () => {
+    const entry = (docsByName.get('chord') ?? []).find((e) => e.kind === 'global')
+    expect(entry, 'the chord DocEntry is gone').toBeDefined()
+    const blurb = entry!.summary
+    // word boundaries alone are not enough: `m7` appears inside `m7b5`, so a
+    // list naming only the longer one would pass. Each quality must appear
+    // where it is not immediately followed by more quality characters.
+    const missing = CHORD_QUALITIES.filter((q) => {
+      const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return !new RegExp(`(^|[^\\w])${esc}(?![\\w])`).test(blurb)
+    })
+    expect(missing, 'chord qualities the docs never name').toEqual([])
   })
 })

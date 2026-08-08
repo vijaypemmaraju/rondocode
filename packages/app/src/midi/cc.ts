@@ -272,7 +272,7 @@ export class CcRouter {
    *  The mappings themselves are kept: turning MIDI back on resumes the rig. */
   releaseHeld(): void {
     for (const key of this.held) {
-      const dot = key.indexOf(' ')
+      const dot = key.indexOf('\u0000')
       this.opts.release(key.slice(0, dot), key.slice(dot + 1))
     }
     this.held.clear()
@@ -332,12 +332,12 @@ export class CcRouter {
   }
 
   private apply(m: CcMapping, value: number): void {
-    this.held.add(`${m.synth} ${m.param}`)
+    this.held.add(`${m.synth}\u0000${m.param}`)
     this.opts.hold(m.synth, m.param, value)
   }
 
   private releaseOne(m: CcMapping): void {
-    const key = `${m.synth} ${m.param}`
+    const key = `${m.synth}\u0000${m.param}`
     if (!this.held.delete(key)) return
     this.opts.release(m.synth, m.param)
   }

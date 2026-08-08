@@ -31,8 +31,16 @@
  * fallback when one exists — a knob binding's DEF — with NO handle for that
  * arg (the text stays the only write surface for signals). When no static
  * value exists at all the line gets no curve: drawing a made-up cutoff would
- * lie. Live overlay of the playing response is deliberately out of scope for
- * v1 — the curve is static at the written values. */
+ * lie.
+ *
+ * The SHAPE is still static at the written values — that has not changed, and
+ * the honesty rules above are why. What moves is drawn from measurements the
+ * engine already makes: a dot at the cutoff, but only when the cutoff is
+ * knob-bound and therefore arrives in NoteEv.controls (a signal binding is
+ * computed in the audio graph and reaches no event, so it gets none); and a
+ * fill under the curve in proportion to that channel's metered level, which is
+ * what actually moves in a filter whose cutoff is a literal. Neither invents a
+ * number. */
 
 import { EditorView, WidgetType } from '@codemirror/view'
 import { activate } from './activation'
@@ -276,10 +284,10 @@ const staticArg = (tok: Token | undefined, knobs: ReadonlyMap<string, number>): 
  *  the signal-driven-cutoff fallback. Pure — unit tested. */
 export function scanFilters(text: string, knobs: readonly KnobMatch[] = []): FilterScan[] {
   const out: FilterScan[] = []
-  // knob DEF lookup: synth-scoped names ("synth name"); bus knobs don't exist
+  // knob DEF lookup: synth-scoped names ("synth\u0000name"); bus knobs don't exist
   const knobDefs = new Map<string, number>()
   for (const k of knobs) {
-    if (k.name !== undefined && k.synth !== undefined) knobDefs.set(`${k.synth} ${k.name}`, k.value)
+    if (k.name !== undefined && k.synth !== undefined) knobDefs.set(`${k.synth}\u0000${k.name}`, k.value)
   }
   let off = 0
   let block: string | undefined
@@ -301,7 +309,7 @@ export function scanFilters(text: string, knobs: readonly KnobMatch[] = []): Fil
     const scoped = new Map<string, number>()
     if (synth !== undefined) {
       for (const [key, v] of knobDefs) {
-        if (key.startsWith(`${synth} `)) scoped.set(key.slice(synth.length + 1), v)
+        if (key.startsWith(`${synth}\u0000`)) scoped.set(key.slice(synth.length + 1), v)
       }
     }
     const scan: FilterScan = {

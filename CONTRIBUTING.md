@@ -21,7 +21,11 @@ stale `.js` over the `.ts`. Always use `tsc --noEmit`.
 - **Tests pass.** Run `pnpm test` before opening a PR; add tests for new
   behavior. The pattern engine, DSP kernels, examples and docs all have
   coverage; new DSL names must be documented (`docs.test.ts` pins the docs
-  reference bidirectionally against the live scope).
+  reference bidirectionally against the live scope, the rondo cheat sheet
+  against the parser's `BLOCK_KEYWORDS`, and the chord blurb against
+  `CHORD_QUALITIES`). A new keyword or chord quality fails the docs suite until
+  the guide names it, which is deliberate: the inventories in the prose are
+  meant to be inventories.
 - **Match the surrounding style.** Small, focused commits; comments explain
   *why*, not *what*. Prefer the dedicated code over pulling in a dependency;
   the DSP engine, SMF parser, etc. are all hand-written on purpose.

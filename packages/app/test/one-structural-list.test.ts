@@ -180,3 +180,34 @@ describe('the other lists a sweep found duplicated', () => {
     expect(orphan).toEqual([])
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * NO RAW NUL BYTES IN SOURCE.
+ *
+ * Five files used a literal NUL as a key separator (a synth name, the byte,
+ * then a param name), written as the actual byte rather than as an escape.
+ * That is legal TypeScript and compiles fine -- and it makes `grep`, `file`
+ * and GitHub code search all classify the whole file as BINARY and skip it
+ * without saying so.
+ *
+ * Session.ts, jsscan.ts and filtercurve.ts were three of them, so a repo-wide
+ * search for anything they contain came back empty and read as an honest
+ * absence. A docs audit hit exactly that: grepping filtercurve.ts for the
+ * feature it had just shipped found nothing, and very nearly became a bug
+ * report about a feature that was working.
+ *
+ * The escape compiles to the identical byte at runtime and keeps the file
+ * text, so there is no reason to write the byte.
+ * ------------------------------------------------------------------------- */
+describe('source files stay greppable', () => {
+  const sources = ROOTS.flatMap((r) => files(join(__dirname, '../..', r)))
+
+  it('finds the source (a broken root list would make this suite vacuous)', () => {
+    expect(sources.length).toBeGreaterThan(100)
+  })
+
+  it('holds no raw NUL byte -- write the escape, not the byte itself', () => {
+    const binary = sources.filter((f) => readFileSync(f).includes(0))
+    expect(binary, 'files grep will silently skip').toEqual([])
+  })
+})

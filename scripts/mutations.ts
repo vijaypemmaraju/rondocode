@@ -574,4 +574,13 @@ export const MUTATIONS: Mutation[] = [
   // is never seen. Removing it leaves every test green because it genuinely
   // changes nothing today. It stays because a kernel that read a whole block
   // would otherwise see the previous chunk's audio, and it costs nothing.
+
+  /* ---- mic device, named from the code ----------------------------------- */
+  {
+    label: 'mic: a device named in the code never reaches the host',
+    file: 'packages/engine/src/samples.ts',
+    find: "    if (typeof d === 'string' && d !== '') return d",
+    replace: '    if (false) return String(d)',
+    tests: 'packages/app/test/mic-device.test.ts',
+  },
 ]

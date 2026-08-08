@@ -3,7 +3,7 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
 import type { ControlMap, Hap, TimeSig } from '@rondocode/pattern'
-import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
+import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, micDeviceIn, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -102,6 +102,18 @@ export function synthsUseMic(synths: ReadonlyMap<string, SynthDef>): boolean {
   // question (a mic voice is silent with no input device), and two walks of
   // the same node type is how they drift.
   return [...synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))
+}
+
+/** The input device the staged program asks for via `mic(device:…)`, if any.
+ *  The app hands this to AudioSession, where resolveDevice decides whether it
+ *  beats the saved setting (it does) and what to do when it is not plugged in
+ *  (fall back, and say so). */
+export function synthsMicDevice(synths: ReadonlyMap<string, SynthDef>): string | undefined {
+  for (const d of synths.values()) {
+    const from = micDeviceIn(d.graph) ?? (d.post !== undefined ? micDeviceIn(d.post) : undefined)
+    if (from !== undefined) return from
+  }
+  return undefined
 }
 
 export interface EvalResult {

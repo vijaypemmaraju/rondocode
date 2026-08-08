@@ -339,7 +339,12 @@ class SynthGen {
         this.errors.push({ message: `\`${name}\` has no \`${key}:\` argument`, line: e.pos.line, col: e.pos.col })
       }
     }
-    const opts = parts.length > 0 ? `, { ${parts.join(', ')} }` : ''
+    /* The leading comma belongs to the POSITIONALS, not to the options. A
+     * builtin with named args and NO positionals (`mic device:…` is the only
+     * one) emitted `mic(, { device: … })` while every other call happened to
+     * have something in front of the comma. */
+    const optBody = parts.length > 0 ? `{ ${parts.join(', ')} }` : ''
+    const opts = parts.length > 0 ? `, ${optBody}` : ''
 
     if (spec.kind === 'sigop') {
       // a Sig method on the input: input.tanh() / input.clip(-1, 1) / input.mix(other, t)
@@ -365,7 +370,7 @@ class SynthGen {
       // emitted twice — duplicated nodes waste the graph.
       return `((x) => x.mix(reverb(x${opts}), ${this.expr(e.named.mix)}))(${a[0]})`
     }
-    return `${name}(${a.join(', ')}${opts})`
+    return a.length > 0 ? `${name}(${a.join(', ')}${opts})` : `${name}(${optBody})`
   }
 
   /** eq: regroup the parser's flat [input, enum, num…] args into band objects.

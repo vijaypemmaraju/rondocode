@@ -458,8 +458,10 @@ export const MUTATIONS: Mutation[] = [
   {
     label: 'gate: the js{} escape cannot see noisegate (decompile fixed point)',
     file: 'packages/rondo/src/codegen.ts',
-    find: "'compress', 'noisegate', 'deess', 'phaser'",
-    replace: "'compress', 'phaser'",
+    // anchored on ONE token, not on its neighbours: this mutation went stale
+    // twice because every new node rewrote the names either side of it
+    find: "'noisegate', ",
+    replace: "",
     tests: 'packages/app/test/one-structural-list.test.ts packages/rondo/test/fuzz.test.ts',
   },
 
@@ -520,5 +522,42 @@ export const MUTATIONS: Mutation[] = [
     find: '  echoCancellation: true,\n  noiseSuppression: true,\n  autoGainControl: false,',
     replace: '  echoCancellation: true,\n  noiseSuppression: true,\n  autoGainControl: true,',
     tests: 'packages/app/test/devices.test.ts',
+  },
+
+  /* ---- the look-ahead limiter: the ceiling is a guarantee ---------------- */
+  {
+    label: 'limiter: the final clamp goes, so a release curve can overshoot',
+    file: 'packages/engine/src/dsp/limiter.ts',
+    find: '      const applied = g < needNow ? g : needNow',
+    replace: '      const applied = g',
+    tests: 'packages/engine/test/limiter.test.ts',
+  },
+  {
+    label: 'limiter: it looks at the current sample only, not the window',
+    file: 'packages/engine/src/dsp/limiter.ts',
+    find: '      const target = this.req[this.dq[this.dqHead]!]!',
+    replace: '      const target = need',
+    tests: 'packages/engine/test/limiter.test.ts',
+  },
+  {
+    label: 'limiter: gain reduction eases in instead of applying at once',
+    file: 'packages/engine/src/dsp/limiter.ts',
+    find: '      g = target < g ? target : g + (target - g) * this.rel',
+    replace: '      g = g + (target - g) * this.rel',
+    tests: 'packages/engine/test/limiter.test.ts',
+  },
+  {
+    label: 'limiter: below the ceiling it stops being a pure delay',
+    file: 'packages/engine/src/dsp/limiter.ts',
+    find: '  if (!(lin > ceilingLin)) return 1',
+    replace: '  if (!(lin > ceilingLin * 0.5)) return 1',
+    tests: 'packages/engine/test/limiter.test.ts',
+  },
+  {
+    label: 'limiter: reset() leaves stale audio in the delay line',
+    file: 'packages/engine/src/dsp/limiter.ts',
+    find: '    if (this.sr > 0) this.resize(this.sr)',
+    replace: '    this.gain = 1',
+    tests: 'packages/engine/test/limiter.test.ts',
   },
 ]

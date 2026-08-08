@@ -607,6 +607,12 @@ const SYNTH_CTX: DocEntry[] = [
     'input.mix(chorus(input, { rate: 0.6, depth: 0.004 }), 1)',
   ),
   sc(
+    'limiter',
+    'limiter(input, opts?: { ceiling, lookahead, release })',
+    'A LOOK-AHEAD BRICKWALL LIMITER: it holds a ceiling by turning DOWN, not by distorting. It delays the audio by lookahead ms (def 5) so the gain reduction is already in place when the peak arrives -- that delay is the latency it adds, which is why it is short. ceiling in dBFS (def -0.3, a hair under 0 so inter-sample peaks have somewhere to go), release ms (def 60). There is no attack control on purpose: the attack IS the lookahead, and exposing both invites a setting where the gain has not finished moving when the transient lands. The ceiling is a guarantee rather than a target -- no sample leaves above it -- which is what makes it safe on a PA feed. Below the ceiling it is a pure delay and changes nothing.',
+    "limiter(input, { ceiling: -1, lookahead: 5 })",
+  ),
+  sc(
     'deess',
     'deess(input, opts?: { freq, threshold, ratio, attack, release })',
     'A DE-ESSER: a compressor that only hears the sibilance. "s", "sh" and "t" carry far more energy than the vowels around them, and a close mic plus a compressor turns them into blades -- but a broadband compressor cannot fix it, because ducking enough to tame the "s" ducks the whole word with it. This splits the signal at freq (Hz, def 6000; 4000-6000 for a low voice, 6000-9000 for a bright one) and compresses the HIGH band alone, so the vowels are not merely un-ducked, they never enter the detector path. threshold dB (def -30), ratio (def 4), attack ms (def 1, because sibilance is a transient), release ms (def 60). The two bands sum back to the input exactly, so below the threshold it is a bit-for-bit passthrough.',

@@ -539,10 +539,21 @@ export class RealtimeEngine {
       bus.sumSq = ss
     }
 
-    // Master stage: gain (one-block ramp), optional glue compressor, soft knee,
-    // non-finite scrub. The compressor runs AFTER master gain and BEFORE the
-    // limiter; it's stereo-linked (one gain from max|L|,|R|) so the image never
-    // shifts, and its reduction state carries across blocks.
+    /* Master stage: gain (one-block ramp), optional glue compressor, soft
+     * knee, non-finite scrub. The compressor runs AFTER master gain and
+     * BEFORE the safety stage; it's stereo-linked (one gain from max|L|,|R|)
+     * so the image never shifts, and its reduction state carries across
+     * blocks.
+     *
+     * That safety stage is `masterSafety`, and it is a tanh SOFT CLIP at
+     * CLIP_THRESHOLD — this comment used to call it a limiter, which it is
+     * not. It holds the output inside ±1 by bending the waveform, which is
+     * the right last resort and the wrong tool for holding a ceiling. For
+     * that there is a real look-ahead brickwall in dsp/limiter.ts, which
+     * turns down instead of distorting; put it in a post chain when the
+     * ceiling matters (a PA feed, a bounce). It is deliberately NOT wired in
+     * here: it costs latency, and changing the master path would change the
+     * output of every project that already exists. */
     const m0 = this.masterPrev
     const m1 = this.masterGain
     const mc = this.masterComp

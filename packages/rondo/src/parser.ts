@@ -22,8 +22,8 @@ const CTRL_METHODS = new Set(['gain', 'dur', 'pan'])
 const NUM_RE = /^-?\d*\.?\d+$/
 
 /** synth-header voice options: `synth acid mono glide:.08 unison:5 …`. */
-const VOICE_FLAGS = new Set(['mono'])
-const VOICE_OPTS = new Set(['glide', 'unison', 'detune', 'spread', 'curve', 'blend', 'octaves', 'humanize', 'voices'])
+export const VOICE_FLAGS: ReadonlySet<string> = new Set(['mono'])
+export const VOICE_OPTS: ReadonlySet<string> = new Set(['glide', 'unison', 'detune', 'spread', 'curve', 'blend', 'octaves', 'humanize', 'voices'])
 
 const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
 

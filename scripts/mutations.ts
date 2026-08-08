@@ -364,4 +364,34 @@ export const MUTATIONS: Mutation[] = [
     replace: '',
     tests: 'packages/app/test/psola.test.ts',
   },
+
+  /* ---- the tap palette: the phone surface of the grammar ----------------- */
+  {
+    label: 'palette: argument position goes blind again (block chips only)',
+    file: 'packages/app/src/editor/rondo/palette.ts',
+    find: '  const args = argChips(doc, pos)\n  if (args !== null) return args',
+    replace: '',
+    tests: 'packages/app/test/rondo-palette.test.ts',
+  },
+  {
+    label: 'palette: a beat row stops offering the kit',
+    file: 'packages/app/src/editor/rondo/palette.ts',
+    find: "    case 'beat': {",
+    replace: "    case '__never_beat': {",
+    tests: 'packages/app/test/rondo-palette.test.ts',
+  },
+  {
+    label: 'palette: a sing block falls back to top-level starters',
+    file: 'packages/app/src/editor/rondo/palette.ts',
+    find: "    case 'sing': {",
+    replace: "    case '__never_sing': {",
+    tests: 'packages/app/test/rondo-palette.test.ts',
+  },
+  {
+    label: 'palette: the synth header forgets its voice options',
+    file: 'packages/app/src/editor/rondo/palette.ts',
+    find: 'const head = /^synth[ \\t]+[a-zA-Z_]\\w*[ \\t]/.exec(line)',
+    replace: 'const head = null as RegExpExecArray | null',
+    tests: 'packages/app/test/rondo-palette.test.ts',
+  },
 ]

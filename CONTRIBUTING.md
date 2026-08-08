@@ -26,6 +26,11 @@ stale `.js` over the `.ts`. Always use `tsc --noEmit`.
   `CHORD_QUALITIES`). A new keyword or chord quality fails the docs suite until
   the guide names it, which is deliberate: the inventories in the prose are
   meant to be inventories.
+- **A test has to be able to fail.** `pnpm mutate` breaks one contract at a
+  time and runs the tests meant to catch it; a mutation that SURVIVES means
+  nothing is asserting the thing that test's title claims. A full pass is
+  about 25 seconds. When you add a feature, add the mutation that proves its
+  test works — one entry in `scripts/mutations.ts`.
 - **Match the surrounding style.** Small, focused commits; comments explain
   *why*, not *what*. Prefer the dedicated code over pulling in a dependency;
   the DSP engine, SMF parser, etc. are all hand-written on purpose.

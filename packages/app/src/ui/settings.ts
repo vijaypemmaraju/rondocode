@@ -28,6 +28,10 @@ export interface Settings {
   /** Preferred PLAYBACK device, same form. Applied with setSinkId where the
    *  browser has it; where it does not, the OS default stands. */
   outputDevice: string
+  /** Capture processing: 'auto' picks the voice path on a phone (where the
+   *  speaker is next to the mic and a live chain would otherwise howl) and the
+   *  raw path everywhere else. 'raw' and 'voice' force it. */
+  micProcessing: 'auto' | 'raw' | 'voice'
 }
 
 export const DEFAULTS: Settings = {
@@ -36,6 +40,7 @@ export const DEFAULTS: Settings = {
   formatOnNewline: false,
   inputDevice: '',
   outputDevice: '',
+  micProcessing: 'auto',
 }
 
 /** Human-facing metadata for the Options panel — label + one-line help. */
@@ -59,6 +64,10 @@ export const SETTING_META: { [K in keyof Settings]: { label: string; help: strin
   outputDevice: {
     label: 'Output device',
     help: 'Where audio plays. Blank uses the system default. Not every browser can route output; where it cannot, the system default is used.',
+  },
+  micProcessing: {
+    label: 'Mic processing',
+    help: 'Auto uses echo cancellation on a phone (where the speaker sits next to the mic and a live chain would howl) and the raw signal elsewhere. Raw is truest and what a vocoder or a resample wants, but needs headphones. The voice path costs some latency and may resample.',
   },
 }
 

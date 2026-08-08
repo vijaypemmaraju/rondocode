@@ -10,6 +10,7 @@ import { mountShaderViz } from './shaderviz/shaderviz'
 import { mountProbes } from './editor/probes'
 import { mountOptions } from './ui/options'
 import { getSetting } from './ui/settings'
+import { looksMobile } from './audio/devices'
 import { mountTour } from './ui/tour'
 import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
@@ -110,6 +111,10 @@ AudioSession.start().then(
      * a capture, so this never triggers a permission prompt on its own. */
     void audio.setPreferredDevices(getSetting('inputDevice'), getSetting('outputDevice'))
       .catch((e) => console.warn('[audio] preferred devices', e))
+    // on a phone the speaker is next to the mic: 'auto' turns on echo
+    // cancellation there, so a live mic chain does not simply howl
+    void audio.setMicProcessing(getSetting('micProcessing'), looksMobile())
+      .catch((e) => console.warn('[audio] mic processing', e))
     mountOptions(editor, {
       showTour: () => tour.start(),
       audio: {
@@ -117,6 +122,8 @@ AudioSession.start().then(
         setPreferredDevices: (i, o) => audio.setPreferredDevices(i, o),
         latency: () => audio.latency(),
         deviceWarnings: () => audio.deviceWarnings(),
+        setMicProcessing: (m, mob) => audio.setMicProcessing(m, mob),
+        micProcessingActive: () => audio.micProcessingActive(),
       },
     }) // user settings popover (gear)
     mountMidi(editor, audio)

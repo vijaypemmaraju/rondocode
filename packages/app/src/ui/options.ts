@@ -3,7 +3,7 @@ import { isIOSWebKit } from '../sing/config'
 import { tooltip } from './tooltip'
 import { anchorPopover } from './viewport'
 import { SETTING_META, getSetting, setSetting, onSettingsChange } from './settings'
-import { latencyVerdict } from '../audio/devices'
+import { latencyVerdict, looksMobile } from '../audio/devices'
 import type { DeviceInfo, LatencyReport } from '../audio/devices'
 import type { Settings } from './settings'
 import type { EditorHandle } from '../editor/editor'
@@ -37,6 +37,8 @@ export interface OptionsExtras {
     setPreferredDevices: (input?: string, output?: string) => Promise<void>
     latency: () => LatencyReport
     deviceWarnings: () => string[]
+    setMicProcessing: (mode: 'auto' | 'raw' | 'voice', isMobile: boolean) => Promise<void>
+    micProcessingActive: () => { echoCancellation: boolean; noiseSuppression: boolean }
   }
 }
 
@@ -104,10 +106,42 @@ export function mountOptions(editor: EditorHandle, extras?: OptionsExtras): () =
       })
       return { row, sel }
     }
+    /* ECHO CANCELLATION, as a switch you can flip.
+     *
+     * Stored as 'auto' | 'raw' | 'voice' rather than a boolean, so an install
+     * nobody has touched still does the right thing per device: on a phone the
+     * speaker is two centimetres from the mic and a live chain howls without
+     * AEC, while on a desktop the raw signal is what a vocoder or a resample
+     * wants. Flipping the switch writes an explicit choice and the guess stops
+     * applying — which is what a toggle should mean. */
+    const ecRow = el('button', 'opt-row')
+    ecRow.type = 'button'
+    ecRow.setAttribute('role', 'switch')
+    const ecText = el('div', 'opt-text')
+    ecText.append(el('div', 'opt-label', 'Echo cancellation'), el('div', 'opt-help', SETTING_META.micProcessing.help))
+    const ecSwitch = el('span', 'opt-switch')
+    ecRow.append(ecText, ecSwitch)
+    const ecOn = (): boolean => {
+      const v = getSetting('micProcessing')
+      return v === 'auto' ? looksMobile() : v === 'voice'
+    }
+    const reflectEc = (): void => {
+      const on = ecOn()
+      ecRow.classList.toggle('on', on)
+      ecRow.setAttribute('aria-checked', String(on))
+    }
+    reflectEc()
+    ecRow.addEventListener('click', () => {
+      const next = ecOn() ? 'raw' : 'voice'
+      setSetting('micProcessing', next)
+      reflectEc()
+      void audio.setMicProcessing(next, looksMobile()).then(refreshAudio)
+    })
+
     const inPick = mkPick('inputDevice', 'Input device')
     const outPick = mkPick('outputDevice', 'Output device')
     const status = el('div', 'opt-help opt-audio-status')
-    sec.append(inPick.row, outPick.row, status)
+    sec.append(inPick.row, outPick.row, ecRow, status)
     pop.append(sec)
 
     const fill = (sel: HTMLSelectElement, devices: DeviceInfo[], chosen: string, labelled: boolean): void => {
@@ -146,6 +180,7 @@ export function mountOptions(editor: EditorHandle, extras?: OptionsExtras): () =
       const parts = [
         `round trip ~${rt} ms (${verdict})`,
         `in ${Math.round(l.inputMs)} · engine ${l.quantumMs.toFixed(1)} · out ${Math.round(l.baseMs + l.outputMs)}`,
+        `mic: ${audio.micProcessingActive().echoCancellation ? 'echo cancelling' : 'raw'}`,
         ...audio.deviceWarnings(),
       ]
       status.textContent = parts.join(' — ')

@@ -73,6 +73,11 @@ export interface Hooks {
    *  LIVE: the piano-roll lights with the playhead, the envelope fires its
    *  marker per note, and a pattern-driven knob's dial follows the drive. */
   onNoteEvents?: (fn: (evs: NoteEv[]) => void) => () => void
+  /** That synth's CURRENT loudness, 0..1 — the same per-channel meter the
+   *  shader visualizer reads as `lvl_`. Note events say a widget is active;
+   *  this says how much is going through it, which for a filter written with
+   *  a literal cutoff is the only thing that ever moves. */
+  level?: (synth: string) => number
   /** TOUCH-TO-OVERRIDE: while a hand holds a knob, the held value plays and
    *  the pattern drive for that param is suppressed; releasing hands control
    *  back to the pattern on its next event. */

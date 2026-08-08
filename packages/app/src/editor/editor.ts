@@ -707,6 +707,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // preview is a garnish — never let it break a tap
       }
     },
+    level: (name) => chanLevel.get(name) ?? 0,
     onNoteEvents: (fn) =>
       subscribePatternEvents((evs) => {
         const notes = toNoteEvs(evs)
@@ -811,6 +812,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     refreshPaletteMode()
   })
 
+  /* PER-SYNTH LEVEL for the inline widgets, off the engine's existing meter
+   * cadence — the same events the header meter and the shader visualizer
+   * already consume, so this adds no new analysis. */
+  const chanLevel = new Map<string, number>()
   const flasher = new EventFlasher(
     view,
     () => audio.currentTimeFrames / audio.sampleRate,
@@ -850,6 +855,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     engineListeners.add(fn)
     return () => engineListeners.delete(fn)
   }
+  // per-synth level for the inline widgets, off the same meter cadence the
+  // header meter and the shader visualizer already ride
+  subscribeEngine((ev) => {
+    if (ev.kind !== 'meters') return
+    for (const [k, v] of Object.entries(ev.channels)) chanLevel.set(k, typeof v === 'number' ? v : 0)
+  })
   const stateListeners = new Set<(s: SessionState) => void>()
   const subscribeState = (fn: (s: SessionState) => void): (() => void) => {
     stateListeners.add(fn)

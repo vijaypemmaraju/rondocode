@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { BUILTINS } from '@rondocode/rondo'
 import { PORTS } from '../../engine/src/compile'
+import { RECIPES } from '../src/docs/cookbook'
+import { EXAMPLES } from '../src/examples'
+import { runnableCodeBlocks } from '../src/docs/content'
 
 /* ------------------------------------------------------------------------- *
  * A named arg declared `sig` PROMISES you can hand it a signal — an LFO, a
@@ -88,4 +91,44 @@ describe('the exemption list cannot rot', () => {
       expect(names.includes(port), `${key} IS an engine input — drop the exemption`).toBe(false)
     }
   })
+})
+
+/* ------------------------------------------------------------------------- *
+ * AND SOMETHING A READER CAN COPY HAS TO SHOW IT.
+ *
+ * `chorus`, `phaser` and `flanger` were named in the reference, the guide, the
+ * cookbook and several examples the whole time their controls were frozen —
+ * a name-presence check said "documented" for a capability that did not exist.
+ * So presence is not the bar: a signal-capable param has to be DEMONSTRATED
+ * somewhere with an actual signal in the slot.
+ * ------------------------------------------------------------------------- */
+describe('every automatable node is demonstrated WITH a signal', () => {
+  /* Only the nodes whose whole point is that you can now move them. A
+   * `supersaw detune:` is signal-capable too, and asking every one of the 28
+   * to have a hand-written demo would be a list nobody maintains. */
+  const MUST_DEMO = ['chorus', 'phaser', 'flanger']
+
+  const corpus: string[] = [
+    ...RECIPES.map((r) => r.code),
+    ...EXAMPLES.map((e) => e.rondo ?? e.code),
+    ...runnableCodeBlocks().map((b) => b.text),
+  ]
+
+  for (const node of MUST_DEMO) {
+    it(`${node} appears somewhere with a non-numeric control`, () => {
+      const found = corpus.some((code) =>
+        code.split('\n').some((ln) => {
+          if (!new RegExp(`\\b${node}\\b`).test(ln)) return false
+          return [...ln.matchAll(/\b(rate|depth|feedback|mix):\s*([^\s,)}]+)/g)]
+            .some((m) => !/^[0-9.]+$/.test(m[2]!))
+        }),
+      )
+      expect(
+        found,
+        `${node} can take signals on rate/depth/feedback/mix, and nothing a reader `
+          + `can copy shows one. It was named in all four doc surfaces for months while `
+          + `those controls were frozen, so being mentioned proves nothing.`,
+      ).toBe(true)
+    })
+  }
 })

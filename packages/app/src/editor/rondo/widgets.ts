@@ -140,11 +140,23 @@ export const buzz = (ms = 8): void => {
  * the line stopped being a tappable grid and the shipped "note bends" example
  * rendered no roll at all. One definition, imported by the JS scanner too, so
  * teaching it here teaches both languages. */
-export const STEP_RE = /^(-?\d+)(#+|b+)?(?:'(-?\d*\.?\d+))?$/
+export const STEP_RE = /^(-?\d+)(#+|b+)?((?:'(?:[a-zA-Z]+:)?-?\d*\.?\d+)*)$/
 
-/** The per-note expression value from a step's `'value` group, if it has one. */
+/** Every lane on a step, from its trailing `'…` run: `0'2'vel:.8` gives
+ *  `{ expr: 2, vel: 0.8 }`. A bare value lands in `expr`, matching the
+ *  notation's own default lane. */
+export const laneValues = (raw: string | undefined): Record<string, number> => {
+  const out: Record<string, number> = {}
+  if (raw === undefined || raw === '') return out
+  for (const m of raw.matchAll(/'(?:([a-zA-Z]+):)?(-?\d*\.?\d+)/g)) {
+    out[m[1] ?? 'expr'] = Number(m[2])
+  }
+  return out
+}
+
+/** The `expr` lane specifically — what the roll tick and the bend lane draw. */
 export const exprValue = (raw: string | undefined): number | undefined =>
-  raw === undefined || raw === '' ? undefined : Number(raw)
+  laneValues(raw)['expr']
 
 /** Semitones for an accidental suffix (`#` +1 each, `b` -1 each). */
 export const accValue = (suffix: string | undefined): number | undefined =>
@@ -157,16 +169,31 @@ export const stepText = (
   v: number | null,
   acc: number | undefined,
   expr?: number | undefined,
+  otherLanes?: Readonly<Record<string, number>>,
 ): string => {
   if (v === null) return '~'
   const withAcc = acc === undefined || acc === 0
     ? String(v)
     : `${v}${(acc > 0 ? '#' : 'b').repeat(Math.abs(acc))}`
-  if (expr === undefined) return withAcc
-  // two decimals is plenty for an expression and keeps the notation readable;
-  // trailing zeros are trimmed so a drag to exactly 1 writes `'1`, not `'1.00`
-  const n = Number(expr.toFixed(2))
-  return `${withAcc}'${n}`
+  /* Two decimals is plenty and keeps the notation readable; trailing zeros
+   * are trimmed so a drag to exactly 1 writes `'1`, not `'1.00`. The leading
+   * zero is dropped to match how these are written by hand throughout the
+   * language (`.5`, `.8`) — otherwise a drag on one note silently rewrites
+   * `'vel:.8` to `'vel:0.8` on a lane it never touched. */
+  const num = (x: number): string => {
+    const t = String(Number(x.toFixed(2)))
+    return t.startsWith('0.') ? t.slice(1) : t.startsWith('-0.') ? `-${t.slice(2)}` : t
+  }
+  let out = withAcc
+  if (expr !== undefined) out += `'${num(expr)}`
+  /* EVERY other lane is written back, in the order it was READ. A drag that
+   * touched only `expr` must not delete the `'vel:` beside it, and must not
+   * reorder the ones it left alone either. */
+  for (const k of Object.keys(otherLanes ?? {})) {
+    if (k === 'expr') continue
+    out += `'${k}:${num(otherLanes![k]!)}`
+  }
+  return out
 }
 
 export function rollPreviewMidi(scaleShort: string | undefined, degree: number): number | undefined {
@@ -421,6 +448,8 @@ export interface PlayRoll {
   accs?: (number | undefined)[]
   /** per-note expression values, index-aligned with steps (`0'1` -> 1). */
   exprs?: (number | undefined)[]
+  /** every lane per step, so a rewrite cannot drop one it did not touch. */
+  lanes?: (Record<string, number> | undefined)[]
   /** POLYMETER figure: the grid edits only the inside of `{…}%n`, so events
    *  match the FULL notation and locs shift by the figure's offset in it. */
   srcFull?: string
@@ -476,6 +505,7 @@ export function scanPlays(text: string): PlayRoll[] {
           steps: ptoks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
           accs: ptoks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
           exprs: ptoks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+          lanes: ptoks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
           srcFull: notation,
           srcOffset: innerStart,
         }
@@ -499,6 +529,7 @@ export function scanPlays(text: string): PlayRoll[] {
       steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
       accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
       exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+      lanes: toks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
     }
     roll.synth = ph[3] ?? ph[2]!
     if (scale) roll.scale = scale[0]!.slice('scale:'.length)
@@ -2327,6 +2358,8 @@ class PianoRollWidget extends WidgetType {
     readonly accsIn: (number | undefined)[],
     /** per-note expression values, index-aligned with steps (`0'1` -> 1). */
     readonly exprsIn: (number | undefined)[],
+    /** every lane per step, so a drag rewrites without dropping one. */
+    readonly lanesIn: (Record<string, number> | undefined)[],
     readonly synth: string | undefined,
     readonly scale: string | undefined,
     readonly hooks: Hooks,
@@ -2359,6 +2392,7 @@ class PianoRollWidget extends WidgetType {
     const steps = this.steps.slice()
     const accs = this.accsIn.slice()
     const exprs = this.exprsIn.slice()
+    const lanes = this.lanesIn.slice()
     const cellEls: HTMLElement[][] = Array.from({ length: rows }, () => [])
     // rows top (high degree) → bottom (low), so pitch goes up the screen
     for (let dr = rows - 1; dr >= 0; dr--) {
@@ -2461,8 +2495,9 @@ class PianoRollWidget extends WidgetType {
         // would put it somewhere you did not click
         accs[c] = undefined
         exprs[c] = undefined
+        lanes[c] = undefined
         refresh(c)
-        if (writer.write(steps.map((v, i) => stepText(v, accs[i], exprs[i])).join(' '))) {
+        if (writer.write(steps.map((v, i) => stepText(v, accs[i], exprs[i], lanes[i])).join(' '))) {
           this.hooks.requestEval(false)
         }
         buzz()
@@ -2500,7 +2535,7 @@ class PianoRollWidget extends WidgetType {
             if (exprs[c] === snapped) return
             exprs[c] = snapped
             refresh(c)
-            if (w2.write(steps.map((v, i) => stepText(v, accs[i], exprs[i])).join(' '))) {
+            if (w2.write(steps.map((v, i) => stepText(v, accs[i], exprs[i], lanes[i])).join(' '))) {
               this.hooks.requestEval(false)
             }
           },
@@ -2989,7 +3024,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
     items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag, e.ranges), side: 1 }).range(e.to))
   }
   for (const p of scan.plays(text)) {
-    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.exprs ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
+    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.exprs ?? p.steps.map(() => undefined), p.lanes ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
     // HONESTY: only a TRUE single-cycle figure earns the compact inline roll.

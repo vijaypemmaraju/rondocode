@@ -645,33 +645,33 @@ export const MUTATIONS: Mutation[] = [
   },
 
   /* ---- per-note expression: the value belongs to the NOTE ---------------- */
-  {
+    {
     label: 'notation: a note expression is dropped on the floor',
     file: 'packages/pattern/src/mini.ts',
-    find: '    const v: MiniValue = expr === undefined ? base : { ...base, expr }',
+    find: '    const v: MiniValue = lanes === undefined ? base : { ...base, lanes }',
     replace: '    const v: MiniValue = base',
-    tests: 'packages/pattern/test/note-expression.test.ts',
+    tests: 'packages/pattern/test/note-expression.test.ts packages/pattern/test/note-lanes.test.ts',
   },
-  {
+    {
     label: 'notation: the expression suffix stops parsing (a lone quote passes)',
     file: 'packages/pattern/src/mini.ts',
-    find: "  if (j === digits) return undefined // a lone quote is not an expression",
-    replace: '  if (j === digits) return { expr: 0, next: j }',
+    find: '    if (end === afterQuote) break // a lone quote is not a lane',
+    replace: '    if (end === afterQuote) { lanes[DEFAULT_LANE] = 0; i = afterQuote; found = true; continue }',
     tests: 'packages/pattern/test/note-expression.test.ts',
   },
-  {
-    label: "notation: words lose their expression (c4 and kick words)",
+    {
+    label: 'notation: words lose their expression (c4 and kick words)',
     file: 'packages/pattern/src/mini.ts',
-    find: '      const wex = readExpr(src, j)',
-    replace: '      const wex = undefined as ReturnType<typeof readExpr>',
-    tests: 'packages/pattern/test/note-expression.test.ts',
+    find: '      const wex = readLanes(src, j)',
+    replace: '      const wex = undefined as ReturnType<typeof readLanes>',
+    tests: 'packages/pattern/test/note-expression.test.ts packages/pattern/test/note-lanes.test.ts',
   },
-  {
+    {
     label: 'controls: the expression never reaches the synth as a param',
     file: 'packages/pattern/src/controls.ts',
-    find: '      if (v.expr !== undefined) out.expr = v.expr\n      return out\n    })\n  }\n  return reify(x).withValue',
-    replace: '      return out\n    })\n  }\n  return reify(x).withValue',
-    tests: 'packages/pattern/test/note-expression.test.ts',
+    find: '    else (out as Record<string, unknown>)[k] = v',
+    replace: '    else void v',
+    tests: 'packages/pattern/test/note-expression.test.ts packages/pattern/test/note-lanes.test.ts',
   },
 
   // NOT mutated: the per-note CURVE is a composition of primitives, not new
@@ -707,24 +707,24 @@ export const MUTATIONS: Mutation[] = [
   },
 
   /* ---- the roll must SEE and WRITE a note that carries a value ----------- */
-  {
+    {
     label: 'roll: STEP_RE forgets the expression, so the grid vanishes',
     file: 'packages/app/src/editor/rondo/widgets.ts',
-    find: "export const STEP_RE = /^(-?\\d+)(#+|b+)?(?:'(-?\\d*\\.?\\d+))?$/",
-    replace: "export const STEP_RE = /^(-?\\d+)(#+|b+)?$/",
+    find: 'export const STEP_RE = /^(-?\\d+)(#+|b+)?((?:\'(?:[a-zA-Z]+:)?-?\\d*\\.?\\d+)*)$/',
+    replace: 'export const STEP_RE = /^(-?\\d+)(#+|b+)?$/',
     tests: 'packages/app/test/roll-expression.test.ts packages/app/test/scan-parity.test.ts',
   },
-  {
+    {
     label: 'roll: a drag silently deletes the expression it did not write',
     file: 'packages/app/src/editor/rondo/widgets.ts',
-    find: '  if (expr === undefined) return withAcc',
-    replace: '  return withAcc\n  if (expr === undefined) return withAcc',
+    find: '  if (expr !== undefined) out += `\'${num(expr)}`',
+    replace: '  if (false) out += \'\'',
     tests: 'packages/app/test/roll-expression.test.ts',
   },
-  {
+    {
     label: 'roll: the JS scanner stops seeing expressions (parity breaks)',
     file: 'packages/app/src/editor/widgets/jsscan.ts',
-    find: "      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),",
+    find: '      lanes: toks.map((tk) => (tk === \'~\' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),',
     replace: '',
     tests: 'packages/app/test/roll-expression.test.ts packages/app/test/scan-parity.test.ts',
   },
@@ -761,8 +761,67 @@ export const MUTATIONS: Mutation[] = [
   {
     label: 'lane: a drag drops the accidental it did not write',
     file: 'packages/app/src/editor/rondo/bendlane.ts',
-    find: 'stepText(n.step, n.acc, n.expr)',
-    replace: 'stepText(n.step, undefined, n.expr)',
+    find: 'stepText(n.step, n.acc, n.expr, n.lanes)',
+    replace: 'stepText(n.step, undefined, n.expr, n.lanes)',
     tests: 'packages/app/test/bendlane.test.ts',
+  },
+
+  /* ---- multi-lane note expression ---------------------------------------- */
+  {
+    label: 'lanes: a named lane is dropped (only bare values survive)',
+    file: 'packages/pattern/src/mini.ts',
+    find: "      lanes[name] = parseFloat(src.slice(j + 1, end))",
+    replace: '      void name',
+    tests: 'packages/pattern/test/note-lanes.test.ts',
+  },
+  {
+    label: 'lanes: vel stops being the note gain',
+    file: 'packages/pattern/src/controls.ts',
+    find: "    if (k === 'vel') out.gain = v",
+    replace: "    if (k === 'vel') void v",
+    tests: 'packages/pattern/test/note-lanes.test.ts',
+  },
+  {
+    label: 'lanes: len stops being the note duration',
+    file: 'packages/pattern/src/controls.ts',
+    find: "    else if (k === 'len') out.dur = v",
+    replace: "    else if (k === 'len') void v",
+    tests: 'packages/pattern/test/note-lanes.test.ts',
+  },
+  {
+    label: 'chance: every note sounds regardless of its probability',
+    file: 'packages/pattern/src/controls.ts',
+    find: '      return c === undefined || timeHash((h.whole ?? h.part).begin, 0) < c',
+    replace: '      return c === undefined || true',
+    tests: 'packages/pattern/test/note-lanes.test.ts',
+  },
+  {
+    label: 'chance: the draw stops being time-locked (unreproducible)',
+    file: 'packages/pattern/src/controls.ts',
+    find: '      return c === undefined || timeHash((h.whole ?? h.part).begin, 0) < c',
+    replace: '      return c === undefined || Math.random() < c',
+    tests: 'packages/pattern/test/note-lanes.test.ts',
+  },
+  {
+    label: 'chance: it leaks to the synth as a param',
+    file: 'packages/pattern/src/controls.ts',
+    find: '      if (v.chance === undefined) return v',
+    replace: '      return v\n      if (v.chance === undefined) return v',
+    tests: 'packages/pattern/test/note-lanes.test.ts',
+  },
+  {
+    label: 'lanes: a rewrite drops the lanes it did not touch',
+    file: 'packages/app/src/editor/rondo/widgets.ts',
+    find: "  for (const k of Object.keys(otherLanes ?? {})) {",
+    replace: '  for (const k of []) {',
+    tests: 'packages/app/test/roll-expression.test.ts packages/app/test/bendlane.test.ts',
+  },
+
+  {
+    label: 'codegen: a lane name reads as a note name (scale silently dropped)',
+    file: 'packages/rondo/src/codegen.ts',
+    find: "  const bare = notation.replace(/'(?:[a-zA-Z]+:)?-?\\d*\\.?\\d+/g, '')",
+    replace: '  const bare = notation',
+    tests: 'packages/app/test/note-bends-example.test.ts packages/rondo/test/compile.test.ts',
   },
 ]

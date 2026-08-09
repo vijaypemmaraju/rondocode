@@ -23,7 +23,7 @@
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
-import { STEP_RE, accValue, exprValue } from '../rondo/widgets'
+import { STEP_RE, accValue, exprValue, laneValues } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, SVF_MODES as EDITOR_SVF_MODES, WT_TABLES } from '../rondo/enums'
@@ -406,6 +406,7 @@ export function scanPlaysJs(text: string): PlayRoll[] {
       steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
       accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
       exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+      lanes: toks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
     }
     if (c.synth !== undefined) roll.synth = c.synth
     if (c.scale !== undefined) roll.scale = c.scale

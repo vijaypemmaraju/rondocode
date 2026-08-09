@@ -4,6 +4,7 @@ import { renderOffline } from '@rondocode/engine'
 import { goertzel } from '../../engine/test/util/goertzel'
 import { evalCode } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
+import { compile } from '@rondocode/rondo'
 import { EXAMPLES } from '../src/examples'
 
 /* ------------------------------------------------------------------------- *
@@ -89,5 +90,27 @@ describe('the "note bends" example does what its header says', () => {
       for (let hz = 190; hz <= 260; hz += 0.2) { const m = goertzel(w, hz, sr); if (m > best) { best = m; bf = hz } }
       expect(Math.abs(1200 * Math.log2(bf / 220)), `'${v} never came home`).toBeLessThan(20)
     }
+  })
+})
+
+
+describe('a lane name is not a pitch', () => {
+  it('a degree line with named lanes still compiles to n(), not note()', () => {
+    /* `'vel:` carries v, e, l and `'chance:` carries a, c, e — every one of
+     * which reads as a note name to the entry-point heuristic. It flipped a
+     * whole degree line to note(), which then read `0` as MIDI 0 and dropped
+     * the scale silently: exactly the failure the accidental rule beside it
+     * was already written to prevent. */
+    const c = compile("synth lead\n  saw\n\nplay lead\n  0'vel:.5 7'chance:.5\n  scale: a-min\n\ncps .5\n")
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) return
+    // the emitted string escapes the quote: n('0\'vel:.5 …')
+    expect(c.code, 'the line was read as note NAMES').toMatch(/\bn\('0/)
+    expect(c.code).not.toMatch(/note\('0/)
+  })
+
+  it('and real note names still reach note()', () => {
+    const c = compile('synth lead\n  saw\n\nplay lead\n  c4 e4\n\ncps .5\n')
+    expect(c.ok && c.code.includes("note('c4 e4')")).toBe(true)
   })
 })

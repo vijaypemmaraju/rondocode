@@ -85,7 +85,16 @@ export interface MiniValue {
    *  name a pitch the scale does not contain; see the note on `nAcc` in
    *  controls.ts for why it stays separate from the degree. */
   readonly acc?: number
-  /** PER-NOTE EXPRESSION, from a trailing `'value` on the atom: `0'2`.
+  /** PER-NOTE LANES, from trailing `'…` suffixes on the atom.
+   *
+   *      0'2              the anonymous lane, `expr`
+   *      0'vel:.8         a named lane
+   *      0'2'vel:.8'chance:.5   chained, in any order
+   *
+   *  Named lanes let one note carry velocity, length, probability and an
+   *  expression at once — the Live-11 cluster — without a parallel control
+   *  pattern per property, which is the thing that loses track of which note
+   *  it is talking about the moment the notation grows a subgroup.
    *
    *  Attached LEXICALLY to the note rather than carried on a parallel control
    *  pattern, which is the whole point. A modifier line (`amt: 2 0 1 3`) is a
@@ -94,7 +103,7 @@ export interface MiniValue {
    *  to the notes — `0 ~ [3 5] 7` against `2 0 1 3` gives BOTH subgroup notes
    *  the same value and feeds one to the rest. A value written on the note
    *  survives all of that, because it never leaves the note. */
-  readonly expr?: number
+  readonly lanes?: Readonly<Record<string, number>>
 }
 
 /** Quote a source string for the error header, truncated for huge inputs. */
@@ -163,27 +172,60 @@ interface Tok {
   readonly end: number
   /** Semitones from a trailing accidental run (`2#` → 1, `2b` → -1). */
   readonly acc?: number
-  /** Value of a trailing `'n` expression suffix (`0'2` → 2). */
-  readonly expr?: number
+  /** Values of the trailing `'…` lane suffixes (`0'2'vel:.8`). */
+  readonly lanes?: Record<string, number>
 }
 
 const PUNCT = new Set('[]<>{}(),|*/!@?%~_')
 
-/** Read an optional `'value` expression suffix at `k`. Returns the value and
- *  the index after it, or undefined when there is none.
+/** The lane a bare `'2` writes to. Named so the mapping is stated once. */
+export const DEFAULT_LANE = 'expr'
+
+/** Read a signed decimal at `j`; returns the end index, or j when there is none. */
+function readNum(src: string, j: number): number {
+  let i = j
+  if (src[i] === '-') i++
+  const digits = i
+  while (isDigit(src[i] ?? '')) i++
+  if (src[i] === '.') { i++; while (isDigit(src[i] ?? '')) i++ }
+  return i === digits ? j : i
+}
+
+/**
+ * Read the run of `'…` lane suffixes at `k`.
  *
- *  `'` is deliberately not a PUNCT and not a word character, so it can only
- *  ever mean this. The value is a plain signed decimal — no expressions, so
- *  that a widget can find it, rewrite it, and never have to parse. */
-function readExpr(src: string, k: number): { expr: number; next: number } | undefined {
-  if (src[k] !== "'") return undefined
-  let j = k + 1
-  if (src[j] === '-') j++
-  const digits = j
-  while (isDigit(src[j] ?? '')) j++
-  if (src[j] === '.') { j++; while (isDigit(src[j] ?? '')) j++ }
-  if (j === digits) return undefined // a lone quote is not an expression
-  return { expr: parseFloat(src.slice(k + 1, j)), next: j }
+ * `'2` is the anonymous lane; `'name:2` is a named one; they chain in any
+ * order (`0'2'vel:.8'chance:.5`). `'` is deliberately neither punctuation nor
+ * a word character, so it can only ever mean this. Values are plain signed
+ * decimals — no expressions — so a widget can find one, rewrite it, and never
+ * have to parse.
+ */
+function readLanes(src: string, k: number): { lanes: Record<string, number>; next: number } | undefined {
+  const lanes: Record<string, number> = {}
+  let i = k
+  let found = false
+  while (src[i] === "'") {
+    const afterQuote = i + 1
+    // `'name:value`
+    let j = afterQuote
+    while (/[a-zA-Z]/.test(src[j] ?? '')) j++
+    if (j > afterQuote && src[j] === ':') {
+      const name = src.slice(afterQuote, j)
+      const end = readNum(src, j + 1)
+      if (end === j + 1) break // `'vel:` with no number is not a lane
+      lanes[name] = parseFloat(src.slice(j + 1, end))
+      i = end
+      found = true
+      continue
+    }
+    // `'value`
+    const end = readNum(src, afterQuote)
+    if (end === afterQuote) break // a lone quote is not a lane
+    lanes[DEFAULT_LANE] = parseFloat(src.slice(afterQuote, end))
+    i = end
+    found = true
+  }
+  return found ? { lanes, next: i } : undefined
 }
 const isSpace = (c: string): boolean => /\s/.test(c)
 const isDigit = (c: string): boolean => c >= '0' && c <= '9'
@@ -205,9 +247,9 @@ function tokenize(src: string): Tok[] {
       while (j < src.length && isWordChar(src[j]!)) j++
       // a word takes the same `'value` suffix a number does, so an absolute
       // note (`c4'2`) and a drum hit (`kick'2`) carry expression too
-      const wex = readExpr(src, j)
+      const wex = readLanes(src, j)
       if (wex !== undefined) {
-        toks.push({ kind: 'word', text: src.slice(i, j), value: NaN, start: i, end: wex.next, expr: wex.expr })
+        toks.push({ kind: 'word', text: src.slice(i, j), value: NaN, start: i, end: wex.next, lanes: wex.lanes })
         i = wex.next
         continue
       }
@@ -242,9 +284,9 @@ function tokenize(src: string): Tok[] {
       let k = j
       while (src[k] === '#' || src[k] === 'b') { acc += src[k] === '#' ? 1 : -1; k++ }
       if (k > j && isWordChar(src[k] ?? '')) { acc = 0; k = j }
-      const ex = readExpr(src, k)
+      const ex = readLanes(src, k)
       if (ex !== undefined) {
-        toks.push({ kind: 'number', text: src.slice(i, ex.next), value: parseFloat(text), start: i, end: ex.next, acc, expr: ex.expr })
+        toks.push({ kind: 'number', text: src.slice(i, ex.next), value: parseFloat(text), start: i, end: ex.next, acc, lanes: ex.lanes })
         i = ex.next
         continue
       }
@@ -462,11 +504,11 @@ class Parser {
   }
 
   /** Record an atom (the `n` tag validates against the list) and build its pattern. */
-  private mkAtom(value: string | number, loc: Loc, acc = 0, expr?: number): Pattern<MiniValue> {
+  private mkAtom(value: string | number, loc: Loc, acc = 0, lanes?: Record<string, number>): Pattern<MiniValue> {
     // Stamp the source so the editor can flash exactly this literal (see Loc).
     const located: Loc = { start: loc.start, end: loc.end, src: this.src }
     const base = acc === 0 ? { value, loc: located } : { value, loc: located, acc }
-    const v: MiniValue = expr === undefined ? base : { ...base, expr }
+    const v: MiniValue = lanes === undefined ? base : { ...base, lanes }
     this.atoms.push(v)
     return Pattern.pure(v)
   }
@@ -480,7 +522,7 @@ class Parser {
       return this.mkAtom(t.kind === 'word' ? t.text : t.value, {
         start: t.start,
         end: t.end,
-      }, t.acc ?? 0, t.expr)
+      }, t.acc ?? 0, t.lanes)
     }
     if (t.text === '~') {
       this.next()

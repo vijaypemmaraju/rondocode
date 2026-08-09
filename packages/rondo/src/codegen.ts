@@ -726,12 +726,19 @@ function cgMod(m: Mod, errors: RondoError[], macros: ReadonlySet<string>): strin
  *  chord names (`<Am F C G>`, `Dm7`); lowercase letters mean note names
  *  (`c4 e4`); bare digits/rests mean scale degrees. */
 function entryFor(notation: string): 'chord' | 'note' | 'n' {
-  if (/(^|[\s<[(])[A-G][#b]?[A-Za-z0-9]*/.test(notation)) return 'chord'
+  /* PER-NOTE LANES ARE NOT PITCHES. `0'vel:.5` carries the letters v, e, l,
+   * and `'chance:` carries a, c, e — every one of which reads as a note name
+   * to the test below. That flipped a whole degree line to note(), which then
+   * read `0` as MIDI 0 and dropped the scale silently: exactly the failure the
+   * accidental rule underneath was already written to prevent. Strip the
+   * suffix run first and both tests see only the pitches. */
+  const bare = notation.replace(/'(?:[a-zA-Z]+:)?-?\d*\.?\d+/g, '')
+  if (/(^|[\s<[(])[A-G][#b]?[A-Za-z0-9]*/.test(bare)) return 'chord'
   // A `b` glued to DIGITS is an accidental on a scale degree (`3b`), not the
   // note B. Without this, one flattened degree flipped the whole line to
   // note(), which then read `0` as a note name and dropped the scale on the
   // floor — silently, since note() accepts a `.scale()` call and ignores it.
-  if (/[a-g]/.test(notation.replace(/(?<=\d)[#b]+/g, ''))) return 'note'
+  if (/[a-g]/.test(bare.replace(/(?<=\d)[#b]+/g, ''))) return 'note'
   return 'n'
 }
 

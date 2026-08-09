@@ -167,7 +167,7 @@ export interface RawItem {
   pos: Pos
 }
 
-/** `sidechain kick depth:.7 release:.09 lead:.5 …` — named args other than
+/** `sidechain kick depth:.7 release:90 lead:.5 …` — named args other than
  *  depth/release are per-channel duck amounts. */
 export interface SidechainItem {
   t: 'sidechain'

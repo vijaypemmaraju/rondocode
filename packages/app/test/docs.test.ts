@@ -131,7 +131,7 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:?', //   a?p     — random drop
       'mini:|', //   a | b   — random choice per cycle
 
-      "mini:'", // 0'2 0'vel:.8 — per-note lanes
+      "mini:'", // 0'2 0'gain:.8 — per-note lanes
     ]
     assertBidirectional(namesOfKind('mini-syntax'), GRAMMAR, 'mini syntax')
   })

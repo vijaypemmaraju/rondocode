@@ -8,7 +8,7 @@ export { mini, miniLoc, miniParse, m, MiniError } from './mini'
 export type { Loc, MiniValue } from './mini'
 // `n` comes from controls, not mini: same template-tag behavior, plus the
 // function form n('0 3') that builds a {n} control pattern (see controls.ts).
-export { n, note, sound, s } from './controls'
+export { n, note, sound, s, STRUCTURAL_LANES, RENAMED_LANES } from './controls'
 export type { ControlMap, ControlValue } from './controls'
 export { ARP_ORDERS, CHORD_QUALITIES, chord, chordDegree, parseChord } from './chords'
 export {

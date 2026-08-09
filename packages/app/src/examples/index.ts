@@ -324,7 +324,7 @@ p('stab',
 
 // THE PUMP: every kick ducks all the other channels ~70% and lets them swell
 // back over 180ms, the smooth sidechain that defines progressive house.
-sidechain('kick', { depth: 0.7, release: 0.18 })
+sidechain('kick', { depth: 0.7, release: 180 })
 // glue the whole mix with a gentle master compressor (the last thing in chain)
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 0.4 })
 
@@ -423,7 +423,7 @@ p('kick', note('c1*4').sound('kick').gain(slider(0.75, 0, 1)))
 // strong pump, the arp and pad breathe hard on every kick (drag the depth)
 // per-channel duck: the arp pumps HARD (1.0), the pad only breathes (0.4),
 // the bass sits between, a real mix move, not one global depth
-sidechain('kick', { depth: slider(0.85, 0, 1), release: 0.22, duck: { arp: 1, pad: 0.4, bass: 0.7 } })
+sidechain('kick', { depth: slider(0.85, 0, 1), release: 220, duck: { arp: 1, pad: 0.4, bass: 0.7 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 }) // master glue
 
 setCps(0.5)
@@ -514,7 +514,7 @@ const drop = stack(
 )
 
 p('track', arrange([4, intro], [4, build], [8, drop]))
-sidechain('kick', { depth: 0.6, release: 0.18 })
+sidechain('kick', { depth: 0.6, release: 180 })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 }) // master glue
 setCps(0.52)
 `
@@ -749,7 +749,7 @@ const intro = stack(dKick, dHat, bSub)
 const full = stack(dKick, dClap, dHat, dOhat, bSub, mStab)
 const brk = stack(dHat, bSub, mStab)
 p('song', arrange([8, full], [4, brk], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.9, release: 0.2, duck: { sub: 0.95, stab: 0.6 } })
+sidechain('kick', { depth: 0.9, release: 200, duck: { sub: 0.95, stab: 0.6 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
 
 visual(\`
@@ -828,7 +828,7 @@ const intro = stack(mPad, bSub)
 const full = stack(dKick, dSnare, dHat, mPad, bSub, bWob)
 const half = stack(dKick, dSnare, mPad, bSub)
 p('song', arrange([8, full], [4, half], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.75, release: 0.16, duck: { sub: 1, wob: 0.55, pad: 0.8 } })
+sidechain('kick', { depth: 0.75, release: 160, duck: { sub: 1, wob: 0.55, pad: 0.8 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: -3.4 })
 
 visual(\`
@@ -922,7 +922,7 @@ const intro = stack(mPad, bSub)
 const build = stack(dKick, dHat, bSub, bBass, mPad)
 const full = stack(dKick, dClap, dHat, bSub, bBass, mPad, mLead)
 p('song', arrange([8, full], [4, build], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.9, release: 0.16, duck: { sub: 0.95, pad: 1, bass: 0.55, lead: 0.45 } })
+sidechain('kick', { depth: 0.9, release: 160, duck: { sub: 0.95, pad: 1, bass: 0.55, lead: 0.45 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 0.3 })
 
 visual(\`
@@ -995,7 +995,7 @@ const mChords = chord('<Amaj9 E A6 F#m>').sound('chords')
 const intro = stack(mChords, bSub)
 const full = stack(dKick, dSnare, dHat, bSub, mChords)
 p('song', arrange([8, full], [4, intro], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.92, release: 0.24, duck: { chords: 1, sub: 1 } })
+sidechain('kick', { depth: 0.92, release: 240, duck: { chords: 1, sub: 1 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
 
 visual(\`
@@ -1270,7 +1270,7 @@ bus space
   reverb room:.9 damp:.35
   send stab .3
 
-sidechain kick depth:.8 release:.15 sub:.95 stab:.6
+sidechain kick depth:.8 release:150 sub:.95 stab:.6
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -1340,7 +1340,7 @@ play bass
   dur: .6
   gain: .75
 
-sidechain kick depth:.6 release:.12 bass:.9
+sidechain kick depth:.6 release:120 bass:.9
 
 master threshold:-7 ratio:2 makeup:-4.2
 
@@ -1509,7 +1509,7 @@ play arp
   dur: .5
   gain: .7
 
-sidechain kick depth:.5 release:.12 bass:.9 arp:.7
+sidechain kick depth:.5 release:120 bass:.9 arp:.7
 
 master threshold:-7 ratio:2 makeup:0
 
@@ -2059,7 +2059,7 @@ section brk 4
 
 song full brk full intro
 
-sidechain kick depth:.9 release:.2 sub:.95 stab:.6
+sidechain kick depth:.9 release:200 sub:.95 stab:.6
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2219,7 +2219,7 @@ section half 4
 
 song full half full intro
 
-sidechain kick depth:.75 release:.16 sub:1 wob:.55 pad:.8
+sidechain kick depth:.75 release:160 sub:1 wob:.55 pad:.8
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:-3.4
 
@@ -2400,7 +2400,7 @@ section full 8
 
 song full build full intro
 
-sidechain kick depth:.9 release:.16 sub:.95 pad:1 bass:.55 lead:.45
+sidechain kick depth:.9 release:160 sub:.95 pad:1 bass:.55 lead:.45
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:0.3
 
@@ -2529,7 +2529,7 @@ section full 8
 
 song full intro full intro
 
-sidechain kick depth:.92 release:.24 chords:1 sub:1
+sidechain kick depth:.92 release:240 chords:1 sub:1
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2692,7 +2692,7 @@ play stab synth:pluck
   gain: .85
   dur: .16
 
-sidechain kick depth:.7 release:.18
+sidechain kick depth:.7 release:180
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:0.4
 
@@ -2800,7 +2800,7 @@ play kick
   c1*4
   gain: .75
 
-sidechain kick depth:.85 release:.22 arp:1 pad:.4 bass:.7
+sidechain kick depth:.85 release:220 arp:1 pad:.4 bass:.7
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2976,7 +2976,7 @@ section drop 8
 
 song intro build drop
 
-sidechain kick depth:.6 release:.18
+sidechain kick depth:.6 release:180
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -3307,8 +3307,8 @@ const noteBendsRondo = `# NOTE BENDS. every note carries its
 #
 # NAMED lanes ride alongside it:
 #
-#   'vel:.8     that note's velocity
-#   'len:.5     that note's length
+#   'gain:.8     that note's velocity
+#   'dur:.5     that note's length
 #   'chance:.6  the odds it plays
 #
 # a BLOCK modifier still wins over a
@@ -3354,7 +3354,7 @@ play lead
 # are always there. (another LINE, not
 # another block - two play-lead blocks
 # would replace each other.)
-  ~ 0'vel:.5 ~ 7'vel:.3'chance:.5
+  ~ 0'gain:.5 ~ 7'gain:.3'chance:.5
   scale: a-min
   dur: .9
 
@@ -3520,7 +3520,7 @@ play pad
   dur: 1.9
   gain: .22
 
-sidechain kick depth:.7 release:.14 sub:.9 pad:.5
+sidechain kick depth:.7 release:140 sub:.9 pad:.5
 
 master threshold:-7 ratio:2 attack:25 release:150 makeup:-0.4
 
@@ -3814,7 +3814,7 @@ section land 4
 
 song rise land
 
-sidechain kick depth:.5 release:.12 stab:.9 sub:1
+sidechain kick depth:.5 release:120 stab:.9 sub:1
 
 master threshold:-9 ratio:2 attack:20 release:150 makeup:1
 

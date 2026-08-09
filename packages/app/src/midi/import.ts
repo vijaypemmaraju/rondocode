@@ -255,7 +255,7 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
     const duck = Object.entries(DUCK_AMOUNTS).filter(([s]) => usedSynths.has(s))
     if (duck.length > 0) {
       const duckSrc = duck.map(([s, a]) => `${s}: ${a}`).join(', ')
-      lines.push(`sidechain('kick', { depth: 0.55, release: 0.16, duck: { ${duckSrc} } })`)
+      lines.push(`sidechain('kick', { depth: 0.55, release: 160, duck: { ${duckSrc} } })`)
     }
   }
   if (wantMix) {

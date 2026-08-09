@@ -854,7 +854,7 @@ const pad = synth(({ note, gate, adsr, saw, svf }) =>
 
 p('kick', note('c1*4').sound('kick'))
 p('pad', chord('<Fmaj7 G Am7 G>').sound('pad').dur(0.98))
-sidechain('kick', { depth: 0.8, release: 0.18 }) // the pump
+sidechain('kick', { depth: 0.8, release: 180 }) // the pump
 masterCompress({ threshold: -12, ratio: 3, makeup: 2 })
 setCps(0.5)`,
       ),
@@ -1521,7 +1521,7 @@ cps .45`,
           ['`@n`', "the step given n steps' worth of time", '`0@3 5`'],
           ['`(p,s,r)`', 'a euclidean rhythm, r rotating the hits', '`0(3,8)`'],
           ["`'n`", 'that NOTE\u2019s own value, read as `expr`', "`0'2 3'-1`"],
-          ["`'name:n`", 'a NAMED lane on that note. `vel` `len` `chance` are structural; any other name is a synth param', "`0'vel:.8'chance:.5`"],
+          ["`'name:n`", 'a NAMED lane on that note. `gain` `dur` `chance` are structural; any other name is a synth param', "`0'gain:.8'chance:.5`"],
           ['`?`', 'drops the step at random (seeded per cycle)', '`0 3? 5`'],
           ['`|`', 'picks one alternative per cycle', '`0 | 5`'],
         ],
@@ -1531,8 +1531,8 @@ cps .45`,
       p("PER-NOTE EXPRESSION. A `'value` suffix belongs to the note it is written on: `0'2 3'-1` gives those two notes their own numbers, and the synth reads them as `expr`. It works on degrees, on absolute pitches (`c4'2`) and on drum words (`kick'2`)."),
       p("Why a suffix rather than another modifier line: a modifier line is a PATTERN, and it lines up by TIME. `amt: 2 0 1 3` against `0 3 5 7` looks per-note and only is because both are flat and even -- put a rest or a subgroup in and it stops corresponding. `0'2 ~ [3'1 5'3] 7'-1` cannot drift, because the value never leaves the note."),
       note("`expr` is an ordinary param, so the synth decides what it MEANS: `bend = shape * expr + 1` makes it a pitch bend, `cut = 800 + expr * 600` makes it brightness. It arrives UNSET on a note that carries none, so a synth's own default stands rather than being silently overridden by a zero."),
-      p("NAMED LANES let one note carry several things at once: `0'2'vel:.8'chance:.5` sets its expression, its velocity and the odds it sounds. They chain in any order, and three names are STRUCTURAL because the pattern engine consumes them -- `vel` is that note's gain, `len` a multiplier on its length, `chance` the probability it plays at all. Every other name is an ordinary param, so `0'cut:.7` drives `param('cut')` on that note alone: the notation does not need a vocabulary of musical properties when the synth already has one."),
-      note("A BLOCK MODIFIER STILL WINS. `dur: .9` on the block overrides a per-note `'len:`, and `gain: .8` overrides `'vel:`, because the modifier is applied after the notation is built. Use the lane on blocks that do not set the same property -- or set it per note and leave the modifier off."),
+      p("NAMED LANES let one note carry several things at once: `0'2'gain:.8'chance:.5` sets its expression, its velocity and the odds it sounds. They chain in any order, and three names are STRUCTURAL because the pattern engine consumes them -- `vel` is that note's gain, `len` a multiplier on its length, `chance` the probability it plays at all. Every other name is an ordinary param, so `0'cut:.7` drives `param('cut')` on that note alone: the notation does not need a vocabulary of musical properties when the synth already has one."),
+      note("A BLOCK MODIFIER STILL WINS. `dur: .9` on the block overrides a per-note `'dur:`, and `gain: .8` overrides `'gain:`, because the modifier is applied after the notation is built. Use the lane on blocks that do not set the same property -- or set it per note and leave the modifier off."),
       p("`chance` is REPRODUCIBLE, not merely random. It draws from the same time-locked stream `degradeBy` uses, so a note that fires on cycle 3 fires on cycle 3 every time the loop comes round -- which is what lets a probabilistic line live in a piece rather than only in a jam."),
       p("A PER-NOTE CURVE falls out of that. An envelope is a signal like any other, so a synth can declare two shapes and let the note's own value choose between them: `bend = scoop * (1 - expr) + fall * expr + 1`. Two notes in the same line then bend in opposite directions from one synth. It MORPHS rather than switching, because blending two signals is ordinary arithmetic -- a note at `'0.5` gets half of each, which is a better fit for music than a hard pick."),
       p('The editor draws what it can. A simple degree line is a TAPPABLE GRID. A `{…}%n` polymeter figure gets the same editable grid, scoped to the braces, with the `%n` left as a scrubbable number. Rich single-cycle lines (euclid, nesting) render a compact read-only preview roll with a sweeping playhead, and when the line has exactly one euclid group the preview roll becomes a CONTROL SURFACE: drag it up and down to add or remove pulses, sideways to rotate the hits. A MULTI-CYCLE line (a `<…>` alternation spanning several bars) renders a full-width clip overview below the line instead: every bar of the repeating figure side by side, with the playhead riding through the correct bar as the alternation advances. Patterns with no honest picture (they never settle into a repeating period, or they would need too many cells) draw nothing at all. Both roll forms carry a narrow grab strip on their left edge: drag it up or down to transpose the whole pattern, one roll row per scale degree, written into the block as an `add N` line.'),
@@ -1729,7 +1729,7 @@ cps .5`,
     blocks: [
       p('Full tracks: a `section NAME LEN` holds `play` and `beat` blocks, LEN in cycles; `song intro drop drop intro` sequences the sections (omit `song` to play them in definition order). Note-flash and grids keep working inside sections.'),
       p('`section main 8 with drums` plays a section ON TOP of another one. The named section’s blocks are stacked under this one’s, so the parts every section shares -- the kit, the bass -- get written once and each section adds only what makes it different. Chain it: a section built `with` another may itself be built on a third.'),
-      p('`sidechain kick depth:.8 release:.12 sub:.95` is the pump: every kick ducks the other channels, and extra `name:amount` pairs set per-channel duck depth. `master threshold:-6 ratio:2 makeup:1` is the glue compressor on the mix bus.'),
+      p('`sidechain kick depth:.8 release:120 sub:.95` is the pump: every kick ducks the other channels, and extra `name:amount` pairs set per-channel duck depth. `master threshold:-6 ratio:2 makeup:1` is the glue compressor on the mix bus.'),
       p('`stereo width:1.3 monobelow:120` is MID/SIDE on the mix bus. `width` scales the SIDES against the middle: 0 folds the mix to mono, 1 leaves it alone, above 1 pushes it wider. `monobelow` collapses everything under that frequency to mono, which is the standard mastering move and the one that matters on a system with a single sub -- stereo bass either cancels or wanders.'),
       note('Both are MONO-SAFE by construction, which is the point of having them as well as `width`. Scaling the sides never touches the middle, and the middle IS the mono sum, so a mix folded to mono comes out bit-identical whatever the width is set to. A Haas-style widener cannot promise that. It lives on the mix bus rather than in a post chain because every kernel in the engine is mono: a post chain gets its stereo by running the same graph once per side, so no node in one can see both channels at once.'),
       p('Tempo is one line, in either unit: `bpm 128` is the unit you count in, `cps .5333` the engine unit. One cycle is one BAR of 4 beats, so multiplying cps by 240 gives bpm, and the two lines above are the same tempo. The unit you write is the unit that stays: switching a track to JavaScript and back keeps `bpm 128` as `bpm 128`. MIDI import and export share the convention, so an imported file keeps its tempo and one cycle stays one bar.'),
@@ -1779,7 +1779,7 @@ section drop 8
 
 song intro drop drop intro
 
-sidechain kick depth:.8 release:.15 stab:.6
+sidechain kick depth:.8 release:150 stab:.6
 
 master threshold:-6 ratio:2 makeup:1
 

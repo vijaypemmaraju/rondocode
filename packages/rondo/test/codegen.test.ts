@@ -125,13 +125,13 @@ describe('sidechain follows a project control', () => {
   })
 
   it('still takes plain numbers, unchanged', () => {
-    expect(drums('sidechain kick depth:.99 release:.5 lead:.6'))
-      .toContain("sidechain('kick', { depth: 0.99, release: 0.5, duck: { lead: 0.6 } })")
+    expect(drums('sidechain kick depth:.99 release:500 lead:.6'))
+      .toContain("sidechain('kick', { depth: 0.99, release: 500, duck: { lead: 0.6 } })")
   })
 
   it('round-trips back to the bare name, not to macroNum(…)', () => {
-    expect(decompile(drums('sidechain kick depth:drums release:.5')))
-      .toContain('sidechain kick depth:drums release:0.5')
+    expect(decompile(drums('sidechain kick depth:drums release:500')))
+      .toContain('sidechain kick depth:drums release:500')
   })
 
   it('keeps a hand-written JS sidechain as JS when rondo cannot say it', () => {

@@ -297,7 +297,7 @@ describe('evalCode: sidechain staging', () => {
 
   it('defaults depth 0.6 and release 0.18s (releaseMs 180)', () => {
     expect(runD("sidechain('kick')").sidechain).toEqual({ source: 'kick', depth: 0.6, releaseMs: 180 })
-    expect(runD("sidechain('kick', { release: 0.25 })").sidechain).toEqual({
+    expect(runD("sidechain('kick', { release: 250 })").sidechain).toEqual({
       source: 'kick',
       depth: 0.6,
       releaseMs: 250,

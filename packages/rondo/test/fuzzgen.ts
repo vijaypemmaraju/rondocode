@@ -399,7 +399,7 @@ export function genProgram(seed: number): string {
     blocks.push(`scaledef ${r.pick(SCALEDEF_NAMES)} ${vals.join(' ')}`)
   }
   if (r.chance(0.15) && synths.length >= 2) {
-    blocks.push(`sidechain ${synths[0]!.name} depth:${r.pick(SMALL)} release:.09 ${synths[1]!.name}:${r.pick(SMALL)}`)
+    blocks.push(`sidechain ${synths[0]!.name} depth:${r.pick(SMALL)} release:90 ${synths[1]!.name}:${r.pick(SMALL)}`)
   }
   if (r.chance(0.15)) blocks.push(`master threshold:-6 ratio:2 makeup:1`)
   if (r.chance(0.15)) {

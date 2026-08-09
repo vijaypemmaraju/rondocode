@@ -128,7 +128,7 @@ describe('shared staged→renderMix mapping (WAV export vs resample)', () => {
     "bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { pad: 0.3 })",
     "p('k', note('c1*4').sound('kick'))",
     "p('p', note('c4').sound('pad'))",
-    "sidechain('kick', { depth: 0.5, release: 0.2, duck: { pad: 0.8 } })",
+    "sidechain('kick', { depth: 0.5, release: 200, duck: { pad: 0.8 } })",
     'masterCompress({ threshold: -12, ratio: 3 })',
     'setCps(2)',
   ].join('\n')

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Fraction as F, TimeSpan, hasOnset, n, note, s } from '../src/index'
 
 /* ------------------------------------------------------------------------- *
- * MULTI-LANE NOTE EXPRESSION: `0'2'vel:.8'chance:.5`.
+ * MULTI-LANE NOTE EXPRESSION: `0'2'gain:.8'chance:.5`.
  *
  * `'2` gave a note one number. Named lanes give it as many as it needs, and
  * that one generalisation covers most of what a modern DAW calls note
@@ -28,17 +28,17 @@ describe('named lanes', () => {
     expect(cyc(n("0'2 3"))).toEqual([{ n: 0, expr: 2 }, { n: 3 }])
   })
 
-  it('`vel` is the note’s own gain', () => {
-    expect(cyc(n("0'vel:.8 3'vel:.3"))).toEqual([{ n: 0, gain: 0.8 }, { n: 3, gain: 0.3 }])
+  it('`gain` is the note’s own gain', () => {
+    expect(cyc(n("0'gain:.8 3'gain:.3"))).toEqual([{ n: 0, gain: 0.8 }, { n: 3, gain: 0.3 }])
   })
 
-  it('`len` is the note’s own duration', () => {
-    expect(cyc(n("0'len:.25 3"))).toEqual([{ n: 0, dur: 0.25 }, { n: 3 }])
+  it('`dur` is the note’s own duration', () => {
+    expect(cyc(n("0'dur:.25 3"))).toEqual([{ n: 0, dur: 0.25 }, { n: 3 }])
   })
 
   it('lanes chain, in any order', () => {
-    expect(cyc(n("0'2'vel:.8'len:.5"))).toEqual([{ n: 0, expr: 2, gain: 0.8, dur: 0.5 }])
-    expect(cyc(n("0'vel:.8'2"))).toEqual([{ n: 0, gain: 0.8, expr: 2 }])
+    expect(cyc(n("0'2'gain:.8'dur:.5"))).toEqual([{ n: 0, expr: 2, gain: 0.8, dur: 0.5 }])
+    expect(cyc(n("0'gain:.8'2"))).toEqual([{ n: 0, gain: 0.8, expr: 2 }])
   })
 
   it('an unknown name is an ordinary param for that note alone', () => {
@@ -47,15 +47,15 @@ describe('named lanes', () => {
   })
 
   it('works on absolute pitches and drum words too', () => {
-    expect(cyc(note("c4'vel:.5"))).toEqual([{ note: 60, gain: 0.5 }])
-    expect(cyc(s("kick'vel:.6 hat"))).toEqual([
+    expect(cyc(note("c4'gain:.5"))).toEqual([{ note: 60, gain: 0.5 }])
+    expect(cyc(s("kick'gain:.6 hat"))).toEqual([
       { sound: 'kick', note: 60, gain: 0.6 },
       { sound: 'hat', note: 60 },
     ])
   })
 
   it('survives a rest and a subgroup, like the single lane did', () => {
-    expect(cyc(n("0'vel:.9 ~ [3'vel:.2 5'vel:.5] 7"))).toEqual([
+    expect(cyc(n("0'gain:.9 ~ [3'gain:.2 5'gain:.5] 7"))).toEqual([
       { n: 0, gain: 0.9 }, { n: 3, gain: 0.2 }, { n: 5, gain: 0.5 }, { n: 7 },
     ])
   })
@@ -92,14 +92,14 @@ describe('`chance` — per-note probability', () => {
   })
 
   it('leaves the other lanes on the notes that survive', () => {
-    const got = cyc(n("0'chance:1'vel:.4 3'chance:1'2"))
+    const got = cyc(n("0'chance:1'gain:.4 3'chance:1'2"))
     expect(got).toEqual([{ n: 0, gain: 0.4 }, { n: 3, expr: 2 }])
   })
 })
 
 describe('notation that must keep working', () => {
   it('a lane with no value is not a lane', () => {
-    expect(() => n("0'vel: 3")).toThrow()
+    expect(() => n("0'gain: 3")).toThrow()
     expect(() => n("0' 3")).toThrow()
   })
 
@@ -108,6 +108,6 @@ describe('notation that must keep working', () => {
   })
 
   it('still reads an accidental beside the lanes', () => {
-    expect(cyc(n("2#'vel:.5"))).toEqual([{ n: 2, nAcc: 1, gain: 0.5 }])
+    expect(cyc(n("2#'gain:.5"))).toEqual([{ n: 2, nAcc: 1, gain: 0.5 }])
   })
 })

@@ -142,7 +142,7 @@ export const buzz = (ms = 8): void => {
  * teaching it here teaches both languages. */
 export const STEP_RE = /^(-?\d+)(#+|b+)?((?:'(?:[a-zA-Z]+:)?-?\d*\.?\d+)*)$/
 
-/** Every lane on a step, from its trailing `'…` run: `0'2'vel:.8` gives
+/** Every lane on a step, from its trailing `'…` run: `0'2'gain:.8` gives
  *  `{ expr: 2, vel: 0.8 }`. A bare value lands in `expr`, matching the
  *  notation's own default lane. */
 export const laneValues = (raw: string | undefined): Record<string, number> => {
@@ -179,7 +179,7 @@ export const stepText = (
    * are trimmed so a drag to exactly 1 writes `'1`, not `'1.00`. The leading
    * zero is dropped to match how these are written by hand throughout the
    * language (`.5`, `.8`) — otherwise a drag on one note silently rewrites
-   * `'vel:.8` to `'vel:0.8` on a lane it never touched. */
+   * `'gain:.8` to `'gain:0.8` on a lane it never touched. */
   const num = (x: number): string => {
     const t = String(Number(x.toFixed(2)))
     return t.startsWith('0.') ? t.slice(1) : t.startsWith('-0.') ? `-${t.slice(2)}` : t
@@ -187,7 +187,7 @@ export const stepText = (
   let out = withAcc
   if (expr !== undefined) out += `'${num(expr)}`
   /* EVERY other lane is written back, in the order it was READ. A drag that
-   * touched only `expr` must not delete the `'vel:` beside it, and must not
+   * touched only `expr` must not delete the `'gain:` beside it, and must not
    * reorder the ones it left alone either. */
   for (const k of Object.keys(otherLanes ?? {})) {
     if (k === 'expr') continue

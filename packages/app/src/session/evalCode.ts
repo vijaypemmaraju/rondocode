@@ -173,11 +173,18 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
  *  instead of keeping a second copy that drifts (docs.test.ts). */
 export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap'])
 
-/** DSL sidechain defaults (release in SECONDS, converted to ms downstream).
- *  Exported so the editor's duck-curve widget can draw the shape an omitted
- *  arg actually makes rather than keeping a third copy of these numbers. */
+/** DSL sidechain defaults. `release` is MILLISECONDS, like every other
+ *  release in the language — it used to be seconds here and only here, so the
+ *  same word meant 0.18 in one place and 180 in the next. Exported so the
+ *  editor's duck-curve widget draws the shape an omitted arg actually makes
+ *  rather than keeping a third copy of these numbers. */
 export const DEFAULT_SIDECHAIN_DEPTH = 0.6
-export const DEFAULT_SIDECHAIN_RELEASE_SEC = 0.18
+export const DEFAULT_SIDECHAIN_RELEASE_MS = 180
+
+/** Below this, a `release` was almost certainly written in seconds. A duck
+ *  that recovers in under 5 ms is not a pump, it is a click, so treating the
+ *  old spelling as a valid new one would silently destroy the effect. */
+const SUSPICIOUS_RELEASE_MS = 5
 
 /** Lines added ahead of user code inside the compiled function: V8 renders
  *  `new Function(a, b, body)` as `function anonymous(a,b\n) {\n<body>\n}`
@@ -809,12 +816,19 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       }
       depth = o.depth
     }
-    let releaseSec = DEFAULT_SIDECHAIN_RELEASE_SEC
+    let releaseMs = DEFAULT_SIDECHAIN_RELEASE_MS
     if (o.release !== undefined) {
       if (typeof o.release !== 'number' || !Number.isFinite(o.release)) {
-        throw new TypeError(`sidechain('${source}'): release must be a finite number of seconds`)
+        throw new TypeError(`sidechain('${source}'): release must be a finite number of milliseconds`)
       }
-      releaseSec = o.release
+      if (o.release > 0 && o.release < SUSPICIOUS_RELEASE_MS) {
+        throw new TypeError(
+          `sidechain('${source}'): release is MILLISECONDS, and ${o.release} ms is a click rather `
+          + `than a pump. This used to be seconds — write ${Math.round(o.release * 1000)} for the `
+          + `same sound.`,
+        )
+      }
+      releaseMs = o.release
     }
     let amounts: Record<string, number> | undefined
     if (o.duck !== undefined) {
@@ -829,7 +843,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
         amounts[synth] = amount
       }
     }
-    sidechainCfg = { source, depth, releaseMs: releaseSec * 1000, ...(amounts !== undefined ? { amounts } : {}) }
+    sidechainCfg = { source, depth, releaseMs, ...(amounts !== undefined ? { amounts } : {}) }
   }
 
   /** Arm the master-bus glue compressor (stereo-linked, after master gain,

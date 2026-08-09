@@ -577,7 +577,7 @@ p('k', note('c1*4').sound('kick'))
 p('p', note('c3').sound('pad'))
 p('b', note('g4 e5').sound('bell'))
 bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.85 }), { bell: 0.5, pad: 0.3 })
-sidechain('kick', { depth: 0.6, release: 0.15 })
+sidechain('kick', { depth: 0.6, release: 150 })
 masterCompress({ threshold: -18, ratio: 4, makeup: 8 })
 setCps(1)
 `

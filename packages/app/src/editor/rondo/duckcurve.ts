@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------------- *
  * THE SIDECHAIN DUCK, drawn.
  *
- * `sidechain kick depth:.7 release:.2 lead:.99 sub:.8` is a trigger name and a
+ * `sidechain kick depth:.7 release:200 lead:.99 sub:.8` is a trigger name and a
  * pile of amounts, and two things about it are invisible:
  *
  *   the SHAPE — how far the gain drops and how fast it comes back, which is
@@ -31,7 +31,7 @@ import type { Hooks } from './widgets'
  *  slower pump than it played. The test that was supposed to catch that
  *  compared the scanner against THIS constant, which is no comparison at all;
  *  duckcurve.test.ts now pins it against the DSL layer that applies it. */
-export const DUCK_DEFAULTS = { depth: 0.6, release: 0.18 }
+export const DUCK_DEFAULTS = { depth: 0.6, release: 180 }
 
 export interface DuckScan {
   /** the synth whose onsets trigger the duck. */
@@ -51,7 +51,8 @@ export interface DuckScan {
  * Exponential recovery, not linear: a linear ramp back reads as a fade, and
  * the whole character of a pump is that it moves fastest just after the hit.
  */
-export function duckGain(t: number, depth: number, release: number): number {
+export function duckGain(t: number, depth: number, releaseMs: number): number {
+  const release = releaseMs / 1000
   if (t < 0) return 1
   const d = Math.min(1, Math.max(0, depth))
   if (release <= 0) return 1

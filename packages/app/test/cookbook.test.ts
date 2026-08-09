@@ -195,7 +195,7 @@ describe('the cookbook covers the things people come looking for', () => {
   const WANTED: [string, RegExp][] = [
     ['sidechain pumping', /sidechain/],
     ['a live mic chain', /noisegate/],
-    ['per-note expression', /'vel:|'chance:/],
+    ['per-note expression', /'gain:|'chance:/],
     ['mid/side and mono bass', /monobelow/],
     ['one knob, many destinations', /macro/],
     ['custom wavetables', /wavedef|wavetable/],

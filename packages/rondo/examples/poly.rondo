@@ -70,7 +70,7 @@ play arp
   dur: .5
   gain: .7
 
-sidechain kick depth:.5 release:.12 bass:.9 arp:.7
+sidechain kick depth:.5 release:120 bass:.9 arp:.7
 
 master threshold:-7 ratio:2 makeup:1
 

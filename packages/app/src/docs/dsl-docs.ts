@@ -233,7 +233,7 @@ const GLOBALS: DocEntry[] = [
     'macroNum',
     'macroNum(name: string)',
     "A project-wide macro or switch as a plain NUMBER, read once at eval. For the places that capture a value rather than reading a signal per sample -- sidechain()'s duck depth is the one that matters, since the pump was the only project control a macro could not reach. It resolves the DECLARED value, so it follows a switch tap (which rewrites the source and re-evals) but not a knob mid-drag. Use macroval where a signal will do: that one is live. In rondo, write the control's name where a number goes: sidechain kick depth:drums.",
-    "sidechain('kick', { depth: macroNum('drums'), release: 0.5 })",
+    "sidechain('kick', { depth: macroNum('drums'), release: 500 })",
   ),
   g(
     'setCps',
@@ -256,8 +256,8 @@ const GLOBALS: DocEntry[] = [
   g(
     'sidechain',
     'sidechain(source: string, opts?: { depth?: number; release?: number; duck?: Record<string, number> })',
-    "The classic house pump: every note of the source synth ducks all the other channels' level and lets it swell back, depth 0..1 (default 0.6), release in seconds (default 0.18). Optional duck map sets per-synth response 0..1 (1 = full, 0 = ignore); unlisted synths duck fully.",
-    "sidechain('kick', { depth: 0.7, release: 0.18, duck: { arp: 1, pad: 0.4 } })",
+    "The classic house pump: every note of the source synth ducks all the other channels' level and lets it swell back, depth 0..1 (default 0.6), release in MILLISECONDS (default 180), the same unit every other release in the language uses. Optional duck map sets per-synth response 0..1 (1 = full, 0 = ignore); unlisted synths duck fully.",
+    "sidechain('kick', { depth: 0.7, release: 180, duck: { arp: 1, pad: 0.4 } })",
   ),
   g(
     'masterCompress',
@@ -788,7 +788,7 @@ const MINI_SYNTAX: DocEntry[] = [
   ms('mini:(p,s,r)', 'a(pulses,steps,rotation?)', 'Euclidean rhythm inline: spread hits evenly, e.g. bd(3,8) is the tresillo kick.', "sound('bd(3,8)')"),
   ms('mini:?', 'a?p', 'Maybe: drop this step at random (probability p, default 0.5), deterministic per cycle.', "note('c5*8 ?0.3')"),
   ms('mini:|', 'a | b', 'Choice: each cycle picks one alternative at random (deterministic per cycle number).', "n('0 3 5 | 7 5 3')"),
-  ms('mini:\'', "a'n  a'name:n", 'PER-NOTE LANES: values written ON the note, so they cannot drift when the notation grows a rest or a subgroup the way a parallel control line does. A bare number is the `expr` lane, read by the synth as param(\'expr\'). A named lane rides alongside it and they chain in any order. Three names are STRUCTURAL: `vel` is that note\u2019s gain, `len` a multiplier on its length, and `chance` the probability it sounds at all (reproducible, drawn from the same time-locked stream as degradeBy). Any other name is an ordinary param for that note alone.', "n(\"0'2 3'vel:.8 5'chance:.5\")"),
+  ms('mini:\'', "a'n  a'name:n", 'PER-NOTE LANES: values written ON the note, so they cannot drift when the notation grows a rest or a subgroup the way a parallel control line does. A bare number is the `expr` lane, read by the synth as param(\'expr\'). A named lane rides alongside it and they chain in any order. Three names are STRUCTURAL: `vel` is that note\u2019s gain, `len` a multiplier on its length, and `chance` the probability it sounds at all (reproducible, drawn from the same time-locked stream as degradeBy). Any other name is an ordinary param for that note alone.', "n(\"0'2 3'gain:.8 5'chance:.5\")"),
 ]
 
 // ----------------------------------------------------------------- export

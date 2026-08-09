@@ -132,11 +132,11 @@ cps .5`,
 
 # each note carries its OWN values:
 #   '1 / '-1   bend up / down into it
-#   'vel:      that note's velocity
+#   'gain:      that note's velocity
 #   'chance:   the odds it plays
 play lead
-  0'1'vel:.9 3'vel:.5 5'-1'vel:.8 7'vel:.4'chance:.5
-  9'1'vel:.85 7'vel:.45 5'0'vel:.7 3'vel:.4'chance:.6
+  0'1'gain:.9 3'gain:.5 5'-1'gain:.8 7'gain:.4'chance:.5
+  9'1'gain:.85 7'gain:.45 5'0'gain:.7 3'gain:.4'chance:.6
   scale: a-min
 
 cps .5`,
@@ -183,7 +183,7 @@ play kick
 play pad
   <c3 a2 f2 g2>/4
 
-sidechain kick depth:.8 release:.4
+sidechain kick depth:.8 release:400
 
 cps .5`,
     why: 'The duck is triggered by the kick\'s note ONSETS, not by how loud it is. So the pump keeps working if you turn the kick down, and it keeps working if you mute the kick entirely, which is usually a surprise. If you want them to stop together, put both on one control: `switch drums 1 0`, then `gain: drums * 0.9` on the kick and `depth:drums` on the sidechain.',

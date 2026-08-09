@@ -88,8 +88,8 @@ export interface MiniValue {
   /** PER-NOTE LANES, from trailing `'…` suffixes on the atom.
    *
    *      0'2              the anonymous lane, `expr`
-   *      0'vel:.8         a named lane
-   *      0'2'vel:.8'chance:.5   chained, in any order
+   *      0'gain:.8         a named lane
+   *      0'2'gain:.8'chance:.5   chained, in any order
    *
    *  Named lanes let one note carry velocity, length, probability and an
    *  expression at once — the Live-11 cluster — without a parallel control
@@ -172,7 +172,7 @@ interface Tok {
   readonly end: number
   /** Semitones from a trailing accidental run (`2#` → 1, `2b` → -1). */
   readonly acc?: number
-  /** Values of the trailing `'…` lane suffixes (`0'2'vel:.8`). */
+  /** Values of the trailing `'…` lane suffixes (`0'2'gain:.8`). */
   readonly lanes?: Record<string, number>
 }
 
@@ -195,7 +195,7 @@ function readNum(src: string, j: number): number {
  * Read the run of `'…` lane suffixes at `k`.
  *
  * `'2` is the anonymous lane; `'name:2` is a named one; they chain in any
- * order (`0'2'vel:.8'chance:.5`). `'` is deliberately neither punctuation nor
+ * order (`0'2'gain:.8'chance:.5`). `'` is deliberately neither punctuation nor
  * a word character, so it can only ever mean this. Values are plain signed
  * decimals — no expressions — so a widget can find one, rewrite it, and never
  * have to parse.
@@ -212,7 +212,7 @@ function readLanes(src: string, k: number): { lanes: Record<string, number>; nex
     if (j > afterQuote && src[j] === ':') {
       const name = src.slice(afterQuote, j)
       const end = readNum(src, j + 1)
-      if (end === j + 1) break // `'vel:` with no number is not a lane
+      if (end === j + 1) break // `'gain:` with no number is not a lane
       lanes[name] = parseFloat(src.slice(j + 1, end))
       i = end
       found = true

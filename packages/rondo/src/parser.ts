@@ -1013,7 +1013,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     else if (head.v === 'timesig') { const r = parseTimeSig(lines, i, errors); items.push(r.block); i = r.next }
     // `sing NAME [voice:WORD]` — a neural vocal block
     else if (head.v === 'sing') { const r = parseSing(lines, i, errors); items.push(r.block); i = r.next }
-    // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
+    // `sidechain kick depth:.7 release:90 lead:.5 …` — extra named args are
     // per-channel duck amounts
     else if (head.v === 'sidechain') {
       const srcTok = ln.toks[1]

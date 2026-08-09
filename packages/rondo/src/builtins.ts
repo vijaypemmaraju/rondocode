@@ -126,6 +126,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     pos: [],
     named: { freq: 'num', threshold: 'num', ratio: 'num', attack: 'num', release: 'num' },
   },
+  pitchshift: { kind: 'proc', pos: [], named: { semitones: 'num', window: 'num', mix: 'sig' } },
   follow: { kind: 'proc', pos: [], named: { attack: 'num', release: 'num', mode: 'enum' } },
   noisegate: {
     kind: 'proc',

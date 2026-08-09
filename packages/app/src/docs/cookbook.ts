@@ -59,6 +59,28 @@ cps .5`,
     why: 'The ORDER is the recipe: each line fixes something the one above it cannot. Gate FIRST, so nothing downstream amplifies the room you were about to remove -- that single choice is most of the difference between a usable mic and a noisy one. The eq peak adds presence where words live, which is usually what made the sibilance sharp, so the de-esser follows it rather than preceding it, and the limiter is last because a ceiling is only a ceiling if nothing comes after. These numbers are a starting point tuned against a synthetic voice; the gate threshold depends entirely on your room.',
   },
   {
+    id: 'harmoniser',
+    title: 'Add a harmony line without writing one',
+    tags: ['pitchshift', 'harmony', 'voice', 'mic', 'effect'],
+    code: `synth lead
+  saw note
+  ladder 2800 res:.3
+  * env
+  * .35
+  pitchshift semitones:7 window:40 mix:.45
+  env = adsr .01 .12 .7 .2
+  post
+    reverb room:.5 mix:.2
+
+play lead
+  0 3 5 7 5 3
+  scale:a-min
+  dur: .9
+
+cps .5`,
+    why: 'The interval is FIXED, which is the thing to know before you reach for it. This is a hardware harmoniser, not a diatonic one: every note gets a fifth above it, so it stays in key here only because a fifth above the minor scale degrees used happens to land in the scale. `mix` is what makes it a harmony rather than a transposition -- at 1 you have simply moved the part, at 0.45 the original is still underneath. `window` is the artefact and cannot be turned off, because the read head has to wrap somewhere: 40 ms is short enough to keep the attacks and long enough not to warble. And at 0 semitones the node returns the input untouched, so it is safe to leave in a chain you are auditioning.',
+  },
+  {
     id: 'mono-bass',
     title: 'Stop the low end wandering on a big system',
     tags: ['stereo', 'mid/side', 'mix', 'mastering', 'bass'],

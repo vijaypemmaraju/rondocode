@@ -311,6 +311,8 @@ export interface SynthCtx {
   deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
   /** Envelope follower: audio in, a 0..1 control signal out. */
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
+  /** Shift a signal in semitones without changing its length. */
+  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -424,6 +426,8 @@ export interface PostCtx {
   deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
   /** Envelope follower: audio in, a 0..1 control signal out. */
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
+  /** Shift a signal in semitones without changing its length. */
+  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -905,6 +909,15 @@ const makeShared = (b: Builder) => {
           hysteresis: opts?.hysteresis,
         }),
       ),
+    pitchshift: (
+      inp: SigIn,
+      opts?: { semitones?: number; window?: number; mix?: number },
+    ): Sig =>
+      b.node(
+        'pitchshift',
+        { in: src(inp, 'pitchshift in') },
+        definedConfig({ semitones: opts?.semitones, window: opts?.window, mix: opts?.mix }),
+      ),
     follow: (
       inp: SigIn,
       opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' },
@@ -1025,6 +1038,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     noisegate: shared.noisegate,
     deess: shared.deess,
     follow: shared.follow,
+    pitchshift: shared.pitchshift,
     limiter: shared.limiter,
     phaser: shared.phaser,
     formant: shared.formant,

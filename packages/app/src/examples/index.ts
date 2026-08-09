@@ -3022,6 +3022,58 @@ cps .45
 `
 
 
+/** HARMONISER: the shifted copy alongside the original. Only possible with
+ *  `pitchshift` — varispeed moves time with pitch, and granular is a cloud. */
+const harmoniserRondo = `# HARMONISER. a fixed interval above every
+# note, the way a hardware harmoniser
+# works - not a diatonic one. the fifth
+# stays in key here because the line is
+# built from scale degrees a fifth apart.
+#
+#   semitones  the interval. 7 = a fifth,
+#              4 = a major third, -12 = an
+#              octave down
+#   mix        .45 keeps the ORIGINAL
+#              underneath. at 1 you have
+#              just transposed the part
+#   window     the artefact, and it cannot
+#              be switched off: the read
+#              head has to wrap somewhere.
+#              short warbles, long smears
+#
+# at 0 semitones it returns the input
+# untouched, so it is safe to leave in a
+# chain while you audition it.
+
+synth lead
+  saw note
+  ladder cut res:.35
+  * env
+  * .3
+  pitchshift semitones:7 window:40 mix:.45
+  env = adsr .01 .12 .7 .2
+  cut = env ^ 2 -> 600..4200
+  post
+    width .7
+    reverb room:.55 damp:.4 mix:.22
+
+synth bass
+  (saw note) * .5
+  ladder 900 res:.2
+  * adsr .005 .12 .6 .12
+
+play lead
+  0 3 5 7 5 3 2 0
+  scale:a-min
+  dur: .85
+
+play bass
+  <a1 a1 f1 g1>
+  dur: .95
+
+cps .5
+`
+
 /** AUTO WAH: the microphone's LEVEL drives a filter. The example that only
  *  became possible with `follow` — every other way of reacting to sound in
  *  this engine reacts to note onsets, not to how loud anything actually is. */
@@ -3684,6 +3736,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
   { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
   { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
+  { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
   { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },

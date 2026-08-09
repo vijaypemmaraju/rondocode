@@ -1,5 +1,5 @@
 import type { DspContext, Kernel } from './types'
-import { clamp, flush } from './util'
+import { clamp, ctl, flush } from './util'
 
 /* ------------------------------------------------------------------------- *
  * Extra colour: a swept allpass phaser and a vowel/formant filter. Both are
@@ -41,17 +41,25 @@ export class PhaserKernel implements Kernel {
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
     const x = inputs['in']!
     const sr = ctx.sampleRate
-    const inc = this.rate / sr
     const ap = this.ap
     const ns = this.nStages
-    const fb = this.feedback
-    const mix = this.mix
+    // per-sample controls: rate/depth/feedback/mix are signals now, so an LFO
+    // can sweep the sweep. `stages` stays construction-only — it sizes the
+    // allpass array, and a per-sample count is not a control, it is a rebuild.
+    const rateIn = inputs['rate']
+    const depthIn = inputs['depth']
+    const fbIn = inputs['feedback']
+    const mixIn = inputs['mix']
     let lfo = this.lfo
     let last = this.last
     for (let i = 0; i < n; i++) {
+      const inc = ctl(rateIn, i, this.rate, 0.001, 20) / sr
+      const depth = ctl(depthIn, i, this.depth, 0, 1)
+      const fb = ctl(fbIn, i, this.feedback, 0, 0.9)
+      const mix = ctl(mixIn, i, this.mix, 0, 1)
       // sine LFO 0..1 → allpass coefficient centred ~0.5, swept by depth
       const mod = 0.5 - 0.5 * Math.cos(2 * Math.PI * lfo)
-      const a = clamp(0.15 + this.depth * 0.8 * mod, -0.98, 0.98)
+      const a = clamp(0.15 + depth * 0.8 * mod, -0.98, 0.98)
       let s = x[i]! + fb * last
       for (let k = 0; k < ns; k++) {
         const y = -a * s + ap[k]!

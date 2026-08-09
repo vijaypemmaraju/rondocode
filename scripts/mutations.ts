@@ -111,8 +111,8 @@ export const MUTATIONS: Mutation[] = [
   {
     label: 'duck: the drawn default drifts off the one the DSL applies',
     file: 'packages/app/src/editor/rondo/duckcurve.ts',
-    find: 'depth: 0.6, release: 0.18',
-    replace: 'depth: 0.7, release: 0.2',
+    find: 'depth: 0.6, release: 180',
+    replace: 'depth: 0.7, release: 200',
     tests: 'packages/app/test/duckcurve.test.ts',
   },
   {
@@ -466,6 +466,34 @@ export const MUTATIONS: Mutation[] = [
   },
 
   /* ---- the de-esser: selectivity is the whole contract ------------------- */
+  {
+    label: 'chorus: rate is read once instead of per sample (no automation)',
+    file: 'packages/engine/src/dsp/chorus.ts',
+    find: '      const rate = ctl(rateIn, i, this.rate, 0.01, 20)',
+    replace: '      const rate = ctl(rateIn, 0, this.rate, 0.01, 20)',
+    tests: 'packages/engine/test/modulation-automation.test.ts',
+  },
+  {
+    label: 'phaser: feedback is read once instead of per sample',
+    file: 'packages/engine/src/dsp/fx2.ts',
+    find: '      const fb = ctl(fbIn, i, this.feedback, 0, 0.9)',
+    replace: '      const fb = ctl(fbIn, 0, this.feedback, 0, 0.9)',
+    tests: 'packages/engine/test/modulation-automation.test.ts',
+  },
+  {
+    label: 'flanger: mix is read once instead of per sample',
+    file: 'packages/engine/src/dsp/flanger.ts',
+    find: '      const mix = ctl(mixIn, i, this.mix, 0, 1)',
+    replace: '      const mix = ctl(mixIn, 0, this.mix, 0, 1)',
+    tests: 'packages/engine/test/modulation-automation.test.ts',
+  },
+  {
+    label: 'ctl: a control input is ignored, so only the constructor value counts',
+    file: 'packages/engine/src/dsp/util.ts',
+    find: '  if (buf === undefined) return fallback',
+    replace: '  if (buf !== undefined || buf === undefined) return fallback',
+    tests: 'packages/engine/test/modulation-automation.test.ts',
+  },
   {
     label: 'tape: wow and flutter collapse to a single LFO (a vibrato)',
     file: 'packages/engine/src/dsp/tape.ts',
@@ -901,17 +929,17 @@ export const MUTATIONS: Mutation[] = [
     tests: 'packages/pattern/test/note-lanes.test.ts',
   },
   {
-    label: 'lanes: vel stops being the note gain',
+    label: 'lanes: gain stops being the note gain',
     file: 'packages/pattern/src/controls.ts',
-    find: "    if (k === 'vel') out.gain = v",
-    replace: "    if (k === 'vel') void v",
+    find: "    if (k === 'gain') out.gain = v",
+    replace: "    if (k === 'gain') void v",
     tests: 'packages/pattern/test/note-lanes.test.ts',
   },
   {
-    label: 'lanes: len stops being the note duration',
+    label: 'lanes: dur stops being the note duration',
     file: 'packages/pattern/src/controls.ts',
-    find: "    else if (k === 'len') out.dur = v",
-    replace: "    else if (k === 'len') void v",
+    find: "    else if (k === 'dur') out.dur = v",
+    replace: "    else if (k === 'dur') void v",
     tests: 'packages/pattern/test/note-lanes.test.ts',
   },
   {

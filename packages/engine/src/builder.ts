@@ -279,7 +279,7 @@ export interface SynthCtx {
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
   /** Three-voice modulated-delay ensemble — thickens and widens. Runs mono per
    *  call; stereo width comes from the post-chain running it twice (L/R). */
-  chorus(inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig
+  chorus(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig
   /** Tuned feedback comb: resonates at `freq` (Hz) with a metallic ring;
    *  feedback 0..0.98 (default 0.5) sets the ring length, opts.damp darkens it. */
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
@@ -328,7 +328,7 @@ export interface SynthCtx {
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
-  phaser(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig
+  phaser(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; stages?: number; mix?: SigIn }): Sig
   /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
    *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
   formant(inp: SigIn, morph?: SigIn): Sig
@@ -369,7 +369,7 @@ export interface SynthCtx {
    *  `feedback` −0.95..0.95 (def 0.7, negative moves the notches), `mix` 0..1
    *  (def 0.5). Unlike chorus (three unfed taps around 11 ms, a thickener) the
    *  feedback builds resonant PEAKS between the notches. */
-  flanger(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig
+  flanger(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
@@ -402,7 +402,7 @@ export interface PostCtx {
   lfo(freq: SigIn, shape?: LfoShapeName | LfoOpts, opts?: LfoOpts): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
-  chorus(inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig
+  chorus(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
   bitcrush(inp: SigIn, opts?: { bits?: number; downsample?: number }): Sig
   shape(inp: SigIn, drive?: SigIn, opts?: { type?: 'soft' | 'hard' | 'sine' | 'tube' }): Sig
@@ -446,7 +446,7 @@ export interface PostCtx {
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
-  phaser(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig
+  phaser(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; stages?: number; mix?: SigIn }): Sig
   /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
    *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
   formant(inp: SigIn, morph?: SigIn): Sig
@@ -487,7 +487,7 @@ export interface PostCtx {
    *  `feedback` −0.95..0.95 (def 0.7, negative moves the notches), `mix` 0..1
    *  (def 0.5). Unlike chorus (three unfed taps around 11 ms, a thickener) the
    *  feedback builds resonant PEAKS between the notches. */
-  flanger(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig
+  flanger(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
@@ -860,12 +860,14 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'reverb in') },
         definedConfig({ roomSize: opts?.roomSize, damp: opts?.damp }),
       ),
-    chorus: (inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig =>
-      b.node(
-        'chorus',
-        { in: src(inp, 'chorus in') },
-        definedConfig({ rate: opts?.rate, depth: opts?.depth, mix: opts?.mix }),
-      ),
+    chorus: (inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig => {
+      // rate/depth/mix are per-sample INPUTS, so an LFO or knob can ride them
+      const inputs: Record<string, InputSource> = { in: src(inp, 'chorus in') }
+      if (opts?.rate !== undefined) inputs['rate'] = src(opts.rate, 'chorus rate')
+      if (opts?.depth !== undefined) inputs['depth'] = src(opts.depth, 'chorus depth')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'chorus mix')
+      return b.node('chorus', inputs)
+    },
     comb: (inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig => {
       const inputs: Record<string, InputSource> = {
         in: src(inp, 'comb in'),
@@ -976,12 +978,19 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'limiter in') },
         definedConfig({ ceiling: opts?.ceiling, lookahead: opts?.lookahead, release: opts?.release }),
       ),
-    phaser: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig =>
-      b.node(
-        'phaser',
-        { in: src(inp, 'phaser in') },
-        definedConfig({ rate: opts?.rate, depth: opts?.depth, feedback: opts?.feedback, stages: opts?.stages, mix: opts?.mix }),
-      ),
+    phaser: (
+      inp: SigIn,
+      opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; stages?: number; mix?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'phaser in') }
+      if (opts?.rate !== undefined) inputs['rate'] = src(opts.rate, 'phaser rate')
+      if (opts?.depth !== undefined) inputs['depth'] = src(opts.depth, 'phaser depth')
+      if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'phaser feedback')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'phaser mix')
+      // `stages` sizes the allpass array: a per-sample count is a rebuild, not
+      // a control, so it stays construction config
+      return b.node('phaser', inputs, definedConfig({ stages: opts?.stages }))
+    },
     formant: (inp: SigIn, morph?: SigIn): Sig => {
       const inputs: Record<string, InputSource> = { in: src(inp, 'formant in') }
       if (morph !== undefined) inputs['morph'] = src(morph, 'formant morph')
@@ -1022,12 +1031,17 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'transient in') },
         definedConfig({ attack: opts?.attack, sustain: opts?.sustain }),
       ),
-    flanger: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig =>
-      b.node(
-        'flanger',
-        { in: src(inp, 'flanger in') },
-        definedConfig({ rate: opts?.rate, depth: opts?.depth, feedback: opts?.feedback, mix: opts?.mix }),
-      ),
+    flanger: (
+      inp: SigIn,
+      opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'flanger in') }
+      if (opts?.rate !== undefined) inputs['rate'] = src(opts.rate, 'flanger rate')
+      if (opts?.depth !== undefined) inputs['depth'] = src(opts.depth, 'flanger depth')
+      if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'flanger feedback')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'flanger mix')
+      return b.node('flanger', inputs)
+    },
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
     // LIVE MIC: the device microphone as a signal (silence offline / when no

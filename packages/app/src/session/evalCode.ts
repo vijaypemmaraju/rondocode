@@ -152,6 +152,8 @@ export interface EvalResult {
    *  all — every per-part gain above the ceiling is inert (see normalizeDb).
    *  Last call wins. */
   masterGain?: number
+  /** Present iff the code called stereo(opts): master-bus mid/side. */
+  stereo?: { width?: number; monoBelow?: number }
   /** Present iff the code called visual(wgsl): the WGSL fragment source for
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
@@ -169,7 +171,7 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object.
  *  EXPORTED so the docs-coverage test can check itself against this list
  *  instead of keeping a second copy that drifts (docs.test.ts). */
-export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'visual', 'bus', 'sing', '__rcTap'])
+export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap'])
 
 /** DSL sidechain defaults (release in SECONDS, converted to ms downstream).
  *  Exported so the editor's duck-curve widget can draw the shape an omitted
@@ -677,6 +679,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
   let masterGainDb: number | undefined
+  let stereoCfg: { width?: number; monoBelow?: number } | undefined
   let visualSrc: string | undefined
 
   // Staging is SEALED once the synchronous eval returns: a p() reached from
@@ -859,6 +862,23 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
    *  reports `normalized -N dB`: per-part gains above that ceiling are inert,
    *  and only a uniform trim brings the whole mix back under it. Clamped to
    *  [-60, +12] dB. Last call wins. */
+  /** `stereo({ width, monoBelow })` — master-bus mid/side. Staged like every
+   *  other master-bus call so a failed eval changes nothing. */
+  const stereo = (opts: unknown): void => {
+    assertOpen('stereo')
+    const o = typeof opts === 'object' && opts !== null ? (opts as Record<string, unknown>) : {}
+    const out: { width?: number; monoBelow?: number } = {}
+    for (const k of ['width', 'monoBelow'] as const) {
+      const v = o[k]
+      if (v === undefined) continue
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new TypeError(`stereo(): ${k} must be a finite number, got ${JSON.stringify(v)}`)
+      }
+      out[k] = v
+    }
+    stereoCfg = out
+  }
+
   const masterGain = (db: unknown): void => {
     assertOpen('masterGain')
     if (typeof db !== 'number' || !Number.isFinite(db)) {
@@ -1027,8 +1047,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'visual', 'bus', 'sing', '__rcTap')
-  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, visual, bus, sing, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, stereo, visual, bus, sing, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to
@@ -1150,6 +1170,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg
   if (masterGainDb !== undefined) result.masterGain = masterGainDb
+  if (stereoCfg !== undefined) result.stereo = stereoCfg
   if (visualSrc !== undefined) result.visual = visualSrc
   return result
 }

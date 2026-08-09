@@ -949,7 +949,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
  *  top level. See words.ts, which adds them for highlighting. */
 export const BLOCK_KEYWORDS: readonly string[] = [
   'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'patdef',
-  'bus', 'sidechain', 'master', 'macro', 'switch', 'curvedef', 'scaledef',
+  'bus', 'sidechain', 'master', 'stereo', 'macro', 'switch', 'curvedef', 'scaledef',
   'wavedef', 'visual', 'js',
 ]
 
@@ -959,7 +959,7 @@ export const BLOCK_KEYWORDS: readonly string[] = [
  *  added to one list and not the other — so it lives HERE, next to the dispatch
  *  that defines it, and the formatter imports it. */
 export const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
-  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef', 'patdef',
+  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'stereo', 'macro', 'scaledef', 'wavedef', 'patdef',
 ])
 
 /** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
@@ -1293,6 +1293,20 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
         opts[nameT.v] = (valT as Tok & { v: number }).v
       }
       items.push({ t: 'master', opts, pos: head.pos })
+      i++
+    }
+    // `stereo width:1.3 monobelow:120` → mid/side on the master bus
+    else if (head.v === 'stereo') {
+      const opts: Record<string, number> = {}
+      for (let k = 1; k + 2 < ln.toks.length + 1; k += 3) {
+        const nameT = ln.toks[k], colonT = ln.toks[k + 1], valT = ln.toks[k + 2]
+        if (!nameT || nameT.k !== 'ident' || colonT?.k !== 'colon' || valT?.k !== 'num') {
+          if (nameT) errors.push({ message: 'stereo args are `name:number` pairs (width: monobelow:)', line: nameT.pos.line, col: nameT.pos.col })
+          break
+        }
+        opts[nameT.v] = (valT as Tok & { v: number }).v
+      }
+      items.push({ t: 'stereo', opts, pos: head.pos })
       i++
     }
     // `bus NAME` block: FX lines fold from `input`; `send SYNTH AMT` routes

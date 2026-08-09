@@ -1745,6 +1745,21 @@ function decompileStaging(stmt: Node): string | null {
     }
     return `master ${parts.join(' ')}`
   }
+  /* `stereo({ width, monoBelow })` → `stereo width:… monobelow:…`. The key
+   *  loses its camelCase on the way back: rondo has none anywhere, and the
+   *  mapping lives in exactly these two places. */
+  if (name === 'stereo' && args.length <= 1) {
+    if (args.length === 0) return 'stereo'
+    const o = objEntries(args[0]!)
+    if (o === undefined) return null
+    const parts: string[] = []
+    for (const [k, vn] of Object.entries(o)) {
+      const v = numValue(vn)
+      if (v === undefined) return null
+      parts.push(`${k === 'monoBelow' ? 'monobelow' : k}:${num(v)}`)
+    }
+    return `stereo ${parts.join(' ')}`
+  }
   if (name === 'sidechain' && args.length >= 1 && args.length <= 2) {
     const srcName = strValue(args[0]!)
     if (srcName === undefined) return null

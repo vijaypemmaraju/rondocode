@@ -824,4 +824,41 @@ export const MUTATIONS: Mutation[] = [
     replace: '  const bare = notation',
     tests: 'packages/app/test/note-bends-example.test.ts packages/rondo/test/compile.test.ts',
   },
+
+  /* ---- mid/side on the master bus ---------------------------------------- */
+  {
+    label: 'midside: width 1 stops being a bit-exact passthrough',
+    file: 'packages/engine/src/dsp/midside.ts',
+    find: '  if (width === 1) return [l, r]',
+    replace: '',
+    tests: 'packages/engine/test/midside.test.ts',
+  },
+  {
+    label: 'midside: scaling the side moves the MONO SUM (mono safety gone)',
+    file: 'packages/engine/src/dsp/midside.ts',
+    find: '  const s = ((l - r) / 2) * width',
+    replace: '  const s = (l - r) / 2\n  l = l * width',
+    tests: 'packages/engine/test/midside.test.ts',
+  },
+  {
+    label: 'midside: monoBelow stops collapsing the low end',
+    file: 'packages/engine/src/dsp/midside.ts',
+    find: '      const lowMono = (this.lpL + this.lpR) / 2',
+    replace: '      const lowMono = this.lpL',
+    tests: 'packages/engine/test/midside.test.ts',
+  },
+  {
+    label: 'midside: a NaN poisons the crossover for good',
+    file: 'packages/engine/src/dsp/midside.ts',
+    find: '    let outL = Number.isFinite(l) ? l : 0',
+    replace: '    let outL = l',
+    tests: 'packages/engine/test/midside.test.ts',
+  },
+  {
+    label: 'midside: an untouched project is no longer bypassed',
+    file: 'packages/engine/src/dsp/midside.ts',
+    find: '    return this.width === 1 && this.monoBelow <= 0',
+    replace: '    return false',
+    tests: 'packages/engine/test/midside.test.ts',
+  },
 ]

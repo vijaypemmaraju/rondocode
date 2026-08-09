@@ -54,6 +54,7 @@ bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.8 }), { b: 0.3 }
 sidechain('a', { depth: 0.5, release: 0.2, duck: { b: 0.7 } })
 masterCompress({ threshold: -10, ratio: 3 })
 masterGain(-3)
+stereo({ width: 1.2, monoBelow: 100 })
 visual(\`fn main() {}\`)
 setTimeSig(3, 4)
 setCps(0.7)
@@ -85,6 +86,7 @@ const FATE: Record<string, Fate> = {
   sidechain: { staged: true, mixOpt: 'sidechain', live: 'setSidechain' },
   masterComp: { staged: true, mixOpt: 'masterComp', live: 'setMasterComp' },
   masterGain: { staged: true, mixOpt: 'masterGain', live: 'setMaster' },
+  stereo: { staged: true, mixOpt: 'stereo', live: 'setStereo' },
   sings: {
     staged: true,
     mixOpt: null,
@@ -140,7 +142,7 @@ describe('staged fields reach both consumers', () => {
   it('exercises every staging call, so the list below is the whole list', () => {
     // Guards the fixture itself: a field only appears if MAXIMAL stages it.
     expect(stagedFields()).toEqual([
-      'buses', 'cps', 'masterComp', 'masterGain', 'patterns', 'sends', 'sidechain', 'sings', 'synths', 'timeSig', 'visual',
+      'buses', 'cps', 'masterComp', 'masterGain', 'patterns', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
     ])
   })
 

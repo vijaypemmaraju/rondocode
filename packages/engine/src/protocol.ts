@@ -78,6 +78,9 @@ export type EngineMessage = (
   | { kind: 'setChannel'; synth: string; gain?: number; pan?: number; sidechain?: number }
   /** Master gain (default 0.8), ramped over one block. */
   | { kind: 'setMaster'; gain: number }
+  /** Master-bus stereo stage: side scale, and a mono-below crossover. The one
+   *  place mid/side is expressible — every kernel is mono (see dsp/midside). */
+  | { kind: 'setStereo'; width?: number; monoBelow?: number }
   /** TRANSPORT TEMPO in cycles per second (default 0.5 = 120 bpm at four beats
    *  to the cycle), clamped to [0.001, 100]. This is the ONE number every
    *  tempo-synced kernel reads: a `sync` lfo takes its rate in cycles, a

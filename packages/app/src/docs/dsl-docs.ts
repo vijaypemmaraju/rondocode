@@ -266,6 +266,13 @@ const GLOBALS: DocEntry[] = [
     'masterCompress({ threshold: -14, ratio: 3, attack: 10, release: 100, makeup: 2 })',
   ),
   g(
+    'stereo',
+    'stereo(opts?: { width, monoBelow })',
+    'MID/SIDE on the master bus. width scales the SIDE against the mid: 0 collapses the mix to mono, 1 leaves it alone, above 1 widens. monoBelow collapses everything under that frequency in Hz to mono -- the standard mastering move, and the one that matters on a system with a single sub, where stereo bass either cancels or wanders. Both are MONO-SAFE by construction: scaling the side never touches the mid, and the mid IS the mono sum, so a mix folded to mono is bit-identical whatever the width. That is what a Haas or Lauridsen widener cannot offer, and why this exists as well as width(). It lives on the master bus rather than in a post chain because every kernel in the engine is mono -- a post chain gets its stereo by running the same graph once per side, so no node can see both channels at once.',
+    "stereo({ width: 1.3, monoBelow: 120 })",
+  ),
+  entry(
+    'global',
     'masterGain',
     'masterGain(db: number)',
     "Overall output level in dB (0 = unity, negative = quieter), clamped to -60..+12. The one control that scales EVERY part equally, so it changes the level without touching the balance. Reach for it when a bounce reports 'normalized -N dB': above that ceiling the render scales the whole mix back down, which makes per-part gains inert, and only a uniform trim brings it back under. Call again to change it.",

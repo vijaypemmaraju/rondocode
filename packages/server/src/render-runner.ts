@@ -36,6 +36,7 @@ import type { TimeSig } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
 import { BLOCK, DEFAULT_CPS, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
 import type { RenderEvent, SynthDef } from '../../engine/src/index'
+import { StereoStage } from '../../engine/src/dsp/midside'
 
 /** Control keys that are NOT synth params (mirrors Session.ts / demo-render). */
 /** Structural keys, DERIVED not restated — the fourth copy of this list, and
@@ -78,6 +79,8 @@ export type StageResult =
       masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
       /** Present iff the code called masterGain(db) — overall output level. */
       masterGain?: number
+      /** Master-bus mid/side from stereo(opts). */
+      stereo?: { width?: number; monoBelow?: number }
       /** Staged sing() requests: the neural vocals a headless render must
        *  bake before mixing (the browser bakes them into the sample bank; see
        *  sing-headless.ts for the node path). */
@@ -107,6 +110,7 @@ export function stageCode(source: string): StageResult {
   if (r.sidechain !== undefined) out.sidechain = r.sidechain
   if (r.masterComp !== undefined) out.masterComp = r.masterComp
   if (r.masterGain !== undefined) out.masterGain = r.masterGain
+  if (r.stereo !== undefined) out.stereo = r.stereo
   return out
 }
 
@@ -280,6 +284,10 @@ export interface MixOpts {
    *  the summed mix before normalization — mirrors the live engine's master
    *  compressor (which runs after master gain, before the limiter). */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Master-bus mid/side from stereo(opts). Applied here as well as live, or a
+   *  bounce would come out at a different width than the thing you heard —
+   *  which is the whole reason staged-fields.test.ts asks about every field. */
+  stereo?: { width?: number; monoBelow?: number }
   /** Overall output level in dB from masterGain(db), applied to the summed mix
    *  BEFORE the compressor (the live engine's order). Absent is unity. This is
    *  the only lever that scales everything equally, which is what a project
@@ -538,6 +546,21 @@ export function renderMix(
       if (masterGain !== undefined) masterGain[i] = g
       left[i]! *= g
       right[i]! *= g
+    }
+  }
+
+  /* Master mid/side, after the glue compressor and before the peak scan —
+   * the same position it holds in the live master stage, so a bounce and the
+   * thing you heard are the same signal. */
+  if (opts?.stereo !== undefined) {
+    const st = new StereoStage()
+    st.set(opts.stereo, sampleRate)
+    if (!st.idle) {
+      for (let i = 0; i < total; i++) {
+        const [l, r] = st.step(left[i]!, right[i]!)
+        left[i] = l
+        right[i] = r
+      }
     }
   }
 

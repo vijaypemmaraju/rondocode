@@ -6,7 +6,7 @@
  * members each synth uses and emit exactly that destructure. */
 
 import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue } from './ast'
-import { BUILTINS } from './builtins'
+import { BUILTINS, RESERVED_TOP_LEVEL } from './builtins'
 
 /** May a patdef name be expanded INSIDE another figure?
  *
@@ -552,6 +552,18 @@ function cgSynth(
   macros: ReadonlySet<string>,
   scope: { synths: ReadonlySet<string>; jsNames: ReadonlySet<string> },
 ): string {
+  /* A synth becomes `const NAME = synth(…)` beside the pattern functions, so
+   * a name they already use is a JS redeclaration — which surfaces as
+   * `Identifier 'note' has already been declared`, with no line and no hint
+   * about the word that caused it. Say it here, where the line is known. */
+  if (RESERVED_TOP_LEVEL.has(block.name)) {
+    errors.push({
+      message: `\`${block.name}\` is already a built-in name, so a synth cannot be called that `
+        + `(it would clash with the \`${block.name}\` you write patterns with). Pick another name.`,
+      line: block.pos.line,
+      col: block.pos.col,
+    })
+  }
   const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors, { macros, ...scope })
   // header voice options: `synth acid mono glide:.08` → the synth() opts arg
   const opts = block.voiceOpts !== undefined

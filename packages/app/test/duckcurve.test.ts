@@ -104,7 +104,7 @@ describe('scanDucks', () => {
   })
 
   it('finds nothing where there is no sidechain', () => {
-    expect(scanDucks('synth p\n  saw\n\ncps .5\n')).toEqual([])
+    expect(scanDucks('synth q\n  saw\n\ncps .5\n')).toEqual([])
   })
 
   it('handles a depth that names a MACRO rather than a number', () => {

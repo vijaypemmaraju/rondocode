@@ -127,7 +127,7 @@ describe('the input entry is precise about WHY, not just that it fails', () => {
    * page that over-generalises teaches a rule the reader will then trip over
    * in the opposite direction. */
   const bus = (body: string): boolean =>
-    compile(`synth p\n  saw note\n\nbus b\n  ${body}\n  send p 1\n\nplay p\n  c3\n\ncps .5\n`).ok
+    compile(`synth q\n  saw note\n\nbus b\n  ${body}\n  send p 1\n\nplay q\n  c3\n\ncps .5\n`).ok
 
   it('a one-signal processor rejects an explicit input', () => {
     expect(bus('reverb input room:.7')).toBe(false)

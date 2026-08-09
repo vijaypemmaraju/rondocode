@@ -213,7 +213,7 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('visual blocks survive the round trip (WGSL verbatim)', () => {
     const { rondo2 } = fixedPoint(
-      'synth s\n  saw\n\nplay s\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n',
+      'synth z\n  saw\n\nplay z\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n',
     )
     expect(rondo2).toContain('visual\n')
     expect(rondo2).toContain('  fn render(uv: vec2f) -> vec4f {')
@@ -222,7 +222,7 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('fast: ctrl values and pan: method modifiers round-trip', () => {
     const { rondo2 } = fixedPoint(
-      'synth s\n  saw\n\nplay s\n  0 2\n  cutoff: sine 200..2400 fast:2\n  pan: sine slow:4\n',
+      'synth z\n  saw\n\nplay z\n  0 2\n  cutoff: sine 200..2400 fast:2\n  pan: sine slow:4\n',
     )
     expect(rondo2).toContain('cutoff: sine 200..2400 fast:2')
     expect(rondo2).toContain('pan: sine slow:4')
@@ -237,9 +237,9 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('unison-shaping header opts + dualsvf lines round-trip', () => {
     const { rondo2 } = fixedPoint(
-      'synth stack unison:5 curve:2 blend:.6 octaves:2\n  saw\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n\nplay stack\n  0 2\n',
+      'synth stakk unison:5 curve:2 blend:.6 octaves:2\n  saw\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n\nplay stakk\n  0 2\n',
     )
-    expect(rondo2).toContain('synth stack unison:5 curve:2 blend:0.6 octaves:2')
+    expect(rondo2).toContain('synth stakk unison:5 curve:2 blend:0.6 octaves:2')
     expect(rondo2).toContain('dualsvf 400 4000 res:0.3 mode:parallel a:lp b:hp')
   })
 
@@ -267,28 +267,28 @@ describe('decompile round-trips (audit additions)', () => {
   it('a bare `width` fills its amount default rather than sliding opts into it', () => {
     // `width mode:tight` with no positional must NOT emit
     // `width(input, { mode })` — the opts object would land in the amount slot.
-    const { code, rondo2 } = fixedPoint('synth s\n  saw\n  post\n    width mode:tight\n\nplay s\n  0\n')
+    const { code, rondo2 } = fixedPoint('synth z\n  saw\n  post\n    width mode:tight\n\nplay z\n  0\n')
     expect(code).toContain("width(input, 0.5, { mode: 'tight' })")
     expect(rondo2).toContain('width 0.5 mode:tight')
   })
 
   it('a bare `master` line round-trips through masterCompress()', () => {
-    const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0\n\nmaster\n')
+    const { rondo2 } = fixedPoint('synth z\n  saw\n\nplay z\n  0\n\nmaster\n')
     expect(rondo2).toContain('\nmaster\n')
   })
 
   it('scaledef lines round-trip (floats, negatives, custom scale references)', () => {
     const { rondo2 } = fixedPoint(
-      'scaledef pelog 0 1.2 2.7 5.4 6.7\n\nsynth s\n  saw\n\nplay s\n  0 1 2  scale:c-pelog\n',
+      'scaledef pelog 0 1.2 2.7 5.4 6.7\n\nsynth z\n  saw\n\nplay z\n  0 1 2  scale:c-pelog\n',
     )
     expect(rondo2).toContain('scaledef pelog 0 1.2 2.7 5.4 6.7')
     expect(rondo2).toContain('scale: c-pelog')
-    fixedPoint('scaledef odd -1.5 0 2.25\n\nsynth s\n  saw\n\nplay s\n  0\n')
+    fixedPoint('scaledef odd -1.5 0 2.25\n\nsynth z\n  saw\n\nplay z\n  0\n')
   })
 
   it('wavedef lines round-trip (frames, floats, negatives, table references)', () => {
     const { rondo2 } = fixedPoint(
-      'wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1\n\nsynth s\n  wavetable note 0.3 table:vox\n\nplay s\n  0 1 2\n',
+      'wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1\n\nsynth z\n  wavetable note 0.3 table:vox\n\nplay z\n  0 1 2\n',
     )
     expect(rondo2).toContain('wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1')
     expect(rondo2).toContain('table:vox')
@@ -296,11 +296,11 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('wavetable warp args round-trip (warp enum, warpAmt aliased back to warpamt)', () => {
     const { rondo2 } = fixedPoint(
-      'synth s\n  wavetable note 0.3 warp:sync warpamt:0.8\n  e = adsr .01 .2 .5 .1\n\nplay s\n  0 1\n',
+      'synth z\n  wavetable note 0.3 warp:sync warpamt:0.8\n  e = adsr .01 .2 .5 .1\n\nplay z\n  0 1\n',
     )
     expect(rondo2).toContain('warp:sync warpamt:0.8')
     // a signal-valued warpamt survives too
-    const r2 = fixedPoint('synth s\n  wavetable note 0 warp:mirror warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay s\n  0\n')
+    const r2 = fixedPoint('synth z\n  wavetable note 0 warp:mirror warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay z\n  0\n')
     expect(r2.rondo2).toContain('warp:mirror warpamt:e')
   })
 
@@ -324,9 +324,9 @@ describe('decompile round-trips (audit additions)', () => {
   })
 
   it('edo and long-mode scale names round-trip', () => {
-    const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5  scale:c-19edo\n')
+    const { rondo2 } = fixedPoint('synth z\n  saw\n\nplay z\n  0 3 5  scale:c-19edo\n')
     expect(rondo2).toContain('scale: c-19edo')
-    fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5\n  scale: e-minorPentatonic\n')
+    fixedPoint('synth z\n  saw\n\nplay z\n  0 3 5\n  scale: e-minorPentatonic\n')
   })
 
   it('a cents or ratios spec is a unit word, not a js block', () => {
@@ -368,9 +368,9 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('a .scale() whose name cannot re-lex as `scale:root-mode` bails to a js block', () => {
     for (const js of [
-      "p('s', n('0').scale('h weird').sound('s'))\n", // root outside a..g
-      "p('s', n('0').scale('c bad-name').sound('s'))\n", // '-' inside the mode
-      "p('s', n('0').scale('c one two').sound('s'))\n", // three words
+      "p('z', n('0').scale('h weird').sound('z'))\n", // root outside a..g
+      "p('z', n('0').scale('c bad-name').sound('z'))\n", // '-' inside the mode
+      "p('z', n('0').scale('c one two').sound('z'))\n", // three words
     ]) {
       const r = decompile(js)
       expect(r, js).toContain('js\n')
@@ -542,9 +542,9 @@ setCps(0.5)
   })
 
   it('decompiles a play chain with ctrls, fn combinators, and struct', () => {
-    const js = `const s = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.5, r: 0.1 })))
+    const js = `const z = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.5, r: 0.1 })))
 
-p('s', n('0 2 4').scale('a minor').sound('s').ctrl('cutoff', sine.range(200, 2400).slow(4)).gain(0.8).every(4, x => x.rev()).struct(mini('~ t ~ t')))
+p('z', n('0 2 4').scale('a minor').sound('z').ctrl('cutoff', sine.range(200, 2400).slow(4)).gain(0.8).every(4, x => x.rev()).struct(mini('~ t ~ t')))
 `
     const r = decompile(js)
     expect(r).toContain('cutoff: sine 200..2400 slow:4')
@@ -642,7 +642,7 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     // a post spine starts at `input` implicitly and cannot start anywhere
     // else, so a single-use `const` in the middle folds into its one use
     const r = roundTrip(
-      `const s = synth(({ note, saw }) => saw(note.freq), ({ input, delay, reverb }) => {\n` +
+      `const z = synth(({ note, saw }) => saw(note.freq), ({ input, delay, reverb }) => {\n` +
         `  const echo = input.add(delay(input, 0.375, 0.4))\n` +
         `  return echo.mix(reverb(echo, { roomSize: 0.85, damp: 0.4 }), 0.35)\n` +
         `})\n`,
@@ -678,14 +678,14 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     // reaching it lets the wet/dry recognizer see this for what it is
     expect(
       roundTrip(
-        `const s = synth(({ note, saw }) => saw(note.freq), ({ input, reverb, mix }) =>\n` +
+        `const z = synth(({ note, saw }) => saw(note.freq), ({ input, reverb, mix }) =>\n` +
           `  mix(input, reverb(input), 0.22))\n`,
       ),
     ).toContain('reverb mix:0.22')
     // a mix that is NOT wet/dry stays the sig-op line it is
     expect(
       roundTrip(
-        `const s = synth(({ note, saw, square, mix }) => mix(saw(note.freq), square(note.freq), 0.3))\n`,
+        `const z = synth(({ note, saw, square, mix }) => mix(saw(note.freq), square(note.freq), 0.3))\n`,
       ),
     ).toContain('mix square note 0.3')
   })

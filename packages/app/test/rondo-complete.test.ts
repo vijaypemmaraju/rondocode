@@ -163,7 +163,7 @@ describe('rondo hover speaks rondo', () => {
   })
 
   it('so they are offered in a synth body too', () => {
-    const got = labels({ kind: 'synth', block: 'synth' }, 'synth s\n  saw note\n', 0)
+    const got = labels({ kind: 'synth', block: 'synth' }, 'synth z\n  saw note\n', 0)
     expect(got).toEqual(expect.arrayContaining(['max', 'floor', 'abs']))
   })
 })

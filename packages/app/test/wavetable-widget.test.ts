@@ -100,7 +100,7 @@ describe('scanWavetableCalls', () => {
   })
 
   it('binding lines and rich argument shapes: table read, pos left as a signal', () => {
-    const calls = scanWavetableCalls('synth s\n  o = wavetable note sine 2 table:pwm\n  o\n')
+    const calls = scanWavetableCalls('synth z\n  o = wavetable note sine 2 table:pwm\n  o\n')
     expect(calls).toHaveLength(1)
     expect(calls[0]!.table).toBe('pwm')
     expect(calls[0]!.posLiteral).toBeUndefined() // `sine 2` is not a simple atom pair
@@ -108,7 +108,7 @@ describe('scanWavetableCalls', () => {
 
   it('ignores wavetable outside a synth block and inside comments', () => {
     expect(scanWavetableCalls('play x\n  0 1\n')).toEqual([])
-    expect(scanWavetableCalls('synth s\n  saw  # wavetable .5\n')).toEqual([])
+    expect(scanWavetableCalls('synth z\n  saw  # wavetable .5\n')).toEqual([])
   })
 })
 

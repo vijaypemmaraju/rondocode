@@ -131,18 +131,42 @@ export const buzz = (ms = 8): void => {
  *  ('a-min'). Returns undefined when there is no scale (a scale-less degree
  *  pattern is silent anyway) or the name doesn't parse. */
 /** A degree step, with an optional accidental: `4`, `-1`, `2#`, `3bb`. */
-export const STEP_RE = /^(-?\d+)(#+|b+)?$/
+/* A degree step, as the ROLL recognises it: a number, an optional accidental
+ * run, and an optional `'value` per-note expression.
+ *
+ * The expression group was missing when the notation gained it, and the
+ * failure was quiet in the worst way: `0'1 3'0` simply stopped matching, so
+ * the line stopped being a tappable grid and the shipped "note bends" example
+ * rendered no roll at all. One definition, imported by the JS scanner too, so
+ * teaching it here teaches both languages. */
+export const STEP_RE = /^(-?\d+)(#+|b+)?(?:'(-?\d*\.?\d+))?$/
+
+/** The per-note expression value from a step's `'value` group, if it has one. */
+export const exprValue = (raw: string | undefined): number | undefined =>
+  raw === undefined || raw === '' ? undefined : Number(raw)
 
 /** Semitones for an accidental suffix (`#` +1 each, `b` -1 each). */
 export const accValue = (suffix: string | undefined): number | undefined =>
   suffix === undefined || suffix === '' ? undefined : suffix[0] === '#' ? suffix.length : -suffix.length
 
-/** Spell a step back out, accidental included — the one place the grid writes
- *  a degree, so a drag cannot silently drop a `#` someone typed. */
-export const stepText = (v: number | null, acc: number | undefined): string =>
-  v === null ? '~' : acc === undefined || acc === 0
+/** Spell a step back out, accidental and per-note expression included — the
+ *  one place the grid writes a degree, so a drag cannot silently drop a `#`
+ *  or a `'2` someone typed. */
+export const stepText = (
+  v: number | null,
+  acc: number | undefined,
+  expr?: number | undefined,
+): string => {
+  if (v === null) return '~'
+  const withAcc = acc === undefined || acc === 0
     ? String(v)
     : `${v}${(acc > 0 ? '#' : 'b').repeat(Math.abs(acc))}`
+  if (expr === undefined) return withAcc
+  // two decimals is plenty for an expression and keeps the notation readable;
+  // trailing zeros are trimmed so a drag to exactly 1 writes `'1`, not `'1.00`
+  const n = Number(expr.toFixed(2))
+  return `${withAcc}'${n}`
+}
 
 export function rollPreviewMidi(scaleShort: string | undefined, degree: number): number | undefined {
   if (scaleShort === undefined) return undefined
@@ -394,6 +418,8 @@ export interface PlayRoll {
    *  — an accidental note still belongs on its degree's row, marked, not
    *  floating between two rows that mean something else. */
   accs?: (number | undefined)[]
+  /** per-note expression values, index-aligned with steps (`0'1` -> 1). */
+  exprs?: (number | undefined)[]
   /** POLYMETER figure: the grid edits only the inside of `{…}%n`, so events
    *  match the FULL notation and locs shift by the figure's offset in it. */
   srcFull?: string
@@ -448,6 +474,7 @@ export function scanPlays(text: string): PlayRoll[] {
           content: inner,
           steps: ptoks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
           accs: ptoks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+          exprs: ptoks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
           srcFull: notation,
           srcOffset: innerStart,
         }
@@ -470,6 +497,7 @@ export function scanPlays(text: string): PlayRoll[] {
       content: notation,
       steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
       accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
     }
     roll.synth = ph[3] ?? ph[2]!
     if (scale) roll.scale = scale[0]!.slice('scale:'.length)
@@ -2296,6 +2324,8 @@ class PianoRollWidget extends WidgetType {
     readonly steps: (number | null)[],
     /** accidentals, index-aligned with steps (see PlayRoll.accs). */
     readonly accsIn: (number | undefined)[],
+    /** per-note expression values, index-aligned with steps (`0'1` -> 1). */
+    readonly exprsIn: (number | undefined)[],
     readonly synth: string | undefined,
     readonly scale: string | undefined,
     readonly hooks: Hooks,
@@ -2327,6 +2357,7 @@ class PianoRollWidget extends WidgetType {
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
     const steps = this.steps.slice()
     const accs = this.accsIn.slice()
+    const exprs = this.exprsIn.slice()
     const cellEls: HTMLElement[][] = Array.from({ length: rows }, () => [])
     // rows top (high degree) → bottom (low), so pitch goes up the screen
     for (let dr = rows - 1; dr >= 0; dr--) {
@@ -2336,6 +2367,15 @@ class PianoRollWidget extends WidgetType {
         cell.className = 'rc' + (steps[c] !== null && steps[c]! - minDeg === dr ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
         cell.dataset.r = String(dr)
         cell.dataset.c = String(c)
+        /* The bend handle rides on every cell but only SHOWS on an active one
+         * (CSS: .rc.on .bendgrab). Creating it always keeps the DOM stable as
+         * notes are painted in and out — a handle appearing and vanishing
+         * mid-drag would break the gesture that is holding it. */
+        const grab = document.createElement('span')
+        grab.className = 'bendgrab'
+        grab.dataset.c = String(c)
+        grab.setAttribute('aria-hidden', 'true')
+        cell.appendChild(grab)
         cellEls[dr]![c] = cell
         grid.appendChild(cell)
       }
@@ -2382,9 +2422,51 @@ class PianoRollWidget extends WidgetType {
         // and the grid quietly disagrees with the source.
         const acc = lit ? accs[c] : undefined
         el.classList.toggle('acc', acc !== undefined && acc !== 0)
-        el.textContent = acc === undefined || acc === 0 ? '' : acc > 0 ? '\u266f' : '\u266d'
+        /* NOT textContent: that would delete the bend handle living inside the
+         * cell, and with it the gesture someone may be mid-drag on. */
+        el.dataset.acc = acc === undefined || acc === 0 ? '' : acc > 0 ? '\u266f' : '\u266d'
+        /* THE BEND, DRAWN. First attempt was a tilted CSS gradient plus a
+         * dash on every note, and it was unreadable: the gradient was
+         * invisible and the dash looked like a rendering fault sitting on
+         * notes that had no bend at all.
+         *
+         * So draw the actual curve, the way a piano roll does it — a stroke
+         * inside the note that rises into it for a scoop and falls into it for
+         * a drop. Only bent notes get one, so an unbent roll is completely
+         * clean, and the shape IS the value rather than a code for it. */
+        const ex = lit ? exprs[c] : undefined
+        const bent = ex !== undefined && ex !== 0
+        el.classList.toggle('bend', bent)
+        let mark = el.querySelector('.bendmark') as SVGSVGElement | null
+        if (!bent) {
+          mark?.remove()
+        } else {
+          if (mark === null) {
+            mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+            mark.setAttribute('class', 'bendmark')
+            mark.setAttribute('viewBox', '0 0 20 20')
+            mark.setAttribute('preserveAspectRatio', 'none')
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+            mark.appendChild(path)
+            el.appendChild(mark)
+          }
+          // v > 0 comes UP into the note, v < 0 comes DOWN into it; the
+          // curve settles at the note's own line by the halfway point, which
+          // is what the envelope actually does
+          const v = Math.max(-1, Math.min(1, ex))
+          const from = 10 - v * 7
+          mark.firstChild !== null && (mark.firstChild as SVGPathElement)
+            .setAttribute('d', `M2 ${from.toFixed(1)} Q7 10 12 10 T18 10`)
+        }
       }
     }
+    /* Paint the initial state through the SAME path an edit uses. The cell
+     * loop above only knows on/off; accidentals and bends are applied by
+     * refresh(), so without this a freshly rendered roll showed neither until
+     * something was dragged — the marks existed and were invisible, which is
+     * the most confusing shape a bug can take. */
+    for (let c = 0; c < cols; c++) refresh(c)
+
     attachGesture(grid, this.drag, 'element', (e) => {
       const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
       if (!el0) return null
@@ -2399,8 +2481,9 @@ class PianoRollWidget extends WidgetType {
         // asked for, so a `#` left over from the note that used to be here
         // would put it somewhere you did not click
         accs[c] = undefined
+        exprs[c] = undefined
         refresh(c)
-        if (writer.write(steps.map((v, i) => stepText(v, accs[i])).join(' '))) {
+        if (writer.write(steps.map((v, i) => stepText(v, accs[i], exprs[i])).join(' '))) {
           this.hooks.requestEval(false)
         }
         buzz()
@@ -2410,6 +2493,43 @@ class PianoRollWidget extends WidgetType {
             !(this.hooks.isPlaying?.() ?? false)) {
           const midi = rollPreviewMidi(this.scale, next)
           if (midi !== undefined) this.hooks.previewNote(this.synth, midi + (accs[c] ?? 0))
+        }
+      }
+      /* THE BEND HANDLE. The cell body means "place or erase a note" and a
+       * drag across it PAINTS, so expression cannot also live on the body —
+       * it gets its own grab target on the active note, the same way a filter
+       * curve and an envelope give their draggable values their own handles.
+       * Drag it up to scoop into the note, down to fall into it.
+       *
+       * Checked against the RAW target, before the `.rc` lookup: the handle
+       * sits inside the cell, so closest('.rc') would hand back the cell and
+       * the note would be repainted instead of bent.
+       */
+      const grab = (e.target as HTMLElement).closest?.('.bendgrab') as HTMLElement | null
+      if (grab !== null) {
+        const c = Number(grab.dataset.c)
+        if (steps[c] === null) return null
+        const start = exprs[c] ?? 0
+        const y0 = e.clientY
+        const w2 = new LiveWriter(view, this.from, this.to)
+        return {
+          onMove: (ev) => {
+            // up is positive: the pitch goes UP, and so does your finger
+            const raw = start - (ev.clientY - y0) / 60
+            const next = Math.max(-1, Math.min(1, raw))
+            const snapped = Math.abs(next) < 0.02 ? undefined : Number(next.toFixed(2))
+            if (exprs[c] === snapped) return
+            exprs[c] = snapped
+            refresh(c)
+            if (w2.write(steps.map((v, i) => stepText(v, accs[i], exprs[i])).join(' '))) {
+              this.hooks.requestEval(false)
+            }
+          },
+          onEnd: () => {
+            this.drag.ended = true
+            view.dispatch({})
+            this.hooks.requestEval(false)
+          },
         }
       }
       const r0 = Number(el0.dataset.r), c0 = Number(el0.dataset.c)
@@ -2890,7 +3010,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
     items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag, e.ranges), side: 1 }).range(e.to))
   }
   for (const p of scan.plays(text)) {
-    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
+    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.exprs ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
     // HONESTY: only a TRUE single-cycle figure earns the compact inline roll.

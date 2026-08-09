@@ -23,7 +23,7 @@
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
-import { STEP_RE, accValue } from '../rondo/widgets'
+import { STEP_RE, accValue, exprValue } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, SVF_MODES as EDITOR_SVF_MODES, WT_TABLES } from '../rondo/enums'
@@ -395,8 +395,9 @@ export function scanPlaysJs(text: string): PlayRoll[] {
     if (c === null) continue
     const toks = c.text.value.trim().split(/\s+/).filter(Boolean)
     if (toks.length === 0) continue
-    // degrees may carry an accidental (`2#`, `3b`) — the notation is the same
-    // string in both languages, so this is the same STEP_RE the rondo scan uses
+    // degrees may carry an accidental (`2#`, `3b`) and a per-note expression
+    // (`0'1`) — the notation is the same string in both languages, so this is
+    // the same STEP_RE the rondo scan uses, and scan-parity holds them equal
     if (!toks.every((tk) => tk === '~' || STEP_RE.test(tk))) continue
     const roll: PlayRoll = {
       from: c.text.from,
@@ -404,6 +405,7 @@ export function scanPlaysJs(text: string): PlayRoll[] {
       content: c.text.value,
       steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
       accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
     }
     if (c.synth !== undefined) roll.synth = c.synth
     if (c.scale !== undefined) roll.scale = c.scale

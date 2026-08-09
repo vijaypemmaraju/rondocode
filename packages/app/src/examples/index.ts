@@ -3103,20 +3103,22 @@ synth lead
   shape = env .07 .06 .2 0 .3 0
   bend = shape * expr + 1
 
+# two notation lines in ONE block are
+# LAYERS. two play-lead blocks would
+# not be: both register under the same
+# name and the second would replace the
+# first.
+#
+# the second line is the argument for
+# the syntax: two opposite values inside
+# ONE subgroup step, which is exactly
+# where a parallel control lane loses
+# track of which note it means.
 play lead
   0'1 3'0 5'-1 7'0 9'1 7'-.5 5'0 3'1
+  ~ ~ ~ ~ [12'1 11'-1] ~ ~ ~
   scale: a-min
   dur: .9
-
-# a value written on the note cannot
-# drift: it survives rests, subgroups
-# and alternations, because it never
-# leaves the note.
-play lead
-  ~ ~ [12'1 11'-1] ~
-  scale: a-min
-  dur: .4
-  gain: .5
 
 cps .5
 `

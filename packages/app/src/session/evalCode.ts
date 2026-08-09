@@ -690,7 +690,16 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
   }
 
-  /** Register a pattern; same name twice in one eval → last wins. */
+  /** Register a pattern; same name twice in one eval → last wins, and SAYS SO.
+   *
+   *  Silent replacement is the worst possible behaviour here: the earlier
+   *  block is still on screen, still highlighted, still flashing its notes in
+   *  the roll — and completely inaudible. It cost a shipped example, where two
+   *  `play lead` blocks meant the first one never played and nothing said a
+   *  word. Two notation lines inside ONE block are layers; two blocks are not.
+   *
+   *  A warning rather than an error: last-wins is legitimate when a later eval
+   *  deliberately redefines a channel, and refusing to run would break that. */
   const p = (name: unknown, pat: unknown): void => {
     assertOpen('p')
     if (typeof name !== 'string' || name.length === 0) {
@@ -698,6 +707,15 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
     if (!(pat instanceof Pattern)) {
       throw new TypeError(`p('${name}'): second argument must be a Pattern`)
+    }
+    if (patterns.has(name)) {
+      diagnostics.push({
+        line: 1,
+        col: 1,
+        message: `two blocks both play '${name}' — the second REPLACES the first, so the earlier one is silent. Put the extra notation line inside the same block to layer them, or route it to another synth.`,
+        severity: 'warning',
+        source: 'eval',
+      })
     }
     patterns.set(name, pat as Pattern<ControlMap>)
   }

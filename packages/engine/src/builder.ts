@@ -315,6 +315,8 @@ export interface SynthCtx {
   pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
   /** Convolve a signal with an impulse response held as a sample. */
   convolve(inp: SigIn, name: string, opts?: { mix?: number }): Sig
+  /** Tape character: wow, flutter, saturation and the top coming off. */
+  tape(inp: SigIn, opts?: { wow?: number; flutter?: number; sat?: number; tone?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -432,6 +434,8 @@ export interface PostCtx {
   pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
   /** Convolve a signal with an impulse response held as a sample. */
   convolve(inp: SigIn, name: string, opts?: { mix?: number }): Sig
+  /** Tape character: wow, flutter, saturation and the top coming off. */
+  tape(inp: SigIn, opts?: { wow?: number; flutter?: number; sat?: number; tone?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -913,6 +917,15 @@ const makeShared = (b: Builder) => {
           hysteresis: opts?.hysteresis,
         }),
       ),
+    tape: (
+      inp: SigIn,
+      opts?: { wow?: number; flutter?: number; sat?: number; tone?: number },
+    ): Sig =>
+      b.node(
+        'tape',
+        { in: src(inp, 'tape in') },
+        definedConfig({ wow: opts?.wow, flutter: opts?.flutter, sat: opts?.sat, tone: opts?.tone }),
+      ),
     convolve: (inp: SigIn, name: string, opts?: { mix?: number }): Sig =>
       b.node(
         'convolve',
@@ -1050,6 +1063,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     follow: shared.follow,
     pitchshift: shared.pitchshift,
     convolve: shared.convolve,
+    tape: shared.tape,
     limiter: shared.limiter,
     phaser: shared.phaser,
     formant: shared.formant,

@@ -145,7 +145,7 @@ play pad
   <c3 a2>
   dur: 4
 
-sidechain kick depth:.9 release:.4
+sidechain kick depth:.9 release:400
 
 cps .5`,
     fixed: `switch drums 1 0
@@ -166,7 +166,7 @@ play pad
   <c3 a2>
   dur: 4
 
-sidechain kick depth:drums release:.4
+sidechain kick depth:drums release:400
 
 cps .5`,
     why: 'The duck is triggered by the source synth\'s note ONSETS, not by how loud it is. A kick at gain 0 still emits notes, so it still ducks, and you get the hole without the hit. Put both on one control so they cannot disagree: a switch reaches the pattern gain and the sidechain depth alike.',

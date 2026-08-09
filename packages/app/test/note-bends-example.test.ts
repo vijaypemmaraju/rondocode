@@ -96,15 +96,15 @@ describe('the "note bends" example does what its header says', () => {
 
 describe('a lane name is not a pitch', () => {
   it('a degree line with named lanes still compiles to n(), not note()', () => {
-    /* `'vel:` carries v, e, l and `'chance:` carries a, c, e — every one of
+    /* `'gain:` carries v, e, l and `'chance:` carries a, c, e — every one of
      * which reads as a note name to the entry-point heuristic. It flipped a
      * whole degree line to note(), which then read `0` as MIDI 0 and dropped
      * the scale silently: exactly the failure the accidental rule beside it
      * was already written to prevent. */
-    const c = compile("synth lead\n  saw\n\nplay lead\n  0'vel:.5 7'chance:.5\n  scale: a-min\n\ncps .5\n")
+    const c = compile("synth lead\n  saw\n\nplay lead\n  0'gain:.5 7'chance:.5\n  scale: a-min\n\ncps .5\n")
     expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
     if (!c.ok) return
-    // the emitted string escapes the quote: n('0\'vel:.5 …')
+    // the emitted string escapes the quote: n('0\'gain:.5 …')
     expect(c.code, 'the line was read as note NAMES').toMatch(/\bn\('0/)
     expect(c.code).not.toMatch(/note\('0/)
   })

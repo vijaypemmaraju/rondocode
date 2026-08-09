@@ -59,7 +59,7 @@ play bass
   dur: .6
   gain: .75
 
-sidechain kick depth:.6 release:.12 bass:.9
+sidechain kick depth:.6 release:120 bass:.9
 
 master threshold:-7 ratio:2 makeup:1
 

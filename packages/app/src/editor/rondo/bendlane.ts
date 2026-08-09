@@ -36,7 +36,7 @@ export interface BendNote {
   step: number | null
   acc: number | undefined
   expr: number | undefined
-  /** every lane on the note, so a bend drag cannot delete a `'vel:` beside it. */
+  /** every lane on the note, so a bend drag cannot delete a `'gain:` beside it. */
   lanes: Record<string, number> | undefined
 }
 

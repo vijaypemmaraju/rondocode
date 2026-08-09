@@ -65,15 +65,15 @@ describe('stepText writes back what it read', () => {
 
   it('writes back the lanes it did NOT touch', () => {
     /* A bend drag changes `expr` and nothing else. If it rebuilt the step from
-     * `expr` alone it would silently delete the `'vel:` beside it — the same
+     * `expr` alone it would silently delete the `'gain:` beside it — the same
      * class of bug as dropping an accidental, and just as invisible. */
-    expect(stepText(0, undefined, 2, { expr: 2, vel: 0.8 })).toBe("0'2'vel:.8")
-    expect(stepText(0, undefined, undefined, { vel: 0.8, chance: 0.5 })).toBe("0'vel:.8'chance:.5")
-    expect(stepText(3, 1, -1, { expr: -1, len: 0.5 })).toBe("3#'-1'len:.5")
+    expect(stepText(0, undefined, 2, { expr: 2, gain: 0.8 })).toBe("0'2'gain:.8")
+    expect(stepText(0, undefined, undefined, { gain: 0.8, chance: 0.5 })).toBe("0'gain:.8'chance:.5")
+    expect(stepText(3, 1, -1, { expr: -1, dur: 0.5 })).toBe("3#'-1'dur:.5")
   })
 
   it('round-trips a step carrying several lanes, exactly', () => {
-    for (const t of ["0'2'vel:.8", "0'vel:.8'chance:.5", "2#'-1'len:.5", "0'-.25"]) {
+    for (const t of ["0'2'gain:.8", "0'gain:.8'chance:.5", "2#'-1'dur:.5", "0'-.25"]) {
       const m = STEP_RE.exec(t)!
       const lanes = laneValues(m[3])
       expect(stepText(Number(m[1]), accValue(m[2]), lanes['expr'], lanes), t).toBe(t)

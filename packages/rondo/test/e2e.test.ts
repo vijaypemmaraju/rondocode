@@ -190,7 +190,7 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
       '  c2 ~ c2 ~',
       '',
       'js',
-      "  sidechain('kick', { depth: 0.6, release: 0.12 })",
+      "  sidechain('kick', { depth: 0.6, release: 120 })",
       '',
       'cps .5',
       '',

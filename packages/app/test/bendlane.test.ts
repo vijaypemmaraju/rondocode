@@ -111,7 +111,7 @@ describe('laneText: a drag rewrites only what it touched', () => {
   it('keeps the OTHER lanes a bend drag never touched', () => {
     // a bend changes `expr`; deleting the velocity beside it would be the same
     // invisible class of bug as dropping an accidental
-    expect(laneText([note(0, 0, undefined, 1, { expr: 1, vel: 0.8 })])).toBe("0'1'vel:.8")
+    expect(laneText([note(0, 0, undefined, 1, { expr: 1, gain: 0.8 })])).toBe("0'1'gain:.8")
     expect(laneText([note(0, 5, undefined, undefined, { chance: 0.5 })])).toBe("5'chance:.5")
   })
 

@@ -646,8 +646,8 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('sidechain line: depth/release reserved, other named args are duck amounts', () => {
-    const out = ok(`synth kick\n  sine 60\n\nplay kick\n  c2 ~\n\nsidechain kick depth:.7 release:.09 lead:.5 pad:.65\n`)
-    expect(out).toContain("sidechain('kick', { depth: 0.7, release: 0.09, duck: { lead: 0.5, pad: 0.65 } })")
+    const out = ok(`synth kick\n  sine 60\n\nplay kick\n  c2 ~\n\nsidechain kick depth:.7 release:90 lead:.5 pad:.65\n`)
+    expect(out).toContain("sidechain('kick', { depth: 0.7, release: 90, duck: { lead: 0.5, pad: 0.65 } })")
   })
 
   it('master line → masterCompress (negative values glued to the colon work)', () => {

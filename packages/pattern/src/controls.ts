@@ -118,14 +118,21 @@ export function note(x: number | string | Pattern<number>): Pattern<ControlMap> 
 
 
 /* ------------------------------------------------------------------------- *
- * PER-NOTE LANES: `0'2'vel:.8'chance:.5`.
+ * PER-NOTE LANES: `0'2'gain:.8'chance:.5`.
  *
  * Three names are STRUCTURAL — the pattern engine consumes them, exactly as
  * `nAcc` rides along with `n`:
  *
- *   vel     the note's velocity, i.e. its own `gain`
- *   len     a multiplier on the note's length, i.e. its own `dur`
+ *   gain    the note's own level
+ *   dur     a multiplier on the note's own length
  *   chance  the probability it sounds at all
+ *
+ * A LANE IS NAMED AFTER THE CONTROL IT SETS. These were `vel` and `len` at
+ * first, which meant the same property had one name written on the note and a
+ * different one written on the modifier line below it — `'vel:.8` here and
+ * `gain: .8` two lines down, for the identical thing. `len` was worse: a pure
+ * synonym for `dur`, which the reference already defines. One word, one
+ * meaning; `chance` was already right because it had nothing to collide with.
  *
  * `chance` is applied where the pattern is built rather than by the caller,
  * and it draws from the SAME time-locked stream as degradeBy — so a note that
@@ -159,16 +166,30 @@ function withChance(p: Pattern<ControlMap>): Pattern<ControlMap> {
     })
 }
 
-/** Lane names the pattern engine consumes rather than forwarding to a synth. */
-export const STRUCTURAL_LANES = new Set(['vel', 'len', 'chance'])
+/** Lane names the pattern engine consumes rather than forwarding to a synth.
+ *  Each is spelled exactly like the control it sets. */
+export const STRUCTURAL_LANES = new Set(['gain', 'dur', 'chance'])
+
+/** The names these lanes used to have. Kept ONLY to say so: a lane whose name
+ *  the engine does not know is forwarded to the synth as a param, so `'vel:.8`
+ *  would silently become `param('vel')` — a live control that does nothing,
+ *  which is exactly the failure mode a rename should not create. */
+export const RENAMED_LANES: ReadonlyMap<string, string> = new Map([['vel', 'gain'], ['len', 'dur']])
 
 /** Fold a note's lanes into its ControlMap. `chance` is left ON the map for
  *  the filter below and stripped there, so this stays a pure mapping. */
 function applyLanes(out: ControlMap, lanes: Readonly<Record<string, number>> | undefined): ControlMap {
   if (lanes === undefined) return out
   for (const [k, v] of Object.entries(lanes)) {
-    if (k === 'vel') out.gain = v
-    else if (k === 'len') out.dur = v
+    const renamed = RENAMED_LANES.get(k)
+    if (renamed !== undefined) {
+      throw new TypeError(
+        `'${k}' is now '${renamed}' — a lane is named after the control it sets. `
+        + `Write '${renamed}:${v} instead.`,
+      )
+    }
+    if (k === 'gain') out.gain = v
+    else if (k === 'dur') out.dur = v
     else if (k === 'chance') out.chance = v
     else (out as Record<string, unknown>)[k] = v
   }

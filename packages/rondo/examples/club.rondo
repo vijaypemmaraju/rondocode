@@ -52,7 +52,7 @@ bus space
   reverb room:.9 damp:.35
   send stab .3
 
-sidechain kick depth:.8 release:.15 sub:.95 stab:.6
+sidechain kick depth:.8 release:150 sub:.95 stab:.6
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 

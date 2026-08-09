@@ -8,6 +8,7 @@ import { SampleBank } from './samples'
 import { WavetableBank } from './dsp/wavetable'
 import { gainReductionDb, smoothCoeff } from './dsp/compress'
 import { clamp, DEFAULT_CPS, softClipTanh } from './dsp/util'
+import { StereoStage } from './dsp/midside'
 import type { EngineEvent, EngineMessage } from './protocol'
 
 /* ------------------------------------------------------------------------- *
@@ -219,6 +220,9 @@ export class RealtimeEngine {
   /** False until the first FINITE startFrame adopts the host's timeline. */
   private originAdopted = false
   private masterGain = DEFAULT_MASTER_GAIN
+  /** Master-bus mid/side. Idle by default, and skipped entirely when idle so
+   *  a project that never asks for it stays sample-identical. */
+  private readonly stereo = new StereoStage()
   private masterPrev = DEFAULT_MASTER_GAIN
   private masterSumSq = 0
   /** Master-bus glue compressor (stereo-linked), off until setMasterComp.
@@ -564,6 +568,11 @@ export class RealtimeEngine {
       const g = m0 + (m1 - m0) * ((i + 1) / BLOCK)
       let l = outL[i]! * g
       let r = outR[i]! * g
+      if (!this.stereo.idle) {
+        const ms = this.stereo.step(l, r)
+        l = ms[0]!
+        r = ms[1]!
+      }
       if (mc !== undefined) {
         const peak = Math.max(Math.abs(l), Math.abs(r))
         const db = peak > 0 ? 20 * Math.log10(peak) : -120
@@ -727,6 +736,8 @@ export class RealtimeEngine {
         return this.msgSetChannel(m)
       case 'setMaster':
         return this.msgSetMaster(m)
+      case 'setStereo':
+        return this.msgSetStereo(m)
       case 'setCps':
         return this.msgSetCps(m)
       case 'setSidechain':
@@ -1085,6 +1096,19 @@ export class RealtimeEngine {
     if (gain !== undefined) ch.gain = clamp(gain, 0, MAX_GAIN)
     if (pan !== undefined) ch.pan = clamp(pan, 0, 1)
     if (sidechain !== undefined) ch.scAmount = clamp(sidechain, 0, 1)
+  }
+
+  /** Master mid/side. Non-finite values are rejected with an error rather
+   *  than silently clamped: a NaN width would collapse the mix to silence and
+   *  look like a broken synth. */
+  private msgSetStereo(m: Record<string, unknown>): void {
+    const cfg: { width?: number; monoBelow?: number } = {}
+    for (const k of ['width', 'monoBelow'] as const) {
+      if (m[k] === undefined) continue
+      if (!fin(m[k])) return this.error(`'${k}' must be a finite number`, 'setStereo')
+      cfg[k] = m[k] as number
+    }
+    this.stereo.set(cfg, this.ctx.sampleRate)
   }
 
   private msgSetMaster(m: Record<string, unknown>): void {

@@ -102,6 +102,7 @@ export function renderStagedMix(
     ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
     ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
     ...(staged.masterGain !== undefined ? { masterGain: staged.masterGain } : {}),
+    ...(staged.stereo !== undefined ? { stereo: staged.stereo } : {}),
     ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     // custom wavetables the staged program registered (defineWavetable/wavedef)
     ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),

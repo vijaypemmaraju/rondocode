@@ -934,6 +934,15 @@ function cgMaster(item: Extract<TopItem, { t: 'master' }>): string {
   return `masterCompress(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
 }
 
+/** `stereo width:1.3 monobelow:120` → stereo(opts). `monobelow` is written
+ *  lowercase in rondo (the language has no camelCase anywhere) and mapped to
+ *  the JS name here, which is the one place that spelling difference lives. */
+function cgStereo(item: Extract<TopItem, { t: 'stereo' }>): string {
+  const key = (k: string): string => (k === 'monobelow' ? 'monoBelow' : k)
+  const parts = Object.entries(item.opts).map(([k, v]) => `${key(k)}: ${num(v)}`)
+  return `stereo(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
+}
+
 /** `scaledef pelog 0 1.2 2.7 …` → defineScale('pelog', [0, 1.2, 2.7, …]),
  *  and with a unit word → the object spec defineScale also takes. */
 function cgScaleDef(item: Extract<TopItem, { t: 'scaledef' }>): string {
@@ -1207,6 +1216,7 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item, errors, macroNames)
     if (item.t === 'master') return cgMaster(item)
+    if (item.t === 'stereo') return cgStereo(item)
     if (item.t === 'level') return `masterGain(${num(item.db)})`
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)

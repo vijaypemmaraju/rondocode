@@ -184,6 +184,14 @@ export interface SidechainItem {
  *  switch off. */
 export type ScValue = number | { macro: string }
 
+/** `stereo width:1.3 monobelow:120` → stereo(opts). Mid/side on the master
+ *  bus: the one place it is expressible, since every kernel is mono. */
+export interface StereoItem {
+  t: 'stereo'
+  opts: Record<string, number>
+  pos: Pos
+}
+
 /** `master threshold:-6 ratio:2 …` → masterCompress(opts). */
 export interface MasterItem {
   t: 'master'
@@ -341,7 +349,8 @@ export interface CurveDefItem {
 
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
-  | SidechainItem | MasterItem | LevelItem | PatDefItem | BusBlock | VisualItem
+  | SidechainItem | MasterItem
+  | StereoItem | LevelItem | PatDefItem | BusBlock | VisualItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
 
 export interface Program {

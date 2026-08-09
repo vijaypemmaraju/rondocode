@@ -37,6 +37,68 @@ export interface Recipe {
 
 export const RECIPES: Recipe[] = [
   {
+    id: 'mono-bass',
+    title: 'Stop the low end wandering on a big system',
+    tags: ['stereo', 'mid/side', 'mix', 'mastering', 'bass'],
+    code: `synth sub
+  sine
+  * adsr .005 .1 .9 .1
+  * .5
+  post
+    width .7
+
+synth stab
+  supersaw note detune:.35 mix:.8
+  ladder cut res:.5
+  * env
+  cut = env ^ 2 -> 400..3600
+  env = adsr .002 .18 0 .1
+  post
+    width .9
+
+play sub
+  <c2 c2 g1 a1>
+  dur: .95
+
+play stab
+  <Cmaj9 Cmaj9 Gadd9 Am9>
+  struct t ~ t t ~ t ~ t
+  dur: .2
+
+# the sides get wider, and everything
+# under 120 Hz folds to the middle
+stereo width:1.25 monobelow:120
+
+cps .5`,
+    why: 'Widening a mix widens the BASS too, and a wide low end is the one thing that will not survive the room: on a system with a single sub the sides are summed, and anything hard-panned down there either cancels or wanders. `monobelow` collapses just that band and leaves the width above it. Both halves are mono-safe by construction -- scaling the sides never touches the middle, and the middle IS the mono sum -- so folding the whole mix to mono comes out bit-identical whatever `width` is set to. That is what `width` in a post chain cannot promise: it invents stereo out of mono by combing the two channels, so a soloed side sounds phasey.',
+  },
+  {
+    id: 'note-expression',
+    title: 'Give every note its own feel',
+    tags: ['expression', 'velocity', 'probability', 'notes', 'humanize'],
+    code: `synth lead
+  saw note*bend
+  ladder cut res:.35
+  * amp
+  amp = adsr .01 .12 .7 .18
+  cut = amp ^ 2 -> 500..4200
+  expr = knob 0 -1..1
+  shape = env .07 .06 .2 0 .3 0
+  bend = shape * expr + 1
+
+# each note carries its OWN values:
+#   '1 / '-1   bend up / down into it
+#   'vel:      that note's velocity
+#   'chance:   the odds it plays
+play lead
+  0'1'vel:.9 3'vel:.5 5'-1'vel:.8 7'vel:.4'chance:.5
+  9'1'vel:.85 7'vel:.45 5'0'vel:.7 3'vel:.4'chance:.6
+  scale: a-min
+
+cps .5`,
+    why: 'A modifier line is a PATTERN, so it lines up by TIME: `vel: .9 .5 .8` against a flat row looks per-note and stops corresponding the moment the notation grows a rest or a subgroup. A value written ON the note cannot drift, because it never leaves the note. `chance` is reproducible rather than random -- it draws from the same time-locked stream `degradeBy` uses, so a note that fires on cycle 3 fires on cycle 3 every time round, which is what lets a probabilistic line live in a piece instead of only in a jam.',
+  },
+  {
     id: 'pump',
     title: 'Make everything duck under the kick',
     tags: ['sidechain', 'mix', 'pump', 'house'],

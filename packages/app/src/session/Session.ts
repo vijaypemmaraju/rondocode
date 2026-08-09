@@ -232,6 +232,8 @@ export class Session {
   private liveCps: number | undefined
   /** Last masterGain(db) applied, so an unchanged one is not resent. */
   private masterGainDb: number | undefined
+  /** JSON fingerprint of the live stereo stage (undefined = never set). */
+  private liveStereo: string | undefined
   /** The project's meter, from the last successful eval. Not sent to the
    *  engine: nothing in the audio graph counts bars — this scales the tempo
    *  UNIT (bpm), the clock and the exported file, all of which read it from
@@ -456,6 +458,14 @@ export class Session {
     if (result.masterGain !== this.masterGainDb) {
       this.masterGainDb = result.masterGain
       this.audio.send({ kind: 'setMaster', gain: Math.pow(10, (result.masterGain ?? 0) / 20) * DEFAULT_MASTER_GAIN })
+    }
+    // Master-bus mid/side: same diff-and-send discipline. Clearing it back to
+    // defaults matters as much as setting it — a width left over from the last
+    // eval would silently narrow the next program.
+    const stJson = result.stereo !== undefined ? JSON.stringify(result.stereo) : undefined
+    if (stJson !== this.liveStereo) {
+      this.liveStereo = stJson
+      this.audio.send({ kind: 'setStereo', ...(result.stereo ?? { width: 1, monoBelow: 0 }) })
     }
     const mcJson = result.masterComp !== undefined ? JSON.stringify(result.masterComp) : undefined
     if (mcJson !== this.liveMasterComp) {

@@ -17,6 +17,7 @@ import { iconEl } from './ui/icons'
 import { docsMarkdown } from './docs/markdown'
 import { FLASH_MS } from './editor/flash'
 import { encodeShare, sharePayloadFor, shareUrl } from './session/share'
+import { applyEntries, bandTop, topmostVisible } from './docs/spy'
 
 /* A compact, pleasant loop for the hero: the first thing a visitor can play. */
 /* The arp and the chords share one synth, so the four sustained chord voices
@@ -565,10 +566,14 @@ async function build(): Promise<void> {
   // differently at small widths and with a larger system font, so a hard-coded
   // offset would either overlap the tabs or leave a gap on exactly the devices
   // hardest to check. The nav sits below both.
+  // set once the nav exists; the spy band is derived from these offsets
+  let reobserve: (() => void) | undefined
   const syncStickyOffsets = (): void => {
     const r = document.documentElement.style
     r.setProperty('--doc-top-h', `${Math.round(top.getBoundingClientRect().height)}px`)
     r.setProperty('--doc-tabs-h', `${Math.round(tabbar.getBoundingClientRect().height)}px`)
+    // these ARE the scroll offset, so the spy band has to follow them
+    reobserve?.()
   }
   syncStickyOffsets()
   if (typeof ResizeObserver === 'function') {
@@ -630,6 +635,29 @@ async function build(): Promise<void> {
   // nav + guide sections (capture text for search + first code for a deep link)
   const navLinks: { id: string; a: HTMLAnchorElement }[] = []
   const guide: { text: string; el: HTMLElement; row: HTMLElement }[] = []
+  /* A CLICK HAS TO WIN OVER THE SPY FOR A MOMENT.
+   *
+   * The reported bug — click a cookbook recipe, the link above it lights up —
+   * is not the spy misreading the page. Measured over CDP, a jump to
+   * `recipe-one-knob` came to rest about 220px SHORT, with the previous
+   * section genuinely filling the band: the code blocks below are rendered
+   * asynchronously, so the document grows while the smooth scroll is
+   * travelling and the position the browser committed to is stale by the time
+   * it arrives. The spy was reporting that honestly. The scroll was wrong.
+   *
+   * So: light the clicked link immediately, hold it while things settle, and
+   * re-aim once layout has stopped moving. The hold is released as soon as the
+   * reader scrolls for themselves, because from then on the spy is right. */
+  let lockedId: string | undefined
+  const setActive = (id: string): void => {
+    for (const l of navLinks) l.a.classList.toggle('on', l.id === id)
+  }
+  const release = (): void => {
+    lockedId = undefined
+  }
+  for (const evName of ['wheel', 'touchmove', 'keydown']) {
+    window.addEventListener(evName, release, { passive: true })
+  }
   // Groups are CONTAINERS, not sibling headings: on a phone the nav collapses
   // to one "contents" button and opens as grouped chips, so the guide starts
   // with the guide instead of a wall of links.
@@ -644,6 +672,24 @@ async function build(): Promise<void> {
     const row = el('div', 'nav-item')
     const a = el('a', undefined, title)
     a.href = `#${id}`
+    a.addEventListener('click', () => {
+      lockedId = id
+      setActive(id)
+      /* Re-aim REPEATEDLY, not once: the document keeps growing for a while
+       * (measured, a single correction at 450ms still landed ~116px short, and
+       * the previous section still reached into the band). Each pass snaps
+       * with `auto` rather than fighting the smooth scroll in flight, and the
+       * hold is released only after the last one. */
+      for (const at of [450, 900, 1400]) {
+        window.setTimeout(() => {
+          if (lockedId !== id) return // the reader took over; leave them alone
+          document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'auto' })
+        }, at)
+      }
+      window.setTimeout(() => {
+        if (lockedId === id) release()
+      }, 1600)
+    })
     row.append(a)
     if (firstCode !== undefined) {
       const open = el('a', 'nav-open')
@@ -736,23 +782,34 @@ async function build(): Promise<void> {
   }
   search.addEventListener('input', applySearch)
 
-  // scroll-spy: highlight the nav link for the section in view
-  const byId = new Map(navLinks.map((l) => [l.id, l.a]))
-  const spy = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          navLinks.forEach((l) => l.a.classList.remove('on'))
-          byId.get((e.target as HTMLElement).id)?.classList.add('on')
-        }
-      }
-    },
-    { rootMargin: '-72px 0px -70% 0px' },
-  )
-  for (const { id } of navLinks) {
-    const node = document.getElementById(id)
-    if (node) spy.observe(node)
+  // scroll-spy: highlight the nav link for the section in view. See spy.ts —
+  // the band must start where a CLICK lands, and the topmost section in it
+  // wins, or the link above the one you clicked lights up instead.
+  const order = navLinks.map((l) => l.id)
+  const visible = new Set<string>()
+  let spy: IntersectionObserver | undefined
+  const paint = (): void => {
+    if (lockedId !== undefined) return // a click owns the highlight until it settles
+    const active = topmostVisible(order, visible)
+    if (active === undefined) return // band empty: keep what is lit
+    for (const l of navLinks) l.a.classList.toggle('on', l.id === active)
   }
+  const observe = (): void => {
+    spy?.disconnect()
+    visible.clear()
+    const nodes = order.map((id) => document.getElementById(id))
+    spy = new IntersectionObserver(
+      (entries) => {
+        applyEntries(visible, entries)
+        paint()
+      },
+      { rootMargin: `-${bandTop(document.documentElement)}px 0px -70% 0px` },
+    )
+    for (const node of nodes) if (node) spy.observe(node)
+  }
+  observe()
+  // the sticky bars decide where a click lands, so the band moves with them
+  reobserve = observe
 }
 
 void build()

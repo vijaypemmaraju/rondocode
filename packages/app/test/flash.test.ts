@@ -3,6 +3,7 @@ import type { SchedulerEvent } from '@rondocode/pattern'
 import {
   EventFlasher,
   FLASH_MS,
+  MAX_LIT_MS,
   MAX_PENDING_FLASHES,
   collectPulseSpans,
   collectStringLiterals,
@@ -395,5 +396,88 @@ describe('a patdef reference lights when its notes play', () => {
   it('a figure with no references behaves exactly as before', () => {
     const plain = { contentStart: 0, content: '0 3', pieces: [{ assembledStart: 0, sourceStart: 0, length: 3 }] }
     expect(locToDocRanges([plain], { start: 0, end: 1, src: '0 3' }, { n: 0 })).toEqual([{ from: 0, to: 1 }])
+  })
+})
+
+
+/* ------------------------------------------------------------------------- *
+ * HOW LONG A MARK STAYS LIT.
+ *
+ * The highlight means "this note is sounding now", so its lifetime has to be
+ * the note's length. MAX_LIT_MS was 4000, which sounds like a generous cap and
+ * is not: at the default cps of 0.5 a cycle is two seconds, so it truncated
+ * anything held longer than TWO CYCLES.
+ *
+ * `<c3 a2 f2 g2>/4` is a chord per four cycles — eight seconds each. It lit
+ * for the first two cycles of every chord and went dark while the chord was
+ * still sounding, which is exactly what the reader reported.
+ * ------------------------------------------------------------------------- */
+describe('a long held note stays lit for as long as it sounds', () => {
+  const SRC = `p('a', n('0 3'))`
+
+  const rig = () => {
+    const timers: { fn: () => void; ms: number; cleared: boolean }[] = []
+    const dispatches: { effects: unknown[] }[] = []
+    const f = new EventFlasher(
+      { dispatch: (spec: { effects: unknown[] }) => { dispatches.push(spec) }, state: { doc: { length: SRC.length } } },
+      () => 0,
+      () => false,
+      {
+        setTimeoutImpl: (fn, ms) => { const h = { fn, ms, cleared: false }; timers.push(h); return h },
+        clearTimeoutImpl: (h) => { (h as { cleared: boolean }).cleared = true },
+      },
+    )
+    f.onGoodEval(SRC)
+    return { f, timers, dispatches, run: () => { for (const t of timers.splice(0)) if (!t.cleared) t.fn() } }
+  }
+
+  const held = (durSec: number): SchedulerEvent => ({
+    timeSec: 0, durSec, cycle: 0, controls: { n: 0 }, loc: { start: 0, end: 1 },
+  })
+
+  it('a four-cycle chord at cps 0.5 (8s) is lit for the whole eight seconds', () => {
+    // the exact case from the report: 4 cycles / 0.5 cps = 8s
+    const r = rig()
+    r.f.onEvents([held(8)])
+    r.run() // the scheduling timer fires and the mark goes up
+    expect(r.dispatches).toHaveLength(1)
+    expect(r.timers[0]!.ms, 'the mark is removed before the note stops sounding').toBe(8000)
+  })
+
+  it('still bounds a pathological duration', () => {
+    const r = rig()
+    r.f.onEvents([held(60 * 60)])
+    r.run()
+    expect(r.timers[0]!.ms).toBe(MAX_LIT_MS)
+  })
+
+  it('and a very short note is still visible', () => {
+    const r = rig()
+    r.f.onEvents([held(0.001)])
+    r.run()
+    expect(r.timers[0]!.ms).toBe(FLASH_MS)
+  })
+
+  it('the cap is longer than a four-cycle chord at the default cps', () => {
+    /* The regression the number itself encodes. 4 cycles at cps 0.5 is 8s; a
+     * cap under that truncates ordinary music rather than pathology. */
+    expect(MAX_LIT_MS).toBeGreaterThan((4 / 0.5) * 1000)
+  })
+
+  it('STOP takes the lit marks down — what makes the longer cap safe', () => {
+    /* With marks now able to stay up for many seconds, leaving them to their
+     * own removal timers would keep the editor lit after the transport stops. */
+    const r = rig()
+    r.f.onEvents([held(8)])
+    r.run()
+    expect(r.dispatches).toHaveLength(1) // lit
+    r.f.clearPending()
+    expect(r.dispatches, 'a mark survived the stop').toHaveLength(2) // and removed
+  })
+
+  it('clearPending with nothing lit dispatches nothing', () => {
+    const r = rig()
+    r.f.clearPending()
+    expect(r.dispatches).toHaveLength(0)
   })
 })

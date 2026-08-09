@@ -89,36 +89,60 @@ export function parseChord(name: string): number[] | undefined {
  *  of note events. Also accepts a Pattern/array of chord-name strings. */
 export function chord(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
-    // Slash-bass chords ('C/E', 'Cmaj7/E') can't go through the mini-parser: it
-    // reads '/' as the slow combinator. When the WHOLE string is one chord name,
-    // bypass mini and emit it directly (still works for sequences without '/').
+    /* '/' is ambiguous here: a slash-bass chord ('C/E', 'Cmaj7/E') spells it,
+     * and the mini parser reads it as the slow combinator. Both are legal and
+     * both are wanted.
+     *
+     * TRY THE CHORD READING FIRST, THEN FALL THROUGH. Committing to the chord
+     * reading on the mere PRESENCE of a '/' — which is what this did — meant
+     * `chord('<Cmaj7 Am7>/2')` was handed whole to parseChord and rejected, so
+     * a chord pattern could not be slowed at all. That is not a small corner:
+     * `<...>/n` is the way to hold a voicing for several cycles, and without
+     * it the only reachable spelling is `dur:`, which does something else
+     * entirely and stacks voices (see voice-stacking.test.ts).
+     *
+     * Slash-bass INSIDE a sequence ('<C/E Am>') stays unreachable — it is
+     * genuinely ambiguous and it did not work before either. */
     const trimmed = x.trim()
     if (trimmed.includes('/')) {
       const notes = parseChord(trimmed)
-      if (notes === undefined) {
+      if (notes !== undefined) {
+        const loc: Loc = { start: x.indexOf(trimmed), end: x.indexOf(trimmed) + trimmed.length, src: x }
+        return Pattern.stack(...notes.map((nt) => Pattern.pure<ControlMap>({ note: nt, loc })))
+      }
+      // not one chord name: it is mini notation that happens to contain '/'.
+      // If mini cannot read it either, the user almost certainly meant a
+      // slash-bass chord and deserves to be told that rather than shown a
+      // complaint about the slow combinator's argument.
+      try {
+        return chordPattern(x)
+      } catch {
         throw new MiniError(`'${trimmed}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, 0, x)
       }
-      const loc: Loc = { start: x.indexOf(trimmed), end: x.indexOf(trimmed) + trimmed.length, src: x }
-      return Pattern.stack(...notes.map((nt) => Pattern.pure<ControlMap>({ note: nt, loc })))
     }
-    const { pattern, atoms } = miniParse(x)
-    for (const a of atoms) {
-      if (typeof a.value === 'number' || parseChord(a.value) === undefined) {
-        throw new MiniError(`'${a.value}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, a.loc.start, x)
-      }
-    }
-    return new Pattern<ControlMap>((span) =>
-      pattern.query(span).flatMap((h) => {
-        const notes = parseChord(String(h.value.value))!
-        return notes.map((nt) => hap(h.whole, h.part, { note: nt, loc: h.value.loc }))
-      }),
-    )
+    return chordPattern(x)
   }
   return reify(x).outerBind((name: string) => {
     const notes = parseChord(name)
     if (notes === undefined) throw new TypeError(`chord(): '${name}' is not a chord name`)
     return Pattern.stack(...notes.map((nt) => reify<ControlMap>({ note: nt })))
   })
+}
+
+/** Mini notation whose atoms are all chord names, each expanded to a stack. */
+function chordPattern(x: string): Pattern<ControlMap> {
+  const { pattern, atoms } = miniParse(x)
+  for (const a of atoms) {
+    if (typeof a.value === 'number' || parseChord(a.value) === undefined) {
+      throw new MiniError(`'${a.value}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, a.loc.start, x)
+    }
+  }
+  return new Pattern<ControlMap>((span) =>
+    pattern.query(span).flatMap((h) => {
+      const notes = parseChord(String(h.value.value))!
+      return notes.map((nt) => hap(h.whole, h.part, { note: nt, loc: h.value.loc }))
+    }),
+  )
 }
 
 /** Arp note-index orders for N chord notes (indices into the low→high stack). */

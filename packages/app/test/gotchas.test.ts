@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '@rondocode/rondo'
-import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../server/src/render-runner'
 import { GOTCHAS } from '../src/docs/gotchas'
 import type { Gotcha } from '../src/docs/gotchas'
 import { SECTIONS, orderedSections } from '../src/docs/content'
@@ -39,7 +39,7 @@ const run = (src: string): Run => {
   const evs = runPatterns(st.patterns, { cycles: 2, cps })
   const flat = [...evs.values()].flat()
   const key = JSON.stringify(flat)
-  const mix = renderMix(st.synths, evs, 2 / cps, { cps, sampleRate: 22050 })
+  const mix = renderMix(st.synths, evs, 2 / cps, mixOptsFor(st, { cps, sampleRate: 22050 }))
   let peak = 0
   for (const v of mix.left) { const a = Math.abs(v); if (a > peak) peak = a }
   return { compiled: true, staged: true, events: flat.length, peak, key }

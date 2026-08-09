@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compile, decompile } from '@rondocode/rondo'
-import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../server/src/render-runner'
 import { RECIPES } from '../src/docs/cookbook'
 import { OPTIONS } from '../src/editor/rondo'
 import { SECTIONS, blockText, orderedSections } from '../src/docs/content'
@@ -37,7 +37,7 @@ describe.each(RECIPES.map((r) => [r.id, r] as const))('recipe: %s', (_id, r) => 
     const cps = st.cps ?? 0.5
     const evs = runPatterns(st.patterns, { cycles: 2, cps })
     expect([...evs.values()].flat().length, 'no events').toBeGreaterThan(0)
-    const mix = renderMix(st.synths, evs, 2 / cps, { cps, sampleRate: 22050 })
+    const mix = renderMix(st.synths, evs, 2 / cps, mixOptsFor(st, { cps, sampleRate: 22050 }))
     let peak = 0
     for (const v of mix.left) { const a = Math.abs(v); if (a > peak) peak = a }
     // the mic recipe has no input in a test process, so it is allowed silence

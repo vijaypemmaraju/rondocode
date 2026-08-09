@@ -1,5 +1,5 @@
 import { getCustomWavetables } from '@rondocode/engine'
-import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../../server/src/render-runner'
 import type { MixStem } from '../../../server/src/render-runner'
 import type { RenderEvent } from '@rondocode/engine'
 import { normalize, toMono } from './micrec'
@@ -93,22 +93,17 @@ export function renderStagedMix(
   const durationSec = cycles / cps + (opts?.tailSec ?? 0)
   const events = runPatterns(staged.patterns, { cycles, cps })
   const tables = getCustomWavetables()
-  const mix = renderMix(staged.synths, events, durationSec, {
+  const mix = renderMix(staged.synths, events, durationSec, mixOptsFor(staged, {
     sampleRate: opts?.sampleRate ?? 48000,
     // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
     // themselves off it, so an omitted cps would bounce at the wrong speed.
     cps,
     ...(samples ? { samples } : {}),
-    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
-    ...(staged.masterGain !== undefined ? { masterGain: staged.masterGain } : {}),
-    ...(staged.stereo !== undefined ? { stereo: staged.stereo } : {}),
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     // custom wavetables the staged program registered (defineWavetable/wavedef)
     ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
     ...(opts?.stems ? { stems: true } : {}),
     ...(opts?.maxVoices !== undefined ? { maxVoices: opts.maxVoices } : {}),
-  })
+  }))
   return {
     left: mix.left,
     right: mix.right,

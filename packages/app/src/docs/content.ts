@@ -893,6 +893,19 @@ setCps(0.5)`,
         ],
       ),
       p('THE ORDER MATTERS, and it is the same order a hardware channel runs: gate first, so nothing downstream amplifies the noise you were about to remove; tone shaping next; then the de-esser, because adding presence is usually what made the sibilance sharp; then the compressor, which now sees a signal that is only the part you meant; and the limiter last, because a ceiling is only a ceiling if nothing comes after it.'),
+      p('All four ACT on the signal. `follow` MEASURES it: audio in, a control signal out, reporting how loud its input is as an ordinary signal you can multiply by, subtract from 1 to duck, or map through `->` into a parameter. That is the one thing `sidechain` cannot give you -- sidechain ducks on note ONSETS, which is why the pump keeps working even with the kick muted, and until `follow` nothing in the engine reacted to how loud anything actually is. A fast attack catches transients and a slow release stops the control chattering between them; `rms` averages power and is steady enough to drive a filter, `peak` tracks crests and is what you want for catching hits.'),
+      code(
+        "The mic's own level opens a filter -- a wah you play by singing.",
+        `const wah = synth(({ note, gate, adsr, supersaw, ladder, follow, mic }) =>
+  ladder(
+    supersaw(note.freq, { detune: 0.25 }),
+    follow(mic(), { attack: 8, release: 160, mode: 'rms' }).pow(0.6).range(350, 6500),
+    { res: 0.55 },
+  ).mul(adsr(gate, { a: 0.01, d: 0.12, s: 0.85, r: 0.25 })).mul(0.35))
+
+p('wah', note('<a1 f1 c2 g1>/2').sound('wah').dur(0.95))
+setCps(0.5)`,
+      ),
       note('A limiter is a SAFETY NET, not a sound. If it is working hard all the time, the thing in front of it is set wrong -- turn the makeup down rather than leaning on the ceiling. The one exception is when you are deliberately pushing for loudness, and then it is doing exactly what you asked.'),
       p('The engine also applies a final soft clip to the master output, which is not a limiter: it holds the signal inside \u00b11 by bending the waveform. That is the right last resort and the wrong way to hold a ceiling, which is why `limiter` exists as a node you place yourself.'),
       code(

@@ -309,6 +309,8 @@ export interface SynthCtx {
    *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
    *  6000-9000 for a bright one. */
   deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
+  /** Envelope follower: audio in, a 0..1 control signal out. */
+  follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -420,6 +422,8 @@ export interface PostCtx {
    *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
    *  6000-9000 for a bright one. */
   deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
+  /** Envelope follower: audio in, a 0..1 control signal out. */
+  follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -901,6 +905,15 @@ const makeShared = (b: Builder) => {
           hysteresis: opts?.hysteresis,
         }),
       ),
+    follow: (
+      inp: SigIn,
+      opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' },
+    ): Sig =>
+      b.node(
+        'follow',
+        { in: src(inp, 'follow in') },
+        definedConfig({ attack: opts?.attack, release: opts?.release, mode: opts?.mode }),
+      ),
     deess: (
       inp: SigIn,
       opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number },
@@ -1011,6 +1024,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     compress: shared.compress,
     noisegate: shared.noisegate,
     deess: shared.deess,
+    follow: shared.follow,
     limiter: shared.limiter,
     phaser: shared.phaser,
     formant: shared.formant,

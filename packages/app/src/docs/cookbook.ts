@@ -121,6 +121,26 @@ cps .5`,
     why: 'A modifier line is a PATTERN, so it lines up by TIME: `vel: .9 .5 .8` against a flat row looks per-note and stops corresponding the moment the notation grows a rest or a subgroup. A value written ON the note cannot drift, because it never leaves the note. `chance` is reproducible rather than random -- it draws from the same time-locked stream `degradeBy` uses, so a note that fires on cycle 3 fires on cycle 3 every time round, which is what lets a probabilistic line live in a piece instead of only in a jam.',
   },
   {
+    id: 'auto-wah',
+    title: 'Make a sound react to how loud something is',
+    tags: ['follow', 'envelope', 'mic', 'filter', 'dynamics', 'sidechain'],
+    code: `synth wah
+  supersaw note detune:.25
+  ladder cut res:.55
+  * adsr .01 .12 .85 .25
+  * .35
+  amp = follow mic attack:8 release:160 mode:rms
+  cut = amp ^ .6 -> 350..6500
+  post
+    reverb room:.6 mix:.2
+
+play wah
+  <a1 f1 c2 g1>/2
+  dur: .95
+
+cps .5`,
+    why: 'This is the half `sidechain` does not cover. Sidechain ducks on note ONSETS -- which is why the pump keeps working when you mute the kick -- so nothing in the engine reacted to how loud anything actually IS. `follow` returns the level as an ordinary signal, so it composes: multiply by it, subtract it from 1 to duck, or map it through `->` into a cutoff like this. The asymmetry is the craft: a fast attack catches the transient, a slow release stops the control chattering between syllables. Equal times give a tremolo of the source waveform, which is the classic way to make a follower useless.', },
+  {
     id: 'pump',
     title: 'Make everything duck under the kick',
     tags: ['sidechain', 'mix', 'pump', 'house'],

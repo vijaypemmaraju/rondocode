@@ -126,6 +126,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     pos: [],
     named: { freq: 'num', threshold: 'num', ratio: 'num', attack: 'num', release: 'num' },
   },
+  follow: { kind: 'proc', pos: [], named: { attack: 'num', release: 'num', mode: 'enum' } },
   noisegate: {
     kind: 'proc',
     pos: [],

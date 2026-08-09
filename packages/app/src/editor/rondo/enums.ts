@@ -47,6 +47,8 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   noise: { pos: [['white', 'pink', 'brown']] },
   // lfo.ts LfoShape (LfoKernel's shape switch)
   lfo: { pos: [null, ['sine', 'tri', 'square', 'saw', 'rand']] },
+  // follow.ts FollowConfig.mode
+  follow: { named: { mode: ['peak', 'rms'] } },
   // osc.ts LFSR_MODES
   lfsr: { named: { mode: ['white', 'periodic'] } },
   // osc.ts FM_WAVES

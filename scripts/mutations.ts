@@ -467,6 +467,48 @@ export const MUTATIONS: Mutation[] = [
 
   /* ---- the de-esser: selectivity is the whole contract ------------------- */
   {
+    label: 'tape: wow and flutter collapse to a single LFO (a vibrato)',
+    file: 'packages/engine/src/dsp/tape.ts',
+    find: '      const wowMod = (Math.sin(TAU * this.pA) * 0.65 + Math.sin(TAU * this.pB) * 0.35) * this.wowAmp',
+    replace: '      const wowMod = Math.sin(TAU * this.pA) * this.wowAmp',
+    tests: 'packages/engine/test/tape.test.ts',
+  },
+  {
+    /* BOTH rates, not one: with FLUT_B left at 11.3 the component is still
+     * fast and the mutation survives — measured, its rate ratio actually
+     * RISES to 0.048. Slowing both makes flutter indistinguishable from wow
+     * (0.0031 against 0.0033), which is the collapse worth catching. */
+    label: 'tape: flutter runs at WOW rates, so the two controls are one',
+    file: 'packages/engine/src/dsp/tape.ts',
+    find: 'const FLUT_A = 6.7\nconst FLUT_B = 11.3',
+    replace: 'const FLUT_A = 0.61\nconst FLUT_B = 1.13',
+    tests: 'packages/engine/test/tape.test.ts',
+  },
+  {
+    label: 'tape: the delay read rounds instead of interpolating (stepped pitch)',
+    file: 'packages/engine/src/dsp/tape.ts',
+    find: '      let y = a + (b - a) * frac',
+    replace: '      let y = a',
+    tests: 'packages/engine/test/tape.test.ts',
+  },
+  {
+    /* NOT the `sat <= 0` early return: that is an optimisation, and removing
+     * it still evaluates x*(1-0) + shaped*0, which is x exactly. Dropping the
+     * BLEND is the change that matters — it makes `sat` 0 a saturator. */
+    label: 'tape: the saturation blend is dropped, so sat 0 still distorts',
+    file: 'packages/engine/src/dsp/tape.ts',
+    find: '  return x * (1 - sat) + shaped * sat',
+    replace: '  return shaped',
+    tests: 'packages/engine/test/tape.test.ts',
+  },
+  {
+    label: 'tape: the tone rolloff is skipped entirely',
+    file: 'packages/engine/src/dsp/tape.ts',
+    find: '      this.lp += (y - this.lp) * this.lpCoeff',
+    replace: '      this.lp = y',
+    tests: 'packages/engine/test/tape.test.ts',
+  },
+  {
     label: 'convolve: keeps the WRAP-AROUND half instead of the linear half',
     file: 'packages/engine/src/dsp/convolve.ts',
     find: '      const v = this.accRe[PART + i]!',

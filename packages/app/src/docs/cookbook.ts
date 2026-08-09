@@ -229,6 +229,22 @@ cps .5`,
     why: 'Unison WITHOUT detune is nine copies of the same pitch, which sounds identical to one copy and costs nine times the CPU. The width IS the detune, in cents. `curve:4` then pulls the inner voices back toward the centre so the stack keeps a definite pitch instead of smearing into a chord.',
   },
   {
+    id: 'tape',
+    title: 'Stop a part sounding perfectly in tune',
+    tags: ['tape', 'wow', 'flutter', 'saturation', 'lofi', 'character'],
+    code: `synth keys
+  (saw note) * .4
+  svf 2100 res:.2
+  * adsr .02 .25 .6 .3
+  tape wow:.5 flutter:.3 sat:.35 tone:8500
+
+play keys
+  <Cmaj7 Am7 Dm7 G7>
+  dur: .95
+
+cps .4`,
+    why: 'WOW is the one doing the work, and it is not the saturator. An oscillator holds a pitch perfectly and nothing physical ever has -- so a held chord that drifts a fraction of a percent stops sounding synthesised, and that is most of what people mean by "tape". `flutter` is the same thing about ten times faster, too quick to hear as pitch, so it lands as texture instead. Both are TWO oscillators at unrelated rates, because a single one is a vibrato and sounds like one. `tone` matters more than it looks: taking the top off is most of why a saturator alone sounds harsh where tape sounds warm.', },
+  {
     id: 'talkbox',
     title: 'Sing through a synth with the microphone',
     tags: ['vocoder', 'mic', 'talkbox', 'voice'],

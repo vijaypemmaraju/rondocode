@@ -42,6 +42,7 @@ import { DeessKernel } from './dsp/deess'
 import { FollowKernel } from './dsp/follow'
 import { PitchShiftKernel } from './dsp/pitchshift'
 import { ConvolveKernel } from './dsp/convolve'
+import { TapeKernel } from './dsp/tape'
 import { LimiterKernel } from './dsp/limiter'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
@@ -61,6 +62,7 @@ import type { DeessConfig } from './dsp/deess'
 import type { FollowConfig } from './dsp/follow'
 import type { PitchShiftConfig } from './dsp/pitchshift'
 import type { ConvolveConfig } from './dsp/convolve'
+import type { TapeConfig } from './dsp/tape'
 import type { LimiterConfig } from './dsp/limiter'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
@@ -208,6 +210,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   follow: [{ name: 'in' }],
   pitchshift: [{ name: 'in' }],
   convolve: [{ name: 'in' }],
+  tape: [{ name: 'in' }],
   limiter: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
@@ -297,6 +300,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   // ctx carries the same sample bank sample() reads, so the IR can be a
   // loaded WAV or a generated one
   convolve: (c, ctx) => new ConvolveKernel(String(c['name'] ?? ''), ctx.samples, convolveCfg(c)),
+  tape: (c) => new TapeKernel(tapeCfg(c)),
   limiter: (c) => new LimiterKernel(limiterCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
@@ -411,6 +415,14 @@ const pitchShiftCfg = (c: Record<string, unknown>): PitchShiftConfig => {
 const convolveCfg = (c: Record<string, unknown>): ConvolveConfig => {
   const out: ConvolveConfig = {}
   if (typeof c['mix'] === 'number') out.mix = c['mix']
+  return out
+}
+
+const tapeCfg = (c: Record<string, unknown>): TapeConfig => {
+  const out: TapeConfig = {}
+  for (const k of ['wow', 'flutter', 'sat', 'tone'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
   return out
 }
 

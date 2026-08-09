@@ -626,6 +626,12 @@ const SYNTH_CTX: DocEntry[] = [
     "deess(mic(), { freq: 6500, threshold: -28, ratio: 5 })",
   ),
   sc(
+    'tape',
+    'tape(input, opts?: { wow, flutter, sat, tone })',
+    'TAPE, which is four things and not one -- shipping only the saturator is why most attempts at this sound like distortion instead of like tape. wow 0..1 (def 0.35) is slow pitch drift, well under 2 Hz, from a capstan that is not quite round: it is what stops a held chord sounding like a synthesiser, because an oscillator holds a pitch perfectly and nothing physical ever does. flutter 0..1 (def 0.3) is the same thing about ten times faster, too quick to hear as pitch, so it reads as texture. sat 0..1 (def 0.3) is soft saturation -- normalised to unity at full scale, so it LIFTS quiet material toward the peak rather than turning anything down (a 0.6 peak comes back near 0.71). tone Hz (def 11000) takes the top off, and it is the part everyone forgets: it is most of why a saturator alone sounds harsh where tape sounds warm. Each of wow and flutter is TWO oscillators at unrelated rates, because a single one is a vibrato and sounds like one. All four have an off.',
+    'tape(bus, { wow: 0.4, flutter: 0.25, sat: 0.4, tone: 9000 })',
+  ),
+  sc(
     'convolve',
     "convolve(input, irName, opts?: { mix })",
     "Play a signal THROUGH a recorded space. `reverb` is algorithmic -- a network of delays tuned to sound like a room, cheap and tweakable while it runs. Convolution is the other kind: you hand it the IMPULSE RESPONSE of an actual space (or a plate, or a cabinet, or a snare drum) and it reproduces that thing exactly, because the impulse response IS the space, completely. What you give up is the knob: you cannot make the room bigger, you would need a different measurement. The IR is a SAMPLE, resolved from the same bank `sample()` reads, so a loaded WAV works and so does a generated one -- `hall` ships built in. mix 0..1 (def 0.35), and the IR is normalised to unit energy so mix means the same thing whatever you point it at. Costs one block of latency (2.67 ms at 48k) and scales with IR length; IRs are truncated at 4 seconds.",

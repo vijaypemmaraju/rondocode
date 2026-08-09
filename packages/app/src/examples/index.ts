@@ -3022,6 +3022,66 @@ cps .45
 `
 
 
+/** TAPE: the four things a machine does, with each one on its own control so
+ *  the difference between them is audible rather than asserted. */
+const tapeRondo = `# TAPE. four things, not one. shipping
+# only the saturator is why most attempts
+# at this sound like distortion instead of
+# like tape.
+#
+#   wow      slow pitch drift, under 2 Hz,
+#            from a capstan that is not
+#            quite round. THIS is the one
+#            that matters: an oscillator
+#            holds a pitch perfectly and
+#            nothing physical ever has
+#   flutter  the same thing ~10x faster.
+#            too quick to hear as pitch,
+#            so it reads as texture
+#   sat      rounds the peaks. it lifts
+#            quiet material toward the top
+#            rather than turning anything
+#            down, so a tape stage can
+#            make a bus LOUDER
+#   tone     takes the top off, and this
+#            is most of why a saturator
+#            alone sounds harsh where tape
+#            sounds warm
+#
+# each of wow and flutter is TWO
+# oscillators at unrelated rates - a single
+# one is a vibrato and sounds like one.
+#
+# set wow and flutter to 0 and the machine
+# turns into a wire. that is the A/B.
+
+synth keys
+  (saw note) * .4
+  svf cut res:.2
+  * env
+  env = adsr .02 .25 .6 .3
+  cut = env ^ 2 -> 700..3200
+  tape wow:.5 flutter:.3 sat:.35 tone:8500
+  post
+    width .6
+    reverb room:.6 damp:.45 mix:.24
+
+synth bass
+  (sine note) * .55
+  * adsr .005 .14 .7 .16
+  tape wow:.2 flutter:.15 sat:.45 tone:6000
+
+play keys
+  <Cmaj7 Am7 Dm7 G7>
+  dur: .95
+
+play bass
+  <c2 a1 d2 g1>
+  dur: .9
+
+cps .4
+`
+
 /** CONVOLUTION: the same voice through an algorithmic room and a measured one,
  *  so the difference is the point rather than a claim. */
 const realRoomRondo = `# CONVOLUTION. an impulse response is what
@@ -3793,6 +3853,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
   { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
   { name: 'real room', code: fromRondo(realRoomRondo), rondo: realRoomRondo },
+  { name: 'tape', code: fromRondo(tapeRondo), rondo: tapeRondo },
   { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },

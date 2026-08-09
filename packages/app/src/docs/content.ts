@@ -524,6 +524,18 @@ cps .5`,
     title: 'Fat leads & vowels',
     blocks: [
       p("A few oscillators and filters exist just for character. supersaw() stacks 7 detuned saws for the classic wide trance lead. phaser() sweeps notches through a sound for motion. formant() filters a buzzy source into a singing vowel, and noise('pink') / noise('brown') give warmer, deeper noise than plain white."),
+      p('`tape` is character of a different kind, and it is FOUR things rather than one -- which is why reaching for a saturator alone tends to sound like distortion instead of like tape. `wow` is slow pitch drift from a capstan that is not quite round, and it is the one that matters most: an oscillator holds a pitch perfectly and nothing physical ever does, so a held chord with a little wow stops sounding synthesised. `flutter` is the same thing about ten times faster, too quick to hear as pitch, so it reads as texture. `sat` rounds the peaks. `tone` takes the top off, and that last one is most of why a saturator alone sounds harsh where tape sounds warm. Each of wow and flutter is two oscillators at unrelated rates, because a single one is a vibrato and sounds like one.'),
+      code(
+        'The same pad, put on a machine.',
+        `const pad = synth(({ note, gate, adsr, saw, svf, tape }) =>
+  tape(
+    svf(saw(note.freq), 2100, { res: 0.2 }).mul(adsr(gate, { a: 0.2, d: 0.3, s: 0.7, r: 0.4 })).mul(0.3),
+    { wow: 0.45, flutter: 0.3, sat: 0.35, tone: 8500 },
+  ))
+
+p('pad', chord('<Cmaj7 Am7>').sound('pad').dur(0.95))
+setCps(0.4)`,
+      ),
       code(
         'A detuned supersaw lead through a phaser, over a talking formant pad.',
         `const lead = synth(({ note, gate, adsr, supersaw, phaser }) => {

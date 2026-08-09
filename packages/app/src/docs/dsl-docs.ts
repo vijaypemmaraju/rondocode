@@ -764,6 +764,7 @@ const MINI_SYNTAX: DocEntry[] = [
   ms('mini:(p,s,r)', 'a(pulses,steps,rotation?)', 'Euclidean rhythm inline: spread hits evenly, e.g. bd(3,8) is the tresillo kick.', "sound('bd(3,8)')"),
   ms('mini:?', 'a?p', 'Maybe: drop this step at random (probability p, default 0.5), deterministic per cycle.', "note('c5*8 ?0.3')"),
   ms('mini:|', 'a | b', 'Choice: each cycle picks one alternative at random (deterministic per cycle number).', "n('0 3 5 | 7 5 3')"),
+  ms('mini:\'', "a'n  a'name:n", 'PER-NOTE LANES: values written ON the note, so they cannot drift when the notation grows a rest or a subgroup the way a parallel control line does. A bare number is the `expr` lane, read by the synth as param(\'expr\'). A named lane rides alongside it and they chain in any order. Three names are STRUCTURAL: `vel` is that note\u2019s gain, `len` a multiplier on its length, and `chance` the probability it sounds at all (reproducible, drawn from the same time-locked stream as degradeBy). Any other name is an ordinary param for that note alone.', "n(\"0'2 3'vel:.8 5'chance:.5\")"),
 ]
 
 // ----------------------------------------------------------------- export

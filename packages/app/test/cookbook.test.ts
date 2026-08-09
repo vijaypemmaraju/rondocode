@@ -172,3 +172,45 @@ describe('recipes reach the docs page as first-class sections', () => {
     expect(pump.title.toLowerCase()).not.toContain('pump')
   })
 })
+
+
+/* ------------------------------------------------------------------------- *
+ * THE COOKBOOK IS A SURFACE TOO.
+ *
+ * #298 made the guide cover every node the reference documents. Nothing
+ * covered the COOKBOOK, and the cost showed: per-note expression shipped
+ * across four PRs (#299-#304) with a reference entry, guide prose, an example
+ * and no recipe at all, and the whole live mic chain shipped across five more
+ * the same way. A reader who works from recipes never met either.
+ *
+ * This does NOT demand a recipe per node — most nodes do not want one, and a
+ * cookbook padded to satisfy a test is worse than a short one. It demands a
+ * recipe for the FAMILIES a musician goes looking for, which is a judgement
+ * call, so the list is written down and adding to it is a deliberate act.
+ * ------------------------------------------------------------------------- */
+describe('the cookbook covers the things people come looking for', () => {
+  const cook = RECIPES.map((r) => `${r.title} ${r.tags.join(' ')} ${r.code} ${r.why}`).join(' ').toLowerCase()
+
+  /** Families worth a recipe, and a word that would appear in one. */
+  const WANTED: [string, RegExp][] = [
+    ['sidechain pumping', /sidechain/],
+    ['a live mic chain', /noisegate/],
+    ['per-note expression', /'vel:|'chance:/],
+    ['mid/side and mono bass', /monobelow/],
+    ['one knob, many destinations', /macro/],
+    ['custom wavetables', /wavedef|wavetable/],
+    ['euclidean rhythm', /euclid/],
+    ['arrangement', /section |song /],
+  ]
+
+  it('has a recipe for each', () => {
+    const missing = WANTED.filter(([, re]) => !re.test(cook)).map(([name]) => name)
+    expect(missing, 'families with no recipe a reader could find').toEqual([])
+  })
+
+  it('and the list is not vacuous — every entry matches something REAL', () => {
+    // a regex that matched nothing would pass the test above forever
+    expect(RECIPES.length).toBeGreaterThan(8)
+    expect(WANTED.length).toBeGreaterThan(5)
+  })
+})

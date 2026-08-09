@@ -37,6 +37,28 @@ export interface Recipe {
 
 export const RECIPES: Recipe[] = [
   {
+    id: 'mic-strip',
+    title: 'Make a microphone usable on stage',
+    tags: ['mic', 'live', 'gate', 'de-esser', 'compressor', 'limiter', 'vocal'],
+    code: `synth voice
+  mic
+  noisegate threshold:-42 range:-35 hold:60 release:120
+  eq hp 90 peak 3000 2 1.2
+  deess freq:6200 threshold:-28 ratio:5
+  compress threshold:-20 ratio:3 attack:8 release:120 makeup:6
+  post
+    reverb room:.5 damp:.4 mix:.14
+    limiter ceiling:-1 lookahead:5
+
+# ONE held note holds the channel open
+play voice
+  c3
+  dur: .99
+
+cps .5`,
+    why: 'The ORDER is the recipe: each line fixes something the one above it cannot. Gate FIRST, so nothing downstream amplifies the room you were about to remove -- that single choice is most of the difference between a usable mic and a noisy one. The eq peak adds presence where words live, which is usually what made the sibilance sharp, so the de-esser follows it rather than preceding it, and the limiter is last because a ceiling is only a ceiling if nothing comes after. These numbers are a starting point tuned against a synthetic voice; the gate threshold depends entirely on your room.',
+  },
+  {
     id: 'mono-bass',
     title: 'Stop the low end wandering on a big system',
     tags: ['stereo', 'mid/side', 'mix', 'mastering', 'bass'],

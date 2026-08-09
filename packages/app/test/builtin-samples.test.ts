@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { BUILT_IN_SAMPLE_NAMES, builtInSamples } from '../src/audio/demo-samples'
+import { compile } from '@rondocode/rondo'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../server/src/render-runner'
+import { RECIPES } from '../src/docs/cookbook'
+import { EXAMPLES } from '../src/examples'
 import { SECTIONS } from '../src/docs/content'
 
 /* ------------------------------------------------------------------------- *
@@ -97,5 +101,80 @@ describe('the hall impulse response', () => {
     const early = slope(Math.round(0.1 * sr), Math.round(0.3 * sr))
     const late = slope(Math.round(1.2 * sr), Math.round(1.5 * sr))
     expect(late, 'the tail is as bright as the early reflections').toBeLessThan(early * 0.9)
+  })
+})
+
+
+/* ------------------------------------------------------------------------- *
+ * AN OFFLINE RENDER HAS THE SAME BANK THE APP DOES.
+ *
+ * It used to be the caller's job to pass `samples`, and exactly two callers in
+ * the repo did it — so every other render resolved `sample`, `granular` and
+ * `convolve` names against an EMPTY bank. Measured before the fix: ten doc
+ * programs name a built-in, and four of them rendered completely silent while
+ * the rest quietly lost their sampled part. All still passed "makes sound",
+ * because the synthesised parts make sound.
+ * ------------------------------------------------------------------------- */
+describe('doc programs that name a built-in sample actually get it', () => {
+  const SR = 22050
+  const naming = new RegExp(`\\b(?:sample|granular|convolve)\\b[^\\n]*\\b(?:${BUILT_IN_SAMPLE_NAMES.join('|')})\\b`)
+
+  const progs: { label: string; code: string; rondo: boolean }[] = []
+  for (const r of RECIPES) if (naming.test(r.code)) progs.push({ label: `recipe:${r.id}`, code: r.code, rondo: true })
+  for (const e of EXAMPLES) {
+    const src = e.rondo ?? e.code
+    if (naming.test(src)) progs.push({ label: `example:${e.name}`, code: src, rondo: e.rondo !== undefined })
+  }
+
+  it('there are some, or this block tests nothing', () => {
+    expect(progs.length).toBeGreaterThan(3)
+  })
+
+  for (const pr of progs) {
+    it(`${pr.label} renders WITHOUT being handed a bank`, () => {
+      let code = pr.code
+      if (pr.rondo) {
+        const c = compile(code)
+        expect(c.ok, 'does not compile').toBe(true)
+        code = c.code!
+      }
+      const st = stageCode(code)
+      expect(st.ok, 'does not stage').toBe(true)
+      if (!st.ok) return
+      const cps = st.cps ?? 0.5
+      const evs = runPatterns(st.patterns, { cycles: 2, cps })
+      // deliberately NO `samples` — that is the whole point
+      const mix = renderMix(st.synths, evs, 2 / cps, mixOptsFor(st, { cps, sampleRate: SR }))
+      let peak = 0
+      for (const v of mix.left) peak = Math.max(peak, Math.abs(v))
+      expect(peak, 'rendered silence — the sample bank never reached it').toBeGreaterThan(0.001)
+    })
+  }
+
+  it('a caller-supplied sample SHADOWS the built-in of the same name', () => {
+    /* The live bank behaves this way: load your own `vox` and it wins. An
+     * offline render that ignored the override would bounce a different
+     * instrument than the app played. */
+    const code = `const v = synth(({ gate, adsr, sample }) =>
+  sample(gate, 'vox', { root: 57 }).mul(adsr(gate, { a: 0.01, d: 0.5, s: 0.9, r: 0.2 })))
+p('v', note('c3').sound('v'))
+setCps(0.5)`
+    const st = stageCode(code)
+    expect(st.ok).toBe(true)
+    if (!st.ok) return
+    const evs = runPatterns(st.patterns, { cycles: 1, cps: 0.5 })
+    const loud = new Float32Array(4096).fill(0.9)
+    const theirs = renderMix(st.synths, evs, 2, { cps: 0.5, sampleRate: SR, samples: { vox: { data: loud, sampleRate: SR } } })
+    const builtin = renderMix(st.synths, evs, 2, { cps: 0.5, sampleRate: SR })
+    let a = 0, b = 0
+    for (const v of theirs.left) a = Math.max(a, Math.abs(v))
+    for (const v of builtin.left) b = Math.max(b, Math.abs(v))
+    // both must SOUND, and they must sound DIFFERENT: which is louder is not
+    // the point (a flat buffer through an envelope and root-57 resampling
+    // measures 0.64 against the demo vox's 0.77), only that the name resolved
+    // to the caller's audio instead of the built-in
+    expect(b, 'the built-in vox did not render').toBeGreaterThan(0.001)
+    expect(a, 'the override rendered silence').toBeGreaterThan(0.001)
+    expect(Math.abs(a - b), 'the override was ignored').toBeGreaterThan(0.01)
   })
 })

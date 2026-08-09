@@ -31,6 +31,7 @@ import { evalCode } from '../../app/src/session/evalCode'
 import type { BusDef, Diagnostic, SendSpec, SingRequest } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
 import { RESERVED_PARAM_NAMES } from '../../engine/src/macro'
+import { builtInSamples } from '../../engine/src/demo-samples'
 import { Scheduler } from '../../pattern/src/index'
 import type { TimeSig } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
@@ -408,6 +409,19 @@ const stemRms = (l: Float32Array, r: Float32Array): number => {
  * So: derive them once. `extra` overrides anything and carries the fields the
  * staged result cannot know (sample rate, samples, stems).
  * ------------------------------------------------------------------------- */
+/* The built-in bank, generated once per sample rate. Synthesising five
+ * buffers (2.2 s of hall alone) on every render would be absurd, and they are
+ * pure functions of the rate, so one cache is correct. */
+const builtInCache = new Map<number, Record<string, { data: Float32Array; sampleRate: number }>>()
+function builtInBank(sampleRate: number): Record<string, { data: Float32Array; sampleRate: number }> {
+  let b = builtInCache.get(sampleRate)
+  if (b === undefined) {
+    b = builtInSamples(sampleRate)
+    builtInCache.set(sampleRate, b)
+  }
+  return b
+}
+
 export function mixOptsFor(
   staged: Extract<StageResult, { ok: true }>,
   extra: Partial<MixOpts> = {},
@@ -431,6 +445,17 @@ export function renderMix(
 ): MixResult {
   const sampleRate = opts?.sampleRate ?? 48000
   const maxVoices = opts?.maxVoices ?? 12
+  /* THE BUILT-IN SAMPLES ARE ALWAYS AVAILABLE, exactly as they are live.
+   *
+   * They used to be the caller's job, and precisely two callers in the repo
+   * did it — so `sample`, `granular` and `convolve` resolved built-in names
+   * against an empty bank in every other render. Measured across the docs: ten
+   * programs name a built-in and FOUR rendered completely silent, while the
+   * rest lost the sampled part and still passed "makes sound".
+   *
+   * Caller-supplied samples win, so a project that loads its own `vox` still
+   * shadows the demo one, which is what the live bank does too. */
+  const samples = { ...builtInBank(sampleRate), ...(opts?.samples ?? {}) }
   const { cps } = opts
   const total = Math.round(durationSec * sampleRate)
   const left = new Float32Array(total)
@@ -476,7 +501,7 @@ export function renderMix(
       sampleRate,
       cps,
       maxVoices: def.maxVoices ?? maxVoices,
-      samples: opts?.samples,
+      samples,
       wavetables: opts?.wavetables,
     })
     // Send tap: pre-duck (raw post-FX), so a reverb send does not pump.

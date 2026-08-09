@@ -43,7 +43,7 @@ export const KNOWN_CTX = [
   'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr', 'noise',
   'sample', 'granular', 'pluck', 'modal', 'pan',
   'svf', 'dualsvf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
-  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'noisegate', 'deess', 'follow', 'pitchshift', 'limiter', 'phaser', 'formant', 'vocoder',
+  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'noisegate', 'deess', 'follow', 'pitchshift', 'convolve', 'limiter', 'phaser', 'formant', 'vocoder',
   'width', 'transient', 'flanger',
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
 ]

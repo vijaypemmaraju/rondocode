@@ -626,6 +626,12 @@ const SYNTH_CTX: DocEntry[] = [
     "deess(mic(), { freq: 6500, threshold: -28, ratio: 5 })",
   ),
   sc(
+    'convolve',
+    "convolve(input, irName, opts?: { mix })",
+    "Play a signal THROUGH a recorded space. `reverb` is algorithmic -- a network of delays tuned to sound like a room, cheap and tweakable while it runs. Convolution is the other kind: you hand it the IMPULSE RESPONSE of an actual space (or a plate, or a cabinet, or a snare drum) and it reproduces that thing exactly, because the impulse response IS the space, completely. What you give up is the knob: you cannot make the room bigger, you would need a different measurement. The IR is a SAMPLE, resolved from the same bank `sample()` reads, so a loaded WAV works and so does a generated one -- `hall` ships built in. mix 0..1 (def 0.35), and the IR is normalised to unit energy so mix means the same thing whatever you point it at. Costs one block of latency (2.67 ms at 48k) and scales with IR length; IRs are truncated at 4 seconds.",
+    "convolve(voice, 'hall', { mix: 0.4 })",
+  ),
+  sc(
     'pitchshift',
     'pitchshift(input, opts?: { semitones, window, mix })',
     'Move a signal in SEMITONES without changing how long it lasts. The engine could already change pitch two ways and neither is this: `sample speed:` is varispeed, so pitch and time move together like a record at the wrong rpm, and `granular rate:` decouples them but is a texture generator rather than something you can put a microphone through. This takes a signal that already exists -- a mic, a bus, a voice -- and hands back the same thing a fifth higher. semitones -24..24 (def 0, which is a BIT-EXACT passthrough, not an approximation). window ms (def 50) is the artefact control and it cannot be switched off: the read head wraps around a window, and short windows warble while long ones smear transients and add an echo of up to that length. mix 0..1 (def 1, fully shifted); use 0.5 for a harmoniser that keeps the original underneath. The interval is FIXED, like a hardware harmoniser -- a third above every note, not a third in the key.',

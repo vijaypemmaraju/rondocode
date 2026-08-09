@@ -1,4 +1,5 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
+import { BUILT_IN_SAMPLE_NAMES } from '../audio/demo-samples'
 import { snippetCompletion } from '@codemirror/autocomplete'
 import { syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
@@ -184,7 +185,7 @@ const SCALE_OPTIONS: Completion[] = Object.keys(SCALES).map((name) => ({
 /** Synth names defined in the current doc (`const X = synth(...)`) plus the
  *  built-in demo samples — the plausible arguments to .sound()/s(). */
 const soundOptions = (doc: string): Completion[] => {
-  const names = new Set<string>(['vox', 'riser', 'pad'])
+  const names = new Set<string>(BUILT_IN_SAMPLE_NAMES)
   const re = /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*synth\b/g
   for (let m = re.exec(doc); m !== null; m = re.exec(doc)) names.add(m[1]!)
   return [...names].map((label) => ({ label, type: 'variable' }))

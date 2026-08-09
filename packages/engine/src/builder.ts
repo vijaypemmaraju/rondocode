@@ -313,6 +313,8 @@ export interface SynthCtx {
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** Shift a signal in semitones without changing its length. */
   pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
+  /** Convolve a signal with an impulse response held as a sample. */
+  convolve(inp: SigIn, name: string, opts?: { mix?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -428,6 +430,8 @@ export interface PostCtx {
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** Shift a signal in semitones without changing its length. */
   pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
+  /** Convolve a signal with an impulse response held as a sample. */
+  convolve(inp: SigIn, name: string, opts?: { mix?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
    *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
    *  already reduced when the peak arrives; that delay is the latency it adds.
@@ -909,6 +913,12 @@ const makeShared = (b: Builder) => {
           hysteresis: opts?.hysteresis,
         }),
       ),
+    convolve: (inp: SigIn, name: string, opts?: { mix?: number }): Sig =>
+      b.node(
+        'convolve',
+        { in: src(inp, 'convolve in') },
+        definedConfig({ name, mix: opts?.mix }),
+      ),
     pitchshift: (
       inp: SigIn,
       opts?: { semitones?: number; window?: number; mix?: number },
@@ -1039,6 +1049,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     deess: shared.deess,
     follow: shared.follow,
     pitchshift: shared.pitchshift,
+    convolve: shared.convolve,
     limiter: shared.limiter,
     phaser: shared.phaser,
     formant: shared.formant,

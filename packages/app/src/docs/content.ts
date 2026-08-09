@@ -936,7 +936,18 @@ setCps(0.55)`,
     group: 'sound design',
     title: 'Samples & granular',
     blocks: [
-      p("`sample(gate, 'name')` plays a loaded audio sample like an oscillator: `root` is the note it plays natural at, and it pitches from there. `vox`, `riser` and `pad` ship built in; load your own with the + button in the editor, or RECORD one on the device microphone (the record button in the same popover): the take is trimmed and normalized and lands as `mic1`, ready to play from a `beat` or `play` block, feed to `granular`, or run through the `vocoder`. `granular` sprays overlapping grains from a scannable position for evolving textures."),
+      p("`sample(gate, 'name')` plays a loaded audio sample like an oscillator: `root` is the note it plays natural at, and it pitches from there. `vox`, `riser`, `pad`, `break` and `hall` ship built in; load your own with the + button in the editor, or RECORD one on the device microphone (the record button in the same popover): the take is trimmed and normalized and lands as `mic1`, ready to play from a `beat` or `play` block, feed to `granular`, or run through the `vocoder`. `granular` sprays overlapping grains from a scannable position for evolving textures."),
+      p("A sample can also be a SPACE. `convolve` takes an impulse response -- what a room does to a single click -- and plays a signal through it, which reproduces that room exactly rather than approximating it the way `reverb` does. The trade is the knob: `reverb` lets you change `room` while it runs, and a convolution can only be the measurement you gave it. `hall` ships built in, and any WAV you load works, including things that are not rooms at all: convolving with a snare hit or a metal object is a standard way to get a sound nothing else makes."),
+      code(
+        'The same voice through an algorithmic room and a real one.',
+        `const pad = synth(({ note, gate, adsr, saw, svf, convolve }) => {
+  const v = svf(saw(note.freq), 1800, { res: 0.2 }).mul(adsr(gate, { a: 0.2, d: 0.3, s: 0.6, r: 0.4 })).mul(0.3)
+  return convolve(v, 'hall', { mix: 0.45 })
+})
+
+p('pad', chord('<Cmaj7 Am7>').sound('pad').dur(0.95))
+setCps(0.4)`,
+      ),
       p('The same popover can also RESAMPLE the track itself, which turns anything you have already written into raw material for the next layer:'),
       list(
         [

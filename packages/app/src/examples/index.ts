@@ -3022,6 +3022,61 @@ cps .45
 `
 
 
+/** CONVOLUTION: the same voice through an algorithmic room and a measured one,
+ *  so the difference is the point rather than a claim. */
+const realRoomRondo = `# CONVOLUTION. an impulse response is what
+# a room does to a single click - and that
+# turns out to BE the room. convolving
+# with it reproduces the space completely
+# instead of approximating it.
+#
+# \`reverb\` is the other kind: a network of
+# delays tuned to sound like a room. it is
+# cheap and you can move \`room\` and \`damp\`
+# while it plays. a convolution can only
+# ever be the measurement you gave it.
+#
+# the IR is a SAMPLE, so anything you load
+# is a space. \`hall\` ships built in. try
+# convolving with \`break\` or \`vox\` - they
+# are not rooms at all, which is exactly
+# why it sounds like nothing else.
+#
+# A and B play the same chords. swap the
+# comment to compare.
+
+synth keys
+  (saw note) * .45
+  svf 2400 res:.15
+  * adsr .01 .25 .5 .35
+  convolve hall mix:.5
+
+synth keysB
+  (saw note) * .45
+  svf 2400 res:.15
+  * adsr .01 .25 .5 .35
+  post
+    reverb room:.85 damp:.35 mix:.5
+
+synth bass
+  (sine note) * .5
+  * adsr .005 .15 .7 .18
+
+play keys
+  <Cmaj7 Am7 Fmaj7 G>
+  dur: .95
+
+# play keysB
+#   <Cmaj7 Am7 Fmaj7 G>
+#   dur: .95
+
+play bass
+  <c2 a1 f1 g1>
+  dur: .95
+
+cps .4
+`
+
 /** HARMONISER: the shifted copy alongside the original. Only possible with
  *  `pitchshift` — varispeed moves time with pitch, and granular is a cloud. */
 const harmoniserRondo = `# HARMONISER. a fixed interval above every
@@ -3737,6 +3792,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
   { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
   { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
+  { name: 'real room', code: fromRondo(realRoomRondo), rondo: realRoomRondo },
   { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },

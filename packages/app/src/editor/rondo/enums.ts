@@ -69,6 +69,10 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   // mic takes), not an engine constant — declared so the scanner knows the
   // slot is an enum, but with no list, so the word never cycles.
   sample: { pos: [null] },
+  // convolve names its IMPULSE RESPONSE from the same runtime set — `hall`
+  // ships built in, but any loaded WAV is a legal space, so there is no fixed
+  // list to cycle through either
+  convolve: { pos: [null] },
   // the input device is a RUNTIME set — what is plugged in right now — so it
   // takes a bare word and cannot cycle through a fixed list
   mic: { named: { device: null } },

@@ -770,8 +770,20 @@ function unfoldPipelineRaw(n: Node, lines: string[]): boolean {
         rest = rest.slice(0, -1)
       }
       const pos: string[] = []
-      for (const a of rest) {
-        const p = posArg(a)
+      for (let i = 0; i < rest.length; i++) {
+        /* An ENUM positional is a bare word, not a signal. The expression
+         * branch above already knew that; this one did not, and sent every
+         * positional through posArg — which returns null for a string, so the
+         * whole line fell out to a `js{ }` blob. No proc had an enum
+         * positional until `convolve`, so the gap had never been reachable.
+         * Same rule, two copies, one of them updated. */
+        if (spec.pos[i] === 'enum') {
+          const sv = strValue(rest[i]!)
+          if (sv === undefined || !/^[a-zA-Z_]\w*$/.test(sv)) return false
+          pos.push(sv)
+          continue
+        }
+        const p = posArg(rest[i]!)
         if (p === null) return false
         pos.push(p)
       }

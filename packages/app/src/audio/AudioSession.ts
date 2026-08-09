@@ -22,7 +22,7 @@ export interface SampleInfo {
   name: string
   /** length in frames at `sampleRate` */ frames: number
   sampleRate: number
-  /** true for the demo samples shipped by default (vox/riser/pad) */ builtIn: boolean
+  /** true for the demo samples shipped by default (see BUILT_IN_SAMPLE_NAMES) */ builtIn: boolean
 }
 
 export class AudioSession {

@@ -156,6 +156,71 @@ export function makeBreak(sampleRate: number): Float32Array {
   return out
 }
 
+/** A HALL IMPULSE RESPONSE, for `convolve(input, 'hall')`.
+ *
+ *  Convolution needs an impulse response, and an impulse response is normally
+ *  a recording — which would mean shipping a binary asset into a repo that
+ *  deliberately carries none. So this is built the way a hall actually
+ *  behaves, and it is a real IR in every sense that matters: run it through
+ *  the convolver and you get that space.
+ *
+ *  Three parts, because a room has three:
+ *    PREDELAY   silence while the first wavefront crosses the room. This is
+ *               most of what "big" sounds like.
+ *    EARLY      a handful of discrete reflections off nearby surfaces. Sparse
+ *               and audible as individual events; they say how far the walls
+ *               are.
+ *    TAIL       exponentially decaying noise, dense enough that no single
+ *               reflection can be picked out, darkening as it goes because
+ *               air and soft surfaces absorb treble first.
+ *
+ *  Deterministic: a fixed seed, so the same build always gives the same hall
+ *  and a render is reproducible. */
+export function makeHall(sampleRate: number): Float32Array {
+  const dur = 2.2
+  const n = Math.round(dur * sampleRate)
+  const out = new Float32Array(n)
+  let seed = 987654321
+  const rand = (): number => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff
+    return (seed / 0x7fffffff) * 2 - 1
+  }
+
+  const predelay = Math.round(0.018 * sampleRate) // 18 ms: a big room
+  // early reflections: time in ms from the direct sound, and relative level
+  const early: [number, number][] = [
+    [21, 0.5], [29, -0.42], [37, 0.34], [46, -0.3],
+    [58, 0.26], [71, -0.22], [89, 0.18], [104, -0.15],
+  ]
+  for (const [ms, gain] of early) {
+    const i = Math.round((ms / 1000) * sampleRate)
+    if (i < n) out[i] = out[i]! + gain
+  }
+
+  // the diffuse tail, darkening as it decays
+  const rt60 = 1.9
+  const decay = Math.exp(-6.9078 / (rt60 * sampleRate)) // -60 dB over rt60
+  let amp = 0.9
+  let lp = 0
+  for (let i = predelay; i < n; i++) {
+    amp *= decay
+    // the lowpass closes as the tail ages: early reflections keep their
+    // treble, the late tail does not
+    const age = (i - predelay) / (n - predelay)
+    const cut = 0.42 * (1 - age) + 0.06
+    lp += (rand() - lp) * cut
+    // a short fade-in over the first 8 ms so the tail grows into the early
+    // reflections rather than starting with a step
+    const build = Math.min(1, (i - predelay) / (0.008 * sampleRate))
+    out[i] = out[i]! + lp * amp * build
+  }
+
+  // a clean fade to zero at the end: a truncated IR convolves as a click
+  const fade = Math.round(0.05 * sampleRate)
+  for (let i = 0; i < fade; i++) out[n - 1 - i] = out[n - 1 - i]! * (i / fade)
+  return out
+}
+
 /** Every built-in sample, as the PCM map the render paths take.
  *
  *  ONE list. The editor and the docs player each enumerated these four by
@@ -166,11 +231,22 @@ export function makeBreak(sampleRate: number): Float32Array {
  *  nothing stopping a CLI from having exactly what the app has.
  *
  *  Keyed by the name user code plays: `sample(gate, 'break')`. */
+const GENERATORS: Record<string, (sampleRate: number) => Float32Array> = {
+  vox: makeVox,
+  riser: makeRiser,
+  pad: makePad,
+  break: makeBreak,
+  hall: makeHall,
+}
+
+/** The names user code can play without loading anything. ONE list: the
+ *  editor's completions and the docs both read it, because three
+ *  hand-maintained copies had already drifted — none of them mentioned
+ *  `break`, which had shipped some time before. */
+export const BUILT_IN_SAMPLE_NAMES: readonly string[] = Object.keys(GENERATORS)
+
 export function builtInSamples(sampleRate: number): Record<string, { data: Float32Array; sampleRate: number }> {
-  return {
-    vox: { data: makeVox(sampleRate), sampleRate },
-    riser: { data: makeRiser(sampleRate), sampleRate },
-    pad: { data: makePad(sampleRate), sampleRate },
-    break: { data: makeBreak(sampleRate), sampleRate },
-  }
+  const out: Record<string, { data: Float32Array; sampleRate: number }> = {}
+  for (const [name, make] of Object.entries(GENERATORS)) out[name] = { data: make(sampleRate), sampleRate }
+  return out
 }

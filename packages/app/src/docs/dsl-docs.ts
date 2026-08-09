@@ -610,7 +610,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'chorus',
     'chorus(input, opts?: { rate, depth, mix })',
-    'A three-voice ensemble that thickens and widens: slow detuned pitch-wobbles blur one voice into many, lush pads, shimmering keys. In a post-chain it runs per stereo side, so it also spreads the sound wide.',
+    'A three-voice ensemble that thickens and widens: slow detuned pitch-wobbles blur one voice into many, lush pads, shimmering keys. In a post-chain it runs per stereo side, so it also spreads the sound wide. rate, depth and mix are SIGNALS, so an LFO or a knob can ride them.',
     'input.mix(chorus(input, { rate: 0.6, depth: 0.004 }), 1)',
   ),
   sc(
@@ -682,7 +682,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'phaser',
     'phaser(input, opts?: { rate?, depth?, feedback?, stages?, mix? })',
-    'A swept-allpass phaser: a cascade of allpass stages moves notches through the signal for that classic sweeping, whooshing motion. rate Hz (def 0.5), depth 0..1 (def 0.7), feedback 0..0.9 (def 0.4) sharpens the notches, stages 2..12 (def 4), mix 0..1 (def 0.5).',
+    'A swept-allpass phaser: a cascade of allpass stages moves notches through the signal for that classic sweeping, whooshing motion. rate Hz (def 0.5), depth 0..1 (def 0.7), feedback 0..0.9 (def 0.4) sharpens the notches, stages 2..12 (def 4), mix 0..1 (def 0.5). rate, depth, feedback and mix are SIGNALS, so an LFO or a knob can ride them; `stages` is not, because it sizes the allpass chain and changing it is a rebuild rather than a control.',
     'phaser(pad, { rate: 0.3, feedback: 0.6 })',
   ),
   sc(
@@ -730,7 +730,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'flanger',
     'flanger(input, opts?: { rate, depth, feedback, mix })',
-    'The jet-plane whoosh: one very short delay (0.3 to 8 ms) swept by an LFO and fed back into itself, so a comb of notches slides up and down the spectrum with resonant peaks between them. rate Hz (def 0.3), depth 0..1 (def 0.7), feedback -0.95..0.95 (def 0.7, negative shifts the notches for a hollower colour), mix 0..1 (def 0.5). Chorus thickens with three unfed taps around 11 ms; this one resonates, and that is the difference you hear.',
+    'The jet-plane whoosh: one very short delay (0.3 to 8 ms) swept by an LFO and fed back into itself, so a comb of notches slides up and down the spectrum with resonant peaks between them. rate Hz (def 0.3), depth 0..1 (def 0.7), feedback -0.95..0.95 (def 0.7, negative shifts the notches for a hollower colour), mix 0..1 (def 0.5). Chorus thickens with three unfed taps around 11 ms; this one resonates, and that is the difference you hear. rate, depth, feedback and mix are SIGNALS, so an LFO or a knob can ride them.',
     'flanger(pad, { rate: 0.15, feedback: 0.8 })',
   ),
   sc('pan', 'pan(input, pos)', 'Place the signal in the stereo field: 0 left, 0.5 center, 1 right.', 'pan(osc, 0.3)'),

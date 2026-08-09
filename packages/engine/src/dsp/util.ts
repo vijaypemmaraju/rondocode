@@ -35,3 +35,25 @@ export const softClipTanh = (v: number, t: number): number => {
   if (v < -t) return -(t + (1 - t) * Math.tanh((-v - t) / (1 - t)))
   return v
 }
+
+/* ------------------------------------------------------------------------- *
+ * A CONTROL THAT MAY BE A SIGNAL.
+ *
+ * chorus, phaser and flanger read rate/depth/feedback/mix once at
+ * construction, so no LFO or knob could ride them — on exactly the three
+ * effects people most want to automate. They are per-sample inputs now, and
+ * this is how a kernel reads one: the input when the graph supplies it, the
+ * constructor's value when a caller built the kernel directly, clamped to the
+ * same range either way so a signal cannot reach further than a number could.
+ * ------------------------------------------------------------------------- */
+export function ctl(
+  buf: Float32Array | undefined,
+  i: number,
+  fallback: number,
+  lo: number,
+  hi: number,
+): number {
+  if (buf === undefined) return fallback
+  const v = buf[i]!
+  return Number.isFinite(v) ? clamp(v, lo, hi) : fallback
+}

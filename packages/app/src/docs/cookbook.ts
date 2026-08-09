@@ -206,6 +206,27 @@ cps .4`,
     why: 'An impulse response is what a room does to a single click, and it turns out that IS the room -- convolving with it reproduces the space completely, where `reverb` approximates one with a network of delays. The trade is the knob: `reverb` lets you move `room` and `damp` while it plays, and a convolution can only ever be the measurement you handed it. The IR is a SAMPLE, so anything you can load is a space: `hall` ships built in, and convolving with something that is not a room at all -- a snare hit, a struck pipe -- is a standard way to get a sound nothing else makes. It is normalised to unit energy, so `mix` means the same thing whatever you point it at.',
   },
   {
+    id: 'sweeping-modulation',
+    title: 'Make a chorus or flanger move on its own',
+    tags: ['chorus', 'flanger', 'phaser', 'lfo', 'automation', 'modulation'],
+    code: `synth pad
+  supersaw note detune:.22
+  svf 3200 res:.15
+  * adsr .3 .3 .8 .5
+  * .3
+  post
+    flanger rate:sweep depth:.8 feedback:.75 mix:.45
+    reverb room:.7 damp:.4 mix:.2
+    sweep = lfo .05 -> .06..1.4
+
+play pad
+  <Cmaj9 Am9>/2
+  dur: .95
+
+cps .4`,
+    why: 'The RATE is the thing being automated, not the depth. A flanger already sweeps -- that is what it is -- so moving its depth just makes the sweep deeper, while moving its rate changes the character of the sweep itself, from a slow jet-plane arc to a shimmer and back. That was impossible until these three nodes read their controls per sample: `rate`, `depth`, `feedback` and `mix` were construction values on chorus, phaser and flanger, so an LFO on them compiled and did nothing. Use a very slow LFO (0.05 Hz is a twenty-second cycle) or the movement stops sounding like an effect and starts sounding like a fault.',
+  },
+  {
     id: 'supersaw',
     title: 'Build a wide supersaw lead',
     tags: ['synth', 'lead', 'supersaw', 'unison', 'trance'],

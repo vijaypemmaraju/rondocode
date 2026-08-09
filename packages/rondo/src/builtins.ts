@@ -108,9 +108,11 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     kind: 'proc', pos: [],
     named: { threshold: 'num', ratio: 'num', attack: 'num', release: 'num', knee: 'num', makeup: 'num' },
   },
-  phaser: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', stages: 'num', mix: 'num' } },
+  // rate/depth/feedback/mix are SIGNALS (per-sample inputs); `stages` sizes
+  // the allpass array, so it stays a construction number
+  phaser: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', feedback: 'sig', stages: 'num', mix: 'sig' } },
   reverb: { kind: 'proc', pos: [], named: { room: 'num', damp: 'num', mix: 'sig' }, alias: { room: 'roomSize' } },
-  chorus: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', mix: 'num' } },
+  chorus: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', mix: 'sig' } },
   // pseudo-stereo widener — the positional is `amount` 0..1 (`width .8 mode:tight`)
   width: { kind: 'proc', pos: ['sig'], posDefault: ['0.5'], named: { mode: 'enum' } },
   transient: { kind: 'proc', pos: [], named: { attack: 'num', sustain: 'num' } },
@@ -135,7 +137,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     pos: [],
     named: { threshold: 'num', range: 'num', attack: 'num', hold: 'num', release: 'num', hysteresis: 'num' },
   },
-  flanger: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', mix: 'num' } },
+  flanger: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', feedback: 'sig', mix: 'sig' } },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },
   ott: { kind: 'proc', pos: [], named: { depth: 'num', low: 'num', high: 'num', makeup: 'num' } },
   // parametric EQ — bands are special-parsed word-then-numbers groups:

@@ -185,7 +185,10 @@ a:hover {
   font-size: 24px;
   font-weight: 600;
   margin: 0 0 var(--sp-3);
-  scroll-margin-top: calc(var(--doc-top-h, 52px) + var(--doc-tabs-h, 44px) + var(--sp-2));
+  /* NO scroll-margin-top here: `html` already sets scroll-padding-top to the
+     same calc, and the two ADD — an anchor matching both lands at twice the
+     offset (measured: 232px instead of 116px, which put the previous section
+     back inside the spy band). One source of truth, on the scroller. */
 }
 .doc-section > h2::before {
   content: '';

@@ -32,9 +32,19 @@ import type { ControlMap, Loc, SchedulerEvent } from '@rondocode/pattern'
  *  reads it via the --flash-ms custom property (set in mountEditor). */
 export const FLASH_MS = 150
 
-/** Upper bound on how long a mark stays lit — a pad holding a 20s drone
- *  shouldn't pin editor decorations indefinitely. */
-export const MAX_LIT_MS = 4000
+/** Upper bound on how long a mark stays lit.
+ *
+ *  This was 4000, which is not a long note — it is TWO CYCLES at the default
+ *  cps of 0.5. So `<c3 a2 f2 g2>/4`, a chord held four cycles, lit for the
+ *  first two and went dark while it was still sounding. The highlight is
+ *  supposed to say "this note is sounding now"; capped below the length of
+ *  ordinary held chords, it said something false.
+ *
+ *  It is a BACKSTOP, not a policy: it exists so a pathological duration cannot
+ *  pin a decoration forever. What actually keeps stale marks off the screen is
+ *  clearPending(), which now clears the visible ones too — a mark can outlive
+ *  its note only if the transport is still running, and then it is correct. */
+export const MAX_LIT_MS = 30_000
 /** Cap on concurrently scheduled flash timers (a dense pattern must not
  *  flood the event loop with thousands of setTimeouts). */
 export const MAX_PENDING_FLASHES = 64
@@ -380,6 +390,8 @@ export class EventFlasher {
   /** Handles of scheduled-but-not-yet-fired flash timers (NOT the removal
    *  timers — those must run so existing marks get cleaned up). */
   private readonly pendingTimers = new Set<unknown>()
+  /** Ids of marks currently on screen, so a stop can take them down. */
+  private readonly litIds = new Set<number>()
   private nextId = 1
   private disposed = false
   private readonly setT: SetTimeoutImpl
@@ -444,12 +456,31 @@ export class EventFlasher {
     }
   }
 
-  /** Cancel every scheduled-but-unfired flash (transport stop: events that
-   *  will never sound must not light up). Removal timers keep running so
-   *  already-visible marks still fade out. */
+  /** Cancel every scheduled-but-unfired flash AND clear the visible ones
+   *  (transport stop: events that will never sound must not light up, and a
+   *  note that is no longer sounding must not stay lit).
+   *
+   *  Clearing the visible marks used to be left to their own removal timers,
+   *  which was only tolerable because MAX_LIT_MS capped them at 4s. Once a
+   *  mark can legitimately stay lit for a long held chord, a stop has to take
+   *  it down — otherwise pressing stop leaves the editor lit for the rest of
+   *  the note. */
   clearPending(): void {
     for (const h of this.pendingTimers) this.clearT(h)
     this.pendingTimers.clear()
+    this.clearLit()
+  }
+
+  /** Remove every currently-visible mark. */
+  private clearLit(): void {
+    if (this.litIds.size === 0) return
+    const ids = [...this.litIds]
+    this.litIds.clear()
+    try {
+      this.view.dispatch({ effects: ids.map((id) => removeFlash.of(id)) })
+    } catch {
+      // view may be gone; nothing to clean up
+    }
   }
 
   /** TERMINAL: cancel pending flashes and ignore everything after. */
@@ -482,8 +513,10 @@ export class EventFlasher {
       }
       if (effects.length === 0) return
       this.view.dispatch({ effects })
+      for (const id of ids) this.litIds.add(id)
       this.setT(() => {
         if (this.disposed) return
+        for (const id of ids) this.litIds.delete(id)
         try {
           this.view.dispatch({ effects: ids.map((id) => removeFlash.of(id)) })
         } catch {

@@ -149,7 +149,11 @@ export interface CompiledGraph {
 /** Input port table per node type. `def` present = optional with that
  *  constant default; absent = required (missing -> GraphError). Derived from
  *  the kernel process() contracts in dsp/*.ts. */
-const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
+/* EXPORTED so the rondo registry can be checked against it: a named arg
+ * declared `sig` there must be a signal input here, or the value lands in
+ * construction config and is silently dropped. See
+ * sig-params-are-real.test.ts. */
+export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   sine: [{ name: 'freq' }],
   saw: [{ name: 'freq' }],
   square: [{ name: 'freq' }],
@@ -208,8 +212,8 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   noisegate: [{ name: 'in' }],
   deess: [{ name: 'in' }],
   follow: [{ name: 'in' }],
-  pitchshift: [{ name: 'in' }],
-  convolve: [{ name: 'in' }],
+  pitchshift: [{ name: 'in' }, { name: 'mix', def: 1 }],
+  convolve: [{ name: 'in' }, { name: 'mix', def: 0.35 }],
   tape: [{ name: 'in' }],
   limiter: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
@@ -406,17 +410,13 @@ const followCfg = (c: Record<string, unknown>): FollowConfig => {
 
 const pitchShiftCfg = (c: Record<string, unknown>): PitchShiftConfig => {
   const out: PitchShiftConfig = {}
-  for (const k of ['semitones', 'window', 'mix'] as const) {
+  for (const k of ['semitones', 'window'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out
 }
 
-const convolveCfg = (c: Record<string, unknown>): ConvolveConfig => {
-  const out: ConvolveConfig = {}
-  if (typeof c['mix'] === 'number') out.mix = c['mix']
-  return out
-}
+const convolveCfg = (_c: Record<string, unknown>): ConvolveConfig => ({})
 
 const tapeCfg = (c: Record<string, unknown>): TapeConfig => {
   const out: TapeConfig = {}

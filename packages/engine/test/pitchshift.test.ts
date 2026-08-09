@@ -21,11 +21,17 @@ import { goertzel } from './util/goertzel'
 
 const sr = 48000
 
-function run(k: PitchShiftKernel, input: Float32Array, block = 128, rate = sr): Float32Array {
+/** `mix` is a per-sample SIGNAL input now, so the harness supplies one. */
+function run(k: PitchShiftKernel, input: Float32Array, block = 128, rate = sr, mix = 1): Float32Array {
   const out = new Float32Array(input.length)
   for (let d = 0; d < input.length; d += block) {
     const len = Math.min(block, input.length - d)
-    k.process(len, { in: input.subarray(d, d + len) }, out.subarray(d, d + len), { sampleRate: rate })
+    k.process(
+      len,
+      { in: input.subarray(d, d + len), mix: new Float32Array(len).fill(mix) },
+      out.subarray(d, d + len),
+      { sampleRate: rate },
+    )
   }
   return out
 }
@@ -118,7 +124,7 @@ describe('PitchShiftKernel: zero is BIT-EXACT', () => {
 
   it('mix 0 is the dry signal, whatever the shift', () => {
     const input = sine(4096, 300)
-    const out = run(new PitchShiftKernel({ semitones: 7, mix: 0 }), input)
+    const out = run(new PitchShiftKernel({ semitones: 7 }), input, 128, sr, 0)
     for (let i = 0; i < input.length; i++) expect(out[i]!).toBeCloseTo(input[i]!, 12)
   })
 })

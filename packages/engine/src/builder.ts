@@ -312,9 +312,9 @@ export interface SynthCtx {
   /** Envelope follower: audio in, a 0..1 control signal out. */
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** Shift a signal in semitones without changing its length. */
-  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
+  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: SigIn }): Sig
   /** Convolve a signal with an impulse response held as a sample. */
-  convolve(inp: SigIn, name: string, opts?: { mix?: number }): Sig
+  convolve(inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig
   /** Tape character: wow, flutter, saturation and the top coming off. */
   tape(inp: SigIn, opts?: { wow?: number; flutter?: number; sat?: number; tone?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
@@ -431,9 +431,9 @@ export interface PostCtx {
   /** Envelope follower: audio in, a 0..1 control signal out. */
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** Shift a signal in semitones without changing its length. */
-  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: number }): Sig
+  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: SigIn }): Sig
   /** Convolve a signal with an impulse response held as a sample. */
-  convolve(inp: SigIn, name: string, opts?: { mix?: number }): Sig
+  convolve(inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig
   /** Tape character: wow, flutter, saturation and the top coming off. */
   tape(inp: SigIn, opts?: { wow?: number; flutter?: number; sat?: number; tone?: number }): Sig
   /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
@@ -926,21 +926,26 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'tape in') },
         definedConfig({ wow: opts?.wow, flutter: opts?.flutter, sat: opts?.sat, tone: opts?.tone }),
       ),
-    convolve: (inp: SigIn, name: string, opts?: { mix?: number }): Sig =>
-      b.node(
-        'convolve',
-        { in: src(inp, 'convolve in') },
-        definedConfig({ name, mix: opts?.mix }),
-      ),
+    convolve: (inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'convolve in') }
+      // mix is a SIGNAL, not construction config: it was declared `sig` in the
+      // rondo registry while the kernel read it as a number, so an LFO there
+      // was silently dropped back to the default
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'convolve mix')
+      return b.node('convolve', inputs, definedConfig({ name }))
+    },
     pitchshift: (
       inp: SigIn,
-      opts?: { semitones?: number; window?: number; mix?: number },
-    ): Sig =>
-      b.node(
+      opts?: { semitones?: number; window?: number; mix?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'pitchshift in') }
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'pitchshift mix')
+      return b.node(
         'pitchshift',
-        { in: src(inp, 'pitchshift in') },
-        definedConfig({ semitones: opts?.semitones, window: opts?.window, mix: opts?.mix }),
-      ),
+        inputs,
+        definedConfig({ semitones: opts?.semitones, window: opts?.window }),
+      )
+    },
     follow: (
       inp: SigIn,
       opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' },

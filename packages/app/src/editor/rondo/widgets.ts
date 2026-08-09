@@ -44,6 +44,7 @@ import type { EnvPointsScan } from './envpoints'
 import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
 import type { UnisonScan } from './unison'
+import { bendLaneBlockDecos } from './bendlane'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -2425,39 +2426,17 @@ class PianoRollWidget extends WidgetType {
         /* NOT textContent: that would delete the bend handle living inside the
          * cell, and with it the gesture someone may be mid-drag on. */
         el.dataset.acc = acc === undefined || acc === 0 ? '' : acc > 0 ? '\u266f' : '\u266d'
-        /* THE BEND, DRAWN. First attempt was a tilted CSS gradient plus a
-         * dash on every note, and it was unreadable: the gradient was
-         * invisible and the dash looked like a rendering fault sitting on
-         * notes that had no bend at all.
-         *
-         * So draw the actual curve, the way a piano roll does it — a stroke
-         * inside the note that rises into it for a scoop and falls into it for
-         * a drop. Only bent notes get one, so an unbent roll is completely
-         * clean, and the shape IS the value rather than a code for it. */
+        /* THE INLINE MARK is only a TICK. The cell is 12px square (16 on
+         * touch) — enough to say WHICH notes carry a value, nowhere near
+         * enough to say how much. Drawing a curve in there produced eight
+         * marks that all looked alike, so the shape moved to the full-width
+         * bend lane under the line and this stayed as the at-a-glance read.
+         * Direction only: up for a scoop, down for a fall. */
         const ex = lit ? exprs[c] : undefined
-        const bent = ex !== undefined && ex !== 0
-        el.classList.toggle('bend', bent)
-        let mark = el.querySelector('.bendmark') as SVGSVGElement | null
-        if (!bent) {
-          mark?.remove()
-        } else {
-          if (mark === null) {
-            mark = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-            mark.setAttribute('class', 'bendmark')
-            mark.setAttribute('viewBox', '0 0 20 20')
-            mark.setAttribute('preserveAspectRatio', 'none')
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-            mark.appendChild(path)
-            el.appendChild(mark)
-          }
-          // v > 0 comes UP into the note, v < 0 comes DOWN into it; the
-          // curve settles at the note's own line by the halfway point, which
-          // is what the envelope actually does
-          const v = Math.max(-1, Math.min(1, ex))
-          const from = 10 - v * 7
-          mark.firstChild !== null && (mark.firstChild as SVGPathElement)
-            .setAttribute('d', `M2 ${from.toFixed(1)} Q7 10 12 10 T18 10`)
-        }
+        el.classList.toggle('bend', ex !== undefined && ex !== 0)
+        el.classList.toggle('bendup', ex !== undefined && ex > 0)
+        el.classList.toggle('benddn', ex !== undefined && ex < 0)
+        el.querySelector('.bendmark')?.remove()
       }
     }
     /* Paint the initial state through the SAME path an edit uses. The cell
@@ -3132,6 +3111,9 @@ export function blockWidgetField(hooks: Hooks, drag: Drag, scan: WidgetScan = RO
     return Decoration.set([
       ...wavedefBlockDecos(text, width, hooks, drag, scan.wavedefDialect),
       ...rollOverviewBlockDecos(text, width, hooks, drag, scan),
+      // the bend lane: only on lines that actually carry `'value` notes, so
+      // ordinary notation grows no automation row
+      ...bendLaneBlockDecos(text, width, hooks, drag, scan),
     ], true)
   }
   const field = StateField.define<DecorationSet>({

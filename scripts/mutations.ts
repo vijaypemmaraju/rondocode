@@ -735,4 +735,34 @@ export const MUTATIONS: Mutation[] = [
     replace: '    if (false) {',
     tests: 'packages/app/test/duplicate-channel.test.ts',
   },
+
+  /* ---- the bend lane ----------------------------------------------------- */
+  {
+    label: 'lane: appears under EVERY line, not just ones carrying values',
+    file: 'packages/app/src/editor/rondo/bendlane.ts',
+    find: "    if (!notes.some((n) => n.expr !== undefined)) continue",
+    replace: '',
+    tests: 'packages/app/test/bendlane.test.ts',
+  },
+  {
+    label: 'lane: the value stops moving the level (every note draws flat)',
+    file: 'packages/app/src/editor/rondo/bendlane.ts',
+    find: '  const y = (mid - v * (h / 2 - 4)).toFixed(1)',
+    replace: '  const y = mid.toFixed(1)',
+    tests: 'packages/app/test/bendlane.test.ts',
+  },
+  {
+    label: 'lane: the level is no longer clamped to the lane',
+    file: 'packages/app/src/editor/rondo/bendlane.ts',
+    find: '  const v = Math.max(-BEND_RANGE, Math.min(BEND_RANGE, expr)) / BEND_RANGE',
+    replace: '  const v = expr / BEND_RANGE',
+    tests: 'packages/app/test/bendlane.test.ts',
+  },
+  {
+    label: 'lane: a drag drops the accidental it did not write',
+    file: 'packages/app/src/editor/rondo/bendlane.ts',
+    find: 'stepText(n.step, n.acc, n.expr)',
+    replace: 'stepText(n.step, undefined, n.expr)',
+    tests: 'packages/app/test/bendlane.test.ts',
+  },
 ]

@@ -459,6 +459,24 @@ setCps(0.5)`,
     blocks: [
       p("Three post-chain tools shape a sound's SPACE and its ATTACK rather than its pitch. width(input, amount) makes a mono instrument wide: the post-chain already runs once per stereo side, and width trades a short delayed copy between the two, adding it on the left and subtracting it on the right. Because the sides subtract back to the dry signal, the mono sum has no comb notches at all, only a flat trim (0 dB at amount 0, down to -3 dB at 1). The price is that a soloed channel is comb filtered, which is exactly what your ears read as wide. mode: 'tight' uses a shorter delay if the low end feels smeared."),
       p('transient(input, { attack, sustain }) is the drum-shaping tool. attack (-1..1) sharpens or softens the hit, sustain (-1..1) lifts or dries the tail behind it. It works off the RATIO of a fast and a slow envelope follower, so it is level independent: a quiet hit and a loud hit get exactly the same shaping. That is the whole difference from a compressor, and it also means it will not control your level, so leave headroom.'),
+      p('ALL FOUR of those are SIGNALS on `chorus`, `phaser` and `flanger` -- rate, depth, feedback and mix -- so an LFO, a knob or an envelope can ride them. They were plain numbers until recently, read once when the voice was built, which meant the three effects most worth automating were the three you could not automate at all. The one exception is the phaser`s `stages`: it sizes the allpass chain, and changing that is a rebuild rather than a control.'),
+      p('Automating the RATE is the move that is hard to get any other way. A flanger already sweeps -- that is what it is -- so moving its depth only makes the sweep deeper, while moving its rate changes the character of the sweep itself, from a slow jet arc to a shimmer and back. Use a very slow LFO: 0.05 Hz is a twenty-second cycle, and much faster than that stops reading as motion and starts reading as a fault.'),
+      code(
+        'A flanger whose sweep speed is itself swept.',
+        `const pad = synth(
+  ({ note, gate, adsr, supersaw, svf }) =>
+    svf(supersaw(note.freq, { detune: 0.22 }), 3200, { res: 0.15 })
+      .mul(adsr(gate, { a: 0.3, d: 0.3, s: 0.8, r: 0.5 })).mul(0.3),
+  ({ input, flanger, reverb, lfo }) => {
+    const sweep = lfo(0.05).range(0.06, 1.4)
+    const f = flanger(input, { rate: sweep, depth: 0.8, feedback: 0.75, mix: 0.45 })
+    return f.mix(reverb(f, { roomSize: 0.7, damp: 0.4 }), 0.2)
+  },
+)
+
+p('pad', chord('<Cmaj9 Am9>').sound('pad').dur(0.95))
+setCps(0.4)`,
+      ),
       p('flanger(input, { rate, depth, feedback, mix }) is the jet whoosh: one very short delay, 0.3 to 8 ms, swept by an LFO and fed back on itself. Chorus thickens with three unfed taps around 11 ms and can never exceed unity gain; the flanger resonates, building peaks between its notches, and that is the sound.'),
       code(
         'A wide, snappy stab and a flanged pad.',

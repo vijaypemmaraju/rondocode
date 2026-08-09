@@ -3022,6 +3022,77 @@ cps .45
 `
 
 
+/** MOVING MODULATION: the three sweep effects with their own controls swept.
+ *  Only possible since chorus/phaser/flanger read rate/depth/feedback/mix per
+ *  sample — they were construction numbers, so an LFO on them did nothing. */
+const movingModRondo = `# MOVING MODULATION. the three sweep
+# effects, with the SWEEPS themselves
+# being swept.
+#
+# rate, depth, feedback and mix are
+# SIGNALS on chorus, phaser and flanger.
+# they used to be plain numbers read once
+# when the voice was built, so the three
+# effects most worth automating were the
+# three you could not automate at all.
+#
+# the RATE is the interesting one. a
+# flanger already sweeps - that is what it
+# is - so moving its depth only makes the
+# sweep deeper, while moving its rate
+# changes the CHARACTER of the sweep, from
+# a slow jet arc to a shimmer and back.
+#
+# keep the LFOs very slow. .05 hz is a
+# twenty-second cycle; much faster stops
+# reading as motion and starts reading as
+# a fault.
+#
+# the phaser's \`stages\` is deliberately
+# still a number - it sizes the allpass
+# chain, so changing it is a rebuild.
+
+synth pad
+  supersaw note detune:.22
+  svf 3200 res:.15
+  * adsr .4 .3 .8 .6
+  * .26
+  post
+    flanger rate:sweep depth:.8 feedback:.72 mix:.4
+    reverb room:.7 damp:.4 mix:.22
+    sweep = lfo .05 -> .06..1.4
+
+synth keys
+  (saw note) * .3
+  * adsr .01 .2 .6 .3
+  post
+    chorus rate:wobble depth:.004 mix:.5
+    wobble = lfo .07 -> .15..2.6
+
+synth stab
+  supersaw note detune:.3
+  * adsr .002 .18 0 .12
+  * .3
+  post
+    phaser rate:.4 depth:swell feedback:.55 stages:6 mix:.5
+    swell = lfo .09 -> .2..1
+
+play pad
+  <Cmaj9 Am9>/2
+  dur: .95
+
+play keys
+  0 ~ 4 ~ 7 ~ 4 ~
+  scale:c-maj
+  dur: .4
+
+play stab
+  ~ ~ <Cmaj9 Am9> ~
+  dur: .3
+
+cps .4
+`
+
 /** TAPE: the four things a machine does, with each one on its own control so
  *  the difference between them is audible rather than asserted. */
 const tapeRondo = `# TAPE. four things, not one. shipping
@@ -3854,6 +3925,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
   { name: 'real room', code: fromRondo(realRoomRondo), rondo: realRoomRondo },
   { name: 'tape', code: fromRondo(tapeRondo), rondo: tapeRondo },
+  { name: 'moving modulation', code: fromRondo(movingModRondo), rondo: movingModRondo },
   { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },

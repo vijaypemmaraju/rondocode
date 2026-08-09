@@ -139,8 +139,7 @@ play kick
   c2 c2 c2 c2
 
 play pad
-  <c3 a2 f2 g2>
-  dur: 4
+  <c3 a2 f2 g2>/4
 
 sidechain kick depth:.8 release:.4
 
@@ -352,9 +351,8 @@ cps .5`,
     reverb room:.85 mix:.4
 
 play pad
-  <[0,2,4] [-3,0,2] [-1,1,3] [-3,0,2]>
+  <[0,2,4] [-3,0,2] [-1,1,3] [-3,0,2]>/4
   scale:d-min
-  dur: 4
 
 cps .4
 

@@ -467,6 +467,41 @@ export const MUTATIONS: Mutation[] = [
 
   /* ---- the de-esser: selectivity is the whole contract ------------------- */
   {
+    label: 'convolve: keeps the WRAP-AROUND half instead of the linear half',
+    file: 'packages/engine/src/dsp/convolve.ts',
+    find: '      const v = this.accRe[PART + i]!',
+    replace: '      const v = this.accRe[i]!',
+    tests: 'packages/engine/test/convolve.test.ts',
+  },
+  {
+    label: 'convolve: the frequency-delay line stops advancing',
+    file: 'packages/engine/src/dsp/convolve.ts',
+    find: '    this.fdlHead = (this.fdlHead - 1 + P) % P',
+    replace: '    this.fdlHead = 0',
+    tests: 'packages/engine/test/convolve.test.ts',
+  },
+  {
+    label: 'convolve: the IR is no longer normalised to unit energy',
+    file: 'packages/engine/src/dsp/convolve.ts',
+    find: '  return e > 0 ? 1 / Math.sqrt(e) : 0',
+    replace: '  return e > 0 ? 1 : 0',
+    tests: 'packages/engine/test/convolve.test.ts',
+  },
+  {
+    label: 'convolve: a missing IR goes silent instead of passing through',
+    file: 'packages/engine/src/dsp/convolve.ts',
+    find: '      out.set(input.subarray(0, n))',
+    replace: '      out.fill(0, 0, n)',
+    tests: 'packages/engine/test/convolve.test.ts',
+  },
+  {
+    label: 'convolve: ifft forgets to conjugate back, so the result is mirrored',
+    file: 'packages/engine/src/dsp/convolve.ts',
+    find: '    im[i] = -im[i]! * inv',
+    replace: '    im[i] = im[i]! * inv',
+    tests: 'packages/engine/test/convolve.test.ts',
+  },
+  {
     label: 'pitchshift: the crossfade goes continuous, so the taps interfere',
     file: 'packages/engine/src/dsp/pitchshift.ts',
     find: '      if (d <= 0.5 - XFADE) {',

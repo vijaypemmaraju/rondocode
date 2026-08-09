@@ -56,9 +56,10 @@ const NFFT = PART * 2
 const MAX_IR_SEC = 4
 
 export interface ConvolveConfig {
-  /** Dry/wet, 0..1. Default 0.35 — a send-like amount, because a fully wet
-   *  convolution of a dry source is almost never what anyone wants. */
-  mix?: number
+  /* No construction-time fields. `mix` is a per-sample SIGNAL input — it was
+   * declared `sig` in the rondo registry while this read it as a number, so
+   * `convolve hall mix:(lfo .2 -> 0..1)` compiled, ran, and silently used the
+   * default. The API said you could automate it; the kernel disagreed. */
 }
 
 /** In-place inverse FFT, built from the forward one by conjugation:
@@ -116,7 +117,6 @@ export function prepareIr(ir: Float32Array, maxSamples: number): PreparedIr {
 }
 
 export class ConvolveKernel implements Kernel {
-  private readonly mix: number
   private prepared: PreparedIr | null = null
 
   /** Frequency-delay line of past input spectra, newest at `fdlHead`. */
@@ -143,10 +143,8 @@ export class ConvolveKernel implements Kernel {
   constructor(
     private readonly name: string,
     private readonly bank: SampleBankRO | undefined,
-    cfg: ConvolveConfig = {},
-  ) {
-    this.mix = clamp(cfg.mix ?? 0.35, 0, 1)
-  }
+    _cfg: ConvolveConfig = {},
+  ) {}
 
   /** Resolve the IR, re-preparing only when the bank hands us a new buffer.
    *  Returns false when there is nothing to convolve with. */
@@ -222,8 +220,7 @@ export class ConvolveKernel implements Kernel {
       out.set(input.subarray(0, n))
       return
     }
-    const wet = this.mix
-    const dry = 1 - wet
+    const mixIn = inputs['mix']
     for (let i = 0; i < n; i++) {
       const x = Number.isFinite(input[i]!) ? input[i]! : 0
       this.inBuf[this.inFill++] = x
@@ -233,7 +230,8 @@ export class ConvolveKernel implements Kernel {
         this.outPos++
         if (this.outPos >= PART) this.outReady = 0
       }
-      out[i] = dry * x + wet * w
+      const wet = clamp(mixIn === undefined ? 0.35 : (Number.isFinite(mixIn[i]!) ? mixIn[i]! : 0.35), 0, 1)
+      out[i] = (1 - wet) * x + wet * w
     }
   }
 

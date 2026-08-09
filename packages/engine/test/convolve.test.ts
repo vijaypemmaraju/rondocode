@@ -21,11 +21,15 @@ function bankOf(ir: Float32Array): { get: (n: string) => { data: Float32Array; s
   return { get: (n: string) => (n === 'ir' ? { data: ir, sampleRate: sr } : undefined) }
 }
 
-function run(k: ConvolveKernel, input: Float32Array, block = 128): Float32Array {
+/** `mix` is a per-sample SIGNAL input now, so the harness supplies one. Pass
+ *  `undefined` to exercise the absent-input default. */
+function run(k: ConvolveKernel, input: Float32Array, block = 128, mix: number | undefined = 1): Float32Array {
   const out = new Float32Array(input.length)
   for (let d = 0; d < input.length; d += block) {
     const len = Math.min(block, input.length - d)
-    k.process(len, { in: input.subarray(d, d + len) }, out.subarray(d, d + len), { sampleRate: sr })
+    const ins: Record<string, Float32Array> = { in: input.subarray(d, d + len) }
+    if (mix !== undefined) ins['mix'] = new Float32Array(len).fill(mix)
+    k.process(len, ins, out.subarray(d, d + len), { sampleRate: sr })
   }
   return out
 }
@@ -129,7 +133,7 @@ describe('ConvolveKernel is mathematically correct', () => {
     const ir = new Float32Array(512)
     ir[0] = 1
     const input = noise(2048)
-    const out = run(new ConvolveKernel('ir', bankOf(ir), { mix: 1 }), input)
+    const out = run(new ConvolveKernel('ir', bankOf(ir)), input)
     for (let i = LAG; i < input.length; i++) {
       expect(out[i]!, `sample ${i}`).toBeCloseTo(input[i - LAG]!, 6)
     }
@@ -140,7 +144,7 @@ describe('ConvolveKernel is mathematically correct', () => {
      * — which is where an index bug would live. */
     const ir = noise(700, 999)
     const input = noise(4096, 4242)
-    const out = run(new ConvolveKernel('ir', bankOf(ir), { mix: 1 }), input)
+    const out = run(new ConvolveKernel('ir', bankOf(ir)), input)
     const ref = directConvolve(input, ir)
     for (let i = LAG; i < input.length; i++) {
       expect(out[i]!, `sample ${i}`).toBeCloseTo(ref[i - LAG]!, 5)
@@ -150,7 +154,7 @@ describe('ConvolveKernel is mathematically correct', () => {
   it('matches direct convolution for an IR shorter than one partition too', () => {
     const ir = noise(37, 7)
     const input = noise(2048, 31)
-    const out = run(new ConvolveKernel('ir', bankOf(ir), { mix: 1 }), input)
+    const out = run(new ConvolveKernel('ir', bankOf(ir)), input)
     const ref = directConvolve(input, ir)
     for (let i = LAG; i < input.length; i++) {
       expect(out[i]!, `sample ${i}`).toBeCloseTo(ref[i - LAG]!, 5)
@@ -165,7 +169,7 @@ describe('ConvolveKernel is mathematically correct', () => {
     ir[300] = 1
     const input = new Float32Array(2048)
     input[500] = 1
-    const out = run(new ConvolveKernel('ir', bankOf(ir), { mix: 1 }), input)
+    const out = run(new ConvolveKernel('ir', bankOf(ir)), input)
     const hits: number[] = []
     for (let i = 0; i < out.length; i++) if (Math.abs(out[i]!) > 0.1) hits.push(i)
     expect(hits).toEqual([500 + LAG, 800 + LAG])
@@ -183,19 +187,19 @@ describe('ConvolveKernel behaviour', () => {
   it('with NO ir loaded it passes the signal through rather than going silent', () => {
     // a missing sample should be an unprocessed sound, not a hole in the mix
     const input = noise(1024)
-    const out = run(new ConvolveKernel('missing', bankOf(ir()), { mix: 1 }), input)
+    const out = run(new ConvolveKernel('missing', bankOf(ir())), input)
     for (let i = 0; i < input.length; i++) expect(out[i]!).toBe(input[i]!)
   })
 
   it('mix 0 is the dry signal', () => {
     const input = noise(1024)
-    const out = run(new ConvolveKernel('ir', bankOf(ir()), { mix: 0 }), input)
+    const out = run(new ConvolveKernel('ir', bankOf(ir())), input, 128, 0)
     for (let i = 0; i < input.length; i++) expect(out[i]!).toBeCloseTo(input[i]!, 6)
   })
 
   it('mix 1 is NOT the dry signal — the node actually does something', () => {
     const input = noise(2048)
-    const out = run(new ConvolveKernel('ir', bankOf(ir()), { mix: 1 }), input)
+    const out = run(new ConvolveKernel('ir', bankOf(ir())), input)
     let diff = 0
     for (let i = LAG; i < input.length; i++) diff += Math.abs(out[i]! - input[i - LAG]!)
     expect(diff / input.length).toBeGreaterThan(0.01)
@@ -207,16 +211,16 @@ describe('ConvolveKernel behaviour', () => {
     const a = ir()
     const b = Float32Array.from(a, (v) => v * 100)
     const input = noise(2048)
-    const outA = run(new ConvolveKernel('ir', bankOf(a), { mix: 1 }), input)
-    const outB = run(new ConvolveKernel('ir', bankOf(b), { mix: 1 }), input)
+    const outA = run(new ConvolveKernel('ir', bankOf(a)), input)
+    const outB = run(new ConvolveKernel('ir', bankOf(b)), input)
     for (let i = 0; i < outA.length; i += 37) expect(outB[i]!).toBeCloseTo(outA[i]!, 5)
   })
 
   it('gives the same answer across block sizes, including ragged ones', () => {
     const input = noise(4096)
-    const ref = run(new ConvolveKernel('ir', bankOf(ir()), { mix: 1 }), input, 128)
+    const ref = run(new ConvolveKernel('ir', bankOf(ir())), input, 128)
     for (const block of [1, 7, 64, 333, 1024]) {
-      const got = run(new ConvolveKernel('ir', bankOf(ir()), { mix: 1 }), input, block)
+      const got = run(new ConvolveKernel('ir', bankOf(ir())), input, block)
       for (let i = 0; i < input.length; i += 53) {
         expect(got[i]!, `block ${block} sample ${i}`).toBeCloseTo(ref[i]!, 5)
       }
@@ -224,7 +228,7 @@ describe('ConvolveKernel behaviour', () => {
   })
 
   it('never emits a non-finite sample, even fed NaN', () => {
-    const k = new ConvolveKernel('ir', bankOf(ir()), { mix: 1 })
+    const k = new ConvolveKernel('ir', bankOf(ir()))
     const out = new Float32Array(512)
     k.process(256, { in: new Float32Array(256).fill(NaN) }, out.subarray(0, 256), { sampleRate: sr })
     k.process(256, { in: noise(256) }, out.subarray(256), { sampleRate: sr })
@@ -232,7 +236,7 @@ describe('ConvolveKernel behaviour', () => {
   })
 
   it('reset() clears the tail rather than ringing into the next thing', () => {
-    const k = new ConvolveKernel('ir', bankOf(ir()), { mix: 1 })
+    const k = new ConvolveKernel('ir', bankOf(ir()))
     run(k, noise(2048))
     k.reset()
     const out = run(k, new Float32Array(2048))

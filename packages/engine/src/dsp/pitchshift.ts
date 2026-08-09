@@ -62,9 +62,6 @@ export interface PitchShiftConfig {
    *  long smears: this is the artefact control, and it cannot be set to
    *  "none". */
   window?: number
-  /** Dry/wet, 0..1. Default 1 (fully shifted). Use 0.5 for a harmoniser that
-   *  keeps the original underneath it. */
-  mix?: number
 }
 
 /** Playback ratio for a shift in semitones. 12 → 2, 0 → 1, -12 → 0.5. */
@@ -75,7 +72,6 @@ export function ratioFor(semitones: number): number {
 export class PitchShiftKernel implements Kernel {
   private readonly ratio: number
   private readonly windowMs: number
-  private readonly mix: number
   /** True when the node must not touch the signal at all. */
   private readonly bypass: boolean
 
@@ -91,7 +87,6 @@ export class PitchShiftKernel implements Kernel {
     const semis = clamp(cfg.semitones ?? 0, -24, 24)
     this.ratio = ratioFor(semis)
     this.windowMs = clamp(cfg.window ?? 50, 5, MAX_WINDOW_MS)
-    this.mix = clamp(cfg.mix ?? 1, 0, 1)
     this.bypass = semis === 0
   }
 
@@ -118,6 +113,9 @@ export class PitchShiftKernel implements Kernel {
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
     const input = inputs['in']!
+    // `mix` is a per-sample SIGNAL, not construction config — see the note on
+    // ConvolveKernel.process for why that distinction was not cosmetic
+    const mixIn = inputs['mix']
     if (this.bypass) {
       out.set(input.subarray(0, n))
       return
@@ -127,8 +125,6 @@ export class PitchShiftKernel implements Kernel {
     // delay slides at (1 - ratio) samples per sample; as a fraction of the
     // window that is the phase increment
     const step = (1 - this.ratio) / W
-    const wet = this.mix
-    const dryAmt = 1 - wet
 
     for (let i = 0; i < n; i++) {
       const x = Number.isFinite(input[i]!) ? input[i]! : 0
@@ -165,7 +161,8 @@ export class PitchShiftKernel implements Kernel {
       }
       const shifted = this.tap(p * W) * g1 + this.tap(q * W) * g2
 
-      out[i] = dryAmt * x + wet * shifted
+      const wet = clamp(mixIn === undefined ? 1 : (Number.isFinite(mixIn[i]!) ? mixIn[i]! : 1), 0, 1)
+      out[i] = (1 - wet) * x + wet * shifted
       this.phase = p + step
       this.writeIdx = (this.writeIdx + 1) % this.size
     }

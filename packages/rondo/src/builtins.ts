@@ -185,3 +185,31 @@ export const isReservedBinding = (name: string): boolean =>
   // The decompiler reads this list when it invents names, so it stops
   // generating `sum` the moment the word means something.
   name === 'sum'
+
+/* ------------------------------------------------------------------------- *
+ * NAMES A SYNTH CANNOT TAKE.
+ *
+ * `synth lead` compiles to `const lead = synth(…)` in a scope where the
+ * pattern functions already live. So `synth note` compiles to
+ * `const note = …` next to the existing `note`, and the program dies with a
+ * raw `Identifier 'note' has already been declared` — no line, no column, no
+ * mention of the word that caused it. Measured: `p`, `n`, `note`, `sound`,
+ * `chord`, `synth`, `bus`, `stack` and `sine` all did this, and `synth note`
+ * is a thing anyone would type.
+ *
+ * DUPLICATED ON PURPOSE, AND PROVEN. The authority is `baseScope` +
+ * `STAGING_NAMES` in packages/app, which rondo cannot import — app depends on
+ * rondo, not the reverse. So this is a copy, and reserved-names.test.ts fails
+ * the moment app adds a scope name that is not here. A copy that is checked is
+ * a cache; a copy that is not is the bug this repo keeps finding.
+ * ------------------------------------------------------------------------- */
+export const RESERVED_TOP_LEVEL: ReadonlySet<string> = new Set([
+  'arrange', 'bus', 'cat', 'chord', 'cosine', 'curve', 'curvedef',
+  'defineScale', 'defineSynth', 'defineWavetable', 'fall', 'fastcat',
+  'irand', 'isaw', 'm', 'macro', 'macroNum', 'macroval', 'masterCompress',
+  'masterGain', 'mini', 'n', 'note', 'p', 'perlin', 'pick', 'rand', 'reify',
+  'rise', 's', 'saw', 'saw2', 'setBpm', 'setCps', 'setTimeSig', 'shape',
+  'sidechain', 'silence', 'sine', 'sine2', 'sing', 'slider', 'sound',
+  'square', 'square2', 'stack', 'stereo', 'synth', 'timecat', 'toggle',
+  'tri', 'tri2', 'visual', 'xy',
+])

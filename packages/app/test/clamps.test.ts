@@ -22,7 +22,7 @@ const effective = (name: string, written: number): number =>
  * legal value is left alone.
  * ------------------------------------------------------------------------- */
 
-const header = (opts: string): string => `synth s ${opts}\n  saw note\n`
+const header = (opts: string): string => `synth z ${opts}\n  saw note\n`
 const scanClampedOpts2 = (text: string) => scanClampedOpts(text, effective)
 
 describe('clamped voice options are reported', () => {
@@ -60,9 +60,9 @@ describe('clamped voice options are reported', () => {
   })
 
   it('looks only at headers, and not inside a comment', () => {
-    expect(scanClampedOpts2('synth s\n  svf 900 res:32\n')).toEqual([]) // res is not a voice opt
-    expect(scanClampedOpts2('# synth s unison:32\n')).toEqual([])
-    expect(scanClampedOpts2('synth s unison:9  # unison:32 was clamped\n')).toEqual([])
+    expect(scanClampedOpts2('synth z\n  svf 900 res:32\n')).toEqual([]) // res is not a voice opt
+    expect(scanClampedOpts2('# synth z unison:32\n')).toEqual([])
+    expect(scanClampedOpts2('synth z unison:9  # unison:32 was clamped\n')).toEqual([])
   })
 
   it('reads the ENGINE for its bounds rather than restating them', () => {

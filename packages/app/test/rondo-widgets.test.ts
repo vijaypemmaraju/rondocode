@@ -85,11 +85,11 @@ describe('scanPlays (piano-roll)', () => {
     expect(p!.steps).toEqual([0, 0, 3, 5, 0, 0, 7, 5])
   })
   it('represents rests as null', () => {
-    expect(scanPlays('play s\n  0 ~ 3 ~\n')[0]!.steps).toEqual([0, null, 3, null])
+    expect(scanPlays('play z\n  0 ~ 3 ~\n')[0]!.steps).toEqual([0, null, 3, null])
   })
   it('leaves richer notation as plain text (note names, brackets, alternation)', () => {
-    expect(scanPlays('play s\n  c4 e4 g4\n')).toHaveLength(0)
-    expect(scanPlays('play s\n  <0 3> [5 7]\n')).toHaveLength(0)
+    expect(scanPlays('play z\n  c4 e4 g4\n')).toHaveLength(0)
+    expect(scanPlays('play z\n  <0 3> [5 7]\n')).toHaveLength(0)
   })
 })
 
@@ -260,7 +260,7 @@ describe('live-widget wiring (pure parts)', () => {
     expect(scanEnvs(src)[0]).toMatchObject({ synth: 'acid' })
   })
   it('scanPlays carries the notation content (matches events by loc.src)', () => {
-    expect(scanPlays('play s\n  0 0 3 5\n')[0]!.content).toBe('0 0 3 5')
+    expect(scanPlays('play z\n  0 0 3 5\n')[0]!.content).toBe('0 0 3 5')
   })
   it('stepStarts maps a note event loc.start to its grid column', () => {
     const starts = stepStarts('0 0 3 5 ~ 7')

@@ -95,7 +95,9 @@ describe('a rondo project gets rondo', () => {
   })
 
   it('falls back to decompiling when no twin is written', () => {
-    const js = "const p = synth(({ saw, note }) => saw(note.freq))"
+    // `p` would be a redeclaration of the pattern function, so it is not a
+    // legal synth name and rondo now says so — use one that is
+    const js = "const q = synth(({ saw, note }) => saw(note.freq))"
     const out = presetFor({ code: js }, 'rondo')
     expect(out).not.toBe(js)
     expect(compile(out).ok).toBe(true)

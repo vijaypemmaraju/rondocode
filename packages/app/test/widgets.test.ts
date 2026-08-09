@@ -99,7 +99,7 @@ describe('acid slider idiom (end-to-end regression)', () => {
  * there — as a number you retype while the track plays. It is a knob in every
  * way that matters, so it gets the dial. */
 describe('the level line is a knob', () => {
-  const doc = 'synth p\n  saw\n\nplay p\n  c3\n\nlevel -3\ncps .5\n'
+  const doc = 'synth q\n  saw\n\nplay q\n  c3\n\nlevel -3\ncps .5\n'
 
   it('finds the master level and points at its NUMBER', () => {
     const k = scanKnobs(doc).filter((m) => m.name === undefined && m.macro === undefined)
@@ -122,7 +122,7 @@ describe('the level line is a knob', () => {
   })
 
   it('does not mistake `level` inside a word or a synth body', () => {
-    expect(scanKnobs('synth p\n  saw\n  levelly = 3\n')).toEqual([])
+    expect(scanKnobs('synth q\n  saw\n  levelly = 3\n')).toEqual([])
   })
 
   it('reads a decimal and a positive value', () => {
@@ -134,7 +134,7 @@ describe('the level line is a knob', () => {
  * was bare text like the master level was. */
 describe('ott depth is a knob', () => {
   it('finds the depth and points at its number', () => {
-    const doc = 'synth p\n  saw\n  post\n    ott depth:0.45\n'
+    const doc = 'synth q\n  saw\n  post\n    ott depth:0.45\n'
     const [k] = scanKnobs(doc).filter((m) => m.name === undefined)
     expect(doc.slice(k!.defFrom, k!.defTo)).toBe('0.45')
     expect(k!.value).toBe(0.45)
@@ -143,6 +143,6 @@ describe('ott depth is a knob', () => {
   })
 
   it('ignores an ott line with no depth', () => {
-    expect(scanKnobs('synth p\n  saw\n  post\n    ott\n')).toEqual([])
+    expect(scanKnobs('synth q\n  saw\n  post\n    ott\n')).toEqual([])
   })
 })

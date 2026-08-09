@@ -113,7 +113,7 @@ describe('scanCompressors', () => {
   })
 
   it('finds nothing in a document with no compressor', () => {
-    expect(scanCompressors('synth p\n  saw\n\ncps .5\n')).toEqual([])
+    expect(scanCompressors('synth q\n  saw\n\ncps .5\n')).toEqual([])
   })
 })
 

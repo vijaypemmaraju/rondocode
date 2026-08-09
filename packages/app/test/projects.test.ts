@@ -19,7 +19,7 @@ const makeStore = (opts: { maxVersions?: number } = {}) => {
 describe('ProjectStore projects', () => {
   it('remembers a project language: at creation, via setProjectLang, and through duplicate', async () => {
     const { store } = makeStore()
-    const p = await store.createProject('tune', 'synth s\n  saw\n', 'rondo')
+    const p = await store.createProject('tune', 'synth z\n  saw\n', 'rondo')
     expect((await store.getProject(p.id))!.lang).toBe('rondo')
     await store.setProjectLang(p.id, 'rondocode')
     expect((await store.getProject(p.id))!.lang).toBe('rondocode')

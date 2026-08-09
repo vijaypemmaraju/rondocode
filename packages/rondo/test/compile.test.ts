@@ -66,7 +66,7 @@ describe('rondo → rondocode codegen', () => {
   it('rejects a meter that is not one, at the line that wrote it', () => {
     // the beat unit is a power of two, because that is what a time signature
     // can express and what the MIDI meta event stores
-    const bad = compile('synth s\n  saw\n\ntimesig 4 6\n')
+    const bad = compile('synth z\n  saw\n\ntimesig 4 6\n')
     expect(bad.ok).toBe(false)
     if (bad.ok) return
     expect(bad.errors[0]!.message).toMatch(/power of two/)
@@ -96,26 +96,26 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('expands short scale names and picks note() for note-name patterns', () => {
-    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5  scale:c-maj\n`)).toContain(".scale('c major')")
-    expect(ok(`synth p\n  saw\n\nplay p\n  c4 e4 g4\n`)).toContain("note('c4 e4 g4')")
+    expect(ok(`synth q\n  saw\n\nplay q\n  0 3 5  scale:c-maj\n`)).toContain(".scale('c major')")
+    expect(ok(`synth q\n  saw\n\nplay q\n  c4 e4 g4\n`)).toContain("note('c4 e4 g4')")
   })
 
   it('passes digit-bearing and long mode names through: 19edo, minorPentatonic', () => {
     // inline extractor and modifier line both accept them
-    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5  scale:c-19edo\n`)).toContain(".scale('c 19edo')")
-    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5\n  scale: e-minorPentatonic\n`)).toContain(".scale('e minorPentatonic')")
-    expect(ok(`synth p\n  saw\n\nplay p\n  0 3 5\n  scale: c-my_bell\n`)).toContain(".scale('c my_bell')")
+    expect(ok(`synth q\n  saw\n\nplay q\n  0 3 5  scale:c-19edo\n`)).toContain(".scale('c 19edo')")
+    expect(ok(`synth q\n  saw\n\nplay q\n  0 3 5\n  scale: e-minorPentatonic\n`)).toContain(".scale('e minorPentatonic')")
+    expect(ok(`synth q\n  saw\n\nplay q\n  0 3 5\n  scale: c-my_bell\n`)).toContain(".scale('c my_bell')")
   })
 
   it('scaledef: a top-level tuning line → defineScale, HOISTED above the plays', () => {
-    const out = ok(`synth p\n  saw\n\nplay p\n  0 1 2  scale:c-pelog\n\nscaledef pelog 0 1.2 2.7 5.4 6.7\n`)
+    const out = ok(`synth q\n  saw\n\nplay q\n  0 1 2  scale:c-pelog\n\nscaledef pelog 0 1.2 2.7 5.4 6.7\n`)
     expect(out).toContain("defineScale('pelog', [0, 1.2, 2.7, 5.4, 6.7])")
     // hoisted: .scale() parses eagerly at eval, the tuning must register first
     expect(out.indexOf('defineScale(')).toBeLessThan(out.indexOf(".scale('c pelog')"))
   })
 
   it('scaledef accepts negative + float steps', () => {
-    expect(ok(`scaledef odd -1.5 0 2.25\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+    expect(ok(`scaledef odd -1.5 0 2.25\n\nsynth q\n  saw\n\nplay q\n  0 1\n`)).toContain(
       "defineScale('odd', [-1.5, 0, 2.25])",
     )
   })
@@ -149,18 +149,18 @@ describe('rondo → rondocode codegen', () => {
   it('scaledef takes the UNIT a tuning was published in, not just semitones', () => {
     // a pelog is published as cents and a Bohlen-Pierce as ratios; converting
     // either to semitones by hand is how a tuning gets typed in wrong
-    expect(ok(`scaledef pelog cents 0 120 270 670 785\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+    expect(ok(`scaledef pelog cents 0 120 270 670 785\n\nsynth q\n  saw\n\nplay q\n  0 1\n`)).toContain(
       "defineScale('pelog', { cents: [0, 120, 270, 670, 785] })",
     )
-    expect(ok(`scaledef bp ratios 1 1.19 1.4 period:3\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+    expect(ok(`scaledef bp ratios 1 1.19 1.4 period:3\n\nsynth q\n  saw\n\nplay q\n  0 1\n`)).toContain(
       "defineScale('bp', { ratios: [1, 1.19, 1.4], periodRatio: 3 })",
     )
     // period: reads in the SAME unit as the steps
-    expect(ok(`scaledef w cents 0 100 200 period:1902\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+    expect(ok(`scaledef w cents 0 100 200 period:1902\n\nsynth q\n  saw\n\nplay q\n  0 1\n`)).toContain(
       "{ cents: [0, 100, 200], periodCents: 1902 }",
     )
     // a scale named after its unit word is still a name, not a unit
-    expect(ok(`scaledef cents 0 1 2\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+    expect(ok(`scaledef cents 0 1 2\n\nsynth q\n  saw\n\nplay q\n  0 1\n`)).toContain(
       "defineScale('cents', [0, 1, 2])",
     )
   })
@@ -176,25 +176,25 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('wavedef: a top-level table line → defineWavetable, HOISTED above the synths', () => {
-    const out = ok(`synth p\n  wavetable note .3 table:vox\n\nplay p\n  0 1 2\n\nwavedef vox 1 .3 / .5 1 .6 / .3 .8 1\n`)
+    const out = ok(`synth q\n  wavetable note .3 table:vox\n\nplay q\n  0 1 2\n\nwavedef vox 1 .3 / .5 1 .6 / .3 .8 1\n`)
     expect(out).toContain("defineWavetable('vox', [[1, 0.3], [0.5, 1, 0.6], [0.3, 0.8, 1]])")
     // hoisted: synth() eager-compiles and the kernel resolves the table name
     // at construction, so the table must register before the synth
-    expect(out.indexOf('defineWavetable(')).toBeLessThan(out.indexOf('const p ='))
+    expect(out.indexOf('defineWavetable(')).toBeLessThan(out.indexOf('const q ='))
   })
 
   it('wavetable warp args: warp is an enum, warpamt a signal aliased to warpAmt', () => {
-    const out = ok(`synth p\n  wavetable note .3 table:vox warp:sync warpamt:.8\n\nwavedef vox 1 / .5 1\n\nplay p\n  0 1\n`)
+    const out = ok(`synth q\n  wavetable note .3 table:vox warp:sync warpamt:.8\n\nwavedef vox 1 / .5 1\n\nplay q\n  0 1\n`)
     expect(out).toContain("wavetable(note.freq, 0.3, { table: 'vox', warp: 'sync', warpAmt: 0.8 })")
   })
 
   it('wavetable warpamt takes a signal (an envelope sweeps the warp)', () => {
-    const out = ok(`synth p\n  wavetable note 0 warp:bend warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay p\n  0 1\n`)
+    const out = ok(`synth q\n  wavetable note 0 warp:bend warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay q\n  0 1\n`)
     expect(out).toContain("wavetable(note.freq, 0, { warp: 'bend', warpAmt: e })")
   })
 
   it('wavedef accepts negative partials (phase flips) and floats', () => {
-    expect(ok(`wavedef odd 1 -.5 / .25 1\n\nsynth p\n  saw\n\nplay p\n  0 1\n`)).toContain(
+    expect(ok(`wavedef odd 1 -.5 / .25 1\n\nsynth q\n  saw\n\nplay q\n  0 1\n`)).toContain(
       "defineWavetable('odd', [[1, -0.5], [0.25, 1]])",
     )
   })
@@ -210,7 +210,7 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('topologically orders bindings so each const precedes its use', () => {
-    const out = ok(`synth s\n  sine mod\n  mod = sine base\n  base = adsr .01 .1 .5 .1\n`)
+    const out = ok(`synth z\n  sine mod\n  mod = sine base\n  base = adsr .01 .1 .5 .1\n`)
     expect(out.indexOf('const base =')).toBeLessThan(out.indexOf('const mod ='))
   })
 
@@ -221,14 +221,14 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('rejects a binding cycle', () => {
-    const r = compile(`synth s\n  saw\n  a = b\n  b = a\n`)
+    const r = compile(`synth z\n  saw\n  a = b\n  b = a\n`)
     expect(r.ok).toBe(false)
   })
 
   it('compiles play modifier lines: ctrl signal sweep, every, gain', () => {
     const out = ok(
-      `synth s\n  saw\n  cutoff = knob 800 80..8000\n\n` +
-      `play s\n  0 2 4  scale:a-min\n  cutoff: sine 200..2400 slow:4\n  gain: .8\n  every 4: rev\n`,
+      `synth z\n  saw\n  cutoff = knob 800 80..8000\n\n` +
+      `play z\n  0 2 4  scale:a-min\n  cutoff: sine 200..2400 slow:4\n  gain: .8\n  every 4: rev\n`,
     )
     expect(out).toContain(".ctrl('cutoff', sine.range(200, 2400).slow(4))")
     expect(out).toContain('.gain(0.8)')
@@ -254,7 +254,7 @@ describe('rondo → rondocode codegen', () => {
     // this invariant is what lets note-play flash light the rondo buffer: a
     // mini-notation Loc is an offset into `content`, and content sits at
     // [from, from+len) in the source, so from+loc.start is the buffer position.
-    const src = `synth s\n  saw\n\nplay s\n  0 3 5 7  scale:c-maj\n`
+    const src = `synth z\n  saw\n\nplay z\n  0 3 5 7  scale:c-maj\n`
     const r = compile(src)
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -265,67 +265,67 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('js{ … } escape hatch: inline expression destructures the ctx it names', () => {
-    const out = ok(`synth s\n  js{ saw(note.freq).tanh() }\n`)
+    const out = ok(`synth z\n  js{ saw(note.freq).tanh() }\n`)
     expect(out).toContain('return saw(note.freq).tanh()')
     expect(out).toContain('synth(({ note, saw }) =>')
   })
 
   it('js{ … } escape hatch: a top-level one-liner passes through verbatim', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs{ sidechain('kick', { depth: 0.7 }) }\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 3 5\n\njs{ sidechain('kick', { depth: 0.7 }) }\n`)
     expect(out).toContain("sidechain('kick', { depth: 0.7 })")
   })
 
   it('js block is truly verbatim: `#` inside strings and nested indent survive', () => {
     // REGRESSION: body lines were taken from the comment-stripped lexer text,
     // so a '#' inside a JS string got truncated and nested indent flattened.
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\njs\n  bus('space', ({ input, reverb }) => reverb(input), {\n    s: 0.4, // send #1 stays intact\n  })\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 3\n\njs\n  bus('space', ({ input, reverb }) => reverb(input), {\n    s: 0.4, // send #1 stays intact\n  })\n`)
     expect(out).toContain('// send #1 stays intact')
     expect(out).toContain('  s: 0.4,') // nested indent preserved relative to the block
   })
 
   it('js escape hatch: a `js` block emits its indented body verbatim', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 3 5\n\njs\n  sidechain('kick', { depth: 0.6 })\n  masterCompress({ threshold: -6 })\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 3 5\n\njs\n  sidechain('kick', { depth: 0.6 })\n  masterCompress({ threshold: -6 })\n`)
     expect(out).toContain("sidechain('kick', { depth: 0.6 })")
     expect(out).toContain('masterCompress({ threshold: -6 })')
   })
 
   it('numeric-LHS arithmetic: folds constants, rewrites num−sig, rejects the rest', () => {
     // REGRESSION: `1 - env` emitted `1.sub(env)` — a JS SyntaxError
-    const out = ok(`synth s\n  saw\n  * inv\n  inv = 1 - env\n  env = adsr .01 .1 .5 .1\n`)
+    const out = ok(`synth z\n  saw\n  * inv\n  inv = 1 - env\n  env = adsr .01 .1 .5 .1\n`)
     expect(out).toContain('env.mul(-1).add(1)')
     // number⊗number folds to a constant
-    expect(ok(`synth s\n  saw\n  * g\n  g = 2 * 3\n`)).toContain('const g = 6')
+    expect(ok(`synth z\n  saw\n  * g\n  g = 2 * 3\n`)).toContain('const g = 6')
     // num / sig and num ^ sig have no Sig form → positioned error, not garbage
-    failsAt(`synth s\n  saw\n  * x\n  x = 2 / env\n  env = adsr .01 .1 .5 .1\n`,
+    failsAt(`synth z\n  saw\n  * x\n  x = 2 / env\n  env = adsr .01 .1 .5 .1\n`,
       "`number / signal` isn't expressible", 4, 9)
-    failsAt(`synth s\n  saw\n  * x\n  x = 2 ^ env\n  env = adsr .01 .1 .5 .1\n`,
+    failsAt(`synth z\n  saw\n  * x\n  x = 2 ^ env\n  env = adsr .01 .1 .5 .1\n`,
       "`number ^ signal` isn't expressible", 4, 9)
   })
 
   it('`->` binds at statement level, not inside call arguments', () => {
     // REGRESSION: parsed as sine(2 -> 200..2000) → invalid `2.range(…)`
-    const out = ok(`synth s\n  sine\n  * env\n  env = adsr .01 .1 .5 .1\n  lfo = sine 2 -> 200..2000\n`)
+    const out = ok(`synth z\n  sine\n  * env\n  env = adsr .01 .1 .5 .1\n  lfo = sine 2 -> 200..2000\n`)
     expect(out).toContain('sine(2).range(200, 2000)')
   })
 
   it('rejects a duplicate binding instead of silently dropping the second', () => {
-    const r = compile(`synth s\n  saw\n  * env\n  env = adsr .01 .1 .7 .2\n  env = adsr .5 .5 .5 .5\n`)
+    const r = compile(`synth z\n  saw\n  * env\n  env = adsr .01 .1 .7 .2\n  env = adsr .5 .5 .5 .5\n`)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.errors[0]!.message).toContain('duplicate')
   })
 
   it('rejects a binding named after a special ref (note/gate/adsr/knob/…)', () => {
-    const r = compile(`synth s\n  saw\n  gate = 1\n  * gate\n`)
+    const r = compile(`synth z\n  saw\n  gate = 1\n  * gate\n`)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.errors[0]!.message).toContain('shadows a builtin')
   })
 
   it('allows a binding named after an unused builtin, rejects it when the chain calls that builtin', () => {
     // `lfo = sine 2` is idiomatic — legal while the chain never calls lfo()
-    expect(compile(`synth s\n  saw\n  * lfo\n  lfo = sine 2 -> 0..1\n`).ok).toBe(true)
+    expect(compile(`synth z\n  saw\n  * lfo\n  lfo = sine 2 -> 0..1\n`).ok).toBe(true)
     // but binding `fm` AND calling the builtin fm() collides: the ctx
     // destructure and the const would both declare `fm`
-    const r = compile(`synth s\n  saw\n  * fm 200\n  fm = adsr .1 .1 .5 .1\n`)
+    const r = compile(`synth z\n  saw\n  * fm 200\n  fm = adsr .1 .1 .5 .1\n`)
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.errors[0]!.message).toContain("shadows the builtin 'fm'")
   })
@@ -341,48 +341,48 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('env: flat time/level pairs → a breakpoint envelope call', () => {
-    const out = ok(`synth s\n  saw\n  * e\n  e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1\n`)
+    const out = ok(`synth z\n  saw\n  * e\n  e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1\n`)
     expect(out).toContain('env(gate, [[0.005, 1], [0.15, 0.4], [0.5, 0.6]], { release: 0.3, curve: 3, loop: true })')
     // odd number of values = half a pair — error, not a silent drop
-    failsAt(`synth s\n  saw\n  * e\n  e = env .005 1 .15\n`, 'env takes time/level pairs', 4, 7)
+    failsAt(`synth z\n  saw\n  * e\n  e = env .005 1 .15\n`, 'env takes time/level pairs', 4, 7)
     // bare `env` is still a reference to a binding named env
-    expect(ok(`synth s\n  saw\n  * env\n  env = adsr .01 .1 .5 .1\n`)).toContain('.mul(env)')
+    expect(ok(`synth z\n  saw\n  * env\n  env = adsr .01 .1 .5 .1\n`)).toContain('.mul(env)')
   })
 
   it('sync:1 makes lfo rates and delay times musical, sync:0 and absence do not', () => {
     // lfo WITH a shape word, and without it (opts land in the shape slot)
-    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo .25 tri sync:1 -> 150..3200\n`))
+    expect(ok(`synth z\n  saw\n  ladder cut\n  cut = lfo .25 tri sync:1 -> 150..3200\n`))
       .toContain("lfo(0.25, 'tri', { sync: true })")
-    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo .25 sync:1 -> 150..3200\n`))
+    expect(ok(`synth z\n  saw\n  ladder cut\n  cut = lfo .25 sync:1 -> 150..3200\n`))
       .toContain('lfo(0.25, { sync: true })')
     // sync:0 is explicit OFF, and no sync at all emits no opts object
-    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo 4 tri sync:0 -> 150..3200\n`))
+    expect(ok(`synth z\n  saw\n  ladder cut\n  cut = lfo 4 tri sync:0 -> 150..3200\n`))
       .toContain("lfo(4, 'tri', { sync: false })")
-    expect(ok(`synth s\n  saw\n  ladder cut\n  cut = lfo 4 tri -> 150..3200\n`))
+    expect(ok(`synth z\n  saw\n  ladder cut\n  cut = lfo 4 tri -> 150..3200\n`))
       .toContain("lfo(4, 'tri')")
     // delay: sync alongside the existing maxtime alias
-    expect(ok(`synth s\n  saw\n  delay .1875 .25 sync:1\n`))
+    expect(ok(`synth z\n  saw\n  delay .1875 .25 sync:1\n`))
       .toContain('delay(saw(note.freq), 0.1875, 0.25, { sync: true })')
-    expect(ok(`synth s\n  saw\n  delay .1875 .25 maxtime:1 sync:1\n`))
+    expect(ok(`synth z\n  saw\n  delay .1875 .25 maxtime:1 sync:1\n`))
       .toContain('delay(saw(note.freq), 0.1875, 0.25, { maxTime: 1, sync: true })')
-    expect(ok(`synth s\n  saw\n  delay .375 .25\n`))
+    expect(ok(`synth z\n  saw\n  delay .375 .25\n`))
       .toContain('delay(saw(note.freq), 0.375, 0.25)')
   })
 
   it('eq: word-then-numbers band groups → the bands array', () => {
-    const out = ok(`synth s\n  saw\n  eq hp 170 highshelf 7000 4\n`)
+    const out = ok(`synth z\n  saw\n  eq hp 170 highshelf 7000 4\n`)
     expect(out).toContain("eq(saw(note.freq), [{ type: 'hp', freq: 170 }, { type: 'highshelf', freq: 7000, gain: 4 }])")
     // peak takes freq gain q
-    expect(ok(`synth s\n  saw\n  eq peak 300 -3 2\n`)).toContain("{ type: 'peak', freq: 300, gain: -3, q: 2 }")
+    expect(ok(`synth z\n  saw\n  eq peak 300 -3 2\n`)).toContain("{ type: 'peak', freq: 300, gain: -3, q: 2 }")
     // unknown band type + missing freq are positioned errors
-    failsAt(`synth s\n  saw\n  eq bandpass 300\n`, 'unknown eq band type `bandpass`', 3, 6)
-    failsAt(`synth s\n  saw\n  eq hp\n`, 'eq band is missing its freq', 3, 3)
+    failsAt(`synth z\n  saw\n  eq bandpass 300\n`, 'unknown eq band type `bandpass`', 3, 6)
+    failsAt(`synth z\n  saw\n  eq hp\n`, 'eq band is missing its freq', 3, 3)
     // more numbers than the band type takes is an error, not a silent drop
-    failsAt(`synth s\n  saw\n  eq hp 170 200 300\n`, 'too many numbers in an eq band', 3, 3)
+    failsAt(`synth z\n  saw\n  eq hp 170 200 300\n`, 'too many numbers in an eq band', 3, 3)
   })
 
   it('vocoder: the pipe is the carrier, the positional is the modulator', () => {
-    const out = ok(`synth s\n  supersaw\n  vocoder m bands:20\n  m = noise\n`)
+    const out = ok(`synth z\n  supersaw\n  vocoder m bands:20\n  m = noise\n`)
     expect(out).toContain('vocoder(supersaw(note.freq), m, { bands: 20 })')
   })
 
@@ -525,25 +525,25 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('rejects a near-miss scale instead of shipping it inside the notation', () => {
-    failsAt(`synth s\n  saw\n\nplay s\n  0 3 5  scale:minor\n`, 'bad scale — write it like `scale:a-min`', 5, 3)
+    failsAt(`synth z\n  saw\n\nplay z\n  0 3 5  scale:minor\n`, 'bad scale — write it like `scale:a-min`', 5, 3)
   })
 
   it('supports negative number literals (sign glued, space-preceded)', () => {
-    const out = ok(`synth s\n  saw\n  * g\n  g = knob -6 -12..0\n`)
+    const out = ok(`synth z\n  saw\n  * g\n  g = knob -6 -12..0\n`)
     expect(out).toContain("param('g', -6, { min: -12, max: 0 })")
     // subtraction still works, spaced or glued
-    expect(ok(`synth s\n  saw\n  * x\n  x = env - 1\n  env = adsr .01 .1 .5 .1\n`)).toContain('env.sub(1)')
+    expect(ok(`synth z\n  saw\n  * x\n  x = env - 1\n  env = adsr .01 .1 .5 .1\n`)).toContain('env.sub(1)')
   })
 
   it('js{ … } one-liner survives a `#` inside a string', () => {
     // REGRESSION: comment stripping ran quote-blind and truncated the line
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\njs{ p('x', sound('bd # sn')) }\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 3\n\njs{ p('x', sound('bd # sn')) }\n`)
     expect(out).toContain("sound('bd # sn')")
   })
 
   it('registry oscillators: supersaw/pulse/noise/fm/lfo with enums + named args', () => {
     const out = ok(
-      `synth s\n  supersaw detune:.4 mix:.8\n  * env\n  env = adsr .01 .1 .8 .1\n  wob = lfo 4 tri -> 200..3000\n\n` +
+      `synth z\n  supersaw detune:.4 mix:.8\n  * env\n  env = adsr .01 .1 .8 .1\n  wob = lfo 4 tri -> 200..3000\n\n` +
       `synth t\n  pulse note .25\n  + noise pink\n  * env\n  env = adsr .01 .1 .8 .1\n\n` +
       `synth u\n  fm note mod feedback:.2\n  * env\n  mod = fm note*2\n  env = adsr .01 .1 .8 .1\n`,
     )
@@ -556,7 +556,7 @@ describe('rondo → rondocode codegen', () => {
 
   it('registry processors + sig ops as pipeline lines', () => {
     const out = ok(
-      `synth s\n  saw\n  shape 2.2 type:tube\n  delay .375 .3\n  bitcrush bits:8\n  pan -0.4\n  tanh\n  clip -1 1\n`,
+      `synth z\n  saw\n  shape 2.2 type:tube\n  delay .375 .3\n  bitcrush bits:8\n  pan -0.4\n  tanh\n  clip -1 1\n`,
     )
     expect(out).toContain("shape(saw(note.freq), 2.2, { type: 'tube' })")
     expect(out).toContain(', 0.375, 0.3)') // delay(…, time, feedback)
@@ -571,7 +571,7 @@ describe('rondo → rondocode codegen', () => {
     // NO freq — the opts object landed in the freq slot and eval failed
     expect(ok(`synth b\n  modal model:bell decay:.4\n`))
       .toContain("modal(gate, note.freq, { model: 'bell', decay: 0.4 })")
-    expect(ok(`synth p\n  pluck\n`)).toContain('pluck(gate, note.freq)')
+    expect(ok(`synth q\n  pluck\n`)).toContain('pluck(gate, note.freq)')
     // an explicit freq still wins
     expect(ok(`synth b\n  modal 1400 model:bar\n`)).toContain("modal(gate, 1400, { model: 'bar' })")
   })
@@ -579,7 +579,7 @@ describe('rondo → rondocode codegen', () => {
   it('gated sources inject the gate; names + bools emit correctly', () => {
     const out = ok(`synth v\n  sample vox root:57 loop:1\n  * env\n  env = adsr .01 .3 .7 .3\n`)
     expect(out).toContain("sample(gate, 'vox', { root: 57, loop: true })")
-    const out2 = ok(`synth p\n  pluck note decay:.4\n`)
+    const out2 = ok(`synth q\n  pluck note decay:.4\n`)
     expect(out2).toContain('pluck(gate, note.freq, { decay: 0.4 })')
   })
 
@@ -599,8 +599,8 @@ describe('rondo → rondocode codegen', () => {
      * itself (3 -> 12 / 16) when named args started binding to the nearest
      * call that ACCEPTS them. That is the better place for it: the author was
      * looking at `wobble:` when they typed it, not at `supersaw`. */
-    failsAt(`synth s\n  supersaw wobble:3\n`, '`supersaw` has no `wobble:` argument', 2, 12)
-    failsAt(`synth s\n  sample take1 slice:3\n`, '`sample` has no `slice:` argument', 2, 16)
+    failsAt(`synth z\n  supersaw wobble:3\n`, '`supersaw` has no `wobble:` argument', 2, 12)
+    failsAt(`synth z\n  sample take1 slice:3\n`, '`sample` has no `slice:` argument', 2, 16)
   })
 
   it('a named arg binds to the nearest call that ACCEPTS it, not the nearest call', () => {
@@ -609,14 +609,14 @@ describe('rondo → rondocode codegen', () => {
      * why giving `mic` a `device:` argument broke `vocoder mic bands:24`:
      * adding a named argument to a NESTED builtin must not change how a
      * following one binds. */
-    const out = ok(`synth s\n  vocoder supersaw detune:.4 bands:16\n`)
+    const out = ok(`synth z\n  vocoder supersaw detune:.4 bands:16\n`)
     expect(out).toContain('{ detune: 0.4 }')
     expect(out).toContain('{ bands: 16 }')
   })
 
   it('and still rejects one that NOBODY takes', () => {
     // walking outward must not turn a typo into silence
-    failsAt(`synth s\n  vocoder supersaw nonsense:1\n`, 'has no `nonsense:` argument', 2, 20)
+    failsAt(`synth z\n  vocoder supersaw nonsense:1\n`, 'has no `nonsense:` argument', 2, 20)
   })
 
   it('synth header voice options → the synth() opts arg', () => {
@@ -627,9 +627,9 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('unison-shaping header options (curve/blend/octaves) → the synth() opts arg', () => {
-    const out = ok(`synth stack unison:5 curve:2 blend:.6 octaves:2\n  saw\n`)
+    const out = ok(`synth stakk unison:5 curve:2 blend:.6 octaves:2\n  saw\n`)
     expect(out).toContain(', { unison: 5, curve: 2, blend: 0.6, octaves: 2 })')
-    failsAt(`synth s wobble:2\n  saw\n`, 'unknown synth option `wobble`', 1, 9)
+    failsAt(`synth z wobble:2\n  saw\n`, 'unknown synth option `wobble`', 1, 9)
   })
 
   it('dualsvf: two cutoff positionals, routing + per-stage modes as named enums', () => {
@@ -641,7 +641,7 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('quotes word arguments in bare combinators (arp updown)', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  arp updown\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 2 4\n  arp updown\n`)
     expect(out).toContain(".arp('updown')")
   })
 
@@ -651,7 +651,7 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('master line → masterCompress (negative values glued to the colon work)', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0\n\nmaster threshold:-6 ratio:2 makeup:1\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0\n\nmaster threshold:-6 ratio:2 makeup:1\n`)
     expect(out).toContain('masterCompress({ threshold: -6, ratio: 2, makeup: 1 })')
   })
 
@@ -788,7 +788,7 @@ describe('rondo → rondocode codegen', () => {
     })
 
     it('refuses a duplicate definition', () => {
-      failsAt('patdef riff <[0]>\n\npatdef riff <[3]>\n\nsynth s\n  saw\n', 'defined twice', 3, 1)
+      failsAt('patdef riff <[0]>\n\npatdef riff <[3]>\n\nsynth z\n  saw\n', 'defined twice', 3, 1)
     })
 
     it('says which way the header is wrong', () => {
@@ -879,20 +879,20 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('level line → masterGain, in dB, negative included', () => {
-    expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel -4.5\n`)).toContain('masterGain(-4.5)')
-    expect(ok(`synth s\n  saw\n\nplay s\n  0\n\nlevel 2\n`)).toContain('masterGain(2)')
+    expect(ok(`synth z\n  saw\n\nplay z\n  0\n\nlevel -4.5\n`)).toContain('masterGain(-4.5)')
+    expect(ok(`synth z\n  saw\n\nplay z\n  0\n\nlevel 2\n`)).toContain('masterGain(2)')
   })
 
   it('bus block: FX folded from input + send routing; knobs are rejected', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 3\n\nbus space\n  reverb room:.9 damp:.3\n  send s .35\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 3\n\nbus space\n  reverb room:.9 damp:.3\n  send s .35\n`)
     expect(out).toContain("bus('space', ({ input, reverb }) => {")
     expect(out).toContain('reverb(input, { roomSize: 0.9, damp: 0.3 })')
     expect(out).toContain(', { s: 0.35 })')
-    expect(compile(`synth s\n  saw\n\nbus b\n  reverb mix:g\n  g = knob .3 0..1\n`).ok).toBe(false)
+    expect(compile(`synth z\n  saw\n\nbus b\n  reverb mix:g\n  g = knob .3 0..1\n`).ok).toBe(false)
   })
 
   it('visual block passes WGSL through verbatim', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n`)
     expect(out).toContain('visual(`')
     expect(out).toContain('fn render(uv: vec2f) -> vec4f {')
     expect(out).toContain('  return vec4f(uv, 0.0, 1.0);') // nested indent kept
@@ -918,36 +918,36 @@ describe('rondo → rondocode codegen', () => {
   })
 
   it('sections without a song line arrange in definition order', () => {
-    const out = ok(`synth s\n  saw\n\nsection a 2\n  play s\n    0\n\nsection b 4\n  play s\n    3\n`)
+    const out = ok(`synth z\n  saw\n\nsection a 2\n  play z\n    0\n\nsection b 4\n  play z\n    3\n`)
     expect(out).toContain("p('song', arrange([2, __sec_a], [4, __sec_b]))")
   })
 
   it('song referencing an unknown section is an error', () => {
-    failsAt(`synth s\n  saw\n\nsection a 2\n  play s\n    0\n\nsong a nope\n`,
+    failsAt(`synth z\n  saw\n\nsection a 2\n  play z\n    0\n\nsong a nope\n`,
       "song references unknown section 'nope'", 8, 1)
   })
 
   it('function-taking combinators: jux/off/superimpose/sometimesby', () => {
     const out = ok(
-      `synth s\n  saw\n\nplay s\n  0 2 4\n  jux: rev\n  off .25: gain .3\n  superimpose: late .125\n  sometimesby .3: fast 2\n`,
+      `synth z\n  saw\n\nplay z\n  0 2 4\n  jux: rev\n  off .25: gain .3\n  superimpose: late .125\n  sometimesby .3: fast 2\n`,
     )
     expect(out).toContain('.jux(x => x.rev())')
     expect(out).toContain('.off(0.25, x => x.gain(0.3))')
     expect(out).toContain('.superimpose(x => x.late(0.125))')
     expect(out).toContain('.sometimesBy(0.3, x => x.fast(2))')
     // the camelCase spelling is accepted too (FN_COMBS matches case-insensitively)
-    expect(ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  sometimesBy .3: fast 2\n`))
+    expect(ok(`synth z\n  saw\n\nplay z\n  0 2 4\n  sometimesBy .3: fast 2\n`))
       .toContain('.sometimesBy(0.3, x => x.fast(2))')
   })
 
   it('rise/fall as ctrl values (build ramps)', () => {
-    const out = ok(`synth s\n  saw\n  wet = knob .2 0..1\n\nplay s\n  0 2\n  wet: rise 8 0..1\n  gain: fall 4\n`)
+    const out = ok(`synth z\n  saw\n  wet = knob .2 0..1\n\nplay z\n  0 2\n  wet: rise 8 0..1\n  gain: fall 4\n`)
     expect(out).toContain(".ctrl('wet', rise(8).range(0, 1))")
     expect(out).toContain('.gain(fall(4))')
   })
 
   it('routes bare combinators and a mini-string ctrl value', () => {
-    const out = ok(`synth s\n  saw\n\nplay s\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
+    const out = ok(`synth z\n  saw\n\nplay z\n  0 2 4\n  struct t ~ t t\n  fast 2\n  index: <1 2.5>\n`)
     expect(out).toContain(".struct(mini('t ~ t t'))")
     expect(out).toContain('.fast(2)')
     expect(out).toContain(".ctrl('index', '<1 2.5>')")
@@ -1024,7 +1024,7 @@ describe('maskJsLiterals', () => {
   })
 
   it('a ctx name in a string does not phantom-destructure (compile-level)', () => {
-    const r = compile("synth s\n  js{ sample(gate, 'saw').mul(0.5) }\n")
+    const r = compile("synth z\n  js{ sample(gate, 'saw').mul(0.5) }\n")
     expect(r.ok).toBe(true)
     if (!r.ok) return
     // `saw` appears only as sample-name DATA — it must not be destructured
@@ -1038,9 +1038,9 @@ describe('positioned diagnostics', () => {
   it('end-of-line errors land past the last token, never at 0:0', () => {
     // REGRESSION: Cursor.err fell back to { line: 0, col: 0 } at end-of-tokens,
     // so a trailing operator squiggled the top of the buffer
-    failsAt('synth s\n  saw\n  * env +\n  env = adsr .01 .1 .5 .1\n', 'unexpected end of line', 3, 10)
+    failsAt('synth z\n  saw\n  * env +\n  env = adsr .01 .1 .5 .1\n', 'unexpected end of line', 3, 10)
     // an incomplete knob reports on ITS line too (two errors, both positioned)
-    const e = fails('synth s\n  saw\n  * g\n  g = knob\n')
+    const e = fails('synth z\n  saw\n  * g\n  g = knob\n')
     expect(e.line).toBe(4)
     expect(e.col).toBe(11)
   })
@@ -1048,7 +1048,7 @@ describe('positioned diagnostics', () => {
   it('a spine line with no tokens at all still reports on its own line', () => {
     // `~ ~ ~` lexes to ZERO tokens (mini characters are skipped) — the error
     // must fall back to the line's position, not 0:0
-    failsAt('synth s\n  saw\n  ~ ~ ~\n', 'expected a transform', 3, 3)
+    failsAt('synth z\n  saw\n  ~ ~ ~\n', 'expected a transform', 3, 3)
   })
 
   it('block headers: missing names and arguments are positioned', () => {
@@ -1060,18 +1060,18 @@ describe('positioned diagnostics', () => {
     failsAt('bpm fast\n', 'bpm needs a number (`bpm 128`)', 1, 1)
     failsAt('bus\n  reverb room:.5\n', 'bus needs a name (`bus space`)', 1, 1)
     failsAt('sing\n  la\n  c4\n', 'sing needs a channel name (`sing vox`)', 1, 1)
-    failsAt('section\n  play s\n    0\n', 'section needs a name and a length in cycles', 1, 1)
+    failsAt('section\n  play z\n    0\n', 'section needs a name and a length in cycles', 1, 1)
   })
 
   it('post must be the last section — error points at the post line', () => {
-    failsAt('synth s\n  saw\n  post\n    reverb room:.5\n  * 2\n', 'post must be the last section of a synth', 3, 3)
+    failsAt('synth z\n  saw\n  post\n    reverb room:.5\n  * 2\n', 'post must be the last section of a synth', 3, 3)
     failsAt('sing v\n  la la\n  c4 e4\n  post\n    reverb room:.5\n  gain: .9\n', 'post must be the last section of a sing block', 4, 3)
   })
 
   it('play without notation / section without plays', () => {
-    failsAt('synth s\n  saw\n\nplay s\n', "play 's' has no notation", 4, 1)
-    failsAt('synth s\n  saw\n\nsection a 4\n', "section 'a' has no plays", 4, 1)
-    failsAt('synth s\n  saw\n\nsection a 4\n  cutoff: 3\n', 'a section holds `play` and `beat` blocks', 5, 3)
+    failsAt('synth z\n  saw\n\nplay z\n', "play 'z' has no notation", 4, 1)
+    failsAt('synth z\n  saw\n\nsection a 4\n', "section 'a' has no plays", 4, 1)
+    failsAt('synth z\n  saw\n\nsection a 4\n  cutoff: 3\n', 'a section holds `play` and `beat` blocks', 5, 3)
   })
 
   it('malformed sidechain/master name:number pairs point at the bad pair', () => {
@@ -1083,8 +1083,8 @@ describe('positioned diagnostics', () => {
     // ...and a DECLARED one compiles
     expect(compile('macro x 1 0..2\n\nsynth kick\n  sine 60\n\nsidechain kick depth:x\n').ok).toBe(true)
     failsAt('sidechain\n', 'sidechain needs a source synth', 1, 1)
-    failsAt('synth s\n  saw\n\nmaster threshold:x\n', 'master args are `name:number` pairs', 4, 8)
-    failsAt('synth s\n  saw\n\nlevel\n', 'level needs a number of dB', 4, 1)
+    failsAt('synth z\n  saw\n\nmaster threshold:x\n', 'master args are `name:number` pairs', 4, 8)
+    failsAt('synth z\n  saw\n\nlevel\n', 'level needs a number of dB', 4, 1)
     // sum: every way the header can be wrong says which way
     failsAt('synth v\n  sum\n    sine note\n', 'sum needs an index name and a range', 2, 3)
     failsAt('synth v\n  sum k\n    sine note\n', 'sum needs a range after the index', 2, 3)
@@ -1095,7 +1095,7 @@ describe('positioned diagnostics', () => {
   })
 
   it('unknown synth voice option points at the option token', () => {
-    failsAt('synth s wobble:3\n  saw\n', 'unknown synth option `wobble`', 1, 9)
+    failsAt('synth z wobble:3\n  saw\n', 'unknown synth option `wobble`', 1, 9)
   })
 
   it('unexpected indentation points at the stray line', () => {
@@ -1103,18 +1103,18 @@ describe('positioned diagnostics', () => {
   })
 
   it('lexer: unterminated js{ … } is positioned and never cascades a 0:0 error', () => {
-    const e = fails('synth s\n  js{ saw(note.freq\n')
+    const e = fails('synth z\n  js{ saw(note.freq\n')
     expect(e.message).toContain('unterminated js{ … } block')
     expect({ line: e.line, col: e.col }).toEqual({ line: 2, col: 3 })
   })
 
   it('lexer: tabs in indentation are positioned', () => {
-    failsAt('synth s\n\tsaw\n', 'use spaces, not tabs, for indentation', 2, 1)
+    failsAt('synth z\n\tsaw\n', 'use spaces, not tabs, for indentation', 2, 1)
   })
 
   it('codegen: knob outside a binding / non-constant -> bounds on a number', () => {
-    failsAt('synth s\n  saw\n  * knob 1 0..2\n', 'knob can only appear on a binding', 3, 5)
-    failsAt('synth s\n  saw\n  * x\n  x = 2 -> 0..env\n  env = adsr .01 .1 .5 .1\n',
+    failsAt('synth z\n  saw\n  * knob 1 0..2\n', 'knob can only appear on a binding', 3, 5)
+    failsAt('synth z\n  saw\n  * x\n  x = 2 -> 0..env\n  env = adsr .01 .1 .5 .1\n',
       'the left side of `->` must be a signal', 4, 9)
   })
 })
@@ -1129,7 +1129,7 @@ describe('patdef: the notation, and where it came from', () => {
   it('takes the notation after the NAME, not after the first letter of it', () => {
     // `indexOf(name)` found the `a` inside "p-a-tdef", so the notation became
     // the string "tdef a <[0 1]>" — which compiled
-    const out = ok('patdef a <[0 1]>\n\nsynth p\n  saw\n\nplay p\n  a\n\ncps .5\n')
+    const out = ok('patdef a <[0 1]>\n\nsynth q\n  saw\n\nplay q\n  a\n\ncps .5\n')
     expect(out).toContain("n('<[0 1]>')")
     expect(out, 'the keyword must not be eaten').not.toContain('tdef')
   })
@@ -1137,7 +1137,7 @@ describe('patdef: the notation, and where it came from', () => {
   it('reports the substituted notation at the PATDEF line, not the reference', () => {
     // the span note-flash highlights: content and offset have to agree, or the
     // editor decorates whatever text happens to sit there
-    const src = 'patdef riff <[0 1 2 3]>\n\nsynth p\n  saw\n\nplay p\n  riff\n\ncps .5\n'
+    const src = 'patdef riff <[0 1 2 3]>\n\nsynth q\n  saw\n\nplay q\n  riff\n\ncps .5\n'
     const c = compile(src)
     if (!c.ok) throw new Error(JSON.stringify(c.errors))
     expect(c.notes).toHaveLength(1)
@@ -1147,7 +1147,7 @@ describe('patdef: the notation, and where it came from', () => {
   })
 
   it('does the same for every voice of a stacked play block', () => {
-    const src = 'patdef a1 <[0 1]>\npatdef b1 <[2 3]>\n\nsynth p\n  saw\n\nplay p\n  a1\n  b1\n\ncps .5\n'
+    const src = 'patdef a1 <[0 1]>\npatdef b1 <[2 3]>\n\nsynth q\n  saw\n\nplay q\n  a1\n  b1\n\ncps .5\n'
     const c = compile(src)
     if (!c.ok) throw new Error(JSON.stringify(c.errors))
     expect(c.notes).toHaveLength(2)
@@ -1155,7 +1155,7 @@ describe('patdef: the notation, and where it came from', () => {
   })
 
   it('leaves an ordinary inline notation pointing at itself', () => {
-    const src = 'synth p\n  saw\n\nplay p\n  <[0 1 2]>\n\ncps .5\n'
+    const src = 'synth q\n  saw\n\nplay q\n  <[0 1 2]>\n\ncps .5\n'
     const c = compile(src)
     if (!c.ok) throw new Error(JSON.stringify(c.errors))
     const s = c.notes[0]!
@@ -1169,21 +1169,21 @@ describe('patdef: the notation, and where it came from', () => {
  * figure, which is the duplication patdef exists to remove. */
 describe('patdef composition', () => {
   it('expands a reference INSIDE a figure, not just on its own line', () => {
-    const out = ok('patdef tail [1 2] [3 4]\npatdef riff <[0 0] tail>\n\nsynth p\n  saw\n\nplay p\n  riff\n\ncps .5\n')
+    const out = ok('patdef tail [1 2] [3 4]\npatdef riff <[0 0] tail>\n\nsynth q\n  saw\n\nplay q\n  riff\n\ncps .5\n')
     expect(out).toContain("n('<[0 0] [1 2] [3 4]>')")
   })
 
   it('chains: a figure may build on one that builds on another', () => {
-    const out = ok('patdef inner [1 2]\npatdef mid <inner inner>\npatdef outer <[0] mid>\n\nsynth p\n  saw\n\nplay p\n  outer\n\ncps .5\n')
+    const out = ok('patdef inner [1 2]\npatdef mid <inner inner>\npatdef outer <[0] mid>\n\nsynth q\n  saw\n\nplay q\n  outer\n\ncps .5\n')
     expect(out).toContain("n('<[0] <[1 2] [1 2]>>')")
   })
 
   it('a cycle is an ERROR, not a hang', () => {
-    failsAt('patdef loop <[0] loop>\n\nsynth p\n  saw\n\nplay p\n  loop\n\ncps .5\n', 'expands forever', 1, 1)
+    failsAt('patdef loop <[0] loop>\n\nsynth q\n  saw\n\nplay q\n  loop\n\ncps .5\n', 'expands forever', 1, 1)
   })
 
   it('a mutual cycle is caught too', () => {
-    const c = compile('patdef x1 <[0] y1>\npatdef y1 <[1] x1>\n\nsynth p\n  saw\n\nplay p\n  x1\n\ncps .5\n')
+    const c = compile('patdef x1 <[0] y1>\npatdef y1 <[1] x1>\n\nsynth q\n  saw\n\nplay q\n  x1\n\ncps .5\n')
     expect(c.ok).toBe(false)
     expect(c.errors[0]!.message).toMatch(/expands forever/)
   })
@@ -1191,17 +1191,17 @@ describe('patdef composition', () => {
   /* The one that would silently ruin a document: a NOTE is spelled exactly
    * like a name, and notation is where notes live. */
   it('does not eat note names that match a patdef', () => {
-    const out = ok('patdef e <[0 1]>\npatdef tune <c3 e4 g4>\n\nsynth p\n  saw\n\nplay p\n  tune\n\ncps .5\n')
+    const out = ok('patdef e <[0 1]>\npatdef tune <c3 e4 g4>\n\nsynth q\n  saw\n\nplay q\n  tune\n\ncps .5\n')
     expect(out, 'e4 is a NOTE here, not a reference').toContain("note('<c3 e4 g4>')")
   })
 
   it('and a note-like name still works on its own line, as it always did', () => {
     // backwards compatible: whole-line substitution predates composition
-    expect(ok('patdef e <[0 1]>\n\nsynth p\n  saw\n\nplay p\n  e\n\ncps .5\n')).toContain("n('<[0 1]>')")
+    expect(ok('patdef e <[0 1]>\n\nsynth q\n  saw\n\nplay q\n  e\n\ncps .5\n')).toContain("n('<[0 1]>')")
   })
 
   it('leaves an ordinary figure with no references untouched', () => {
-    expect(ok('synth p\n  saw\n\nplay p\n  <[0 1] c3 e4>\n\ncps .5\n')).toContain("note('<[0 1] c3 e4>')")
+    expect(ok('synth q\n  saw\n\nplay q\n  <[0 1] c3 e4>\n\ncps .5\n')).toContain("note('<[0 1] c3 e4>')")
   })
 })
 
@@ -1215,10 +1215,10 @@ describe('patdef composition keeps its source map', () => {
     'patdef tail [1 2] [3 4]',
     'patdef riff <[0 0] tail>',
     '',
-    'synth p',
+    'synth q',
     '  saw',
     '',
-    'play p',
+    'play q',
     '  riff',
     '',
     'cps .5',
@@ -1260,7 +1260,7 @@ describe('patdef composition keeps its source map', () => {
   })
 
   it('a figure written inline carries NO pieces (it matches the buffer already)', () => {
-    const c = compile('synth p\n  saw\n\nplay p\n  <[0 1]>\n\ncps .5\n')
+    const c = compile('synth q\n  saw\n\nplay q\n  <[0 1]>\n\ncps .5\n')
     if (!c.ok) throw new Error('failed')
     expect(c.notes[0]!.pieces).toBeUndefined()
   })

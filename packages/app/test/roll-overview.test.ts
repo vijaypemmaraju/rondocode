@@ -96,7 +96,7 @@ describe('rollOverviewData (period detection by querying successive cycles)', ()
 
 describe('rollOverviewBlockDecos (block placement below the notation line)', () => {
   it('a multi-cycle play line gets ONE block deco anchored at the LINE end', () => {
-    const src = 'play s\n  <0 3> [5 7]  scale:a-min  # riff\n  gain: .5\n'
+    const src = 'play z\n  <0 3> [5 7]  scale:a-min  # riff\n  gain: .5\n'
     const decos = rollOverviewBlockDecos(src, 400, hooks, drag)
     expect(decos).toHaveLength(1)
     expect(decos[0]!.value.spec.block).toBe(true) // below the line, not mid-wrap
@@ -110,13 +110,13 @@ describe('rollOverviewBlockDecos (block placement below the notation line)', () 
   })
 
   it('single-cycle figures stay OFF the block path (they keep the inline roll)', () => {
-    expect(rollOverviewBlockDecos('play s\n  0(3,8)\n', 400, hooks, drag)).toHaveLength(0)
+    expect(rollOverviewBlockDecos('play z\n  0(3,8)\n', 400, hooks, drag)).toHaveLength(0)
   })
 
   it('HONESTY: unrepresentable patterns get no block deco either', () => {
-    expect(rollOverviewBlockDecos('play s\n  <0 1 2 3 4 5 6 7 8>\n', 400, hooks, drag)).toHaveLength(0)
+    expect(rollOverviewBlockDecos('play z\n  <0 1 2 3 4 5 6 7 8>\n', 400, hooks, drag)).toHaveLength(0)
     const arms = Array.from({ length: 8 }, (_, k) => `${k}*40`).join(' ')
-    expect(rollOverviewBlockDecos(`play s\n  <${arms}>\n`, 400, hooks, drag)).toHaveLength(0)
+    expect(rollOverviewBlockDecos(`play z\n  <${arms}>\n`, 400, hooks, drag)).toHaveLength(0)
   })
 })
 
@@ -141,7 +141,7 @@ describe('findAddTarget (the transpose handle\'s write target)', () => {
   const notationFrom = (src: string): number => scanRichPlays(src)[0]!.from
 
   it('finds an existing `add N` line and pinpoints the N literal', () => {
-    const src = 'play s\n  <0 3> [5 7]\n  add 2\n'
+    const src = 'play z\n  <0 3> [5 7]\n  add 2\n'
     const t = findAddTarget(src, notationFrom(src))!
     expect(t.base).toBe(2)
     expect(src.slice(t.numFrom!, t.numTo!)).toBe('2') // the drag rewrites exactly this
@@ -149,69 +149,69 @@ describe('findAddTarget (the transpose handle\'s write target)', () => {
   })
 
   it('negative values and trailing comments still match', () => {
-    const src = 'play s\n  <0 3>\n  add -12  # down an octave-ish\n'
+    const src = 'play z\n  <0 3>\n  add -12  # down an octave-ish\n'
     const t = findAddTarget(src, notationFrom(src))!
     expect(t.base).toBe(-12)
     expect(src.slice(t.numFrom!, t.numTo!)).toBe('-12')
   })
 
   it('with no add line, reports the insert point after the LAST notation line', () => {
-    const src = 'play s\n  <0 3> [5 7]  scale:a-min\n  <7 5> 3\n  gain: .5\n'
+    const src = 'play z\n  <0 3> [5 7]  scale:a-min\n  <7 5> 3\n  gain: .5\n'
     const t = findAddTarget(src, notationFrom(src))!
     expect(t.base).toBe(0)
     expect(t.numFrom).toBeUndefined()
-    expect(src.slice(0, t.insertAt!)).toBe('play s\n  <0 3> [5 7]  scale:a-min\n  <7 5> 3')
+    expect(src.slice(0, t.insertAt!)).toBe('play z\n  <0 3> [5 7]  scale:a-min\n  <7 5> 3')
     expect(t.insertPrefix).toBe('\n  add ')
   })
 
   it('an add line the handle cannot own disables the handle (null)', () => {
-    const a = 'play s\n  <0 3>\n  add .5\n'
+    const a = 'play z\n  <0 3>\n  add .5\n'
     expect(findAddTarget(a, notationFrom(a))).toBeNull()
-    const b = 'play s\n  <0 3>\n  add <0 7>\n'
+    const b = 'play z\n  <0 3>\n  add <0 7>\n'
     expect(findAddTarget(b, notationFrom(b))).toBeNull()
   })
 
   it('only play blocks qualify; a later block\'s add line never leaks in', () => {
-    const src = 'play s\n  <0 3>\n\nplay t\n  <5 7>\n  add 5\n'
+    const src = 'play z\n  <0 3>\n\nplay t\n  <5 7>\n  add 5\n'
     const t = findAddTarget(src, notationFrom(src))!
     expect(t.base).toBe(0) // block s has NO add line — block t's must not count
-    expect(src.slice(0, t.insertAt!)).toBe('play s\n  <0 3>')
+    expect(src.slice(0, t.insertAt!)).toBe('play z\n  <0 3>')
   })
 
   it('section-nested play blocks keep their indent in the inserted line', () => {
-    const src = 'section drop 4\n  play s\n    <0 3>\n'
+    const src = 'section drop 4\n  play z\n    <0 3>\n'
     const t = findAddTarget(src, src.indexOf('<0 3>'))!
     expect(t.insertPrefix).toBe('\n    add ')
     // and an existing nested add line is found
-    const src2 = 'section drop 4\n  play s\n    <0 3>\n    add 3\n'
+    const src2 = 'section drop 4\n  play z\n    <0 3>\n    add 3\n'
     expect(findAddTarget(src2, src2.indexOf('<0 3>'))!.base).toBe(3)
   })
 })
 
 describe('addLineEdit (write derivation)', () => {
   it('updates an existing literal in place', () => {
-    const src = 'play s\n  <0 3>\n  add 2\n'
+    const src = 'play z\n  <0 3>\n  add 2\n'
     const t = findAddTarget(src, src.indexOf('<0 3>'))!
     const e = addLineEdit(t, 5)!
-    expect(src.slice(0, e.from)).toBe('play s\n  <0 3>\n  add ')
+    expect(src.slice(0, e.from)).toBe('play z\n  <0 3>\n  add ')
     expect(src.slice(e.from, e.to)).toBe('2')
     expect(e.insert).toBe('5')
   })
 
   it('inserts a whole `add N` line when the block has none', () => {
-    const src = 'play s\n  <0 3>\n  gain: .5\n'
+    const src = 'play z\n  <0 3>\n  gain: .5\n'
     const t = findAddTarget(src, src.indexOf('<0 3>'))!
     const e = addLineEdit(t, -3)!
     expect(e.from).toBe(e.to) // a pure insert
     const next = src.slice(0, e.from) + e.insert + src.slice(e.to)
-    expect(next).toBe('play s\n  <0 3>\n  add -3\n  gain: .5\n')
+    expect(next).toBe('play z\n  <0 3>\n  add -3\n  gain: .5\n')
   })
 
   it('no-op transposes derive no edit (release in place, or back to start)', () => {
-    const src = 'play s\n  <0 3>\n  add 2\n'
+    const src = 'play z\n  <0 3>\n  add 2\n'
     const t = findAddTarget(src, src.indexOf('<0 3>'))!
     expect(addLineEdit(t, 2)).toBeNull()
-    const bare = findAddTarget('play s\n  <0 3>\n', 9)!
+    const bare = findAddTarget('play z\n  <0 3>\n', 9)!
     expect(addLineEdit(bare, 0)).toBeNull() // never writes `add 0` from rest
   })
 })
@@ -237,7 +237,7 @@ describe('transpose write path (LIVE add-line rewrites + single-step undo)', () 
   }
 
   it('rewrites `add N` on EVERY step — sampled mid-gesture, before release', () => {
-    const src = 'play s\n  <0 3> [5 7]\n  add 2\n'
+    const src = 'play z\n  <0 3> [5 7]\n  add 2\n'
     const h = cmHost(src)
     const t = findAddTarget(h.text(), h.text().indexOf('<0 3>'))!
     const w = new LiveWriter(h, t.numFrom!, t.numTo!)
@@ -246,11 +246,11 @@ describe('transpose write path (LIVE add-line rewrites + single-step undo)', () 
       // MID-GESTURE the doc already carries the new transpose (audible on eval)
       expect(findAddTarget(h.text(), h.text().indexOf('<0 3>'))!.base).toBe(t.base + steps)
     }
-    expect(h.text()).toBe('play s\n  <0 3> [5 7]\n  add 1\n')
+    expect(h.text()).toBe('play z\n  <0 3> [5 7]\n  add 1\n')
   })
 
   it('undo after the drag restores the pre-drag doc in ONE step', () => {
-    const src = 'play s\n  <0 3> [5 7]\n  add 2\n'
+    const src = 'play z\n  <0 3> [5 7]\n  add 2\n'
     const h = cmHost(src)
     const t = findAddTarget(h.text(), h.text().indexOf('<0 3>'))!
     const w = new LiveWriter(h, t.numFrom!, t.numTo!)
@@ -261,7 +261,7 @@ describe('transpose write path (LIVE add-line rewrites + single-step undo)', () 
   })
 
   it('a concurrent edit aborts the writer (the gesture goes quiet)', () => {
-    const src = 'play s\n  <0 3>\n  add 2\n'
+    const src = 'play z\n  <0 3>\n  add 2\n'
     const h = cmHost(src)
     const t = findAddTarget(h.text(), h.text().indexOf('<0 3>'))!
     const w = new LiveWriter(h, t.numFrom!, t.numTo!)
@@ -288,7 +288,7 @@ describe('blockWidgetField serves the overview (map mid-drag, rebuild once)', ()
 
   it('keeps the widget instance across live add-writes, swaps once at end', () => {
     const d: Drag = { active: false, ended: false }
-    const doc = 'play s\n  <0 3> [5 7]\n  add 2\n'
+    const doc = 'play z\n  <0 3> [5 7]\n  add 2\n'
     let state = EditorState.create({ doc, extensions: [blockWidgetField(hooks, d)] })
     const [w0] = widgetsIn(state)
     expect(w0).toBeDefined()
@@ -314,7 +314,7 @@ describe('blockWidgetField serves the overview (map mid-drag, rebuild once)', ()
 
   it('a single-cycle play line never reaches the block field', () => {
     const state = EditorState.create({
-      doc: 'play s\n  0(3,8)\n',
+      doc: 'play z\n  0(3,8)\n',
       extensions: [blockWidgetField(hooks, drag)],
     })
     expect(widgetsIn(state)).toHaveLength(0)

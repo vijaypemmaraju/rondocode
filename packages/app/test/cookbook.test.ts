@@ -91,7 +91,10 @@ describe('the cookbook holds its shape', () => {
     // is a lesson, and lessons belong in the guide
     for (const r of RECIPES) {
       expect(r.code, `${r.id}: no synth`).toMatch(/^synth /m)
-      expect(r.code, `${r.id}: nothing plays`).toMatch(/^\s*play /m)
+      /* `beat` plays as much as `play` does — it is the drum-grid spelling,
+       * and a drum recipe has no reason to carry a `play` block as well. The
+       * rule is "something sounds", not "the word play appears". */
+      expect(r.code, `${r.id}: nothing plays`).toMatch(/^\s*(play|beat)\b/m)
       expect(r.code, `${r.id}: no tempo`).toMatch(/^cps /m)
     }
   })

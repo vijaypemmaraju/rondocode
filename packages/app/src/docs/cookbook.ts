@@ -227,6 +227,181 @@ cps .4`,
     why: 'The RATE is the thing being automated, not the depth. A flanger already sweeps -- that is what it is -- so moving its depth just makes the sweep deeper, while moving its rate changes the character of the sweep itself, from a slow jet-plane arc to a shimmer and back. That was impossible until these three nodes read their controls per sample: `rate`, `depth`, `feedback` and `mix` were construction values on chorus, phaser and flanger, so an LFO on them compiled and did nothing. Use a very slow LFO (0.05 Hz is a twenty-second cycle) or the movement stops sounding like an effect and starts sounding like a fault.',
   },
   {
+    id: 'drums',
+    title: 'Program a drum pattern',
+    tags: ['beat', 'drums', 'rhythm', 'kick', 'snare', 'hat'],
+    code: `synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .08 0 .04 ^ 3 -> 48..180
+  amp = adsr .001 .15 0 .05
+
+synth snare
+  noise white
+  svf 1900 res:.3
+  * 2
+  + tone
+  * adsr .001 .12 0 .06
+  * .35
+  tone = tri 190
+
+synth hat
+  noise white
+  svf 7000 mode:hp
+  * adsr .001 .03 0 .02
+  * .4
+
+beat
+  kick ~ ~ kick ~ ~ kick ~
+  ~ ~ snare ~ ~ ~ snare ~
+  hat:.5 hat hat:.4 hat hat:.5 hat hat:.4 hat
+
+cps .5`,
+    why: 'A `beat` block is a GRID, not a melody: one line per voice, one column per step, and the columns line up down the page so you read the groove vertically the way a drum machine shows it. That is the whole reason it exists beside `play` -- three separate `play` blocks would sound identical and you could not see the pattern. A word is a synth name and `~` is a rest, so the line IS the part. `hat:.5` is that hit\'s own gain, which is what keeps a straight eighth-note hat from sounding like a machine: alternate loud and soft and the bar starts to swing without a single timing change.',
+  },
+  {
+    id: 'shared-room',
+    title: 'Put several parts in the same space',
+    tags: ['bus', 'send', 'reverb', 'mix', 'space'],
+    code: `synth keys
+  (saw note) * .3
+  svf 2400 res:.2
+  * adsr .01 .2 .6 .3
+
+synth bell
+  sine note
+  * 3
+  + partial
+  * adsr .002 .5 0 .4
+  * .12
+  partial = sine note*2.7
+
+play keys
+  <Cmaj7 Am7>
+  dur: .9
+
+play bell
+  ~ 12 ~ 7
+  scale:c-maj
+  dur: .5
+
+bus room
+  reverb room:.88 damp:.35 mix:1
+  send keys .35
+  send bell .6
+
+cps .45`,
+    why: 'One reverb, fed by both parts, is not the same as a reverb on each -- and the difference is the point. Separate reverbs put each instrument in its own room, which is why a mix can sound like several recordings stacked. A `bus` is one room that several parts are standing in, and the send amount is how far back each one stands. Set `mix:1` on the bus reverb: the dry signal is already in the mix, so anything less than fully wet just sends a quieter copy of the original along with the tail.',
+  },
+  {
+    id: 'chop',
+    title: 'Chop a break and rebuild the beat',
+    tags: ['sample', 'slices', 'chop', 'break', 'sampler'],
+    code: `synth chop
+  sample break slices:8
+  * adsr .001 .22 1 .02
+  * 1.1
+
+synth sub
+  (sine note) * .55
+  * adsr .004 .12 .7 .12
+
+play chop
+  c4 e4 c4 g4 db4 c4 f4 e4
+  dur: .95
+
+play sub
+  <c2 c2 f1 g1>
+  dur: .9
+
+cps .5`,
+    why: '`slices:8` hands the CHOICE to the note. It cuts the window into eight equal pieces, and `root` (c4 by default) plays piece 0 with each semitone up picking the next -- so a note pattern becomes a sequencer for the pieces of a loop, and reordering the notes gives you a new beat out of the same two seconds of audio. Every piece plays at its natural speed whatever note picked it, which is what separates chopping from transposing: the break keeps its own groove and only its ORDER changes.',
+  },
+  {
+    id: 'loudness',
+    title: 'Make it louder without making it worse',
+    tags: ['master', 'level', 'loudness', 'mastering', 'mix'],
+    code: `synth pad
+  supersaw note detune:.2
+  svf 2600 res:.15
+  * adsr .3 .3 .8 .5
+  * .3
+
+synth kick
+  sine drop
+  * adsr .001 .14 0 .05
+  tanh
+  drop = adsr .001 .07 0 .04 ^ 3 -> 45..170
+
+play pad
+  <Cmaj9 Am9>
+  dur: .95
+
+play kick
+  c2 ~ c2 ~
+
+master threshold:-8 ratio:2 attack:20 release:140 makeup:1
+level -1.5
+
+cps .45`,
+    why: '`level` is the only lever that scales EVERYTHING, and that is why it is the one to reach for. Per-part gains stop helping once a mix is pushed hard, because the master stage is already holding the peak down -- turning one part up just takes room from the others and nothing gets louder. Set the whole mix under the ceiling with `level`, then let `master` glue it: a gentle 2:1 with a slow attack lets transients through and pulls the body together. Offline renders normalize the result, so check the reported peak rather than trusting that a gain edit did anything.',
+  },
+  {
+    id: 'plucked',
+    title: 'Make something that is struck or plucked',
+    tags: ['pluck', 'modal', 'physical', 'string', 'bell'],
+    code: `synth harp
+  pluck note decay:2.2 damp:.35
+  * .5
+  post
+    reverb room:.7 damp:.4 mix:.25
+
+synth bells
+  modal note model:bar decay:2.6 damp:.2 stretch:1.01
+  * .35
+
+play harp
+  0 4 7 11 7 4 2 0
+  scale:d-maj
+  dur: .9
+
+play bells
+  ~ ~ 7 ~ ~ ~ 11 ~
+  scale:d-maj
+  dur: .9
+
+cps .45`,
+    why: 'These are PHYSICAL models, so they are excited and then left alone -- there is no envelope shaping the tail, because the tail is the model ringing down on its own. `pluck` is a string: `decay` is how long it rings and `damp` is how much of the top comes off as it does, which is the difference between a nylon string and a steel one. `modal` is a struck object, and `stretch` is why it sounds like a bar rather than a string: real metal partials sit slightly SHARP of the harmonic series, so a stretch just above 1 is what makes a bell sound like metal instead of an organ.',
+  },
+  {
+    id: 'fm-bell',
+    title: 'Get a bell or electric piano out of two sine waves',
+    tags: ['fm', 'bell', 'electric piano', 'synth'],
+    code: `synth ep
+  fm note 3.01 feedback:.12 wave:sine
+  * env
+  * .35
+  env = adsr .002 .5 .25 .5
+
+synth chime
+  fm note 7.02 feedback:.05
+  * adsr .001 1.4 0 .8
+  * .18
+
+play ep
+  <Cmaj9 Fmaj9>
+  dur: .95
+
+play chime
+  ~ ~ ~ 12
+  scale:c-maj
+  dur: .9
+
+cps .4`,
+    why: 'The RATIO is the instrument. `fm note 3.01` is a modulator at just over three times the pitch, and that near-miss is the whole sound: exact whole-number ratios give harmonic, organ-like tones, while a ratio slightly off one beats against itself and reads as metal. Push it to 7.02 and the partials spread far enough apart to become a chime. The envelope does the rest of the work -- the same patch is an electric piano with a short decay and a bell with a long one, because in FM the brightness follows the level.',
+  },
+  {
     id: 'supersaw',
     title: 'Build a wide supersaw lead',
     tags: ['synth', 'lead', 'supersaw', 'unison', 'trance'],

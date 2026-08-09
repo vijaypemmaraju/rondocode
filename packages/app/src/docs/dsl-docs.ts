@@ -626,6 +626,12 @@ const SYNTH_CTX: DocEntry[] = [
     "deess(mic(), { freq: 6500, threshold: -28, ratio: 5 })",
   ),
   sc(
+    'follow',
+    "follow(input, opts?: { attack, release, mode: 'peak'|'rms' })",
+    'AN ENVELOPE FOLLOWER: audio in, a control signal out. It reports how LOUD its input is, as an ordinary signal you can multiply by, subtract from 1, or map through a range -- so any sound can drive any parameter. This is the half sidechain does not cover: `sidechain` ducks on note ONSETS, so it keeps working even if you mute the source, and nothing in the engine reacted to actual level until this. attack ms (def 5) is how fast it rises, release ms (def 100) how fast it falls, and the asymmetry is the whole craft -- a fast attack catches transients, a slow release stops the control signal chattering between them. mode `peak` (def) tracks the waveform crest and is what you want for catching hits; `rms` averages power over a 25 ms window, reads about 3 dB lower on a sine, and is far steadier, which is what you want driving a filter. Output is linear amplitude (0..1 for signals inside +-1), not dB, because every consumer wants a multiplier or a range.',
+    "follow(mic(), { attack: 5, release: 120, mode: 'rms' }).range(400, 5000)",
+  ),
+  sc(
     'noisegate',
     'noisegate(input, opts?: { threshold, range, attack, hold, release, hysteresis })',
     'A NOISE GATE: turns QUIET things down, which is the opposite of a compressor and the problem a live stage has -- kit bleed into a vocal mic, amp hiss, room tone that becomes feedback the moment you add gain. threshold is the level it opens at in dB (def -40); range is how far it pushes the signal down when closed, in dB (def -60, but -20 to -40 is usually better on a voice: a fully muted gate is audible as a hole, a partial one just removes the bleed). attack ms (def 1, because a slow one eats the front of a consonant), release ms (def 100). Two settings stop it misbehaving: hold is the minimum time it stays open after the level drops (def 50 ms), which keeps a sung word from being chopped at every momentary dip, and hysteresis is how far BELOW threshold the level must fall before it starts closing (def 3 dB), which stops a signal parked at the threshold from stuttering open and shut.',

@@ -3022,6 +3022,55 @@ cps .45
 `
 
 
+/** AUTO WAH: the microphone's LEVEL drives a filter. The example that only
+ *  became possible with `follow` — every other way of reacting to sound in
+ *  this engine reacts to note onsets, not to how loud anything actually is. */
+const autoWahRondo = `# AUTO WAH. run this and SING, CLAP or
+# PLAY into the mic. your LEVEL opens the
+# filter - the synth answers how loud you
+# are, not what note you make.
+#
+# this is the half \`sidechain\` cannot do.
+# sidechain ducks on note ONSETS, which is
+# why the pump survives muting the kick.
+# nothing in the engine reacted to actual
+# LEVEL until \`follow\`.
+#
+#   attack   how fast it opens (8 ms -
+#            fast enough to catch a clap)
+#   release  how fast it closes (160 ms -
+#            slow enough not to chatter
+#            between syllables)
+#   mode     rms averages POWER, which is
+#            steady; peak tracks crests,
+#            which is twitchy. a filter
+#            wants rms.
+#
+# HEADPHONES - or switch echo cancelling
+# on in options, which is already on if
+# you are on a phone.
+#
+# the mic asks permission on first run,
+# and renders SILENT in an offline export.
+
+synth wah
+  supersaw note detune:.25
+  ladder cut res:.55
+  * adsr .01 .12 .85 .25
+  * .35
+  amp = follow mic attack:8 release:160 mode:rms
+  cut = amp ^ .6 -> 350..6500
+  post
+    width .8
+    reverb room:.6 damp:.4 mix:.2
+
+play wah
+  <a1 f1 c2 g1>/2
+  dur: .95
+
+cps .5
+`
+
 /** MIC CHANNEL STRIP: the chain a stage puts in front of a voice, in order.
  *  Distinct from 'live mic', which is a talkbox EFFECT — this one is the
  *  boring, load-bearing thing that makes a microphone usable. Each node fixes
@@ -3634,6 +3683,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
   { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
+  { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
   { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },

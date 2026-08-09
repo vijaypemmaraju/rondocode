@@ -30,7 +30,7 @@ const KERNEL_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
   'sine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'wavetable', 'noise',
   'sample', 'granular', 'svf', 'ladder', 'onepole', 'adsr', 'lfo',
   'mul', 'add', 'sub', 'div', 'pow', 'clip', 'fold', 'tanh', 'mix', 'math', 'math2',
-  'delay', 'reverb', 'chorus', 'comb', 'bitcrush', 'shape', 'compress', 'noisegate', 'deess',
+  'delay', 'reverb', 'chorus', 'comb', 'bitcrush', 'shape', 'compress', 'noisegate', 'deess', 'follow',
 ])
 
 const cfg = (n: NodeSpec): string => JSON.stringify(n.config ?? {})

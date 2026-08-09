@@ -39,6 +39,7 @@ import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
 import { GateKernel } from './dsp/gate'
 import { DeessKernel } from './dsp/deess'
+import { FollowKernel } from './dsp/follow'
 import { LimiterKernel } from './dsp/limiter'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
@@ -55,6 +56,7 @@ import type { FlangerConfig } from './dsp/flanger'
 import type { CompressConfig } from './dsp/compress'
 import type { GateConfig } from './dsp/gate'
 import type { DeessConfig } from './dsp/deess'
+import type { FollowConfig } from './dsp/follow'
 import type { LimiterConfig } from './dsp/limiter'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
@@ -199,6 +201,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   compress: [{ name: 'in' }],
   noisegate: [{ name: 'in' }],
   deess: [{ name: 'in' }],
+  follow: [{ name: 'in' }],
   limiter: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
@@ -283,6 +286,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   compress: (c) => new CompressKernel(compressCfg(c)),
   noisegate: (c) => new GateKernel(gateCfg(c)),
   deess: (c) => new DeessKernel(deessCfg(c)),
+  follow: (c) => new FollowKernel(followCfg(c)),
   limiter: (c) => new LimiterKernel(limiterCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
@@ -372,6 +376,17 @@ const deessCfg = (c: Record<string, unknown>): DeessConfig => {
   for (const k of ['freq', 'threshold', 'ratio', 'attack', 'release'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
+  return out
+}
+
+const followCfg = (c: Record<string, unknown>): FollowConfig => {
+  const out: FollowConfig = {}
+  for (const k of ['attack', 'release'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  // the one non-numeric config in this family: an unknown word must fall back
+  // to the default rather than reaching the kernel as garbage
+  if (c['mode'] === 'rms' || c['mode'] === 'peak') out.mode = c['mode']
   return out
 }
 

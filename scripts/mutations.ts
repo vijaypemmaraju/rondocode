@@ -467,6 +467,27 @@ export const MUTATIONS: Mutation[] = [
 
   /* ---- the de-esser: selectivity is the whole contract ------------------- */
   {
+    label: 'follow: attack and release become symmetric (a waveform tremolo)',
+    file: 'packages/engine/src/dsp/follow.ts',
+    find: 'env += (level - env) * (level > env ? this.atk : this.rel)',
+    replace: 'env += (level - env) * this.atk',
+    tests: 'packages/engine/test/follow.test.ts',
+  },
+  {
+    label: 'follow: rms skips the symmetric average, so it reads amplitude',
+    file: 'packages/engine/src/dsp/follow.ts',
+    find: "        ms += (detect(input[i]!, 'rms') - ms) * this.avg",
+    replace: "        ms = detect(input[i]!, 'rms')",
+    tests: 'packages/engine/test/follow.test.ts',
+  },
+  {
+    label: 'follow: mode is ignored, peak for everything',
+    file: 'packages/engine/src/dsp/follow.ts',
+    find: "    this.mode = cfg.mode === 'rms' ? 'rms' : 'peak'",
+    replace: "    this.mode = 'peak'",
+    tests: 'packages/engine/test/follow.test.ts',
+  },
+  {
     label: 'deess: the detector goes full-band, so a vowel ducks the sibilance',
     file: 'packages/engine/src/dsp/deess.ts',
     find: '      const lin = Math.abs(det)',

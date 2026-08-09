@@ -3078,15 +3078,30 @@ cps .5
  *  is written on, so every note in one line can bend its own way through one
  *  synth. The sign does the work: one shape, mirrored by a negative. */
 const noteBendsRondo = `# NOTE BENDS. every note carries its
-# OWN value, written on the note as
-# 'n - and the synth decides what that
-# means. here it is a pitch bend:
+# OWN values, written on the note. a
+# bare number is the 'expr' lane and
+# the synth decides what it means -
+# here, a pitch bend:
 #
 #   '1   scoops UP into the note
 #   '0   plays it straight
 #   '-1  falls INTO it from above
 #   '.5  half a scoop (it morphs,
 #        it does not switch)
+#
+# NAMED lanes ride alongside it:
+#
+#   'vel:.8     that note's velocity
+#   'len:.5     that note's length
+#   'chance:.6  the odds it plays
+#
+# a BLOCK modifier still wins over a
+# lane: this block sets dur: .9, so a
+# per-note 'len would be overridden.
+#
+# chance is reproducible, not random:
+# a note that fires on cycle 3 fires
+# on cycle 3 every time round.
 #
 # drag any of those numbers to hear it.
 
@@ -3117,6 +3132,13 @@ synth lead
 play lead
   0'1 3'0 5'-1 7'0 9'1 7'-.5 5'0 3'1
   ~ ~ ~ ~ [12'1 11'-1] ~ ~ ~
+# velocity, length and probability, on
+# the notes that carry them. the two
+# 'chance notes come and go; the rest
+# are always there. (another LINE, not
+# another block - two play-lead blocks
+# would replace each other.)
+  ~ 0'vel:.5 ~ 7'vel:.3'chance:.5
   scale: a-min
   dur: .9
 

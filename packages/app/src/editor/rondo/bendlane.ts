@@ -25,7 +25,7 @@ import type { EditorView } from '@codemirror/view'
 import type { Range } from '@codemirror/state'
 import { LiveWriter, attachGesture } from './gesture'
 import type { Drag } from './gesture'
-import { STEP_RE, accValue, exprValue, stepText } from './widgets'
+import { STEP_RE, accValue, exprValue, laneValues, stepText } from './widgets'
 import type { Hooks, WidgetScan } from './widgets'
 import { RONDO_SCAN } from './widgets'
 
@@ -36,6 +36,8 @@ export interface BendNote {
   step: number | null
   acc: number | undefined
   expr: number | undefined
+  /** every lane on the note, so a bend drag cannot delete a `'vel:` beside it. */
+  lanes: Record<string, number> | undefined
 }
 
 export interface BendLane {
@@ -53,11 +55,11 @@ export function scanBendLanes(text: string, scan: WidgetScan = RONDO_SCAN): Bend
   for (const p of scan.plays(text)) {
     const toks = p.content.trim().split(/\s+/).filter(Boolean)
     const notes: BendNote[] = toks.map((tk, i) => {
-      if (tk === '~') return { i, step: null, acc: undefined, expr: undefined }
+      if (tk === '~') return { i, step: null, acc: undefined, expr: undefined, lanes: undefined }
       const m = STEP_RE.exec(tk)
       return m === null
-        ? { i, step: null, acc: undefined, expr: undefined }
-        : { i, step: Number(m[1]), acc: accValue(m[2]), expr: exprValue(m[3]) }
+        ? { i, step: null, acc: undefined, expr: undefined, lanes: undefined }
+        : { i, step: Number(m[1]), acc: accValue(m[2]), expr: exprValue(m[3]), lanes: laneValues(m[3]) }
     })
     // no value anywhere on the line → no lane. An empty automation row under
     // every pattern would be pure cost.
@@ -72,7 +74,7 @@ export function scanBendLanes(text: string, scan: WidgetScan = RONDO_SCAN): Bend
  *  accidental it silently dropped would move the note a semitone, which is a
  *  far worse bug than the one the drag was fixing. */
 export function laneText(notes: readonly BendNote[]): string {
-  return notes.map((n) => stepText(n.step, n.acc, n.expr)).join(' ')
+  return notes.map((n) => stepText(n.step, n.acc, n.expr, n.lanes)).join(' ')
 }
 
 const LANE_H = 46

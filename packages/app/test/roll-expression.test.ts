@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { STEP_RE, accValue, exprValue, scanPlays, stepText } from '../src/editor/rondo/widgets'
+import { STEP_RE, accValue, exprValue, laneValues, scanPlays, stepText } from '../src/editor/rondo/widgets'
 import { scanPlaysJs } from '../src/editor/widgets/jsscan'
 
 /* ------------------------------------------------------------------------- *
@@ -37,6 +37,7 @@ describe('STEP_RE reads a degree, its accidental and its expression', () => {
 
   it('reads both at once', () => {
     expect(parse("2#'-0.5")).toEqual([2, 1, -0.5])
+    expect(parse("2#'-.5"), 'written without the leading zero').toEqual([2, 1, -0.5])
   })
 
   it('rejects what is not a step', () => {
@@ -46,7 +47,10 @@ describe('STEP_RE reads a degree, its accidental and its expression', () => {
 
 describe('stepText writes back what it read', () => {
   it('round-trips a degree, an accidental and an expression', () => {
-    for (const t of ['0', '-2', '2#', '4b', "0'1", "5'-1", "2#'-0.5", "3'0"]) {
+    // `-.5` not `-0.5`: the leading zero is dropped to match how these are
+    // written by hand everywhere in the language, so a drag on one note does
+    // not silently reformat a lane it never touched
+    for (const t of ['0', '-2', '2#', '4b', "0'1", "5'-1", "2#'-.5", "3'0"]) {
       const m = STEP_RE.exec(t)!
       expect(stepText(Number(m[1]), accValue(m[2]), exprValue(m[3])), t).toBe(t)
     }
@@ -54,8 +58,26 @@ describe('stepText writes back what it read', () => {
 
   it('trims a dragged value so the notation stays readable', () => {
     // a drag lands on 0.7000000000000001; the source must not
-    expect(stepText(0, undefined, 0.7000000000000001)).toBe("0'0.7")
+    expect(stepText(0, undefined, 0.7000000000000001)).toBe("0'.7")
     expect(stepText(0, undefined, 1)).toBe("0'1")
+    expect(stepText(0, undefined, -0.25), 'negatives lose the zero too').toBe("0'-.25")
+  })
+
+  it('writes back the lanes it did NOT touch', () => {
+    /* A bend drag changes `expr` and nothing else. If it rebuilt the step from
+     * `expr` alone it would silently delete the `'vel:` beside it — the same
+     * class of bug as dropping an accidental, and just as invisible. */
+    expect(stepText(0, undefined, 2, { expr: 2, vel: 0.8 })).toBe("0'2'vel:.8")
+    expect(stepText(0, undefined, undefined, { vel: 0.8, chance: 0.5 })).toBe("0'vel:.8'chance:.5")
+    expect(stepText(3, 1, -1, { expr: -1, len: 0.5 })).toBe("3#'-1'len:.5")
+  })
+
+  it('round-trips a step carrying several lanes, exactly', () => {
+    for (const t of ["0'2'vel:.8", "0'vel:.8'chance:.5", "2#'-1'len:.5", "0'-.25"]) {
+      const m = STEP_RE.exec(t)!
+      const lanes = laneValues(m[3])
+      expect(stepText(Number(m[1]), accValue(m[2]), lanes['expr'], lanes), t).toBe(t)
+    }
   })
 
   it('a rest stays a rest whatever it is handed', () => {

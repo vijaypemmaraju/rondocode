@@ -93,17 +93,26 @@ describe('bendPath draws the VALUE', () => {
 
 
 describe('laneText: a drag rewrites only what it touched', () => {
-  const note = (i: number, step: number | null, acc?: number, expr?: number): BendNote =>
-    ({ i, step, acc, expr })
+  const note = (
+    i: number, step: number | null, acc?: number, expr?: number,
+    lanes?: Record<string, number>,
+  ): BendNote => ({ i, step, acc, expr, lanes })
 
   it('keeps an accidental the drag never touched', () => {
     // dropping it would move the note a semitone — a far worse bug than the
     // one the drag was fixing
-    expect(laneText([note(0, 2, 1, 0.5), note(1, 4, -1, undefined)])).toBe("2#'0.5 4b")
+    expect(laneText([note(0, 2, 1, 0.5), note(1, 4, -1, undefined)])).toBe("2#'.5 4b")
   })
 
   it('keeps rests as rests', () => {
     expect(laneText([note(0, 0, undefined, 1), note(1, null), note(2, 5)])).toBe("0'1 ~ 5")
+  })
+
+  it('keeps the OTHER lanes a bend drag never touched', () => {
+    // a bend changes `expr`; deleting the velocity beside it would be the same
+    // invisible class of bug as dropping an accidental
+    expect(laneText([note(0, 0, undefined, 1, { expr: 1, vel: 0.8 })])).toBe("0'1'vel:.8")
+    expect(laneText([note(0, 5, undefined, undefined, { chance: 0.5 })])).toBe("5'chance:.5")
   })
 
   it('writes nothing where there is no value', () => {

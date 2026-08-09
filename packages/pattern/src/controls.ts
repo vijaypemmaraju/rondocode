@@ -2,6 +2,7 @@ import { Pattern, reify } from './pattern'
 import { MiniError, miniParse, mini, n as nTag } from './mini'
 import type { Loc } from './mini'
 import { noteNameToMidi, parseScaleName, scaleDegree } from './scales'
+import { timeHash } from './rand'
 // Side-effect import: the control methods below extend the same prototype
 // the combinators install onto; keep the module initialized first.
 import './combinators'
@@ -39,9 +40,12 @@ export interface ControlMap {
    *  fold it into — and applied after the lookup, so `2#` means "the third
    *  degree, raised", whatever that degree happens to be in this scale. */
   nAcc?: number
-  /** Per-note expression value from a `'n` suffix in mini-notation. Ordinary
-   *  (not structural): it flows to the synth as a param named `expr`. */
+  /** Per-note expression value from a bare `'n` suffix. Ordinary (not
+   *  structural): it flows to the synth as a param named `expr`. */
   expr?: number
+  /** Per-note probability from `'chance:n`. STRUCTURAL: consumed when the
+   *  pattern is built and never reaches a synth. */
+  chance?: number
   /** Absolute midi note (post-scale resolution, or set directly by `note()`). */
   note?: number
   /** Synth name the scheduler routes the event to. */
@@ -78,7 +82,7 @@ const numericMini = (src: string, what: string) => {
       throw new MiniError(`${what} requires numbers, got '${a.value}'`, a.loc.start, src)
     }
   }
-  return pattern as Pattern<{ value: number; loc: Loc; acc?: number; expr?: number }>
+  return pattern as Pattern<{ value: number; loc: Loc; acc?: number; lanes?: Readonly<Record<string, number>> }>
 }
 
 /**
@@ -101,32 +105,84 @@ export function note(x: number | string | Pattern<number>): Pattern<ControlMap> 
         )
       }
     }
-    return pattern.withValue((v) => {
+    return withChance(pattern.withValue((v) => {
       const out: ControlMap = {
         note: typeof v.value === 'number' ? v.value : noteNameToMidi(v.value)!,
         loc: v.loc,
       }
-      if (v.expr !== undefined) out.expr = v.expr
-      return out
-    })
+      return applyLanes(out, v.lanes)
+    }))
   }
   return reify(x).withValue((v): ControlMap => ({ note: v }))
+}
+
+
+/* ------------------------------------------------------------------------- *
+ * PER-NOTE LANES: `0'2'vel:.8'chance:.5`.
+ *
+ * Three names are STRUCTURAL — the pattern engine consumes them, exactly as
+ * `nAcc` rides along with `n`:
+ *
+ *   vel     the note's velocity, i.e. its own `gain`
+ *   len     a multiplier on the note's length, i.e. its own `dur`
+ *   chance  the probability it sounds at all
+ *
+ * `chance` is applied where the pattern is built rather than by the caller,
+ * and it draws from the SAME time-locked stream as degradeBy — so a note that
+ * fires on cycle 3 fires on cycle 3 every time the loop comes round, which is
+ * what makes a probabilistic line reproducible instead of merely random.
+ *
+ * Every other name is an ordinary param and reaches the synth untouched, so
+ * `0'cut:.7` drives `param('cut')` on that note alone. That is the whole
+ * reason the set is small: the language should not own a vocabulary of
+ * musical properties when the synth already has one.
+ * ------------------------------------------------------------------------- */
+
+/** Apply and strip `chance`: keep the note with that probability, and never
+ *  let the key reach a synth.
+ *
+ *  The draw is the SAME time-locked stream degradeBy uses, keyed on the hap's
+ *  start — so a note that fires on cycle 3 fires on cycle 3 every time the
+ *  loop comes round. That is what separates a reproducible probabilistic line
+ *  from one that is merely random, and it is the property that makes this
+ *  usable in a piece rather than only in a jam. */
+function withChance(p: Pattern<ControlMap>): Pattern<ControlMap> {
+  return p
+    .filterHaps((h) => {
+      const c = h.value.chance
+      return c === undefined || timeHash((h.whole ?? h.part).begin, 0) < c
+    })
+    .withValue((v) => {
+      if (v.chance === undefined) return v
+      const { chance: _drop, ...rest } = v
+      return rest as ControlMap
+    })
+}
+
+/** Lane names the pattern engine consumes rather than forwarding to a synth. */
+export const STRUCTURAL_LANES = new Set(['vel', 'len', 'chance'])
+
+/** Fold a note's lanes into its ControlMap. `chance` is left ON the map for
+ *  the filter below and stripped there, so this stays a pure mapping. */
+function applyLanes(out: ControlMap, lanes: Readonly<Record<string, number>> | undefined): ControlMap {
+  if (lanes === undefined) return out
+  for (const [k, v] of Object.entries(lanes)) {
+    if (k === 'vel') out.gain = v
+    else if (k === 'len') out.dur = v
+    else if (k === 'chance') out.chance = v
+    else (out as Record<string, unknown>)[k] = v
+  }
+  return out
 }
 
 /** Function form of `n`: degrees are numbers only (use `note()` for names). */
 const nCtrl = (x: number | string | Pattern<number>): Pattern<ControlMap> => {
   if (typeof x === 'string') {
-    return numericMini(x, 'n()').withValue((v) => {
+    return withChance(numericMini(x, 'n()').withValue((v) => {
       const out: ControlMap = { n: v.value, loc: v.loc }
       if (v.acc !== undefined) out.nAcc = v.acc
-      // `0'2` — the note's own expression value. NOT reserved: it reaches a
-      // synth as an ordinary param, so a graph reads it with param('expr')
-      // exactly as it would any pattern-driven control. That is the whole
-      // trick — the notation only has to ATTACH it; the delivery path to the
-      // voice already existed.
-      if (v.expr !== undefined) out.expr = v.expr
-      return out
-    })
+      return applyLanes(out, v.lanes)
+    }))
   }
   return reify(x).withValue((v): ControlMap => ({ n: v }))
 }
@@ -171,12 +227,11 @@ export function n(
  */
 export function sound(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
-    return miniParse(x).pattern.withValue((v) => {
+    return withChance(miniParse(x).pattern.withValue((v) => {
       const out: ControlMap = { sound: String(v.value), note: 60, loc: v.loc }
-      // a drum hit carries expression too: `kick'2 hat'0`
-      if (v.expr !== undefined) out.expr = v.expr
-      return out
-    })
+      // a drum hit carries lanes too: `kick'vel:.6 hat'chance:.5`
+      return applyLanes(out, v.lanes)
+    }))
   }
   return x.withValue((v): ControlMap => ({ sound: v, note: 60 }))
 }

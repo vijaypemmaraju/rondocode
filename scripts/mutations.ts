@@ -861,4 +861,22 @@ export const MUTATIONS: Mutation[] = [
     replace: '    return false',
     tests: 'packages/engine/test/midside.test.ts',
   },
+
+  /* ---- docs surfaces: a feature must reach the reader ------------------- */
+  {
+    label: 'docs: the notation loses its reference entry (guard is bidirectional)',
+    file: 'packages/app/src/docs/dsl-docs.ts',
+    find: "  ms('mini:\\''",
+    replace: "  ms('mini:UNUSED'",
+    tests: 'packages/app/test/docs.test.ts',
+  },
+  {
+    /* Renaming the id proved nothing — the recipe's TEXT is what the guard
+     * searches. Remove the node that makes it findable instead. */
+    label: 'docs: a whole family drops out of the cookbook',
+    file: 'packages/app/src/docs/cookbook.ts',
+    find: '  noisegate threshold:-42 range:-35 hold:60 release:120',
+    replace: '',
+    tests: 'packages/app/test/cookbook.test.ts',
+  },
 ]

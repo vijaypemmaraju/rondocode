@@ -130,6 +130,8 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:(p,s,r)', // a(3,8) — euclidean rhythm
       'mini:?', //   a?p     — random drop
       'mini:|', //   a | b   — random choice per cycle
+
+      "mini:'", // 0'2 0'vel:.8 — per-note lanes
     ]
     assertBidirectional(namesOfKind('mini-syntax'), GRAMMAR, 'mini syntax')
   })

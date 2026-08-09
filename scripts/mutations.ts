@@ -699,8 +699,40 @@ export const MUTATIONS: Mutation[] = [
   {
     label: 'example: the subgroup notes lose their own values',
     file: 'packages/app/src/examples/index.ts',
-    find: "  ~ ~ [12'1 11'-1] ~",
-    replace: '  ~ ~ [12 11] ~',
+    // anchored on the subgroup alone: the rests around it changed once when
+    // two play blocks became layered notation lines, and took the anchor with them
+    find: "[12'1 11'-1]",
+    replace: '[12 11]',
     tests: 'packages/app/test/note-bends-example.test.ts',
+  },
+
+  /* ---- the roll must SEE and WRITE a note that carries a value ----------- */
+  {
+    label: 'roll: STEP_RE forgets the expression, so the grid vanishes',
+    file: 'packages/app/src/editor/rondo/widgets.ts',
+    find: "export const STEP_RE = /^(-?\\d+)(#+|b+)?(?:'(-?\\d*\\.?\\d+))?$/",
+    replace: "export const STEP_RE = /^(-?\\d+)(#+|b+)?$/",
+    tests: 'packages/app/test/roll-expression.test.ts packages/app/test/scan-parity.test.ts',
+  },
+  {
+    label: 'roll: a drag silently deletes the expression it did not write',
+    file: 'packages/app/src/editor/rondo/widgets.ts',
+    find: '  if (expr === undefined) return withAcc',
+    replace: '  return withAcc\n  if (expr === undefined) return withAcc',
+    tests: 'packages/app/test/roll-expression.test.ts',
+  },
+  {
+    label: 'roll: the JS scanner stops seeing expressions (parity breaks)',
+    file: 'packages/app/src/editor/widgets/jsscan.ts',
+    find: "      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),",
+    replace: '',
+    tests: 'packages/app/test/roll-expression.test.ts packages/app/test/scan-parity.test.ts',
+  },
+  {
+    label: 'eval: two blocks on one channel go back to failing silently',
+    file: 'packages/app/src/session/evalCode.ts',
+    find: '    if (patterns.has(name)) {',
+    replace: '    if (false) {',
+    tests: 'packages/app/test/duplicate-channel.test.ts',
   },
 ]

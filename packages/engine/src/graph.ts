@@ -6,7 +6,7 @@ export type NodeType =
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'
   // elementary math; the operation itself is config ('op'), the operand a signal
   | 'math' | 'math2'
-  | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'noisegate' | 'deess' | 'follow' | 'limiter' | 'phaser' | 'formant' | 'vocoder'
+  | 'delay' | 'reverb' | 'chorus' | 'comb' | 'bitcrush' | 'shape' | 'compress' | 'noisegate' | 'deess' | 'follow' | 'pitchshift' | 'limiter' | 'phaser' | 'formant' | 'vocoder'
   | 'eq' | 'exciter' | 'ott' | 'width' | 'transient' | 'flanger'
   | 'pan' | 'const' | 'param' | 'notefreq' | 'gate' | 'velocity'
   | 'businput' | 'mic' | 'mix' | 'out'

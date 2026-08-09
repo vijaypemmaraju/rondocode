@@ -1114,6 +1114,15 @@ play talkbox
 cps .45`,
       ),
       p("The JS spelling is `mic()`: `vocoder(supersaw(note.freq), mic(), { bands: 24 })`. The shipped 'live mic' example layers this vocoder with a breathy hi-passed copy of the raw mic for intelligibility."),
+      p('`pitchshift` moves a signal in SEMITONES and leaves its length alone, which is the one thing neither `sample speed:` (varispeed -- pitch and time together) nor `granular` (a texture generator) can do to a signal that already exists. On a mic it is a harmoniser: `mix: 0.5` keeps your own voice underneath the shifted copy. The interval is fixed, the way a hardware harmoniser works -- a third above every note, not a third in the key. `window` is the artefact control and cannot be switched off, because the read head has to wrap somewhere: short windows warble, long ones smear transients. At 0 semitones it returns the input untouched rather than approximately.'),
+      code(
+        'Sing a fifth above yourself.',
+        `const harm = synth(({ mic, pitchshift, noisegate }) =>
+  pitchshift(noisegate(mic(), { threshold: -42 }), { semitones: 7, window: 40, mix: 0.5 }))
+
+p('harm', note('c3').sound('harm').dur(0.99))
+setCps(0.5)`,
+      ),
       p('A LIVE CHANNEL STRIP is the other thing the mic is for: not an effect on your voice, but the chain a stage needs in front of it. `noisegate` first (it removes the bleed and the room tone before anything amplifies them), then `deess`, then `compress`, and `limiter` last if the ceiling matters. Each is documented on its own in the reference; the order is the point.'),
       p('The channel is kept open by a HELD note: `dur: .99` on a one-note pattern. That looks like it should click on every retrigger and it does not: with no envelope on the spine there is nothing to re-attack, and the largest sample-to-sample step across a retrigger measures smaller than the signal\'s own slope.'),
       note('Turn ECHO CANCELLATION on in options when you are playing through a speaker rather than headphones. On a phone it is on by default, because the speaker is a couple of centimetres from the microphone and a live chain would otherwise howl. It costs some latency and may resample, so a take that matters still wants the raw signal and headphones. The options panel shows the measured round trip either way.'),

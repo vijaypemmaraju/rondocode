@@ -18,7 +18,7 @@ describe('examples', () => {
   // ("twenty-eight") and the two had already drifted apart from each other,
   // which is the same one-list-many-copies shape this suite exists to catch.
   it('ships a fixed set of distinctly named examples (local ones may add more)', () => {
-    expect(SHIPPED_EXAMPLES).toHaveLength(33)
+    expect(SHIPPED_EXAMPLES).toHaveLength(34)
     expect(new Set(EXAMPLES.map((e) => e.name)).size).toBe(EXAMPLES.length) // all unique
     for (const s of SHIPPED_EXAMPLES) expect(EXAMPLES).toContainEqual(s)
   })

@@ -467,6 +467,34 @@ export const MUTATIONS: Mutation[] = [
 
   /* ---- the de-esser: selectivity is the whole contract ------------------- */
   {
+    label: 'pitchshift: the crossfade goes continuous, so the taps interfere',
+    file: 'packages/engine/src/dsp/pitchshift.ts',
+    find: '      if (d <= 0.5 - XFADE) {',
+    replace: '      if (false) {',
+    tests: 'packages/engine/test/pitchshift.test.ts',
+  },
+  {
+    label: 'pitchshift: only one read head, so the wrap is a bare splice',
+    file: 'packages/engine/src/dsp/pitchshift.ts',
+    find: '      const shifted = this.tap(p * W) * g1 + this.tap(q * W) * g2',
+    replace: '      const shifted = this.tap(p * W)',
+    tests: 'packages/engine/test/pitchshift.test.ts',
+  },
+  {
+    label: 'pitchshift: the phase never advances, so nothing is shifted',
+    file: 'packages/engine/src/dsp/pitchshift.ts',
+    find: '      this.phase = p + step',
+    replace: '      this.phase = p',
+    tests: 'packages/engine/test/pitchshift.test.ts',
+  },
+  {
+    label: 'pitchshift: zero semitones stops being bit-exact',
+    file: 'packages/engine/src/dsp/pitchshift.ts',
+    find: '    this.bypass = semis === 0',
+    replace: '    this.bypass = false',
+    tests: 'packages/engine/test/pitchshift.test.ts',
+  },
+  {
     label: 'follow: attack and release become symmetric (a waveform tremolo)',
     file: 'packages/engine/src/dsp/follow.ts',
     find: 'env += (level - env) * (level > env ? this.atk : this.rel)',

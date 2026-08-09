@@ -40,6 +40,7 @@ import { CompressKernel } from './dsp/compress'
 import { GateKernel } from './dsp/gate'
 import { DeessKernel } from './dsp/deess'
 import { FollowKernel } from './dsp/follow'
+import { PitchShiftKernel } from './dsp/pitchshift'
 import { LimiterKernel } from './dsp/limiter'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
@@ -57,6 +58,7 @@ import type { CompressConfig } from './dsp/compress'
 import type { GateConfig } from './dsp/gate'
 import type { DeessConfig } from './dsp/deess'
 import type { FollowConfig } from './dsp/follow'
+import type { PitchShiftConfig } from './dsp/pitchshift'
 import type { LimiterConfig } from './dsp/limiter'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
@@ -202,6 +204,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   noisegate: [{ name: 'in' }],
   deess: [{ name: 'in' }],
   follow: [{ name: 'in' }],
+  pitchshift: [{ name: 'in' }],
   limiter: [{ name: 'in' }],
   phaser: [{ name: 'in' }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
@@ -287,6 +290,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   noisegate: (c) => new GateKernel(gateCfg(c)),
   deess: (c) => new DeessKernel(deessCfg(c)),
   follow: (c) => new FollowKernel(followCfg(c)),
+  pitchshift: (c) => new PitchShiftKernel(pitchShiftCfg(c)),
   limiter: (c) => new LimiterKernel(limiterCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
@@ -387,6 +391,14 @@ const followCfg = (c: Record<string, unknown>): FollowConfig => {
   // the one non-numeric config in this family: an unknown word must fall back
   // to the default rather than reaching the kernel as garbage
   if (c['mode'] === 'rms' || c['mode'] === 'peak') out.mode = c['mode']
+  return out
+}
+
+const pitchShiftCfg = (c: Record<string, unknown>): PitchShiftConfig => {
+  const out: PitchShiftConfig = {}
+  for (const k of ['semitones', 'window', 'mix'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
   return out
 }
 

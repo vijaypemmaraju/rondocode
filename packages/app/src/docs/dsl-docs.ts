@@ -626,6 +626,12 @@ const SYNTH_CTX: DocEntry[] = [
     "deess(mic(), { freq: 6500, threshold: -28, ratio: 5 })",
   ),
   sc(
+    'pitchshift',
+    'pitchshift(input, opts?: { semitones, window, mix })',
+    'Move a signal in SEMITONES without changing how long it lasts. The engine could already change pitch two ways and neither is this: `sample speed:` is varispeed, so pitch and time move together like a record at the wrong rpm, and `granular rate:` decouples them but is a texture generator rather than something you can put a microphone through. This takes a signal that already exists -- a mic, a bus, a voice -- and hands back the same thing a fifth higher. semitones -24..24 (def 0, which is a BIT-EXACT passthrough, not an approximation). window ms (def 50) is the artefact control and it cannot be switched off: the read head wraps around a window, and short windows warble while long ones smear transients and add an echo of up to that length. mix 0..1 (def 1, fully shifted); use 0.5 for a harmoniser that keeps the original underneath. The interval is FIXED, like a hardware harmoniser -- a third above every note, not a third in the key.',
+    'pitchshift(voice, { semitones: 7, window: 40, mix: 0.5 })',
+  ),
+  sc(
     'follow',
     "follow(input, opts?: { attack, release, mode: 'peak'|'rms' })",
     'AN ENVELOPE FOLLOWER: audio in, a control signal out. It reports how LOUD its input is, as an ordinary signal you can multiply by, subtract from 1, or map through a range -- so any sound can drive any parameter. This is the half sidechain does not cover: `sidechain` ducks on note ONSETS, so it keeps working even if you mute the source, and nothing in the engine reacted to actual level until this. attack ms (def 5) is how fast it rises, release ms (def 100) how fast it falls, and the asymmetry is the whole craft -- a fast attack catches transients, a slow release stops the control signal chattering between them. mode `peak` (def) tracks the waveform crest and is what you want for catching hits; `rms` averages power over a 25 ms window, reads about 3 dB lower on a sine, and is far steadier, which is what you want driving a filter. Output is linear amplitude (0..1 for signals inside +-1), not dB, because every consumer wants a multiplier or a range.',

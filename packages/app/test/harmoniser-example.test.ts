@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '@rondocode/rondo'
-import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../server/src/render-runner'
 import { RECIPES } from '../src/docs/cookbook'
 import { EXAMPLES } from '../src/examples'
 
@@ -37,7 +37,7 @@ function render(rondo: string): Float32Array {
   expect(st.ok, 'the program does not stage').toBe(true)
   const cps = st.cps ?? 0.5
   const evs = runPatterns(st.patterns, { cycles: 1, cps })
-  return renderMix(st.synths, evs, 1 / cps, { cps, sampleRate: sr }).left
+  return renderMix(st.synths, evs, 1 / cps, mixOptsFor(st, { cps, sampleRate: sr })).left
 }
 
 describe('the harmoniser recipe really harmonises', () => {

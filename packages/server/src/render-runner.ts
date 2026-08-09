@@ -391,6 +391,38 @@ const stemRms = (l: Float32Array, r: Float32Array): number => {
  * carried through the master stage with the SAME per-sample gain the mix got
  * so they still sum to it. The mix itself is unaffected by the option.
  */
+/* ------------------------------------------------------------------------- *
+ * A StageResult and MixOpts describe the SAME project. Eight of MixOpts'
+ * fields are answered by the staged result and nothing else, so every caller
+ * that wants a faithful bounce has to copy the same eight lines across — and
+ * the copies are where bounces quietly stop matching what you heard.
+ *
+ * That is not hypothetical. `cps` was optional here and eight of ten callers
+ * omitted it, so every tempo-synced delay and LFO bounced at the wrong rate
+ * (#239); making it required fixed that ONE field and left the rest. Measured
+ * again while auditing: no test caller passed `buses`/`sends`, so the three
+ * doc programs built around send buses — including the guide section whose
+ * whole subject IS buses — were rendered with their buses silently absent and
+ * still passed "makes sound".
+ *
+ * So: derive them once. `extra` overrides anything and carries the fields the
+ * staged result cannot know (sample rate, samples, stems).
+ * ------------------------------------------------------------------------- */
+export function mixOptsFor(
+  staged: Extract<StageResult, { ok: true }>,
+  extra: Partial<MixOpts> = {},
+): MixOpts {
+  return {
+    cps: staged.cps ?? 0.5,
+    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
+    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
+    ...(staged.masterGain !== undefined ? { masterGain: staged.masterGain } : {}),
+    ...(staged.stereo !== undefined ? { stereo: staged.stereo } : {}),
+    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
+    ...extra,
+  }
+}
+
 export function renderMix(
   synths: Map<string, SynthDef>,
   events: Map<string, RenderEvent[]>,

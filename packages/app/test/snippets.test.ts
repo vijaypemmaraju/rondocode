@@ -145,7 +145,7 @@ describe('insertableSnippet — do not redefine what is already there', () => {
  * stayed silent. */
 describe('a saved drum line plays in a document that never heard of it', async () => {
   const { compile } = await import('@rondocode/rondo')
-  const { stageCode, runPatterns, renderMix } = await import('../../server/src/render-runner')
+  const { stageCode, runPatterns, renderMix, mixOptsFor } = await import('../../server/src/render-runner')
 
   const SOURCE = [
     'synth kick',
@@ -173,7 +173,7 @@ describe('a saved drum line plays in a document that never heard of it', async (
     if (!st.ok) throw new Error(st.diagnostics[0]!.message)
     const evs = runPatterns(st.patterns, { cycles: 2, cps: 0.5 })
     const onsets = [...evs.values()].flat().filter((e) => e.type === 'noteOn').length
-    const mix = renderMix(st.synths, evs, 4, { cps: 0.5 })
+    const mix = renderMix(st.synths, evs, 4, mixOptsFor(st, { cps: 0.5 }))
     let sum = 0
     for (const v of mix.left) sum += v * v
     return { onsets, rms: Math.sqrt(sum / mix.left.length) }

@@ -120,7 +120,8 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:seq', // a b c   — sequence
       'mini:~', //   ~       — rest
       'mini:_', //   _       — elongate previous step
-      'mini:[]', //  [a b]   — subgroup (',' stacks)
+      'mini:[]', //  [a b]   — subgroup
+      'mini:,', //   a, b    — stack (bracketed or not, since #328)
       'mini:<>', //  <a b>   — alternation, one per cycle
       'mini:{}', //  {..}%n  — polymeter
       'mini:*', //   a*n     — faster within the slot

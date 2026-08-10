@@ -432,10 +432,17 @@ export class EventFlasher {
       if (this.disposed || this.isDirty()) return
       for (const ev of evs) {
         const loc = ev.loc
+        /* EVERY piece of mini-notation that fired, not just the note atom. A
+         * `dur: <1 .5>` line is notation the reader wrote and watches, and it
+         * stayed dark while the notes beside it lit up — the rule is that
+         * anywhere mini-notation is supported, it lights up. */
+        const locs = ev.locs ?? []
         // loc-less events (patterns built from signals, not mini strings)
         // PULSE their channel's registered span instead of an atom flash
-        const pulseRanges = loc === undefined ? this.pulseRangesFor(ev.controls) : []
-        if (loc === undefined && pulseRanges.length === 0) continue
+        const pulseRanges = loc === undefined && locs.length === 0
+          ? this.pulseRangesFor(ev.controls)
+          : []
+        if (loc === undefined && locs.length === 0 && pulseRanges.length === 0) continue
         if (this.pendingTimers.size >= MAX_PENDING_FLASHES) return
         const delay = Math.max(0, (ev.timeSec - this.now()) * 1000)
         // Stay lit for the event's musical duration (the user reads "this
@@ -446,8 +453,17 @@ export class EventFlasher {
         let handle: unknown
         handle = this.setT(() => {
           this.pendingTimers.delete(handle)
-          if (loc !== undefined) this.fire(loc, ev.controls, litMs)
-          else this.flashRanges(pulseRanges, litMs)
+          if (loc === undefined && locs.length === 0) {
+            this.flashRanges(pulseRanges, litMs)
+            return
+          }
+          // one dispatch for all of them, so the note and its modifiers light
+          // and clear together rather than drifting apart by a frame
+          const ranges = [
+            ...(loc !== undefined ? locToDocRanges(this.literals, loc, ev.controls) : []),
+            ...locs.flatMap((l) => locToDocRanges(this.literals, l, ev.controls)),
+          ]
+          this.flashRanges(ranges, litMs)
         }, delay)
         this.pendingTimers.add(handle)
       }

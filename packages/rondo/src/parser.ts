@@ -559,7 +559,7 @@ const CURVE_NUM = /^-?\d*\.?\d+(?::-?\d*\.?\d+)?$/
 
 /** Parse a modifier value: number | signal (`sine 200..2400 slow:4`,
  *  `rise 8 0..1`, `curve 8 1 8 .2`, `shape swell 16`) | mini. */
-function parseCtrlValue(raw: string): CtrlValue {
+function parseCtrlValue(raw: string, from?: number): CtrlValue {
   const s = raw.trim()
   const toks = s.split(/\s+/)
   if (toks.length === 1 && NUM_RE.test(toks[0]!)) return { kind: 'num', v: Number(toks[0]) }
@@ -606,7 +606,7 @@ function parseCtrlValue(raw: string): CtrlValue {
     }
     return v
   }
-  return { kind: 'mini', text: s }
+  return from === undefined ? { kind: 'mini', text: s } : { kind: 'mini', text: s, from: from + (raw.length - raw.trimStart().length) }
 }
 
 function parseMod(ln: Line, errors: RondoError[]): Mod | null {
@@ -629,7 +629,11 @@ function parseMod(ln: Line, errors: RondoError[]): Mod | null {
   const kv = /^([a-zA-Z_]\w*)\s*:\s*(.+)$/.exec(raw)
   if (kv) {
     const name = kv[1]!
-    const value = parseCtrlValue(kv[2]!)
+    /* Where the VALUE starts in the buffer. `(.+)$` is greedy to the end of
+     * the trimmed line, so the value begins that many characters from its end;
+     * `ln.offset` is where `raw` began before trimming. */
+    const valueFrom = ln.offset + ln.raw.indexOf(raw) + (raw.length - kv[2]!.length)
+    const value = parseCtrlValue(kv[2]!, valueFrom)
     if (CTRL_METHODS.has(name)) return { kind: 'method', name: name as 'gain', value, pos }
     return { kind: 'ctrl', name, value, pos }
   }

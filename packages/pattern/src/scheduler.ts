@@ -47,6 +47,9 @@ export interface SchedulerEvent {
   cycle: number
   /** Source range of the originating mini-notation atom, when known. */
   loc?: Loc
+  /** Source ranges of the MODIFIER atoms that contributed (dur:, sound:, …),
+   *  so the editor can flash every piece of notation that fired. */
+  locs?: Loc[]
 }
 
 export interface SchedulerOpts {
@@ -262,6 +265,7 @@ export class Scheduler {
             cycle: whole.begin.sam().valueOf(),
           }
           if (controls.loc !== undefined) ev.loc = controls.loc
+          if (Array.isArray(controls.locs) && controls.locs.length > 0) ev.locs = controls.locs
           evs.push(ev)
         }
       } catch (e) {

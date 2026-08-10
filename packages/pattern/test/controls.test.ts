@@ -96,11 +96,15 @@ describe('sound() / s()', () => {
 })
 
 describe('control methods on Pattern<ControlMap>', () => {
-  it('.sound() merges a name into every event, keeping structure and locs from the left', () => {
+  it('.sound() merges a name into every event, keeping structure and the primary loc from the left', () => {
+    /* `loc` stays the NOTE atom's — that is the "where did this event come
+     * from" answer and nothing downstream should have to change. The sound
+     * word contributes to `locs` instead, so the editor can light it up too
+     * without losing which atom was primary. */
     const p = n('0 3').sound('acid')
     expect(q(p, 0, 1)).toEqual([
-      [0, 0.5, { n: 0, loc: { start: 0, end: 1 }, sound: 'acid' }],
-      [0.5, 1, { n: 3, loc: { start: 2, end: 3 }, sound: 'acid' }],
+      [0, 0.5, { n: 0, loc: { start: 0, end: 1 }, sound: 'acid', locs: [{ start: 0, end: 4, src: 'acid' }] }],
+      [0.5, 1, { n: 3, loc: { start: 2, end: 3 }, sound: 'acid', locs: [{ start: 0, end: 4, src: 'acid' }] }],
     ])
   })
 
@@ -157,17 +161,22 @@ describe('control methods on Pattern<ControlMap>', () => {
   })
 
   it('a finer-grained value pattern subdivides values but keeps left wholes', () => {
+    /* Each sub-part carries the loc of the gain atom that produced IT, which is
+     * what lets the editor flash the right half of `0.25 0.75` at the right
+     * time. Modifier locs carry `src` (the string they were parsed from) so
+     * locToDocRanges can pin the exact literal; the note loc here does not,
+     * and falls back to matching by text. */
     const p = n('0').gain('0.25 0.75')
     expect(qw(p, 0, 1)).toEqual([
       {
         whole: [0, 1],
         part: [0, 0.5],
-        value: { n: 0, loc: { start: 0, end: 1 }, gain: 0.25 },
+        value: { n: 0, loc: { start: 0, end: 1 }, gain: 0.25, locs: [{ start: 0, end: 4, src: '0.25 0.75' }] },
       },
       {
         whole: [0, 1],
         part: [0.5, 1],
-        value: { n: 0, loc: { start: 0, end: 1 }, gain: 0.75 },
+        value: { n: 0, loc: { start: 0, end: 1 }, gain: 0.75, locs: [{ start: 5, end: 9, src: '0.25 0.75' }] },
       },
     ])
   })

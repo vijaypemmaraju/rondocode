@@ -59,6 +59,28 @@ cps .5`,
     why: 'The ORDER is the recipe: each line fixes something the one above it cannot. Gate FIRST, so nothing downstream amplifies the room you were about to remove -- that single choice is most of the difference between a usable mic and a noisy one. The eq peak adds presence where words live, which is usually what made the sibilance sharp, so the de-esser follows it rather than preceding it, and the limiter is last because a ceiling is only a ceiling if nothing comes after. These numbers are a starting point tuned against a synthetic voice; the gate threshold depends entirely on your room.',
   },
   {
+    id: 'diatonic-harmony',
+    title: 'Add a harmony that stays in the key',
+    tags: ['harmony', 'superimpose', 'scale', 'degrees', 'diatonic'],
+    code: `synth lead
+  saw note
+  ladder cut res:.3
+  * env
+  * .3
+  env = adsr .01 .12 .7 .2
+  cut = env ^ 2 -> 600..4200
+  post
+    reverb room:.5 damp:.4 mix:.2
+
+play lead
+  0 2 4 5 4 2 1 0
+  scale:a-min
+  superimpose: add 2
+
+cps .5`,
+    why: '`add` counts in SCALE DEGREES, not semitones, and that is the whole trick. `add 2` is two steps up the scale, so it lands a MINOR third above some notes and a MAJOR third above others -- measured on this line, 3 4 3 4 3 4 3 3 semitones -- which is what a second singer does and what a fixed interval cannot. `superimpose` keeps the original underneath rather than replacing it. Compare the `harmoniser` recipe: `pitchshift` works on AUDIO, where the note and the key are already gone, so it can only move everything by the same amount.',
+  },
+  {
     id: 'harmoniser',
     title: 'Add a harmony line without writing one',
     tags: ['pitchshift', 'harmony', 'voice', 'mic', 'effect'],
@@ -78,7 +100,7 @@ play lead
   dur: .9
 
 cps .5`,
-    why: 'The interval is FIXED, which is the thing to know before you reach for it. This is a hardware harmoniser, not a diatonic one: every note gets a fifth above it, so it stays in key here only because a fifth above the minor scale degrees used happens to land in the scale. `mix` is what makes it a harmony rather than a transposition -- at 1 you have simply moved the part, at 0.45 the original is still underneath. `window` is the artefact and cannot be turned off, because the read head has to wrap somewhere: 40 ms is short enough to keep the attacks and long enough not to warble. And at 0 semitones the node returns the input untouched, so it is safe to leave in a chain you are auditioning.',
+    why: 'The interval is FIXED, which is the thing to know before you reach for it (see `diatonic-harmony` for one that follows the key). This is a hardware harmoniser, not a diatonic one: every note gets a fifth above it, so it stays in key here only because a fifth above the minor scale degrees used happens to land in the scale. `mix` is what makes it a harmony rather than a transposition -- at 1 you have simply moved the part, at 0.45 the original is still underneath. `window` is the artefact and cannot be turned off, because the read head has to wrap somewhere: 40 ms is short enough to keep the attacks and long enough not to warble.',
   },
   {
     id: 'mono-bass',

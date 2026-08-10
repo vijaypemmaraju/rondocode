@@ -783,7 +783,7 @@ const MINI_SYNTAX: DocEntry[] = [
   ms('mini:{}', '{a b c, d e}%n', 'Polymeter: voices of different lengths run at n steps per cycle, drifting against each other.', "note('{c2 e2 g2, c4 g4}%4')"),
   ms('mini:*', 'a*n', 'Repeat the step n times faster within its slot, "c5*8" is eight hits in the step.', "note('c5*8').sound('hat')"),
   ms('mini:/', 'a/n', 'Slow the step down by n: it takes n cycles to play once.', "note('c2/2')"),
-  ms('mini:!', 'a!n', 'Duplicate the step n times as separate steps ("a!3 b" = "a a a b"); bare ! repeats once more.', "n('0!3 5')"),
+  ms('mini:!', 'a!n', 'Duplicate the step n times as separate steps ("a!3 b" = "a a a b"); bare ! repeats once more. Repeats ACCUMULATE, so "0 ! !" is three copies and "a!2!3" is four: each ! adds its own extras rather than replacing the count before it.', "n('0!3 5')"),
   ms('mini:@', 'a@n', 'Weight: give this step n slots’ worth of time ("a@3 b" makes a three times as long as b).', "n('0@3 5')"),
   ms('mini:(p,s,r)', 'a(pulses,steps,rotation?)', 'Euclidean rhythm written inline on the atom it applies to: bd(3,8) spreads three kicks as evenly as possible over eight slots -- the tresillo. A third number ROTATES the pattern left by that many steps (bd(3,8,2)), starting the same rhythm elsewhere in the bar, which grooves quite differently. Because it attaches to ONE atom, different words on the same line can carry different Euclidean figures, which is how an interlocking groove is written as a single line rather than three stacked patterns.', "sound('bd(3,8)')"),
   ms('mini:?', 'a?p', 'Maybe: drop this step at random (probability p, default 0.5), deterministic per cycle.', "note('c5*8 ?0.3')"),

@@ -2,7 +2,7 @@
 
 import type { RondoError } from './ast'
 import { parse } from './parser'
-import { codegen } from './codegen'
+import { codegen, scaleArg } from './codegen'
 
 /** A notation string + where it lives in the rondo source. The editor uses
  *  these to map play-events back onto the buffer for note-play highlighting:
@@ -105,7 +105,13 @@ export function compile(src: string): CompileResult {
           ? [{ content: v.text, from: v.from }]
           : []
       })
-      return [one(p), ...(p.voices ?? []).map(one), ...modSpans]
+      /* A PATTERNED scale is notation too. The emitted text differs from the
+       * buffer only by `-` -> `_`, which is length-preserving on purpose (see
+       * scaleArg), so the offsets still land on the right characters. */
+      const scaleSpans: NoteSpan[] = p.scale !== undefined && p.scaleFrom !== undefined
+        ? [{ content: scaleArg(p.scale), from: p.scaleFrom }]
+        : []
+      return [one(p), ...(p.voices ?? []).map(one), ...modSpans, ...scaleSpans]
     })
     .filter((s) => s.content.length > 0)
   // irand notation lines produce loc-less events — pulse the whole line

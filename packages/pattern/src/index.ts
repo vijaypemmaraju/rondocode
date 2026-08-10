@@ -13,6 +13,7 @@ export type { ControlMap, ControlValue } from './controls'
 export { ARP_ORDERS, CHORD_QUALITIES, chord, chordDegree, parseChord } from './chords'
 export {
   SCALES,
+  SCALE_MODE,
   parseScaleName,
   scaleDegree,
   noteNameToMidi,

@@ -125,8 +125,11 @@ export interface PlayBlock {
    *  block's synth, which is right for a hand-built chord and wrong when
    *  each layer is a different instrument. */
   voices?: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]; notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[] }[]
-  /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
+  /** short scale name from `scale:a-min`, if present (e.g. "a-min"), or a
+   *  mini PATTERN of them (`<c-maj f-min>`) when the key modulates. */
   scale?: string
+  /** absolute offset of the scale VALUE, so a patterned one can flash. */
+  scaleFrom?: number
   /** modifier lines under the notation, applied in order. */
   mods: Mod[]
   pos: Pos

@@ -232,18 +232,41 @@ const edoIntervals = (n: number): readonly number[] => {
  * then defineScale registrations. Throws RangeError on a malformed root
  * or unknown mode.
  */
+/** Short mode spellings. ONE table: rondo's `scale:a-min` and a mini atom
+ *  `<c_maj f_min>` both land here, so the abbreviations cannot drift between
+ *  the language and the pattern engine. */
+export const SCALE_MODE: Readonly<Record<string, string>> = {
+  min: 'minor', maj: 'major', dor: 'dorian', phr: 'phrygian', lyd: 'lydian',
+  mix: 'mixolydian', loc: 'locrian',
+}
+
 export function parseScaleName(name: string): {
   root: number
   intervals: readonly number[]
   period: number
 } {
-  const parts = name.trim().toLowerCase().split(/\s+/)
+  /* `c_major`, `c-maj` and `c major` are the same scale.
+   *
+   * Mini atoms are SPACE-delimited and the mini lexer rejects `-` inside a
+   * word, so the canonical two-word form cannot be a single atom — which is
+   * exactly what stopped `scale: <c-maj f-min>` from being expressible at all.
+   * `_` is the separator that survives mini, and rondo rewrites its `-` to one
+   * WITHOUT changing the length, so note-flash offsets still land on the right
+   * characters. No mode name contains a separator (all 16 checked), so
+   * splitting on the first one is unambiguous. */
+  const sep = /[_-]/.exec(name)
+  const spaced = !name.includes(' ') && sep !== null
+    ? `${name.slice(0, sep.index)} ${name.slice(sep.index + 1)}`
+    : name
+  const parts = spaced.trim().toLowerCase().split(/\s+/)
   if (parts.length !== 2) {
     throw new RangeError(
       `scale name must be 'root mode' (e.g. 'a minor'), got '${name}'`,
     )
   }
-  const [rootStr, modeStr] = parts as [string, string]
+  const [rootStr, rawMode] = parts as [string, string]
+  // `maj` and `major` are the same mode; see SCALE_MODE
+  const modeStr = SCALE_MODE[rawMode] ?? rawMode
   const m = /^([a-g])([#b]?)$/.exec(rootStr)
   const pc = m ? pitchClass(m[1]!, m[2]!) : undefined
   if (pc === undefined) {

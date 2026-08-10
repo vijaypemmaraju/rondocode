@@ -59,6 +59,34 @@ cps .5`,
     why: 'The ORDER is the recipe: each line fixes something the one above it cannot. Gate FIRST, so nothing downstream amplifies the room you were about to remove -- that single choice is most of the difference between a usable mic and a noisy one. The eq peak adds presence where words live, which is usually what made the sibilance sharp, so the de-esser follows it rather than preceding it, and the limiter is last because a ceiling is only a ceiling if nothing comes after. These numbers are a starting point tuned against a synthetic voice; the gate threshold depends entirely on your room.',
   },
   {
+    id: 'modulate',
+    title: 'Change key without rewriting the notes',
+    tags: ['scale', 'key', 'modulation', 'degrees', 'harmony'],
+    code: `synth keys
+  (saw note) * .3
+  svf 2600 res:.2
+  * adsr .01 .18 .6 .3
+  post
+    reverb room:.6 damp:.4 mix:.2
+
+synth bass
+  (sine note) * .5
+  * adsr .005 .12 .7 .14
+
+play keys
+  0 2 4 6 4 2
+  scale: <c-maj a-min f-maj g-mix>
+  dur: .9
+
+play bass
+  0 ~ 4 ~
+  scale: <c-maj a-min f-maj g-mix>
+  dur: .9
+
+cps .45`,
+    why: 'The DEGREES never change -- `0 2 4 6 4 2` is one shape, written once -- and the KEY moves under them, so the same figure is major, then minor, then major again without a note being rewritten. That is the difference from transposing: transposition moves the whole thing a fixed distance and keeps its colour, while changing the scale keeps the position and changes the colour. Both parts name the same scale pattern, which is what keeps them in the same key as it moves. Inside mini notation the two words are hyphen-joined (`c-maj`) because atoms are space-delimited.',
+  },
+  {
     id: 'diatonic-harmony',
     title: 'Add a harmony that stays in the key',
     tags: ['harmony', 'superimpose', 'scale', 'degrees', 'diatonic'],

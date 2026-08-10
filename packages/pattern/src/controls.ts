@@ -314,7 +314,10 @@ declare module './pattern' {
      * past the scale length with octave shifts and mirror down for
      * negatives; non-integer degrees are rounded to the nearest integer.
      */
-    scale(this: Pattern<ControlMap>, name: string): Pattern<ControlMap>
+    /** Resolve degrees through a scale. A plain name (`'a minor'`) applies
+     *  throughout; a mini string of hyphen-joined names
+     *  (`'<c-major f-minor>'`) MODULATES, resolving per event. */
+    scale(this: Pattern<ControlMap>, name: string | Pattern<string>): Pattern<ControlMap>
     /**
      * Stereo split (Tidal): stack an untransformed copy panned hard left
      * with f(copy) panned hard right — juxBy(1, f). The pans are applied
@@ -414,10 +417,56 @@ Pattern.prototype.slide = ctrlAlias('slide')
 Pattern.prototype.cutoff = ctrlAlias('cutoff')
 Pattern.prototype.res = ctrlAlias('res')
 
+/** Characters that mean mini STRUCTURE. A plain scale name (`a minor`,
+ *  `f#-minor`) contains none of them, which is how a name is told from a
+ *  pattern of names without a second argument. */
+const MINI_META = /[<>[\]{}*!@?|,]/
+
+/** parseScaleName is not free (it builds the interval table), and a patterned
+ *  scale asks for the same few names on every event. */
+const scaleCache = new Map<string, ReturnType<typeof parseScaleName>>()
+const resolveScale = (name: string): ReturnType<typeof parseScaleName> => {
+  let hit = scaleCache.get(name)
+  if (hit === undefined) {
+    hit = parseScaleName(name)
+    scaleCache.set(name, hit)
+  }
+  return hit
+}
+
 Pattern.prototype.scale = function (
   this: Pattern<ControlMap>,
-  name: string,
+  name: string | Pattern<string>,
 ): Pattern<ControlMap> {
+  /* A PATTERN of scales: `scale: <c-major f-minor>` modulates the key. The
+   * scale is resolved per event and STAMPED, so a later `.add()` transposes in
+   * the scale that is actually sounding then — which is the whole reason the
+   * name rides along on the control map rather than being baked away here.
+   *
+   * Note names are hyphen-joined inside mini notation because atoms are
+   * space-delimited; parseScaleName accepts both spellings. */
+  if (typeof name !== 'string' || MINI_META.test(name)) {
+    const vals = typeof name === 'string'
+      ? (() => {
+          const { pattern, atoms } = miniParse(name)
+          // eager: a bad name still throws NOW, exactly as the static form does
+          for (const a of atoms) resolveScale(String(a.value))
+          return pattern.withValue((v) => ({ value: String(v.value), loc: v.loc as Loc | undefined }))
+        })()
+      : name.withValue((v) => ({ value: v, loc: undefined as Loc | undefined }))
+    return this.appLeft(vals, (c, v): ControlMap => {
+      if (typeof c.n !== 'number') return c
+      const { root, intervals, period } = resolveScale(v.value)
+      const out: ControlMap = {
+        ...c,
+        note: root + scaleDegree(intervals, Math.round(c.n), period) + (c.nAcc ?? 0),
+        scale: v.value,
+      }
+      const locs = withLoc(c, v.loc)
+      if (locs !== undefined) out.locs = locs
+      return out
+    })
+  }
   const { root, intervals, period } = parseScaleName(name) // eager: bad names throw now
   // Stamp the scale NAME on each event (a string — skipped by param dispatch)
   // so a later .add()/.sub() can transpose in SCALE STEPS and re-resolve the

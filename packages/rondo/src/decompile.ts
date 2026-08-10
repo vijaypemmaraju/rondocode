@@ -1276,6 +1276,15 @@ function chainToPlay(chainNode: Node):
     if (m.method === 'scale' && m.args.length === 1) {
       const sv = strValue(m.args[0]!)
       if (sv === undefined) return null
+      /* A PATTERNED scale comes back as it went out, with the `_` separators
+       * turned back into the `-` the language writes. Without this a
+       * `scale: <c-maj f-min>` line survived a round trip only as a js{} blob,
+       * which is the language failing to spell something it accepts. */
+      if (/[<>[\]{}*!@?|,]/.test(sv)) {
+        scale = sv.replace(/_/g, '-')
+        cur = m.obj
+        continue
+      }
       const [root, mode, extra] = sv.split(' ')
       if (root === undefined || mode === undefined || extra !== undefined) return null
       // the short form must re-lex as `scale:root-mode` — a root outside

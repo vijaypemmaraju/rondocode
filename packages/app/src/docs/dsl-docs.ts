@@ -456,8 +456,8 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('res', 'res(x: number | string | Pattern)', "Set the synth's 'res' (resonance) parameter per event, shorthand for .ctrl('res', x).", '.res(0.85)'),
   pm(
     'scale',
-    "scale(name: string)",
-    "Turn scale degrees (from n()) into actual notes in a scale like 'a minor' or 'f# mixolydian', degrees past the top wrap up an octave.",
+    "scale(name: string | Pattern<string>)",
+    "Turn scale degrees (from n()) into actual notes in a scale like `a minor` or `f# mixolydian`; degrees past the top wrap up an octave. The name can also be a PATTERN, which modulates the key: `<c-maj f-min>` plays the same degrees in C major one cycle and F minor the next, so a line written once changes colour instead of being rewritten. Inside mini notation the two words are hyphen-joined, because atoms are space-delimited -- `c-maj`, `f#-min`, `c-19edo`, and the long spellings too. The scale that applied is STAMPED on each event, which is what lets `add` transpose in degrees of whichever key is sounding at that moment rather than the first one. A bad name still throws when the pattern is built, not when it plays.",
     "n('0 0 3 5').scale('a minor')",
   ),
   pm(

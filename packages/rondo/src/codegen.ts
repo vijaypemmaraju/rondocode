@@ -22,10 +22,10 @@ export const isComposablePatDefName = (name: string): boolean =>
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
 
-export const SCALE_MODE: Record<string, string> = {
-  min: 'minor', maj: 'major', dor: 'dorian', phr: 'phrygian', lyd: 'lydian',
-  mix: 'mixolydian', loc: 'locrian', minor: 'minor', major: 'major',
-}
+/* From the pattern engine so the language and the engine cannot disagree
+ * about what `maj` means. It used to be a second copy here. */
+import { SCALE_MODE } from '@rondocode/pattern'
+export { SCALE_MODE }
 
 const num = (v: number): string => String(v)
 
@@ -98,6 +98,18 @@ export function maskJsLiterals(src: string): string {
     out.push(c === '\n' ? '\n' : ' '); i++
   }
   return out.join('')
+}
+
+/** What `.scale()` is handed: a single name, or a mini PATTERN of them.
+ *
+ *  A pattern is passed through with its `-` separators rewritten to `_`, which
+ *  the mini lexer accepts inside a word where `-` is a syntax error. The
+ *  rewrite is length-preserving ON PURPOSE: note-flash maps a loc inside this
+ *  string back to the buffer by offset, so expanding `maj` to `major` here
+ *  would silently shift every highlight. parseScaleName does the expanding
+ *  instead, from the same table this module re-exports. */
+export function scaleArg(short: string): string {
+  return /[<>[\]{}*!@?|,]/.test(short) ? short.replace(/-/g, '_') : expandScale(short)
 }
 
 /** Expand a short scale name (`a-min`) to what .scale() expects (`a minor`). */
@@ -812,7 +824,7 @@ function cgPlayPat(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<s
         ].join(', ')})`
       : `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
   } else pat = lineExpr(block.notation)
-  if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
+  if (block.scale) pat += `.scale('${scaleArg(block.scale)}')`
   // `overchord: <Am7 F>` re-reads the degrees as CHORD degrees. It applies
   // BEFORE .sound(), like the JS twin: it rewrites the notes themselves, and
   // every later modifier (a .ctrl sweep, a gain) decorates the result.

@@ -809,6 +809,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   let notation = ''
   let notationFrom = body[0]?.offset ?? 0
   let scale: string | undefined
+  let scaleFrom: number | undefined
   let scalePos: Pos | undefined
   let voices: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]; notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[] }[] | undefined
   let lineSynth: string | undefined
@@ -837,6 +838,17 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   for (const ln of modLines) {
     // `scale: a-min` as a modifier line (the stacked-voices form needs it
     // somewhere other than inline)
+    /* A PATTERN of scales modulates the key: `scale: <c-maj f-min>`. Anything
+     * with mini structure in it is taken as notation; a bare word stays the
+     * single-scale form it always was. */
+    const smPat = /^scale[ \t]*:[ \t]*(.*[<>[\]{}*!@?|,].*)$/.exec(ln.raw)
+    if (smPat) {
+      const raw = smPat[1]!
+      scale = raw.trim()
+      scaleFrom = ln.offset + ln.raw.indexOf(raw) + (raw.length - raw.trimStart().length)
+      scalePos = { line: ln.line, col: ln.rawCol }
+      continue
+    }
     const sm = /^scale[ \t]*:[ \t]*([a-gA-G][a-zA-Z0-9#_-]*)[ \t]*$/.exec(ln.raw)
     if (sm) { scale = sm[1]; scalePos = { line: ln.line, col: ln.rawCol }; continue }
     const mod = parseMod(ln, errors)
@@ -853,6 +865,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
     errors.push({ message: "a beat block's words are synth names — `scale:` doesn't apply", line: p.line, col: p.col })
   }
   const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
+  if (scaleFrom !== undefined) block.scaleFrom = scaleFrom
   if (kind === 'beat') block.entry = 'sound'
   // a `synth:` on the FIRST notation line is the same thing the header says,
   // so it settles into synthName rather than needing a second place to look

@@ -402,6 +402,25 @@ cps .4`,
     why: 'The RATIO is the instrument. `fm note 3.01` is a modulator at just over three times the pitch, and that near-miss is the whole sound: exact whole-number ratios give harmonic, organ-like tones, while a ratio slightly off one beats against itself and reads as metal. Push it to 7.02 and the partials spread far enough apart to become a chime. The envelope does the rest of the work -- the same patch is an electric piano with a short decay and a bell with a long one, because in FM the brightness follows the level.',
   },
   {
+    id: 'granular-freeze',
+    title: 'Stretch or freeze a sound without changing its pitch',
+    tags: ['granular', 'sample', 'texture', 'ambient', 'timestretch'],
+    code: `synth cloud voices:8
+  granular vox root:57 pos:scrub size:.13 density:60 spray:.005
+  * env
+  * 1.15
+  env = adsr .7 .5 .9 1.2
+  scrub = lfo .02 -> 0..1
+  post
+    reverb room:.9 damp:.4 mix:.38
+
+play cloud
+  <c3 g2 a2 f2>/2
+  dur: .98
+
+cps .3`,
+    why: '`pos` and pitch are INDEPENDENT, and that is the one thing granular does that nothing else can. `sample speed:` ties them together: play a loop slower and it drops in pitch, like a record at the wrong rpm. Here the NOTE sets the pitch and `pos` sets where in the file the grains are read from, so a very slow LFO walks through the sample while the chords stay in tune, and freezing `pos` on a number holds one moment open indefinitely. `density` times `size` is the overlap: 60 grains a second at 0.13s each means about eight sounding at once, which is what makes a continuous tone instead of a stutter.', },
+  {
     id: 'supersaw',
     title: 'Build a wide supersaw lead',
     tags: ['synth', 'lead', 'supersaw', 'unison', 'trance'],

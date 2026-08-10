@@ -73,7 +73,14 @@ export interface SynthBlock {
 export type CtrlValue =
   | { kind: 'num'; v: number }
   | { kind: 'sig'; sig: string; lo?: number; hi?: number; slow?: number; fast?: number }
-  | { kind: 'mini'; text: string }
+  | {
+      kind: 'mini'
+      text: string
+      /** Absolute offset of `text` in the source. Present so a modifier line
+       *  can FLASH: the rule is that anywhere mini-notation is supported it
+       *  lights up, and without an offset the editor has no span to light. */
+      from?: number
+    }
 
 /** A combinator applied to a pattern (a bare line, or the body of `every N:`). */
 export interface Comb {

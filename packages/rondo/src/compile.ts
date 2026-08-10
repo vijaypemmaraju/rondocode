@@ -93,7 +93,19 @@ export function compile(src: string): CompileResult {
             : { content: v.notation, from: v.notationFrom, pieces: v.notationPieces }
         return v.notationRefs === undefined || v.notationRefs.length === 0 ? base : { ...base, refs: v.notationRefs }
       }
-      return [one(p), ...(p.voices ?? []).map(one)]
+      /* MODIFIER lines are notation too. `dur: <1 .5>` is mini-notation the
+       * reader wrote and watches, and it stayed dark while the notes beside it
+       * lit up, because nothing ever told the editor those spans existed. The
+       * pattern layer carries their locs (ControlMap.locs); this is the other
+       * half. */
+      const modSpans: NoteSpan[] = p.mods.flatMap((m) => {
+        if (m.kind !== 'ctrl' && m.kind !== 'method') return []
+        const v = m.value
+        return v.kind === 'mini' && v.from !== undefined
+          ? [{ content: v.text, from: v.from }]
+          : []
+      })
+      return [one(p), ...(p.voices ?? []).map(one), ...modSpans]
     })
     .filter((s) => s.content.length > 0)
   // irand notation lines produce loc-less events — pulse the whole line

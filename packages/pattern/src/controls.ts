@@ -28,9 +28,18 @@ import './combinators'
  * LOCS: string inputs to the entry points (`n('0 3')`, `note('c4 e4')`,
  * `sound('acid')`) are parsed with source locations, threaded into
  * ControlMap.loc so the editor can flash the originating text when an
- * event fires. Value patterns given to control METHODS (`.gain('0.5 1')`)
- * are parsed WITHOUT locs — the event's loc belongs to the atom that
- * created it, not to a modifier.
+ * event fires.
+ *
+ * MODIFIER patterns carry theirs too, in `locs`. They used to be parsed
+ * WITHOUT locs on the reasoning that "the event's loc belongs to the atom that
+ * created it, not to a modifier" — which is true about the PRIMARY loc and was
+ * the wrong conclusion. A `dur: <1 .5>` line is mini-notation the reader wrote
+ * and watches, and it stayed dark while the notes beside it lit up. The rule is
+ * simply: anywhere mini-notation is supported, it lights up.
+ *
+ * `loc` stays the note atom's, so nothing downstream that wants "the one place
+ * this event came from" has to change; `locs` is everything else that
+ * contributed, and the editor flashes all of them.
  */
 export interface ControlMap {
   /** Scale degree (pre-scale, relative). Set by `n()`; consumed by `.scale()`. */
@@ -62,8 +71,13 @@ export interface ControlMap {
   slide?: number
   /** Source range of the atom that created this event — editor highlighting. */
   loc?: Loc
+  /** Source ranges of the MODIFIER atoms that contributed to this event: the
+   *  `<1 .5>` in `dur: <1 .5>`, the word in `sound: <a b>`. Flashed alongside
+   *  `loc`, so every piece of mini-notation the reader wrote lights up when it
+   *  actually fires. */
+  locs?: Loc[]
   /** Any other key is a synth param (cutoff, res, wobble, ...). */
-  [param: string]: number | string | Loc | undefined
+  [param: string]: number | string | Loc | Loc[] | undefined
 }
 
 /** What a control method accepts: a literal, a value pattern, or a mini string. */
@@ -330,9 +344,21 @@ declare module './pattern' {
   }
 }
 
-/** Lift a control-method argument to a value pattern (mini strings loc-free). */
-const liftValue = (x: ControlValue): Pattern<string | number> =>
-  typeof x === 'string' ? mini(x) : reify(x)
+/** Lift a control-method argument to a value pattern that keeps its source
+ *  range when there is one. A mini STRING is the only form that has a place in
+ *  the document to point at; a Pattern or a bare number does not. */
+const liftValue = (x: ControlValue): Pattern<{ value: string | number; loc?: Loc }> => {
+  if (typeof x === 'string') {
+    return miniParse(x).pattern.withValue((v) => ({ value: v.value, loc: v.loc }))
+  }
+  return reify(x).withValue((v) => ({ value: v as string | number }))
+}
+
+/** Append a modifier's source range, keeping the ones already there. */
+const withLoc = (c: ControlMap, loc: Loc | undefined): Loc[] | undefined => {
+  if (loc === undefined) return c.locs
+  return c.locs === undefined ? [loc] : [...c.locs, loc]
+}
 
 /** Keys .ctrl() refuses: they carry structural meaning and have dedicated
  *  entry points / are scheduler-managed, so patterning them as raw params
@@ -353,16 +379,27 @@ Pattern.prototype.ctrl = function (
   if (why !== undefined) {
     throw new TypeError(`ctrl('${name}') is reserved: ${why}`)
   }
-  return this.appLeft(liftValue(x), (c, v): ControlMap => ({ ...c, [name]: v }))
+  return this.appLeft(liftValue(x), (c, v): ControlMap => {
+    const out: ControlMap = { ...c, [name]: v.value }
+    const locs = withLoc(c, v.loc)
+    if (locs !== undefined) out.locs = locs
+    return out
+  })
 }
 
 Pattern.prototype.sound = function (
   this: Pattern<ControlMap>,
   x: string | Pattern<string>,
 ): Pattern<ControlMap> {
-  const vals: Pattern<string> =
-    typeof x === 'string' ? mini(x).withValue((v) => String(v)) : x
-  return this.appLeft(vals, (c, v): ControlMap => ({ ...c, sound: v }))
+  const vals = typeof x === 'string'
+    ? miniParse(x).pattern.withValue((v) => ({ value: String(v.value), loc: v.loc as Loc | undefined }))
+    : x.withValue((v) => ({ value: v, loc: undefined as Loc | undefined }))
+  return this.appLeft(vals, (c, v): ControlMap => {
+    const out: ControlMap = { ...c, sound: v.value }
+    const locs = withLoc(c, v.loc)
+    if (locs !== undefined) out.locs = locs
+    return out
+  })
 }
 
 const ctrlAlias = (name: string) =>

@@ -253,7 +253,15 @@ export class LfoCurveWidget extends WidgetType {
     if (s.lo !== undefined && s.hi !== undefined) text.textContent += ` · ${num(s.lo)}..${num(s.hi)}`
     wrap.appendChild(text)
 
-    const dot = mk('circle', { class: 'lc-dot', r: '2.5', cx: '0', cy: String(H / 2) })
+    /* A DOT ALONE LOSES AT SPEED. At 8 Hz the phase crosses the whole box in
+     * 125 ms — about seven frames at 60fps — so a small circle is a few
+     * scattered dots and reads as a flicker rather than motion. A full-height
+     * PLAYHEAD is visible whatever the rate, the same reason every DAW draws
+     * one, and the dot on the curve then says the VALUE rather than having to
+     * carry the position too. */
+    const head = mk('line', { class: 'lc-head', x1: '0', y1: '0', x2: '0', y2: String(H) })
+    const dot = mk('circle', { class: 'lc-dot', r: '4.5', cx: '0', cy: String(H / 2) })
+    head.setAttribute('opacity', '0')
     dot.setAttribute('opacity', '0')
 
     /* LIVE POSITION. Without it this is a picture of a waveform, which the
@@ -267,10 +275,15 @@ export class LfoCurveWidget extends WidgetType {
       const p = lfoPhase(s, nowSec, cyc)
       if (p === null) {
         dot.setAttribute('opacity', '0')
+        head.setAttribute('opacity', '0')
       } else {
+        const x = num(p * w)
         dot.setAttribute('opacity', '1')
-        dot.setAttribute('cx', num(p * w))
+        dot.setAttribute('cx', x)
         dot.setAttribute('cy', num(H - lfoValue(s.shape, p) * H))
+        head.setAttribute('opacity', '1')
+        head.setAttribute('x1', x)
+        head.setAttribute('x2', x)
       }
       this.raf = requestAnimationFrame(tick)
     }

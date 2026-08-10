@@ -911,10 +911,22 @@
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
+.rondo-lfocurve .lc-head {
+  stroke: var(--c-accent, #7fd1b9);
+  stroke-width: 1.5;
+  /* 0.45 was too faint to track at speed, which was the whole complaint */
+  opacity: 0.75;
+  vector-effect: non-scaling-stroke;
+}
 .rondo-lfocurve .lc-dot {
   fill: var(--c-accent, #7fd1b9);
+  /* a ring in the background colour, so the dot stays legible where it
+     crosses the curve it is riding */
   stroke: var(--c-bg, #14161a);
-  stroke-width: 1;
+  stroke-width: 1.5;
+  /* a fast LFO moves the dot several times its own width per frame, so it
+     needs to carry at a glance rather than be found */
+  filter: drop-shadow(0 0 3px var(--c-accent, #7fd1b9));
 }
 .rondo-lfocurve .lc-label {
   position: absolute;

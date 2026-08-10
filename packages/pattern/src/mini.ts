@@ -379,32 +379,48 @@ class Parser {
   }
 
   /** pattern := seq ('|' seq)* */
-  /** pattern := choice (',' choice)* — ',' STACKS (plays them together).
+  /** pattern := seq ((',' seq)+ | ('|' seq)+)? — a stack OR a choice, never
+   *  both at one level.
    *
-   *  The comma used to live only in the `[…]` production, so `[0,2,4]` was a
-   *  chord and a bare `0,2,4` was a syntax error pointing at the comma. There
-   *  was no reason for the asymmetry: a stack is a stack whether or not it is
-   *  bracketed, and every other notation of this family lets you write the
-   *  bare form. */
+   *  That restriction is Strudel's, not ours: its `stack_or_choose` takes a
+   *  head sequence followed by ONE of a comma tail, a pipe tail or a dot tail,
+   *  so `0|1, 2` is a parse error there. We briefly accepted it and invented a
+   *  precedence (`|` tighter than `,`) — which is a fine reading and a
+   *  divergence, so a program that worked here would not work in Strudel. The
+   *  fix is to say which grouping you meant: `[0|1], 2`. */
   private parsePattern(): Pattern<MiniValue> {
-    const parts = [this.parseChoice()]
-    while (this.isPunct(this.peek(), ',')) {
-      this.next()
-      parts.push(this.parseChoice())
+    const head = this.parseSeq()
+    if (this.isPunct(this.peek(), ',')) {
+      const parts = [head]
+      while (this.isPunct(this.peek(), ',')) {
+        this.next()
+        parts.push(this.parseSeq())
+      }
+      this.refuseMixed('|', ',')
+      return Pattern.stack(...parts)
     }
-    return parts.length === 1 ? parts[0]! : Pattern.stack(...parts)
+    if (this.isPunct(this.peek(), '|')) {
+      const seqs = [head]
+      while (this.isPunct(this.peek(), '|')) {
+        this.next()
+        seqs.push(this.parseSeq())
+      }
+      this.refuseMixed(',', '|')
+      return randcat(seqs)
+    }
+    return head
   }
 
-  /** choice := seq ('|' seq)* — one of them per cycle. Binds TIGHTER than
-   *  ',' so `0|1, 2` is "either 0 or 1" stacked with 2, not a choice between
-   *  `0` and `1,2`. */
-  private parseChoice(): Pattern<MiniValue> {
-    const seqs = [this.parseSeq()]
-    while (this.isPunct(this.peek(), '|')) {
-      this.next()
-      seqs.push(this.parseSeq())
-    }
-    return seqs.length === 1 ? seqs[0]! : randcat(seqs)
+  /** `,` and `|` do not mix at one level — say which grouping was meant. */
+  private refuseMixed(found: ',' | '|', already: ',' | '|'): void {
+    const t = this.peek()
+    if (!this.isPunct(t, found)) return
+    const what = (c: string): string => (c === ',' ? "',' (stack)" : "'|' (choice)")
+    this.err(
+      `${what(found)} and ${what(already)} cannot be mixed at the same level. `
+      + `Bracket the one you meant to group first, e.g. '[0|1], 2'`,
+      t!.start,
+    )
   }
 
   /** seq := (term | '_')+, as a weighted timecat. */
@@ -565,9 +581,34 @@ class Parser {
   }
 
   /**
-   * '<' term+ '>' — one term per cycle. `!n` repetition adds copies to the
-   * rotation, and `@n` gives a term n cycles' WIDTH: `<0@3 4>` sustains 0
-   * across three cycles, then plays 4 for one.
+   * '<' voice (',' voice)* '>' — each voice takes one term per cycle, and the
+   * voices run TOGETHER: `<a b, c d>` is a with c, then b with d.
+   */
+  private parseAlternation(): Pattern<MiniValue> {
+    const open = this.next()! // '<'
+    if (this.isPunct(this.peek(), '>')) this.err(`empty '<>'`, open.start)
+    /* THE COMMA STACKS, it does not need bracketing. Strudel's grammar defers
+     * `<…>` to the same stack-capable rule `{…}` uses (slow_sequence ->
+     * polymeter_stack), so this is parity, not an extension. We used to reject
+     * it with a message telling the reader to write `<[0,2] [4,6]>` instead —
+     * which is a DIFFERENT pattern (alternating between two chords, rather
+     * than two rotations running at once), so the advice was wrong as well as
+     * unnecessary. */
+    const voices: Pattern<MiniValue>[] = []
+    for (;;) {
+      voices.push(this.altVoice())
+      if (!this.isPunct(this.peek(), ',')) break
+      this.next()
+    }
+    if (this.peek() === undefined) this.err(`unclosed '<'`, open.start)
+    this.expectPunct('>', 'to close the alternation')
+    return voices.length === 1 ? voices[0]! : Pattern.stack(...voices)
+  }
+
+  /**
+   * One voice of an alternation: `term+`, one term per cycle. `!n` repetition
+   * adds copies to the rotation, and `@n` gives a term n cycles' WIDTH:
+   * `<0@3 4>` sustains 0 across three cycles, then plays 4 for one.
    *
    * Weighted alternation is a `timecat` slowed to the total weight, which is
    * what Strudel does and the only reading consistent with `@` elsewhere: in
@@ -579,9 +620,7 @@ class Parser {
    * weight is 1, and timecat over n equal parts slowed by n is exactly
    * one-per-cycle.
    */
-  private parseAlternation(): Pattern<MiniValue> {
-    const open = this.next()! // '<'
-    if (this.isPunct(this.peek(), '>')) this.err(`empty '<>'`, open.start)
+  private altVoice(): Pattern<MiniValue> {
     const parts: [number, Pattern<MiniValue>][] = []
     for (;;) {
       const t = this.peek()
@@ -594,19 +633,6 @@ class Parser {
       for (let k = 0; k < reps; k++) parts.push([weight, pat])
     }
     if (parts.length === 0) this.errUnexpected()
-    /* `<0,2,4>` is a common thing to try, and "expected '>'" does not explain
-     * it. An alternation takes TERMS — one per cycle — so a stack inside one
-     * has to be bracketed. */
-    const comma = this.peek()
-    if (this.isPunct(comma, ',')) {
-      this.err(
-        `',' stacks notes to play together, and an alternation takes one term per cycle. `
-        + `Write '<[…]>' to alternate between stacks, or '[…]' for a single stack`,
-        comma!.start,
-      )
-    }
-    if (this.peek() === undefined) this.err(`unclosed '<'`, open.start)
-    this.expectPunct('>', 'to close the alternation')
     const total = parts.reduce((n, [w]) => n + w, 0)
     // all-equal weights: timecat over n parts slowed by n IS cat, but go
     // through cat anyway so the common path keeps its exact identity

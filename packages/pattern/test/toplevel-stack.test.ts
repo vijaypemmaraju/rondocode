@@ -157,3 +157,73 @@ describe('nothing else that uses commas moved', () => {
     expect(degrees('0,~,4')).toEqual([0, 4])
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * Two bugs a differential fuzz against Strudel's own parser turned up. Both
+ * were cases where we ACCEPTED the notation and quietly did the wrong thing,
+ * which is worse than rejecting it — nothing tells you a note went missing.
+ * ------------------------------------------------------------------------- */
+
+const count = (src: string, cycle = 0): number =>
+  n(src).query(new TimeSpan(F(cycle), F(cycle + 1))).filter(hasOnset).length
+
+describe('`!` accumulates instead of overwriting', () => {
+  /* `reps` was ASSIGNED per `!`, so on a term carrying more than one the last
+   * won and the rest were parsed and discarded. `0 ! !` asks for three notes
+   * and played two. */
+  it('each bare `!` adds one more copy', () => {
+    expect(count('0'), '0').toBe(1)
+    expect(count('0 !'), '0 !').toBe(2)
+    expect(count('0 ! !'), '0 ! !').toBe(3)
+    expect(count('0 ! ! !'), '0 ! ! !').toBe(4)
+  })
+
+  it('`!n` means n copies of the term', () => {
+    expect(count('0!2')).toBe(2)
+    expect(count('0!3')).toBe(3)
+  })
+
+  it('and the two forms compose, each adding its own extras', () => {
+    expect(count('0!2 !'), '0!2 !').toBe(3)
+    expect(count('0!2!2'), '0!2!2').toBe(3)
+  })
+
+  it('a repeated GROUP repeats all of its notes', () => {
+    expect(count('[0 1]!'), '[0 1]!').toBe(4)
+    expect(count('[0 1] ! !'), '[0 1] ! !').toBe(6)
+  })
+
+  it('copies are separate turns, not one longer note', () => {
+    // three onsets sharing the cycle, each a third of it
+    const haps = n('0 ! !').query(new TimeSpan(F(0), F(1))).filter(hasOnset)
+    expect(haps).toHaveLength(3)
+    for (const h of haps) expect(h.whole!.end.sub(h.whole!.begin).valueOf()).toBeCloseTo(1 / 3, 9)
+  })
+})
+
+describe('`_` extends a term inside an alternation too', () => {
+  /* `_` worked in a seq, in a subgroup and in a polymeter, and was a parse
+   * error in `<>` alone — for no reason beyond the loop there asking only for
+   * terms. It means what `@` already meant: `<0 _ 1>` is `<0@2 1>`. */
+  const rotation = (src: string): string[] =>
+    [0, 1, 2, 3, 4].map((cy) => degrees(src, cy).join(',') || '-')
+
+  it('one `_` gives the term a second cycle', () => {
+    expect(rotation('<0 _ 1>')).toEqual(rotation('<0@2 1>'))
+    expect(rotation('<0 _ 1>')).toEqual(['0', '-', '1', '0', '-'])
+  })
+
+  it('and they stack', () => {
+    expect(rotation('<0 _ _ 1>')).toEqual(rotation('<0@3 1>'))
+  })
+
+  it('it is a SUSTAIN, not a re-articulation', () => {
+    // the giveaway: no onset in the cycle the `_` covers
+    expect(degrees('<0 _ 1>', 1)).toEqual([])
+    expect(degrees('<0 !2 1>', 1)).toEqual([0])
+  })
+
+  it('a leading `_` is still an error, as it is everywhere else', () => {
+    expect(() => n('<_ 0>')).toThrow(/must follow a term/)
+  })
+})

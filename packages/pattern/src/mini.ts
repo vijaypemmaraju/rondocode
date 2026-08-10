@@ -473,9 +473,15 @@ class Parser {
             this.err(`count for '!' must be a positive integer`, num.start)
           }
           this.next()
-          reps = num.value
+          /* ACCUMULATE, do not assign. `!` can appear more than once on a
+           * term — `0 ! !` is three copies — and assigning meant the second
+           * one overwrote the first, so every `!` after the first was read
+           * and then silently thrown away. `!n` contributes n-1 EXTRA copies
+           * on top of the term itself, which makes `0!2!2` three and `0!3`
+           * three, both matching Tidal. */
+          reps += num.value - 1
         } else {
-          reps = 2 // bare '!': one extra copy (Tidal: "a! b" = "a a b")
+          reps += 1 // bare '!': one extra copy (Tidal: "a! b" = "a a b")
         }
       } else if (t.text === '@') {
         this.next()
@@ -624,7 +630,19 @@ class Parser {
     const parts: [number, Pattern<MiniValue>][] = []
     for (;;) {
       const t = this.peek()
-      if (t === undefined || !this.isTermStart(t)) break
+      if (t === undefined) break
+      /* `_` extends the previous term by a cycle, exactly as it extends by a
+       * slot inside a seq — `<0 _ 1>` is `<0@2 1>`. It was rejected here only
+       * because this loop asked for a term and `_` is not one, which made `_`
+       * the single piece of notation that worked everywhere but here. */
+      if (this.isPunct(t, '_')) {
+        const last = parts[parts.length - 1]
+        if (last === undefined) this.err(`'_' must follow a term`, t.start)
+        this.next()
+        last[0] += 1
+        continue
+      }
+      if (!this.isTermStart(t)) break
       const at = t.start
       const { pat, weight, reps } = this.parseTerm()
       if (!(weight > 0)) this.err(`'@${weight}' must be greater than 0`, at)

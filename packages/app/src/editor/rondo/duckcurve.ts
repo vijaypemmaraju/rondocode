@@ -118,9 +118,9 @@ export class DuckCurveWidget extends WidgetType {
     const wrap = document.createElement('span')
     wrap.className = 'rondo-dcurve'
     wrap.setAttribute('role', 'img')
-    wrap.setAttribute('aria-label', `sidechain: ${s.trigger} ducks by ${s.depth}, recovering over ${s.release}s`)
+    wrap.setAttribute('aria-label', `sidechain: ${s.trigger} ducks by ${s.depth}, recovering over ${s.release} ms`)
     wrap.title =
-      `${s.trigger} ducks by ${s.depth} over ${s.release}s` +
+      `${s.trigger} ducks by ${s.depth} over ${s.release} ms` +
       (s.channels.length > 0 ? ` — ${s.channels.map((c) => `${c.name} ${c.amount}`).join(', ')}` : '')
     const canvas = document.createElement('canvas')
     canvas.style.width = `${W}px`

@@ -13,15 +13,18 @@ import './combinators'
  * Grammar (v1):
  *
  * ```text
- * pattern  := seq ('|' seq)*                   -- random choice per cycle
- * seq      := (term | '_')+                    -- timecat with weights
+ * pattern  := seq ((',' seq)+ | ('|' seq)+)?   -- stack OR choice, not both
+ * seq      := group ('.' group)*               -- '.' makes equal-width groups
+ * group    := (term | range | '_')+            -- timecat with weights
+ * range    := number '..' number               -- inclusive run of steps
  * term     := atom mod*
  * atom     := word | number | '~'
  *           | '[' pattern (',' pattern)* ']'   -- subgroup; ',' stacks
- *           | '<' term+ '>'                    -- alternation (one per cycle)
+ *           | '<' voice (',' voice)* '>'       -- alternation; ',' stacks
  *           | '{' seq (',' seq)* '}' ('%' int)?  -- polymeter
- * mod      := '*' number | '/' number | '!' int? | '@' number
- *           | '(' int ',' int (',' int)? ')' | '?' number?
+ * mod      := '*' arg | '/' arg | '!' int? | '@' number
+ *           | '(' arg ',' arg (',' arg)? ')' | '?' number?
+ * arg      := number | '[' … | '<' … | '{' …   -- patterned, not just literal
  * ```
  *
  * Decisions pinned by tests (see mini.test.ts):
@@ -30,12 +33,14 @@ import './combinators'
  * - Numbers are plain integers/floats with an optional leading '-'
  *   (`-12`, `0.25`, `.5`, `-.5`). Scientific notation is unsupported:
  *   `1e3` lexes as the number 1 followed by the word `e3`.
- * - Repeated mods of the same kind apply left to right; for `!` the last
- *   count wins (`a!2!3` = `a!3`).
+ * - Repeated mods of the same kind apply left to right; `!` ACCUMULATES, so
+ *   each one adds its own copies (`a!2!3` is four a's, `a ! !` is three).
  * - Bare `!` duplicates once more (`"a! b"` = `"a a b"`, Tidal/Strudel).
  * - `_` elongates the previous step by one slot (`"a _ b"` = `"a@2 b"`).
- * - `*` / `/` factors are positive numbers only in v1; pattern-valued
- *   factors (`"a*[2 3]"`) are deliberately deferred to v2.
+ * - `*` / `/` factors and euclid arguments may be PATTERNS (`"a*[2 3]"`,
+ *   `"a(<3 5>,8)"`), joined with innerBind so structure comes from the
+ *   result. Literals are validated at parse time, so a bad one points at the
+ *   character rather than throwing from inside a query.
  * - `!n` and `?p` consume their number only when it is ADJACENT to the
  *   mod character (`a!3`, `a?0.3`); with whitespace between, the number is
  *   an ordinary atom (`"a! 3"` = three steps a a 3). By contrast the
@@ -54,10 +59,15 @@ import './combinators'
  *   The probability is clamped to [0,1]: `a?-1` keeps everything, `a?2`
  *   drops everything — never an error.
  * - Empty / whitespace-only source parses to silence.
- *
- * v2 note: `..` ranges (Strudel's `0 .. 7`) would collide with '.' being
- * both a word character and a number start (`.5`); introducing them needs
- * a dedicated '..' lexer rule that wins over word/number continuation.
+ * - `..` expands an inclusive run of steps (`0 .. 3` IS `0 1 2 3`), counting
+ *   down when the end is lower. It is lexed by a dedicated '..' rule that
+ *   runs before the number and word rules, which is what the collision with
+ *   '.' as a word character and as a number start (`.5`) demanded. Unlike
+ *   Strudel we accept it unspaced too, since `0..3` reads fine and its only
+ *   other meaning was a malformed-number error.
+ * - `.` splits a seq into EQUAL-WIDTH groups (`0 . 1 2 . 3` is `[0] [1 2]
+ *   [3]`). It binds tighter than `,` and `|`, so it needs none of their
+ *   disambiguation: those split whole sequences, this one groups within.
  */
 
 /** Half-open offset range [start, end) into the original source string. */
@@ -176,7 +186,7 @@ interface Tok {
   readonly lanes?: Record<string, number>
 }
 
-const PUNCT = new Set('[]<>{}(),|*/!@?%~_')
+const PUNCT = new Set('[]<>{}(),|*/!@?%~_.')
 
 /** The lane a bare `'2` writes to. Named so the mapping is stated once. */
 export const DEFAULT_LANE = 'expr'
@@ -258,6 +268,14 @@ function tokenize(src: string): Tok[] {
       continue
     }
     const c1 = src[i + 1] ?? ''
+    /* '..' before everything else that can start with a dot. It cannot be a
+     * number ('..' has no digit after the dot) and a word never STARTS with
+     * one, so the only rule it could lose to is the single-'.' punct. */
+    if (c === '.' && c1 === '.') {
+      toks.push({ kind: 'punct', text: '..', value: NaN, start: i, end: i + 2 })
+      i += 2
+      continue
+    }
     if (
       isDigit(c) ||
       ((c === '-' || c === '.') && isDigit(c1)) ||
@@ -273,7 +291,9 @@ function tokenize(src: string): Tok[] {
       // A second decimal point directly attached (e.g. `1.2.3`, `0.5.5`) is a
       // malformed number, NOT the start of a new atom — otherwise a typo'd
       // decimal would silently ADD a step to the sequence (`0.5.5` → 0.5 0.5).
-      if (src[j] === '.') {
+      // '..' after a number is the RANGE operator, not a second decimal
+      // point: `0..3` and `0.5..2` end the number here and lex '..' next.
+      if (src[j] === '.' && src[j + 1] !== '.') {
         throw new MiniError('malformed number (extra decimal point)', j, src)
       }
       const text = src.slice(i, j)
@@ -423,9 +443,81 @@ class Parser {
     )
   }
 
-  /** seq := (term | '_')+, as a weighted timecat. */
+  /**
+   * `a .. b` — the inclusive integer run between two number atoms, expanded
+   * into ordinary steps: `0 .. 3` IS `0 1 2 3`, and counts down when b < a.
+   * The step is 1 from `a`, so a fractional start keeps its fraction
+   * (`0.5 .. 2` is `0.5 1.5`), which is the only reading that leaves `a`
+   * itself in the run.
+   *
+   * The run is ONE term, not a row of siblings: `0 .. 3 5` is `[0 1 2 3] 5`,
+   * two halves. Sibling steps would make the length of a range re-time
+   * everything around it, so appending `.. 15` to one note would squash the
+   * rest of the bar to a seventeenth each. A term keeps the edit local, and it
+   * is the only reading that stays the same in a seq, a subgroup and an
+   * alternation.
+   *
+   * Returns undefined when the cursor is not at `number '..'`, so callers can
+   * fall through to parsing an ordinary term.
+   */
+  private tryRange(): Entry | undefined {
+    const a = this.peek()
+    if (a === undefined || a.kind !== 'number') return undefined
+    const dots = this.toks[this.i + 1]
+    if (dots === undefined || dots.kind !== 'punct' || dots.text !== '..') return undefined
+    this.next()
+    this.next()
+    const b = this.peek()
+    if (b === undefined || b.kind !== 'number') {
+      this.err(`'..' needs a number on both sides`, dots.start)
+    }
+    this.next()
+    /* An accidental or a lane on an endpoint would have to apply to every
+     * generated step or to none, and both are guesses — so say so instead of
+     * picking one silently. */
+    for (const t of [a, b]) {
+      if ((t.acc ?? 0) !== 0 || t.lanes !== undefined) {
+        this.err(`a '..' endpoint cannot carry an accidental or a lane`, t.start)
+      }
+    }
+    const step = b.value < a.value ? -1 : 1
+    const span = Math.floor(Math.abs(b.value - a.value)) + 1
+    const LIMIT = 1024
+    if (span > LIMIT) {
+      this.err(`'..' range of ${span} steps is too long (limit ${LIMIT})`, dots.start)
+    }
+    /* Every generated step points at the WHOLE `a .. b` source, so the editor
+     * flashes the range that produced the note rather than one of its ends. */
+    const loc = { start: a.start, end: b.end }
+    const steps: [number, Pattern<MiniValue>][] = []
+    for (let k = 0; k < span; k++) {
+      steps.push([1, this.mkAtom(a.value + step * k, loc)])
+    }
+    return { weight: 1, pat: Pattern.timecat(steps) }
+  }
+
+  /**
+   * seq := group ('.' group)*, as a weighted timecat.
+   *
+   * `.` splits the sequence into EQUAL-WIDTH groups, so it is bracketing
+   * without the brackets: `0 . 1 2 . 3` is `[0] [1 2] [3]`, three thirds of a
+   * cycle rather than four quarters. It binds tighter than `,` and `|`, which
+   * split whole sequences — `0 . 1, 2` stacks the dotted sequence against 2 —
+   * so unlike that pair it needs no disambiguation.
+   */
   private parseSeq(): Pattern<MiniValue> {
-    return Pattern.timecat(this.parseSeqEntries().map((e) => [e.weight, e.pat]))
+    const flat = (es: Entry[]): Pattern<MiniValue> =>
+      Pattern.timecat(es.map((e) => [e.weight, e.pat]))
+    let group = this.parseSeqEntries()
+    if (!this.isPunct(this.peek(), '.')) return flat(group)
+    const groups: Pattern<MiniValue>[] = []
+    for (;;) {
+      groups.push(flat(group))
+      if (!this.isPunct(this.peek(), '.')) break
+      this.next()
+      group = this.parseSeqEntries()
+    }
+    return Pattern.timecat(groups.map((g) => [1, g]))
   }
 
   /**
@@ -446,6 +538,11 @@ class Parser {
         continue
       }
       if (!this.isTermStart(t)) break
+      const range = this.tryRange()
+      if (range !== undefined) {
+        entries.push(range)
+        continue
+      }
       const { pat, weight, reps } = this.parseTerm()
       for (let k = 0; k < reps; k++) entries.push({ weight, pat })
     }
@@ -463,8 +560,10 @@ class Parser {
       if (t === undefined || t.kind !== 'punct') break
       if (t.text === '*' || t.text === '/') {
         this.next()
-        const f = this.parseFactor(t.text)
-        pat = t.text === '*' ? pat.fast(f) : pat.slow(f)
+        const arg = this.parseArg(t.text, false)
+        const base = pat
+        const op = t.text
+        pat = this.applyArgs([arg], ([k]) => (op === '*' ? base.fast(k!) : base.slow(k!)))
       } else if (t.text === '!') {
         this.next()
         const num = this.peek()
@@ -511,37 +610,97 @@ class Parser {
     return { pat, weight, reps }
   }
 
-  /** Positive number after '*' or '/'. Pattern-valued factors are v2. */
-  private parseFactor(op: string): number {
+  /**
+   * The argument of `*`, `/` or a euclid slot: a positive number, or a
+   * PATTERN of them (`[2 3]`, `<2 3>`, `{2 3}%4`).
+   *
+   * A patterned argument is what makes the operators live: `0*<2 3>` doubles
+   * on one cycle and triples on the next, and `0(<3 5>,8)` walks between two
+   * Euclidean figures. It was deferred while `parseFactor` demanded a literal,
+   * which meant the one thing you would reach for after learning `*` was a
+   * syntax error.
+   */
+  private parseArg(op: string, wantInt: boolean): number | Pattern<MiniValue> {
+    // euclid names its slots; '*' and '/' name themselves
+    const where = wantInt ? 'in euclid arguments' : `after '${op}'`
+    const kind = wantInt ? 'an integer' : 'a number'
     const t = this.peek()
-    if (t === undefined || t.kind !== 'number') this.err(`expected a number after '${op}'`)
-    if (!(t.value > 0)) this.err(`factor for '${op}' must be positive`, t.start)
-    this.next()
-    return t.value
+    if (t !== undefined && t.kind === 'number') {
+      this.next()
+      this.checkArg(op, wantInt, t.value, t.start)
+      return t.value
+    }
+    if (t !== undefined && t.kind === 'punct' && (t.text === '[' || t.text === '<' || t.text === '{')) {
+      /* Validate the LITERALS the group contributes, at parse time, so a bad
+       * factor points at the offending character instead of throwing from
+       * inside a query with no source to show. `atoms` grows in parse order,
+       * so the ones this group added are exactly the new tail. */
+      const from = this.atoms.length
+      const pat = this.parseAtom()
+      for (const a of this.atoms.slice(from)) {
+        if (typeof a.value !== 'number') {
+          this.err(`expected ${kind} ${where}, but this group has '${String(a.value)}'`, a.loc.start)
+        }
+        this.checkArg(op, wantInt, a.value, a.loc.start)
+      }
+      return pat
+    }
+    this.err(`expected ${kind} (or a pattern of them) ${where}`)
   }
 
-  /** '(' already consumed: int ',' int (',' int)? ')' -> euclid. */
+  /** The contract every `*` / `/` / euclid argument shares. */
+  private checkArg(op: string, wantInt: boolean, v: number, pos: number): void {
+    if (wantInt) {
+      if (!Number.isInteger(v)) this.err(`expected an integer in euclid arguments, not ${v}`, pos)
+      return
+    }
+    if (!(v > 0)) this.err(`factor for '${op}' must be positive`, pos)
+  }
+
+  /**
+   * Apply `f` once the patterned arguments have been resolved to numbers.
+   *
+   * Each patterned argument is joined with `innerBind`, which takes structure
+   * from the RESULT rather than the argument: in `0*[2 3]` the second half of
+   * the cycle is genuinely running at triple speed, clipped to that half,
+   * rather than the whole being re-divided. Scalars short-circuit, so an
+   * ordinary `0*2` builds precisely the pattern it always did.
+   */
+  private applyArgs(
+    args: readonly (number | Pattern<MiniValue>)[],
+    f: (vals: number[]) => Pattern<MiniValue>,
+  ): Pattern<MiniValue> {
+    const i = args.findIndex((a) => typeof a !== 'number')
+    if (i === -1) return f(args as number[])
+    return (args[i] as Pattern<MiniValue>).innerBind((v) => {
+      const next = args.slice()
+      next[i] = typeof v === 'object' && v !== null ? (v as MiniValue).value as number : (v as number)
+      return this.applyArgs(next, f)
+    })
+  }
+
+  /** '(' already consumed: arg ',' arg (',' arg)? ')' -> euclid. Each
+   *  argument may itself be a pattern (`bd(<3 5>,8)`). */
   private parseEuclid(pat: Pattern<MiniValue>): Pattern<MiniValue> {
-    const pulses = this.parseEuclidInt()
+    const at = this.peek()?.start
+    const pulses = this.parseArg('euclid', true)
     this.expectPunct(',', 'between euclid arguments')
-    const steps = this.parseEuclidInt()
-    if (steps.value < 1) this.err(`euclid steps must be >= 1`, steps.pos)
-    let rotation = 0
+    const stepsAt = this.peek()?.start
+    const steps = this.parseArg('euclid', true)
+    if (typeof steps === 'number' && steps < 1) this.err(`euclid steps must be >= 1`, stepsAt)
+    let rotation: number | Pattern<MiniValue> = 0
     if (this.isPunct(this.peek(), ',')) {
       this.next()
-      rotation = this.parseEuclidInt().value
+      rotation = this.parseArg('euclid', true)
     }
     this.expectPunct(')', 'to close euclid arguments')
-    return pat.euclid(pulses.value, steps.value, rotation)
-  }
-
-  private parseEuclidInt(): { value: number; pos: number } {
-    const t = this.peek()
-    if (t === undefined || t.kind !== 'number' || !Number.isInteger(t.value)) {
-      this.err(`expected an integer in euclid arguments`)
-    }
-    this.next()
-    return { value: t.value, pos: t.start }
+    return this.applyArgs([pulses, steps, rotation], ([p, st, r]) => {
+      /* A patterned `steps` can only be checked once it has a value, and a
+       * query is the wrong place to throw — clamp to the smallest legal
+       * figure, which is what an empty one would sound like anyway. */
+      if (!(st! >= 1)) return Pattern.silence
+      return pat.euclid(p!, st!, r!)
+    })
   }
 
   /** Record an atom (the `n` tag validates against the list) and build its pattern. */
@@ -643,6 +802,11 @@ class Parser {
         continue
       }
       if (!this.isTermStart(t)) break
+      const range = this.tryRange()
+      if (range !== undefined) {
+        parts.push([range.weight, range.pat])
+        continue
+      }
       const at = t.start
       const { pat, weight, reps } = this.parseTerm()
       if (!(weight > 0)) this.err(`'@${weight}' must be greater than 0`, at)

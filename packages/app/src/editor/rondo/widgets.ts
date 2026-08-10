@@ -31,12 +31,13 @@ import type { EnumSpan } from './enums'
 import { activate } from './activation'
 import { CompCurveWidget, scanCompressors } from './compcurve'
 import { DuckCurveWidget, scanDucks } from './duckcurve'
+import { LfoCurveWidget, scanLfos } from './lfocurve'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
-import { POLE, poleAt, poleLeg } from './envpoints'
+import { POLE, envMarkerAt, poleAt, poleLeg } from './envpoints'
 import { scanSwitches, toggled } from './switches'
 import type { SwitchMatch } from './switches'
 import { BEND_LIMIT, bendCurve, bendPixels, envGeometry, envPath, scanEnvPoints } from './envpoints'
@@ -1923,22 +1924,14 @@ class EnvWidget extends WidgetType {
             mark.style.opacity = '0'
             return
           }
-          let x: number, y: number
-          if (t < a) { const u = t / a; x = pad + (g.ax - pad) * u; y = base + (peak - base) * u }
-          else if (t < a + d + holdSec) {
-            // one continuous one-pole from peak toward sustain: the marker has
-            // to agree with the curve it is riding
-            const u = (t - a) / (d || 1e-6)
-            x = g.ax + (g.dx - g.ax) * u
-            y = poleAt(peak, g.sy, u)
-          } else {
-            const u = (t - a - d - holdSec) / (r || 1e-6)
-            const yH = poleAt(peak, g.sy, (g.hx - g.ax) / Math.max(1, g.dx - g.ax))
-            x = g.hx + (g.rx - g.hx) * u
-            y = poleAt(yH, base, u)
+          const at = envMarkerAt(t, { a, d, holdSec, r }, g, { pad, peak, base })
+          if (at === null) {
+            wrap.classList.remove('firing')
+            mark.style.opacity = '0'
+            return
           }
-          mark.setAttribute('cx', x.toFixed(1))
-          mark.setAttribute('cy', y.toFixed(1))
+          mark.setAttribute('cx', at.x.toFixed(1))
+          mark.setAttribute('cy', at.y.toFixed(1))
           mark.style.opacity = '1'
           this.raf = requestAnimationFrame(frame)
         }
@@ -3084,6 +3077,17 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   for (const ds of scanDucks(text)) {
     items.push(
       Decoration.widget({ widget: new DuckCurveWidget(ds, JSON.stringify(ds), fcW, hooks), side: 1 }).range(ds.at),
+    )
+  }
+  // the LFO: shape, speed, and where in the cycle it is right now. It was the
+  // one modulation source with nothing to look at.
+  for (const ls of scanLfos(text)) {
+    items.push(
+      // INLINE, sitting after the line like the filter and duck curves. Block
+      // decorations cannot come from a ViewPlugin — CodeMirror refuses with
+      // "Block decorations may not be specified via plugins" — and these
+      // widgets all arrive that way.
+      Decoration.widget({ widget: new LfoCurveWidget(ls, JSON.stringify(ls), fcW, hooks), side: 1 }).range(ls.at),
     )
   }
   for (const cs of scanCompressors(text)) {

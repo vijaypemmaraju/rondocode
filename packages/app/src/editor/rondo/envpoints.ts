@@ -269,3 +269,56 @@ export const poleAt = (from: number, target: number, t: number): number =>
 
 /* --------------------------- the ADSR curve shape -------------------------- */
 
+/** The envelope box a marker rides inside. */
+export interface EnvGeom { ax: number; dx: number; hx: number; rx: number; sy: number }
+
+/* ------------------------------------------------------------------------- *
+ * WHERE THE MARKER IS, t seconds into a note.
+ *
+ * This used to run the DECAY ramp through the sustain hold as well:
+ * `x = ax + (dx - ax) * (t - a) / d`, with the branch guarded by
+ * `t < a + d + holdSec`. So during the hold the fraction kept climbing past 1
+ * and the marker sailed on past the decay handle and out of the widget, only
+ * reappearing when the release began.
+ *
+ * A LONG RELEASE is what makes it obvious, which is nice misdirection. The
+ * sustain plateau ABSORBS whatever width the other three segments leave, so a
+ * long release squeezes it to its 26px minimum — and a marker travelling at
+ * the decay ramp's much wider rate crosses those 26px almost at once.
+ *
+ * Extracted from the widget so it can be tested at all: the old version lived
+ * inside a requestAnimationFrame callback inside toDOM.
+ * ------------------------------------------------------------------------- */
+export function envMarkerAt(
+  t: number,
+  env: { a: number; d: number; holdSec: number; r: number },
+  g: EnvGeom,
+  box: { pad: number; peak: number; base: number },
+): { x: number; y: number } | null {
+  const { a, d, holdSec, r } = env
+  const { pad, peak, base } = box
+  if (!(t >= 0)) return null
+  if (t >= a + d + holdSec + r) return null
+
+  if (t < a) {
+    const u = a > 0 ? t / a : 1
+    return { x: pad + (g.ax - pad) * u, y: base + (peak - base) * u }
+  }
+  // decay: one time constant spans ax -> dx, and the level is a one-pole
+  if (t < a + d) {
+    const u = (t - a) / (d || 1e-6)
+    return { x: g.ax + (g.dx - g.ax) * u, y: poleAt(peak, g.sy, u) }
+  }
+  // SUSTAIN: x crosses the plateau over holdSec. The level keeps converging on
+  // the same one-pole — the drawn curve does too, so the marker stays on it.
+  if (t < a + d + holdSec) {
+    const u = (t - a - d) / (holdSec || 1e-6)
+    return {
+      x: g.dx + (g.hx - g.dx) * u,
+      y: poleAt(peak, g.sy, (t - a) / (d || 1e-6)),
+    }
+  }
+  const u = (t - a - d - holdSec) / (r || 1e-6)
+  const yH = poleAt(peak, g.sy, (g.hx - g.ax) / Math.max(1, g.dx - g.ax))
+  return { x: g.hx + (g.rx - g.hx) * u, y: poleAt(yH, base, u) }
+}

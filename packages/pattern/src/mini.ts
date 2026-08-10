@@ -379,7 +379,26 @@ class Parser {
   }
 
   /** pattern := seq ('|' seq)* */
+  /** pattern := choice (',' choice)* — ',' STACKS (plays them together).
+   *
+   *  The comma used to live only in the `[…]` production, so `[0,2,4]` was a
+   *  chord and a bare `0,2,4` was a syntax error pointing at the comma. There
+   *  was no reason for the asymmetry: a stack is a stack whether or not it is
+   *  bracketed, and every other notation of this family lets you write the
+   *  bare form. */
   private parsePattern(): Pattern<MiniValue> {
+    const parts = [this.parseChoice()]
+    while (this.isPunct(this.peek(), ',')) {
+      this.next()
+      parts.push(this.parseChoice())
+    }
+    return parts.length === 1 ? parts[0]! : Pattern.stack(...parts)
+  }
+
+  /** choice := seq ('|' seq)* — one of them per cycle. Binds TIGHTER than
+   *  ',' so `0|1, 2` is "either 0 or 1" stacked with 2, not a choice between
+   *  `0` and `1,2`. */
+  private parseChoice(): Pattern<MiniValue> {
     const seqs = [this.parseSeq()]
     while (this.isPunct(this.peek(), '|')) {
       this.next()
@@ -534,18 +553,15 @@ class Parser {
     this.errUnexpected()
   }
 
-  /** '[' pattern (',' pattern)* ']' — ',' stacks. */
+  /** '[' pattern ']' — the ',' stacking lives in parsePattern now, so a
+   *  subgroup is just a bracketed pattern. */
   private parseSubgroup(): Pattern<MiniValue> {
     const open = this.next()! // '['
     if (this.isPunct(this.peek(), ']')) this.err(`empty '[]'`, open.start)
-    const pats = [this.parsePattern()]
-    while (this.isPunct(this.peek(), ',')) {
-      this.next()
-      pats.push(this.parsePattern())
-    }
+    const pat = this.parsePattern()
     if (this.peek() === undefined) this.err(`unclosed '['`, open.start)
     this.expectPunct(']', 'to close the subgroup')
-    return pats.length === 1 ? pats[0]! : Pattern.stack(...pats)
+    return pat
   }
 
   /**
@@ -578,6 +594,17 @@ class Parser {
       for (let k = 0; k < reps; k++) parts.push([weight, pat])
     }
     if (parts.length === 0) this.errUnexpected()
+    /* `<0,2,4>` is a common thing to try, and "expected '>'" does not explain
+     * it. An alternation takes TERMS — one per cycle — so a stack inside one
+     * has to be bracketed. */
+    const comma = this.peek()
+    if (this.isPunct(comma, ',')) {
+      this.err(
+        `',' stacks notes to play together, and an alternation takes one term per cycle. `
+        + `Write '<[…]>' to alternate between stacks, or '[…]' for a single stack`,
+        comma!.start,
+      )
+    }
     if (this.peek() === undefined) this.err(`unclosed '<'`, open.start)
     this.expectPunct('>', 'to close the alternation')
     const total = parts.reduce((n, [w]) => n + w, 0)

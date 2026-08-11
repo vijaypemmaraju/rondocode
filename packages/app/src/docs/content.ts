@@ -220,7 +220,28 @@ const pluck = synth(({ note, gate, adsr, tri }) =>
 p('euclid', note('c6(3,8)').sound('tick').gain(0.6))
 p('poly', note('{c3 e3 g3, c4 b3}%4').sound('pluck').gain(0.5))`,
       ),
-      p('The API reference panel (search or scroll to Mini-notation) lists every operator with a one-line description, `*` `/` `!` `@` `~` `_` `[]` `<>` `{}` `?` `|` and the euclid form, in one place.'),
+      p("Three shorthands save typing once a line gets long. `a .. b` is a RANGE: `0 .. 7` writes out the eight degrees of a scale, and `7 .. 0` walks back down. It counts as ONE step, so `0 .. 3 5` is `[0 1 2 3] 5` and lengthening the range never re-times the notes beside it. `.` GROUPS without brackets: `0 . 1 2 . 3` is three equal-width groups, exactly `[0] [1 2] [3]`, which is worth reaching for when the brackets start outnumbering the notes. And `,` STACKS without brackets, so `0,2,4` is a triad and `0 1, 2` is a two-note line against a held 2."),
+      p("The arguments of `*`, `/` and the euclid form can themselves be PATTERNS, which is what keeps a repeating part from sitting still: `0*<2 3>` doubles on one cycle and triples on the next, `0*[2 3]` changes speed halfway through a cycle, and `bd(<3 5>,8)` walks between two Euclidean figures. Anywhere a number goes, a `<…>` or `[…]` of numbers goes too."),
+      code(
+        'Ranges, dot groups and patterned arguments. The bass walks a whole scale in one range; the hats change speed every cycle; the kick alternates between two euclidean figures.',
+        `const pluck = synth(({ note, gate, adsr, tri }) =>
+  tri(note.freq).mul(adsr(gate, { a: 0.005, d: 0.12, s: 0, r: 0.1 })))
+const tick = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.002, d: 0.04, s: 0, r: 0.03 })))
+
+// a RANGE writes the run out for you, as one step of the bar
+p('walk', n('0 .. 7').scale('c major').sound('pluck').gain(0.5))
+
+// a PATTERNED factor: two hits per step on one cycle, three on the next
+p('hats', note('c6*<2 3>').sound('tick').gain(0.3))
+
+// DOT GROUPS: three equal thirds, no brackets needed
+p('stab', n('0 . 2 4 . 7').scale('c major').sound('pluck').gain(0.45))
+
+// a PATTERNED euclid argument: 3 hits one cycle, 5 the next
+p('kick', note('c2(<3 5>,8)').sound('pluck').gain(0.6))`,
+      ),
+      p('The API reference panel (search or scroll to Mini-notation) lists every operator with a one-line description, `*` `/` `!` `@` `~` `_` `[]` `<>` `{}` `?` `|` `,` `..` `.` and the euclid form, in one place.'),
     ],
   },
   {
@@ -1530,14 +1551,16 @@ cps .45`,
           ['`~`', 'a rest: a silent step', '`0 ~ 3 ~`'],
           ['`_`', 'holds the previous step for another step', '`0 _ 3 _`'],
           ['`[ ]`', 'a subgroup squeezed into one step', '`0 [3 5]`'],
-          ['`[a,b]`', 'stacked at the same instant: a chord in one step', '`[0,3,7]`'],
+          ['`a,b`', 'stacked: played together, brackets optional', '`0,3,7`'],
           ['`< >`', 'one arm per cycle', '`<0 3 5>`'],
           ['`{…}%n`', 'polymeter: n steps per cycle, whatever the length', '`{0 3 5}%8`'],
-          ['`*n`', 'n repeats fitted INTO the step', '`0*2`'],
-          ['`/n`', 'one step stretched across n cycles', '`0/2`'],
-          ['`!n`', 'the step repeated n times', '`0!3`'],
+          ['`*n`', 'n repeats fitted INTO the step. n may be a PATTERN', '`0*2` `0*<2 3>`'],
+          ['`/n`', 'one step stretched across n cycles. n may be a PATTERN', '`0/2` `0/<1 2>`'],
+          ['`!n`', 'the step repeated n times. Repeats accumulate', '`0!3` `0 ! !`'],
           ['`@n`', "the step given n steps' worth of time", '`0@3 5`'],
-          ['`(p,s,r)`', 'a euclidean rhythm, r rotating the hits', '`0(3,8)`'],
+          ['`a .. b`', 'a range of numbers, expanded as ONE step', '`0 .. 7`'],
+          ['`.`', 'equal-width groups, brackets not needed', '`0 . 3 5 . 7`'],
+          ['`(p,s,r)`', 'a euclidean rhythm, r rotating the hits. Each argument may be a PATTERN', '`0(3,8)` `0(<3 5>,8)`'],
           ["`'n`", 'that NOTE\u2019s own value, read as `expr`', "`0'2 3'-1`"],
           ["`'name:n`", 'a NAMED lane on that note. `gain` `dur` `chance` are structural; any other name is a synth param', "`0'gain:.8'chance:.5`"],
           ['`?`', 'drops the step at random (seeded per cycle)', '`0 3? 5`'],
@@ -1545,7 +1568,7 @@ cps .45`,
         ],
       ),
       p('Two rhythm generators: `0(3,8)` is a EUCLIDEAN rhythm, 3 hits spread as evenly as 8 steps allow (the tresillo). Add a rotation with `(3,8,2)`. `{0 3 5}%8` is POLYMETER: the figure steps at 8 per cycle regardless of its own length, so it rotates against the bar and comes back around.'),
-      p('One difference from other dialects: `.` is not a grouping shorthand here (it belongs to decimals and note spellings). Use brackets.'),
+      p('`.` GROUPS without brackets: `0 . 3 5 . 7` is three equal-width groups, the same as `[0] [3 5] [7]`. It is worth reaching for once a line has more brackets than notes. Do not confuse it with the `..` in a signal line (`lfo 4 -> 200..3000`), which maps a range and belongs to the expression language, not to notation.'),
       p("PER-NOTE EXPRESSION. A `'value` suffix belongs to the note it is written on: `0'2 3'-1` gives those two notes their own numbers, and the synth reads them as `expr`. It works on degrees, on absolute pitches (`c4'2`) and on drum words (`kick'2`)."),
       p("Why a suffix rather than another modifier line: a modifier line is a PATTERN, and it lines up by TIME. `amt: 2 0 1 3` against `0 3 5 7` looks per-note and only is because both are flat and even -- put a rest or a subgroup in and it stops corresponding. `0'2 ~ [3'1 5'3] 7'-1` cannot drift, because the value never leaves the note."),
       note("`expr` is an ordinary param, so the synth decides what it MEANS: `bend = shape * expr + 1` makes it a pitch bend, `cut = 800 + expr * 600` makes it brightness. It arrives UNSET on a note that carries none, so a synth's own default stands rather than being silently overridden by a zero."),

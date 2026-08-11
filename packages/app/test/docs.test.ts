@@ -112,7 +112,7 @@ describe('docs coverage: synth ctx and Sig', () => {
 })
 
 describe('docs coverage: mini-notation syntax', () => {
-  it('documents exactly the v1 grammar operators', () => {
+  it('documents exactly the grammar operators', () => {
     // Pinned by hand against the grammar in packages/pattern/src/mini.ts
     // (header comment, "Grammar (v1)"). A grammar change updates BOTH the
     // parser and this list + the mini-syntax DocEntries.
@@ -120,6 +120,8 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:seq', // a b c   — sequence
       'mini:~', //   ~       — rest
       'mini:_', //   _       — elongate previous step
+      'mini:..', //  a .. b  — inclusive range, as one step
+      'mini:.', //   a . b c — equal-width groups without brackets
       'mini:[]', //  [a b]   — subgroup
       'mini:,', //   a, b    — stack (bracketed or not, since #328)
       'mini:<>', //  <a b>   — alternation, one per cycle

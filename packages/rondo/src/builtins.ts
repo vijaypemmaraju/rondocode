@@ -71,11 +71,13 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
 
   // ---- gated sources (samplers, physical models) ----
   // start/end window the buffer (fractions 0..1), slices chops that window and
-  // the NOTE picks a chop, reverse plays it backwards, fade softens the edges
+  // the NOTE picks a chop, reverse plays it backwards, fade softens the edges.
+  // variant picks among a sample FAMILY (`bd`, `bd:1`, `bd:2`) per note, and
+  // is a signal so a pattern can drive it: that is a round-robin kit.
   sample: {
     kind: 'gated', pos: ['enum'],
     named: {
-      root: 'num', speed: 'sig', loop: 'bool',
+      root: 'num', speed: 'sig', loop: 'bool', variant: 'sig',
       start: 'num', end: 'num', reverse: 'bool', slices: 'num', fade: 'num',
     },
   },

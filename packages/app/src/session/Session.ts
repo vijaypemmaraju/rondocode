@@ -1,7 +1,7 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import { DEFAULT_TIME_SIG } from '@rondocode/pattern'
 import type { SchedulerEvent, TimeSig } from '@rondocode/pattern'
-import { DEFAULT_MASTER_GAIN, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
+import { DEFAULT_MASTER_GAIN, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables, parseSampleRef, sampleNamesIn } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -58,6 +58,9 @@ export interface AudioSessionLike {
   /** Audio "now" in context frames (monotonic while running). */
   readonly currentTimeFrames: number
   readonly sampleRate: number
+  /** Sample names loaded so far. Optional: a host that cannot answer simply
+   *  gets no missing-sample warnings, rather than a wrong list of them. */
+  getSamples?(): { name: string }[]
 }
 
 export interface SessionState {
@@ -296,10 +299,52 @@ export class Session {
    * an empty list on a clean eval — always reach onDiagnostics. On failure
    * nothing is sent and nothing changes; the result carries the details.
    */
+  /**
+   * Every sample a program plays that is not loaded.
+   *
+   * A missing sample is SILENT and says nothing: the kernel resolves the name
+   * per block and outputs zeros when it finds nothing, so a typo in a sample
+   * name renders a track with a voice quietly absent and reports success. An
+   * offline bounce of the granular example once wrote a file of digital zero
+   * this way. `sampleNamesIn` was built to answer exactly this and had no
+   * caller in the app.
+   *
+   * A WARNING, not an error: a name can legitimately be missing for a moment
+   * while you are still writing the line, or between choosing a sample and
+   * loading it, and failing the eval there would fight the person typing.
+   */
+  private missingSampleDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
+    const list = this.audio.getSamples?.()
+    if (list === undefined) return []
+    const loaded = new Set<string>()
+    for (const s of list) loaded.add(parseSampleRef(s.name).base)
+    const wanted = new Set<string>()
+    for (const def of synths.values()) {
+      for (const n of sampleNamesIn(def.graph)) wanted.add(n)
+      if (def.post !== undefined) for (const n of sampleNamesIn(def.post)) wanted.add(n)
+    }
+    /* Compared by FAMILY: `bd:3` is satisfied by any variant of `bd`, because
+     * the index wraps. Checking the literal name would report every
+     * round-robin reference as missing. */
+    const missing = [...wanted].filter((n) => !loaded.has(parseSampleRef(n).base))
+    if (missing.length === 0) return []
+    const have = [...loaded].sort().join(', ')
+    return missing.sort().map((name) => ({
+      line: 1,
+      col: 1,
+      message: `no sample named '${name}' is loaded, so that voice is SILENT`
+        + (have === '' ? '. Load one with the + button in the editor.' : `. Loaded: ${have}`),
+      severity: 'warning' as const,
+      source: 'eval' as const,
+    }))
+  }
+
   evalCode(source: string, opts?: { live?: boolean }): EvalResult {
     this.lastAttemptedSource = source
     const result = evalCode(source, baseScope)
-    this.evalDiags = result.diagnostics
+    this.evalDiags = result.ok
+      ? [...result.diagnostics, ...this.missingSampleDiags(result.synths)]
+      : result.diagnostics
     // Runtime diagnostics describe the PREVIOUS program: stale once a new
     // one applies. A failed eval leaves the old program (and its runtime
     // failures) live, so they survive.

@@ -52,6 +52,16 @@ export const MAX_TOTAL_VOICES = 128
  *  out while new notes use the new graph — but the backlog is bounded so rapid
  *  live edits can't accumulate pools; the oldest is hard-stopped past this. */
 export const MAX_RETIRING = 6
+/** Points in a channel's scope trace: one SIGNED PEAK per processed block, in
+ *  a ring. At 128-sample blocks that is ~2.7ms a point, so 64 covers ~170ms —
+ *  long enough to read an attack, a gate length and a pump, short enough that
+ *  the trace moves with the music.
+ *
+ *  A peak per BLOCK rather than raw samples: this is an envelope with polarity,
+ *  which is what a scope this size can actually show. Individual cycles of a
+ *  high note are not resolvable at 64 points and pretending otherwise would
+ *  cost 60x the bandwidth to draw the same picture. */
+export const SCOPE_POINTS = 64
 /** |sample| level where the master soft knee engages (see masterSafety). */
 export const CLIP_THRESHOLD = 0.95
 
@@ -172,6 +182,11 @@ interface Channel {
   ramps: Ramp[]
   /** Sum of squares (both legs, post strip) of the last block — meters. */
   sumSq: number
+  /** Signed peak of the CURRENT block (mid, post strip), and a ring of the
+   *  last SCOPE_POINTS of them — the inline scope trace. */
+  peak: number
+  scope: Float32Array
+  scopeHead: number
   /** How much this channel responds to the sidechain duck, [0, 1]. 1 = full
    *  duck (down to 1 - depth); 0 = ignore the duck. Effective per-sample
    *  multiplier is 1 - scAmount·(1 - duckLevel). The source channel is never
@@ -350,6 +365,19 @@ export class RealtimeEngine {
       master: Number.isFinite(master) ? master : 0,
       channels,
     }
+    /* The scope trace, unrolled oldest-first so the host can draw it left to
+     * right without knowing about the ring. A channel that has never produced
+     * a block is all zeros, which draws as a flat line — correct, not missing. */
+    const scopes = Object.create(null) as Record<string, Float32Array>
+    for (const ch of this.list) {
+      const out = new Float32Array(SCOPE_POINTS)
+      for (let i = 0; i < SCOPE_POINTS; i++) {
+        const v = ch.scope[(ch.scopeHead + i) % SCOPE_POINTS]!
+        out[i] = Number.isFinite(v) ? v : 0
+      }
+      scopes[ch.name] = out
+    }
+    ev.scopes = scopes
     if (this.busList.length > 0) {
       const buses = Object.create(null) as Record<string, number>
       for (const bus of this.busList) {
@@ -480,6 +508,10 @@ export class RealtimeEngine {
       ch.p0 = ch.panPrev
       ch.p1 = ch.pan
       ch.panPrev = ch.pan
+      // the peak just finished belongs to the block that ended
+      ch.scope[ch.scopeHead] = ch.peak
+      ch.scopeHead = (ch.scopeHead + 1) % SCOPE_POINTS
+      ch.peak = 0
       ch.sumSq = 0
     }
     // Zero the shared-bus send accumulators for this block (mixChannel taps
@@ -664,6 +696,10 @@ export class RealtimeEngine {
     // amount 1 → the raw duck envelope; amount 0 → 1 (never entered here,
     // duck is null then). Shared with the offline mirror in render-runner.
     let ss = ch.sumSq
+    /* Signed peak of the block, carried across segments like sumSq. Signed so
+     * the trace reads as a waveform rather than a rectified blob. */
+    let pk = ch.peak
+    let pkMag = pk < 0 ? -pk : pk
     if (ch.g0 === ch.g1 && ch.p0 === ch.p1) {
       const gl = ch.g1 * Math.cos(ch.p1 * HALF_PI)
       const gr = ch.g1 * Math.sin(ch.p1 * HALF_PI)
@@ -674,6 +710,12 @@ export class RealtimeEngine {
         outL[cursor + i] = outL[cursor + i]! + l
         outR[cursor + i] = outR[cursor + i]! + r
         ss += l * l + r * r
+        const mid = (l + r) * 0.5
+        const mag = mid < 0 ? -mid : mid
+        if (mag > pkMag) {
+          pkMag = mag
+          pk = mid
+        }
       }
     } else {
       for (let i = 0; i < n; i++) {
@@ -686,9 +728,16 @@ export class RealtimeEngine {
         outL[cursor + i] = outL[cursor + i]! + l
         outR[cursor + i] = outR[cursor + i]! + r
         ss += l * l + r * r
+        const mid = (l + r) * 0.5
+        const mag = mid < 0 ? -mid : mid
+        if (mag > pkMag) {
+          pkMag = mag
+          pk = mid
+        }
       }
     }
     ch.sumSq = ss
+    ch.peak = pk
   }
 
   private fire(ev: QueuedNote): void {
@@ -868,6 +917,11 @@ export class RealtimeEngine {
       params,
       ramps: [],
       sumSq: 0,
+      peak: 0,
+      // Preserve the trace across a redefine, so a live edit does not blank
+      // the scope for the length of the ring.
+      scope: existing?.scope ?? new Float32Array(SCOPE_POINTS),
+      scopeHead: existing?.scopeHead ?? 0,
       // Preserve the sidechain response across a redefine (like the strip).
       scAmount: existing?.scAmount ?? 1,
       // Preserve send amounts too: a redefine shouldn't drop the synth's

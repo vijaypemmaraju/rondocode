@@ -41,6 +41,7 @@ import { mountRondoPalette } from './rondo/palette'
 import { toNoteEvs } from './rondo/widgets'
 import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
+import { synthScopes } from './rondo/scope'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import { tabGet, tabSet } from '../session/tabstore'
@@ -543,6 +544,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Per-synth inline meters: a tiny level bar at the end of every
   // `const X = synth(...)` line, fed below from the engine-event fanout.
   const meters = synthMeters()
+  /* Per-synth inline SCOPE on each `synth NAME` header: the shape behind the
+   * level the meter already shows. Fed from the same meters cadence. */
+  const scopes = synthScopes()
 
   /* DESKTOP: notes out of the virtual MIDI port. Opened on the first play so a
    * browser never touches it, and the port is not published until there is
@@ -637,6 +641,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // Rondo only — see ui/settings.ts for why JS mode is a no-op in v1.
         formatOnNewline(() => lang === 'rondo' && getSetting('formatOnNewline')),
         meters.extension, // per-synth meter gutter (audio-driven)
+        scopes.extension, // per-synth waveform trace on the synth header
         karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
           // the tap palette re-derives its chips from the cursor context
@@ -868,6 +873,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   subscribeEngine((ev) => {
     if (ev.kind !== 'meters') return
     for (const [k, v] of Object.entries(ev.channels)) chanLevel.set(k, typeof v === 'number' ? v : 0)
+    scopes.update(ev.scopes)
     masterLvl = typeof ev.master === 'number' ? ev.master : 0
     duckLvl = typeof ev.duck === 'number' ? ev.duck : 1
   })
@@ -1079,6 +1085,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     session.dispose()
     flasher.dispose()
     meters.dispose()
+    scopes.dispose()
     disposeSamples()
     disposeOutline()
     disposeExport()

@@ -484,6 +484,40 @@ body {
   background: linear-gradient(90deg, var(--c-accent), var(--c-accent-alt));
 }
 
+/* Per-synth inline SCOPE on a `synth NAME` header. Sibling of .cm-meter and
+ * deliberately quieter than it: the trace is context you glance at, not a
+ * readout you track, so it must not compete with the code on the line. The
+ * `points` attribute is mutated directly by the meters handler. */
+
+.cm-scope {
+  display: inline-block;
+  height: 14px;
+  margin-left: 10px;
+  vertical-align: middle;
+  background: var(--c-raised);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cm-scope svg {
+  display: block;
+}
+
+.cm-scope-zero {
+  stroke: var(--c-dim);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+
+.cm-scope-trace {
+  fill: var(--c-accent);
+  fill-opacity: 0.75;
+  stroke: var(--c-accent);
+  stroke-width: 0.5;
+  stroke-linejoin: round;
+}
+
 
 /* --- viz panel: scope/spectrum canvases + mixer strip --- */
 

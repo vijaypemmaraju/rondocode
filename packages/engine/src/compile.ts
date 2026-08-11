@@ -170,7 +170,7 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   // gate required (retrigger edge); speed optional, 1 = natural pitch; pitch is
   // the note-to-reference RATIO that picks a chop when `slices` is set (1 = the
   // reference note = slice 0), ignored otherwise.
-  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }],
+  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }, { name: 'variant', def: 0 }],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],

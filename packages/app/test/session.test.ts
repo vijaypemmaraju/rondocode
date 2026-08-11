@@ -736,3 +736,88 @@ describe('Session.evalCode: live constant patch vs rebuild', () => {
     expect(ofKind('defineSynth')).toHaveLength(2)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * A MISSING SAMPLE USED TO SAY NOTHING.
+ *
+ * The kernel resolves a sample name per block and outputs zeros when it finds
+ * none, so a typo rendered a track with a voice quietly absent and reported
+ * success. An offline bounce of the granular example once wrote a file of
+ * digital zero this way. `sampleNamesIn` was built to answer exactly this
+ * question and had no caller in the app.
+ * ------------------------------------------------------------------------- */
+
+/** The rig above has no sample list; this one can answer what is loaded. */
+const rigWithSamples = (names: string[]) => {
+  const r = rig()
+  ;(r.audio as unknown as { getSamples: () => { name: string }[] }).getSamples = () =>
+    names.map((name) => ({ name }))
+  return r
+}
+
+const sampleSrc = (name: string): string =>
+  `const kit = synth(({ gate, sample }) => sample(gate, '${name}'))\n`
+  + `p('k', note('c4').sound('kit'))`
+
+const warnings = (diags: Diagnostic[][]): string[] =>
+  (diags[diags.length - 1] ?? []).filter((d) => d.severity === 'warning').map((d) => d.message)
+
+describe('missing samples are reported instead of rendering silence', () => {
+  it('warns, names the sample, and says it will be silent', () => {
+    const { session, diags } = rigWithSamples(['bd', 'sd'])
+    expect(session.evalCode(sampleSrc('bdd')).ok, 'should still evaluate').toBe(true)
+    const w = warnings(diags)
+    expect(w).toHaveLength(1)
+    expect(w[0]).toContain("'bdd'")
+    expect(w[0]).toContain('SILENT')
+    expect(w[0], 'should say what IS loaded').toContain('bd, sd')
+  })
+
+  it('a WARNING, not an error: the program still applies', () => {
+    /* A name is legitimately missing while you are still typing the line, and
+     * failing the eval there would fight the person writing it. */
+    const { session, ofKind } = rigWithSamples(['bd'])
+    const r = session.evalCode(sampleSrc('nope'))
+    expect(r.ok).toBe(true)
+    expect(ofKind('defineSynth')).toHaveLength(1)
+  })
+
+  it('says nothing when the sample IS loaded', () => {
+    const { session, diags } = rigWithSamples(['bd'])
+    session.evalCode(sampleSrc('bd'))
+    expect(warnings(diags)).toEqual([])
+  })
+
+  it('a VARIANT is satisfied by any member of its family, because the index wraps', () => {
+    /* Checking the literal name would report every round-robin reference as
+     * missing, which would make the warning useless the moment it mattered. */
+    const { session, diags } = rigWithSamples(['bd'])
+    session.evalCode(sampleSrc('bd:3'))
+    expect(warnings(diags)).toEqual([])
+  })
+
+  it('but an unknown family with an index is still reported', () => {
+    const { session, diags } = rigWithSamples(['bd'])
+    session.evalCode(sampleSrc('clap:2'))
+    expect(warnings(diags).join(' ')).toContain("'clap:2'")
+  })
+
+  it('a host that cannot list samples gets no warnings rather than wrong ones', () => {
+    const { session, diags } = rig() // no getSamples
+    expect(session.evalCode(sampleSrc('anything')).ok).toBe(true)
+    expect(warnings(diags)).toEqual([])
+  })
+
+  it('reports each missing name once, sorted', () => {
+    const { session, diags } = rigWithSamples([])
+    session.evalCode(
+      `const a = synth(({ gate, sample }) => sample(gate, 'zed'))\n`
+      + `const b = synth(({ gate, sample }) => sample(gate, 'abe'))\n`
+      + `p('x', note('c4').sound('a'))\np('y', note('c4').sound('b'))`,
+    )
+    const w = warnings(diags)
+    expect(w).toHaveLength(2)
+    expect(w[0]).toContain("'abe'")
+    expect(w[1]).toContain("'zed'")
+  })
+})

@@ -178,7 +178,9 @@ export interface SynthCtx {
    *  'white' (default) is hiss; 'periodic' is a buzzy, metallic pitched tone.
    *  1-bit output — shape it with an ADSR for chip drums and zaps. */
   lfsr(freq: SigIn, opts?: { mode?: 'white' | 'periodic' }): Sig
-  /** Play a loaded audio sample. `name` is a sample loaded via loadSample. A
+  /** Play a loaded audio sample. `name` is a sample loaded via loadSample, and
+   *  may name a VARIANT of a family (`bd:2`); `{ variant }` picks one per note
+   *  instead, which is how a round-robin drum kit is written. A
    *  rising edge on `gate` retriggers from the start (one-shot); pass
    *  `{ loop: true }` to loop. Pitch: `{ root }` plays at natural pitch when the
    *  note equals that MIDI root and tracks the note otherwise; `{ speed }` sets
@@ -205,6 +207,10 @@ export interface SynthCtx {
       reverse?: boolean
       slices?: number
       fade?: number
+      /** Which VARIANT of the sample family to play, latched per note. `bd`,
+       *  `bd:1` and `bd:2` are one family, and this picks among them, wrapping
+       *  past the end so a pattern can drive it without falling silent. */
+      variant?: SigIn
     },
   ): Sig
   /** GRANULAR synthesis over a loaded sample: sprays short windowed grains from
@@ -1162,6 +1168,7 @@ const makeCtx = (b: Builder): SynthCtx => {
       }
       if (speed !== undefined) inputs['speed'] = src(speed, 'sample speed')
       if (opts?.slices !== undefined) inputs['pitch'] = src(noteFreq.div(rootFreq), 'sample pitch')
+      if (opts?.variant !== undefined) inputs['variant'] = src(opts.variant, 'sample variant')
       return b.node(
         'sample',
         inputs,

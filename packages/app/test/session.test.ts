@@ -821,3 +821,43 @@ describe('missing samples are reported instead of rendering silence', () => {
     expect(w[1]).toContain("'zed'")
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * PATTERNED PARAMS MUST CARRY THEIR NOTE'S FRAME.
+ *
+ * Without it the engine applied the value on arrival, up to one scheduler
+ * lookahead before the note it belonged to (measured at a steady 75ms). A
+ * param is synth-wide, so the change landed on whatever was still ringing and
+ * the automation was heard on the PREVIOUS note.
+ * ------------------------------------------------------------------------- */
+
+describe('scheduled params are stamped with their note frame', () => {
+  const CTRL_SRC =
+    `const a = synth(({ sine, note, gate, param }) => sine(note.freq).mul(gate).mul(param('cut', 0)))\n`
+    + `p('pat', note('60 62 64 65').sound('a').ctrl('cut', mini('0.1 0.2 0.3 0.4')))`
+
+  it('every setParam carries an atFrame equal to its note', () => {
+    const { session, ofKind, audio, tick } = rig()
+    expect(session.evalCode(CTRL_SRC).ok, 'eval failed').toBe(true)
+    session.transport('play')
+    // 240 ticks of 25ms = 6s, three cycles at the default cps
+    for (let t = 0; t < 240; t++) {
+      audio.currentTimeFrames = t * 1200
+      tick()
+    }
+    const params = ofKind('setParam').filter((m) => m.name === 'cut')
+    const notes = ofKind('noteOn')
+    expect(params.length, 'too few patterned params to be meaningful').toBeGreaterThan(6)
+    for (const p of params) {
+      expect(p.atFrame, `setParam '${p.name}' was sent with no atFrame`).toBeDefined()
+    }
+    /* Sent in pairs (params for an event, then its noteOn), so the nth of each
+     * belong together. An unstamped param would already have failed above;
+     * this catches a WRONG stamp. */
+    for (const [i, p] of params.entries()) {
+      const n = notes[i]
+      if (n === undefined) break
+      expect(p.atFrame, 'param frame does not match its note').toBe(n.atFrame)
+    }
+  })
+})

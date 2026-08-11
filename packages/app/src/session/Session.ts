@@ -31,9 +31,11 @@ import { baseScope } from './scope'
  * - Scheduler wiring: pattern time comes from the audio clock
  *   (currentTimeFrames / sampleRate → monotonic seconds); fired events
  *   become noteOn/noteOff (atFrame = timeSec · sampleRate) plus setParam
- *   for numeric non-transport controls. setParam carries no atFrame in the
- *   v1 protocol, so patterned params apply when the message arrives —
- *   up to one lookahead (~100ms) early; acceptable v1 approximation.
+ *   for numeric non-transport controls, ALL stamped with the same atFrame.
+ *   The engine fires params before noteOn at equal frames, so a note opens
+ *   on its own patterned values. (Until #334 setParam carried no atFrame and
+ *   applied on arrival, up to one lookahead early — automation landed on the
+ *   previous note, and live disagreed with an offline bounce.)
  *   Events lacking a `sound` or a numeric `note` are skipped silently
  *   (nothing to route — continuous/param-only patterns are normal).
  * - Diagnostics: the Session maintains ONE merged current-diagnostics set
@@ -946,7 +948,13 @@ export class Session {
       for (const [key, value] of Object.entries(ev.controls)) {
         if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
         if (this.heldParams.has(`${sound}.${key}`)) continue // a hand holds this knob
-        this.audio.send({ kind: 'setParam', synth: sound, name: key, value })
+        /* SAME FRAME AS THE NOTE. Without atFrame the engine applied the value
+         * when the message arrived, which is up to one lookahead ahead of the
+         * note it belongs to (measured at a steady 75ms) — and since a param
+         * reaches every voice of the synth, the change was heard on the
+         * PREVIOUS note's tail. At equal frames the engine fires params before
+         * noteOn, so the note opens on its own value. */
+        this.audio.send({ kind: 'setParam', synth: sound, name: key, value, atFrame })
       }
       const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
       this.audio.send({ kind: 'noteOn', synth: sound, note, velocity, atFrame })

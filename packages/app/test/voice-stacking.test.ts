@@ -92,8 +92,16 @@ function surfaces(): { label: string; code: string }[] {
  *
  * This is an anchor, not an allowlist: the test below fails if the entry ever
  * stops overlapping, so it cannot quietly rot into a blanket exemption the way
- * a hand-maintained skip list does. */
-const INTENDED = new Map<string, string>([['guide: notes #7', 'bell']])
+ * a hand-maintained skip list does.
+ *
+ * Keyed by a MARKER IN THE CODE rather than by its position. It used to be
+ * `guide: notes #7`, an index into the flattened block list, so adding a code
+ * block anywhere earlier in the guide silently moved the exemption onto an
+ * unrelated snippet and failed this suite for a section nobody had touched.
+ * Adding one to the patterns guide is exactly what exposed it. */
+const INTENDED: readonly { marker: string; synth: string }[] = [
+  { marker: "p('gong'", synth: 'bell' },
+]
 
 describe('no doc surface stacks voices', () => {
   const measured = surfaces().map((s) => ({ ...s, stack: stacking(s.code) }))
@@ -135,9 +143,18 @@ cps .5`).code!,
     expect(fixed.get('pad')).toBe(1)
   })
 
-  for (const { label, stack } of measured) {
+  it('every INTENDED marker still matches exactly one surface', () => {
+    /* A marker that stops matching would exempt nothing and read as if it
+     * still did; one that matches twice would exempt a surface silently. */
+    for (const { marker } of INTENDED) {
+      const hits = measured.filter((m) => m.code.includes(marker))
+      expect(hits.length, `INTENDED marker ${marker} matches ${hits.length} surfaces, want 1`).toBe(1)
+    }
+  })
+
+  for (const { label, code, stack } of measured) {
     it(`${label}`, () => {
-      const exempt = INTENDED.get(label)
+      const exempt = INTENDED.find((x) => code.includes(x.marker))?.synth
       for (const [synth, peak] of stack) {
         if (synth === exempt) continue
         expect(

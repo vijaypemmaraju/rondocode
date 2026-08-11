@@ -49,6 +49,31 @@ export interface Gotcha {
 
 export const GOTCHAS: Gotcha[] = [
   {
+    id: 'range-is-one-step',
+    symptom: 'My `..` range crams itself into part of the bar instead of spreading out',
+    tags: ['range', 'notation', 'mini', 'timing', 'steps'],
+    fails: 'wrong',
+    broken: `synth pluck
+  tri note
+  * adsr .005 .12 0 .1
+
+play pluck
+  0 .. 6 7
+  scale:c-maj
+
+cps .5`,
+    fixed: `synth pluck
+  tri note
+  * adsr .005 .12 0 .1
+
+play pluck
+  0 1 2 3 4 5 6 7
+  scale:c-maj
+
+cps .5`,
+    why: 'A range is ONE step, not a row of steps. `0 .. 6 7` is `[0 1 2 3 4 5 6] 7`, so seven notes are squeezed into the first half of the bar and the 7 gets the whole second half. That is deliberate: as siblings, extending a range would silently re-time every other note in the line, so a range you lengthened while writing would keep shifting the rest of the bar under you. When you want the run to be the whole bar, either let the range stand alone (`0 .. 7`) or write the steps out.',
+  },
+  {
     id: 'stacked-lines',
     symptom: 'My four bars all play at once instead of one after another',
     tags: ['pattern', 'sequence', 'bars', 'stack', 'form'],

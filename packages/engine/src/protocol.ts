@@ -161,6 +161,11 @@ export type EngineEvent =
       frame: number
       master: number
       channels: Record<string, number>
+      /** Per-synth SCOPE TRACE: SCOPE_POINTS signed peaks, one per processed
+       *  block, oldest first. An envelope with polarity rather than raw audio
+       *  — at this size that is what a scope can show, and raw samples would
+       *  cost ~60x the bandwidth to draw the same picture. */
+      scopes?: Record<string, Float32Array>
       buses?: Record<string, number>
       /** The sidechain envelope right now: 1 open, dipping toward 1-depth on
        *  each source hit. Absent when nothing is ducking. Reported because a

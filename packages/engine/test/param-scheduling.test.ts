@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BLOCK } from '../src/compile'
 import { synth } from '../src/builder'
-import { RealtimeEngine } from '../src/realtime'
+import { RealtimeEngine, SCOPE_POINTS } from '../src/realtime'
 import type { DspContext } from '../src/dsp/types'
 
 /* ------------------------------------------------------------------------- *
@@ -162,5 +162,98 @@ describe('setParam lands on its own frame', () => {
     eng.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 1, atFrame: 4 * BLOCK })
     eng.handleMessage({ kind: 'removeSynth', name: 'v' })
     expect(() => render(eng, 8)).not.toThrow()
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * THE PER-SYNTH SCOPE TRACE.
+ *
+ * One signed peak per processed block, in a ring, emitted with the meters
+ * event so the editor can draw each synth's own output beside its header. The
+ * risk in a display like this is that it looks alive while showing nothing
+ * real, so these check it against ACTUAL audio rather than against itself.
+ * ------------------------------------------------------------------------- */
+
+describe('per-synth scope trace', () => {
+  const scopeOf = (eng: RealtimeEngine, name: string): Float32Array => {
+    const ev = eng.collectMeters() as { scopes?: Record<string, Float32Array> }
+    return ev.scopes![name]!
+  }
+  const span = (a: Float32Array): number => Math.max(...a) - Math.min(...a)
+
+  it('is silent for a synth that is not playing', () => {
+    const eng = engine()
+    render(eng, 20)
+    expect(span(scopeOf(eng, 'v'))).toBe(0)
+  })
+
+  it('follows the synth once a note sounds', () => {
+    const eng = engine()
+    eng.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 0.8 })
+    eng.handleMessage({ kind: 'noteOn', synth: 'v', note: 60 })
+    render(eng, 20)
+    expect(span(scopeOf(eng, 'v'))).toBeGreaterThan(0.01)
+  })
+
+  it('tracks LEVEL, so a quieter synth draws a smaller trace', () => {
+    /* The property that makes it a scope rather than decoration: it must not
+     * auto-scale, or every synth would look equally loud. */
+    const loud = engine()
+    loud.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 0.9 })
+    loud.handleMessage({ kind: 'noteOn', synth: 'v', note: 60 })
+    render(loud, 20)
+    const quiet = engine()
+    quiet.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 0.1 })
+    quiet.handleMessage({ kind: 'noteOn', synth: 'v', note: 60 })
+    render(quiet, 20)
+    expect(span(scopeOf(quiet, 'v'))).toBeLessThan(span(scopeOf(loud, 'v')) / 2)
+  })
+
+  it('has one point per synth channel, and only for synths that exist', () => {
+    const eng = engine()
+    render(eng, 4)
+    const ev = eng.collectMeters() as { scopes?: Record<string, Float32Array> }
+    expect(Object.keys(ev.scopes!)).toEqual(['v'])
+    expect(ev.scopes!['v']!.length).toBe(SCOPE_POINTS)
+  })
+
+  it('is a HISTORY: one point per block, kept', () => {
+    /* The ring must accumulate, not overwrite one slot. Freezing the write
+     * head still produces a trace that CHANGES every frame (its single live
+     * point moves), so comparing two snapshots proves nothing — the property
+     * is that N sounding blocks leave N marks. */
+    const eng = engine()
+    eng.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 0.8 })
+    eng.handleMessage({ kind: 'noteOn', synth: 'v', note: 60 })
+    const BLOCKS = 9
+    render(eng, BLOCKS)
+    const nz = [...scopeOf(eng, 'v')].filter((v) => v !== 0).length
+    expect(nz, 'the ring is holding one slot instead of a history').toBeGreaterThan(BLOCKS - 3)
+  })
+
+  it('SCROLLS: sound ages toward the start and eventually leaves the window', () => {
+    const eng = engine()
+    eng.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 0.8 })
+    eng.handleMessage({ kind: 'noteOn', synth: 'v', note: 60 })
+    render(eng, 6)
+    eng.handleMessage({ kind: 'noteOff', synth: 'v', note: 60 })
+    render(eng, 6)
+    const firstNonZero = (a: Float32Array): number => a.findIndex((v) => v !== 0)
+    const early = firstNonZero(scopeOf(eng, 'v'))
+    expect(early, 'nothing in the window at all').toBeGreaterThanOrEqual(0)
+    render(eng, 6)
+    const later = firstNonZero(scopeOf(eng, 'v'))
+    expect(later, 'the burst did not age toward the start').toBeLessThan(early)
+    // and long enough after, it is gone entirely
+    render(eng, SCOPE_POINTS + 5)
+    expect([...scopeOf(eng, 'v')].every((v) => v === 0), 'stale audio never left the window').toBe(true)
+  })
+
+  it('never reports a non-finite sample to the host', () => {
+    const eng = engine()
+    eng.handleMessage({ kind: 'setParam', synth: 'v', name: 'level', value: 0.5 })
+    eng.handleMessage({ kind: 'noteOn', synth: 'v', note: 60 })
+    render(eng, 12)
+    for (const v of scopeOf(eng, 'v')) expect(Number.isFinite(v)).toBe(true)
   })
 })

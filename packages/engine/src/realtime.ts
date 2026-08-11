@@ -76,10 +76,16 @@ const MAX_RAMP_MS = 10000
 const MIN_CPS = 0.001
 const MAX_CPS = 100
 const HALF_PI = Math.PI / 2
-/** Same-frame ordering: noteOff fires before noteOn (retrigger idiom — see
- *  render.ts's rank comment for the full rationale). */
+/** Same-frame ordering: noteOff, then param, then noteOn. The middle one is
+ *  what makes patterned automation land on the note it belongs to: the value
+ *  is in place before the gate opens.
+ *
+ *  These numbers MIRROR render.ts's `rank` deliberately (noteOff 0, param 1,
+ *  noteOn 2). Live and offline reordering the same events differently is the
+ *  bug class this whole file is careful about. */
 const RANK_OFF = 0
-const RANK_ON = 1
+const RANK_PARAM = 1
+const RANK_ON = 2
 
 /** Master bus per-sample safety stage, exported for direct unit testing (an
  *  honest in-graph NaN source doesn't exist — every kernel guards or flushes
@@ -114,10 +120,14 @@ export const duckReleaseCoeff = (releaseMs: number, sampleRate: number): number 
 
 interface QueuedNote {
   frame: number
-  rank: number // RANK_OFF | RANK_ON
+  rank: number // RANK_OFF | RANK_PARAM | RANK_ON
   synth: string
   note: number
   velocity: number // unused for noteOff
+  /** RANK_PARAM only: what to set when this fires. Kept in its own field
+   *  rather than borrowed from `note`/`velocity`, so a queue dump reads as
+   *  what it is. */
+  param?: { name: string; value: number; rampMs: number }
 }
 
 interface ParamState {
@@ -684,6 +694,14 @@ export class RealtimeEngine {
   private fire(ev: QueuedNote): void {
     const ch = this.byName.get(ev.synth)
     if (!ch) return // removeSynth purges its pending events; purely defensive
+    if (ev.rank === RANK_PARAM) {
+      const p = ev.param
+      if (p === undefined) return
+      // validated when it was queued; the param can still have vanished under
+      // a redefine, which applyParam tolerates
+      this.applyParam(ch, p.name, p.value, p.rampMs, ev.frame)
+      return
+    }
     if (ev.rank === RANK_ON) {
       ch.pool.noteOn(ev.note, ev.velocity)
       // Sidechain trigger, sample-accurate: the walk splits the block at this
@@ -1049,12 +1067,47 @@ export class RealtimeEngine {
       rampMs = clamp(m['rampMs'], 0, MAX_RAMP_MS)
     }
     const target = clamp(m['value'], p.min, p.max)
+    /* SCHEDULED, like noteOn. Without this a patterned param applied the
+     * moment its message arrived, which is up to one scheduler lookahead
+     * (~100ms) before the note it belongs to — measured at a consistent 75ms.
+     * Since a param is synth-wide and reaches every voice, the change landed
+     * on whatever was still ringing: automation was heard on the PREVIOUS
+     * note. Offline render has always applied params on their exact sample,
+     * so the same program bounced differently from how it sounded. */
+    const at = m['atFrame']
+    if (at !== undefined && !fin(at)) {
+      return this.error(`'atFrame' must be a finite number`, `setParam '${ch.name}'`)
+    }
+    if (at !== undefined && at > this.frames) {
+      this.enqueue(Math.floor(at), RANK_PARAM, ch.name, 0, 0, { name, value: target, rampMs })
+      return
+    }
+    this.applyParam(ch, name, target, rampMs, this.frames)
+  }
+
+  /**
+   * Set a param NOW, at `frame` on the engine timeline.
+   *
+   * Shared by the immediate path and by a queued param firing mid-block, so
+   * the two cannot drift. `frame` is the event's own frame rather than the
+   * block start, which is what lets a ramp queued for later start from where
+   * it was actually scheduled.
+   */
+  private applyParam(
+    ch: Channel,
+    name: string,
+    target: number,
+    rampMs: number,
+    frame: number,
+  ): void {
+    const p = ch.params.get(name)
+    if (p === undefined) return // redefined out from under a queued event
     // A new set replaces any in-flight ramp on the same param, starting from
     // the ramp's current value (evaluated at the present frame).
     const ramps = ch.ramps
     for (let i = ramps.length - 1; i >= 0; i--) {
       if (ramps[i]!.name === name) {
-        p.value = rampValue(ramps[i]!, this.frames)
+        p.value = rampValue(ramps[i]!, frame)
         ramps[i] = ramps[ramps.length - 1]!
         ramps.pop()
       }
@@ -1070,8 +1123,8 @@ export class RealtimeEngine {
         param: p,
         from: p.value,
         to: target,
-        startFrame: this.frames,
-        endFrame: this.frames + durFrames,
+        startFrame: frame,
+        endFrame: frame + durFrames,
       })
     }
   }
@@ -1251,7 +1304,14 @@ export class RealtimeEngine {
 
   /** Sorted insertion by (frame, rank), stable for equal keys. Runs on the
    *  control plane — the splices are fine here and keep process() scan-free. */
-  private enqueue(frame: number, rank: number, synthName: string, note: number, velocity: number): void {
+  private enqueue(
+    frame: number,
+    rank: number,
+    synthName: string,
+    note: number,
+    velocity: number,
+    param?: { name: string; value: number; rampMs: number },
+  ): void {
     const q = this.queue
     if (this.qHead > 0) {
       q.splice(0, this.qHead) // compact fired entries before measuring size
@@ -1283,7 +1343,9 @@ export class RealtimeEngine {
       if (e.frame < frame || (e.frame === frame && e.rank <= rank)) lo = mid + 1
       else hi = mid
     }
-    q.splice(lo, 0, { frame, rank, synth: synthName, note, velocity })
+    q.splice(lo, 0, param === undefined
+      ? { frame, rank, synth: synthName, note, velocity }
+      : { frame, rank, synth: synthName, note, velocity, param })
   }
 
   private rebuildList(): void {

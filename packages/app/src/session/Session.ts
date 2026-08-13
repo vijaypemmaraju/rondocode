@@ -1,7 +1,7 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import { DEFAULT_TIME_SIG } from '@rondocode/pattern'
 import type { SchedulerEvent, TimeSig } from '@rondocode/pattern'
-import { DEFAULT_MASTER_GAIN, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables, parseSampleRef, sampleNamesIn } from '@rondocode/engine'
+import { DEFAULT_MASTER_GAIN, MAX_TOTAL_VOICES, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables, parseSampleRef, planVoiceBudget, sampleNamesIn } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -303,7 +303,10 @@ export class Session {
 
     // Take ownership of the engine event stream (single listener by design).
     this.audio.onEvent = (ev) => {
-      if (ev.kind === 'error') this.reportRuntime('engine', ev.message)
+      if (ev.kind === 'error') {
+        this.reportRuntime('engine', ev.message)
+        this.forgetRejectedSynth(ev.context)
+      }
       this.onEngineEvent?.(ev)
     }
   }
@@ -314,6 +317,63 @@ export class Session {
    * an empty list on a clean eval — always reach onDiagnostics. On failure
    * nothing is sent and nothing changes; the result carries the details.
    */
+  /**
+   * Drop a synth the engine REFUSED from the applied mirror.
+   *
+   * `liveSynths` records what has been sent, and the diff skips anything
+   * unchanged — so a `defineSynth` the engine rejected (voice budget spent, a
+   * graph it could not compile) left the host believing the synth existed. It
+   * never re-sent it, and every note for it reported `unknown synth` forever:
+   * the only way out was editing that synth's own text, which does not help
+   * when the problem is elsewhere in the project.
+   *
+   * Forgetting it means the next eval tries again, so freeing voices anywhere
+   * is enough to bring it back.
+   */
+  private forgetRejectedSynth(context: string | undefined): void {
+    if (context === undefined) return
+    const m = /^defineSynth '(.+)'$/.exec(context)
+    if (m === null) return
+    const name = m[1]!
+    this.liveSynths.delete(name)
+    this.liveDefs.delete(name)
+  }
+
+  /**
+   * What the voice budget will do to this project, said BEFORE anything is
+   * sent and while the line that caused it is still on screen.
+   *
+   * The budget is first come, first served, so the synth written last is the
+   * one that gets nothing — and the engine's own report of that arrives as a
+   * single line that is immediately buried under `unknown synth` for every
+   * note it should have played. The host knows every synth's `voices:` up
+   * front, so it can say the whole thing once: the total, the ceiling, who is
+   * spending it, and who loses.
+   */
+  private voiceBudgetDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
+    const plan = planVoiceBudget([...synths].map(([name, def]) => ({ name, voices: def.maxVoices })))
+    const rejected = plan.filter((p) => p.rejected)
+    const clamped = plan.filter((p) => !p.rejected && p.got < p.asked)
+    if (rejected.length === 0 && clamped.length === 0) return []
+    const asked = plan.reduce((n, p) => n + p.asked, 0)
+    const biggest = [...plan].sort((a, b) => b.asked - a.asked).slice(0, 3)
+      .map((p) => `${p.name} (${p.asked})`).join(', ')
+    const parts = [`this project asks for ${asked} voices and the budget is ${MAX_TOTAL_VOICES}`]
+    if (rejected.length > 0) {
+      parts.push(`${rejected.map((p) => `'${p.name}'`).join(', ')} will NOT be created, so `
+        + `${rejected.length === 1 ? 'it is' : 'they are'} silent`)
+    }
+    for (const p of clamped) parts.push(`'${p.name}' gets ${p.got} of the ${p.asked} voices it asks for`)
+    parts.push(`the largest are ${biggest} — lower \`voices:\` on those`)
+    return [{
+      line: 1,
+      col: 1,
+      message: parts.join('. ') + '.',
+      severity: 'warning' as const,
+      source: 'eval' as const,
+    }]
+  }
+
   /**
    * Every sample a program plays that is not loaded.
    *
@@ -358,7 +418,11 @@ export class Session {
     this.lastAttemptedSource = source
     const result = evalCode(source, baseScope)
     this.evalDiags = result.ok
-      ? [...result.diagnostics, ...this.missingSampleDiags(result.synths)]
+      ? [
+          ...result.diagnostics,
+          ...this.voiceBudgetDiags(result.synths),
+          ...this.missingSampleDiags(result.synths),
+        ]
       : result.diagnostics
     // Runtime diagnostics describe the PREVIOUS program: stale once a new
     // one applies. A failed eval leaves the old program (and its runtime

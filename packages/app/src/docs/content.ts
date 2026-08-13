@@ -1409,7 +1409,7 @@ cps .6`,
           ['`blend:`', 'gain of the outermost voices, 0 to 1', '`.7`'],
           ['`octaves:`', 'every nth voice plays an octave up', '`2`'],
           ['`humanize:`', 'per-voice pitch and timing offsets, up to 8 cents and 14 ms at 1, hashed from the voice and the note so the render still repeats exactly', '`.3` to `.5`'],
-          ['`voices:`', 'polyphony: how many notes may ring at once', '`8` to `12`'],
+          ['`voices:`', 'polyphony: how many notes may ring at once. Allocated UP FRONT and shared: a project has 128 voices across all its synths, first come first served, so a 32-voice pad leaves less for everything after it', '`8` to `12`'],
         ],
       ),
       rondo(

@@ -47,6 +47,42 @@ export const MAX_PENDING_EVENTS = 4096
  *  a rich multi-synth patch room to breathe — a full track can easily run a
  *  dozen synths, and per-synth `voices` lets patches right-size within it. */
 export const MAX_TOTAL_VOICES = 128
+
+/** One synth's share of the budget, given what the others already hold.
+ *
+ *  THE rule, in one place: defineSynth applies it to a single synth as it
+ *  arrives, and {@link planVoiceBudget} walks a whole project through it so the
+ *  host can say what WILL happen before sending anything. Two copies of this
+ *  arithmetic would drift, and the symptom of drift is a warning that
+ *  contradicts the engine. */
+export function allocVoices(requested: number, used: number): { voices: number; rejected: boolean } {
+  const free = MAX_TOTAL_VOICES - used
+  if (free < 1) return { voices: 0, rejected: true }
+  const want = Math.floor(requested)
+  return { voices: Math.floor(clamp(want, 1, free)), rejected: false }
+}
+
+/**
+ * What the engine will do with a project's synths, in DEFINITION ORDER.
+ *
+ * The budget is first come, first served, so order decides who loses: the
+ * synth written last is the one that gets nothing. Returns every synth with
+ * what it asked for and what it will actually get, so a host can report the
+ * whole picture rather than one synth's failure.
+ */
+export function planVoiceBudget(
+  synths: readonly { name: string; voices?: number | undefined }[],
+): { name: string; asked: number; got: number; rejected: boolean }[] {
+  const out: { name: string; asked: number; got: number; rejected: boolean }[] = []
+  let used = 0
+  for (const s of synths) {
+    const asked = s.voices === undefined ? DEFAULT_VOICES : Math.floor(s.voices)
+    const { voices, rejected } = allocVoices(asked, used)
+    used += voices
+    out.push({ name: s.name, asked, got: voices, rejected })
+  }
+  return out
+}
 /** Cap on retired-but-still-ringing voice pools kept across same-name
  *  redefines. A redefine no longer cuts playing voices — the old pool rings
  *  out while new notes use the new graph — but the backlog is bounded so rapid
@@ -70,7 +106,9 @@ const DEFAULT_MAX_SYNTHS = 16
  *  registry size, independent of the voice budget (which is what actually
  *  limits polyphony: 64 synths would run 1 voice each). */
 const MAX_SYNTHS_LIMIT = 64
-const DEFAULT_VOICES = 8
+/** Voices a synth gets when it does not ask for a number. Exported so the host
+ *  can predict the engine's allocation without hard-coding it. */
+export const DEFAULT_VOICES = 8
 const DEFAULT_CHANNEL_GAIN = 0.8
 const DEFAULT_PAN = 0.5
 /** The engine's output level before any project sets one. EXPORTED because
@@ -852,14 +890,28 @@ export class RealtimeEngine {
       requested = Math.floor(m['maxVoices'])
     }
     // Voice budget: clamp to what the OTHER synths leave free (a same-name
-    // replacement releases its own voices first).
+    // replacement releases its own voices first). Same rule the host uses to
+    // pre-flight a project — see allocVoices.
     let others = 0
     for (const ch of this.list) if (ch !== existing) others += ch.voices
-    const budget = MAX_TOTAL_VOICES - others
-    if (budget < 1) {
-      return this.error(`voice budget exhausted (${MAX_TOTAL_VOICES} total)`, `defineSynth '${name}'`)
+    const alloc = allocVoices(requested, others)
+    if (alloc.rejected) {
+      return this.error(
+        `voice budget exhausted (${MAX_TOTAL_VOICES} total, ${others} already allocated): `
+        + `'${name}' cannot be created. Lower \`voices:\` on the largest synths.`,
+        `defineSynth '${name}'`,
+      )
     }
-    const voices = Math.floor(clamp(requested, 1, budget))
+    if (alloc.voices < requested) {
+      /* SAY SO. A synth that asked for 32 and quietly got 4 is a patch that
+       * drops notes for no visible reason. */
+      this.error(
+        `'${name}' asked for ${requested} voices and got ${alloc.voices} — `
+        + `the ${MAX_TOTAL_VOICES}-voice budget is nearly spent (${others} allocated).`,
+        `defineSynth '${name}'`,
+      )
+    }
+    const voices = alloc.voices
     const graph = m['graph'] as unknown as GraphSpec
     const postGraph = isObj(m['post']) ? (m['post'] as unknown as GraphSpec) : undefined
     // voiceOpts (mono/glide/unison/...) is normalized host-side; the pool clamps

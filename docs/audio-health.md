@@ -25,7 +25,7 @@ baseline below.
 ## The built-in bank, offline
 
 The four built-in samples (`vox`, `riser`, `pad`, `break`) are procedurally
-generated pure functions, not files — so the headless path loads exactly what
+generated pure functions, not files -- so the headless path loads exactly what
 the browser builds at startup, via `builtInSamples()` in
 `packages/app/src/audio/demo-samples.ts`. Before that, every `sample()` and
 `granular()` voice rendered as digital zero and the scripts reported success
@@ -110,7 +110,7 @@ are for.
 
 ## Loudness matching
 
-The examples once spanned **15.5 LUFS** — flipping from `future bass` (-9.3) to
+The examples once spanned **15.5 LUFS** -- flipping from `future bass` (-9.3) to
 `wavetable lead` (-24.8) dropped the volume by more than 15 dB, and the
 quietest were the teaching examples a newcomer opens first. Five were raised by
 output gain, where the house standard says level belongs:
@@ -154,6 +154,6 @@ Three rules learned doing it, all measured:
 
 `render-example.ts` was not forwarding send buses, so a program's shared
 reverb or delay simply did not exist in the file it wrote. On `club` that moved
-the spectral centroid from 265 Hz to 315 Hz — the missing tail, measurable
+the spectral centroid from 265 Hz to 315 Hz -- the missing tail, measurable
 rather than a matter of opinion. `render-local.ts` had always passed them. Both
 scripts now do.

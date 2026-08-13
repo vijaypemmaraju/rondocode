@@ -983,3 +983,107 @@ describe('a slide only holds for its own step', () => {
     for (const x of settled) expect(x.gate, `note ${x.note} at ${x.on}s never released`).toBeLessThan(Infinity)
   })
 })
+
+/* ------------------------------------------------------------------------- *
+ * THE VOICE BUDGET, REPORTED BEFORE IT BITES.
+ *
+ * 128 voices, first come first served. Past that, the synth written LAST is
+ * refused — and the failure was reported in the worst possible order: one
+ * `voice budget exhausted` line, then `unknown synth 'x'` for every note it
+ * should have played, until the message that explained it had scrolled away.
+ * Worse, the host recorded the rejected synth as applied, so the diff never
+ * re-sent it: freeing voices elsewhere did not bring it back.
+ * ------------------------------------------------------------------------- */
+
+/** A program of `n` synths, each asking for `voices`, in order. */
+const budgetSrc = (specs: [string, number | undefined][]): string =>
+  specs.map(([name, v]) =>
+    `const ${name} = synth(({ note, gate, sine }) => sine(note.freq).mul(gate)`
+    + `${v === undefined ? '' : `, { voices: ${v} }`})`).join('\n')
+  + `\np('x', note('c3').sound('${specs[0]![0]}'))`
+
+const warned = (diags: Diagnostic[][]): string =>
+  (diags[diags.length - 1] ?? []).filter((d) => d.severity === 'warning').map((d) => d.message).join(' ')
+
+describe('the voice budget is reported up front', () => {
+  it('says nothing when the project fits', () => {
+    const { session, diags } = rig()
+    expect(session.evalCode(budgetSrc([['a', 4], ['b', 8]])).ok).toBe(true)
+    expect(warned(diags)).toBe('')
+  })
+
+  it('names the synth that will NOT be created, and the total', () => {
+    const { session, diags } = rig()
+    session.evalCode(budgetSrc([['a', 64], ['b', 64], ['late', 8]]))
+    const w = warned(diags)
+    expect(w).toContain("'late' will NOT be created")
+    expect(w).toContain('136 voices')
+    expect(w).toContain('budget is 128')
+  })
+
+  it('names a synth that is quietly CUT DOWN, not just one that is refused', () => {
+    /* The half nobody notices: a synth that asked for 32 and runs 8 drops
+     * notes for no visible reason. */
+    /* Note the per-synth cap is 64, so the squeeze has to be built out of
+     * several synths rather than one greedy one. */
+    const { session, diags } = rig()
+    session.evalCode(budgetSrc([['a', 64], ['b', 48], ['c', 32]]))
+    expect(warned(diags)).toContain("'c' gets 16 of the 32 voices it asks for")
+  })
+
+  it('points at the biggest consumers, since that is where the fix is', () => {
+    const { session, diags } = rig()
+    session.evalCode(budgetSrc([['small', 2], ['huge', 64], ['big', 48], ['late', 32]]))
+    const w = warned(diags)
+    expect(w).toContain('huge (64)')
+    expect(w).toContain('voices:')
+  })
+
+  it('is a WARNING: the program still applies', () => {
+    const { session, ofKind } = rig()
+    const r = session.evalCode(budgetSrc([['a', 64], ['b', 64], ['late', 8]]))
+    expect(r.ok).toBe(true)
+    expect(ofKind('defineSynth').length).toBeGreaterThan(2)
+  })
+})
+
+describe('a synth the engine REFUSED is retried on the next eval', () => {
+  it('forgets a rejected defineSynth instead of recording it as applied', () => {
+    /* Without this the diff skips it forever and the only cure is editing that
+     * synth's own text — which does not help when the problem is elsewhere in
+     * the project. */
+    const { session, audio, ofKind } = rig()
+    const src = budgetSrc([['a', 4], ['late', 8]])
+    session.evalCode(src)
+    expect(ofKind('defineSynth').map((m) => m.name)).toContain('late')
+
+    // the engine refuses it, after the fact
+    audio.onEvent?.({ kind: 'error', message: 'voice budget exhausted', context: "defineSynth 'late'" } as never)
+
+    // re-evaluating the SAME source must send it again
+    const before = ofKind('defineSynth').filter((m) => m.name === 'late').length
+    session.evalCode(src)
+    const after = ofKind('defineSynth').filter((m) => m.name === 'late').length
+    expect(after, 'the rejected synth was never retried').toBeGreaterThan(before)
+  })
+
+  it('an unchanged, ACCEPTED synth is still not re-sent', () => {
+    // the retry must not turn into "re-send everything every eval"
+    const { session, ofKind } = rig()
+    const src = budgetSrc([['a', 4], ['b', 8]])
+    session.evalCode(src)
+    const before = ofKind('defineSynth').length
+    session.evalCode(src)
+    expect(ofKind('defineSynth').length).toBe(before)
+  })
+
+  it('ignores an engine error that is not a defineSynth', () => {
+    const { session, audio, ofKind } = rig()
+    const src = budgetSrc([['a', 4], ['b', 8]])
+    session.evalCode(src)
+    audio.onEvent?.({ kind: 'error', message: 'something else', context: "setParam 'a'" } as never)
+    const before = ofKind('defineSynth').length
+    session.evalCode(src)
+    expect(ofKind('defineSynth').length).toBe(before)
+  })
+})

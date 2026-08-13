@@ -168,7 +168,9 @@ for (let oct = 1; oct <= 7; oct++) {
 }
 
 // root × quality. boost the plain triads so they sort above the extensions.
-const CHORD_OPTIONS: Completion[] = CHORD_ROOTS.flatMap((root) =>
+// EXPORTED: rondo's `overchord:` offers the same chords, and a second copy of
+// this table is how one of them ends up offering a quality the other does not.
+export const CHORD_OPTIONS: Completion[] = CHORD_ROOTS.flatMap((root) =>
   CHORD_SUFFIXES.map((suf) => ({
     label: `${root}${suf}`,
     detail: suf === '' ? 'major' : suf === 'm' ? 'minor' : suf,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { localBindings, macroNames, optionsFor, rondoPositionAt } from '../src/editor/rondo/complete'
+import { localBindings, macroNames, optionsFor, rondoPositionAt, sampleNames, scaleModeNames, synthNames } from '../src/editor/rondo/complete'
+import { CHORD_OPTIONS } from '../src/editor/complete'
 import { BUILTINS, KEYWORDS, MODIFIERS, OPTIONS, docBlockFor, withDocPanel } from '../src/editor/rondo'
 import type { Completion } from '@codemirror/autocomplete'
 
@@ -263,5 +264,152 @@ describe('rondo docs render as the shared card', () => {
       if (o.example === undefined) continue
       expect(o.example, `${String(o.label)}: example looks like JS`).not.toMatch(/\w\(/)
     }
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The measured complaint: "the suggestions don't feel comprehensive".
+ *
+ * Two different holes. The vocabulary table is HAND-WRITTEN, so seven builtins
+ * -- limiter, deess, tape, convolve, pitchshift, follow, noisegate -- were in
+ * the language, in the engine and in the guide, and in no completion list at
+ * all. And rondo is mostly NAMES: your synths, your samples, your scales, your
+ * chords. Those were the four positions that answered nothing.
+ * ------------------------------------------------------------------------- */
+
+describe('every builtin is offered, whether or not anyone described it', () => {
+  const inSynth = (): Set<string> => {
+    const doc = 'synth a\n  '
+    const where = rondoPositionAt(doc, doc.length)
+    return new Set(optionsFor(where, OPTIONS, { locals: [], macros: [] }).map((o) => String(o.label)))
+  }
+
+  it('offers EVERY name in BUILTINS', () => {
+    const have = inSynth()
+    const missing = Object.keys(BUILTINS).filter((n) => !have.has(n))
+    expect(missing, 'a builtin nobody added to the table is a word you must already know').toEqual([])
+  })
+
+  it('the seven that were missing are there, with prose and not just a signature', () => {
+    // a generated floor keeps them findable; these were worth describing
+    for (const name of ['limiter', 'deess', 'tape', 'convolve', 'pitchshift', 'follow', 'noisegate']) {
+      const o = OPTIONS.find((x) => x.label === name)
+      expect(o, name).toBeDefined()
+      expect(String(o?.info ?? '').length, `${name} needs prose saying WHEN to reach for it`).toBeGreaterThan(60)
+    }
+  })
+
+  it('a generated entry still says the call shape', () => {
+    // what the floor gives you when the table forgets: arity and argument names
+    const have = optionsFor(rondoPositionAt('synth a\n  ', 9), [], { locals: [], macros: [] })
+    const conv = have.find((o) => o.label === 'convolve')
+    expect(conv?.detail).toBe('convolve NAME mix:')
+  })
+})
+
+describe('the positions that name a thing', () => {
+  const at = (doc: string, ctx: Partial<Parameters<typeof optionsFor>[2]> = {}): string[] => {
+    const where = rondoPositionAt(doc, doc.length)
+    return optionsFor(where, OPTIONS, {
+      locals: [], macros: [],
+      synths: synthNames(doc), samples: sampleNames(doc), scales: scaleModeNames(doc),
+      ...ctx,
+    }).map((o) => String(o.label))
+  }
+
+  it('`play ` offers the synths THIS document defines', () => {
+    /* It used to offer block headers: the cursor was at indent 0, so the rule
+     * said "top level" and answered with `synth`, `bpm`, `timesig` -- the one
+     * thing you cannot type there. */
+    const doc = 'synth kick\n  sine\n\nsynth lead\n  saw\n\nplay '
+    expect(rondoPositionAt(doc, doc.length)).toEqual({ kind: 'ref', what: 'synth' })
+    expect(at(doc)).toEqual(['kick', 'lead'])
+  })
+
+  it('and so does `beat `, and a partial name still classifies', () => {
+    const doc = 'synth kick\n  sine\n\nbeat ki'
+    expect(at(doc)).toEqual(['kick'])
+  })
+
+  it('a play line is still a play line, not a synth reference', () => {
+    // the header names a synth; the BODY is notation
+    expect(rondoPositionAt('play lead\n  0 3 ', 16)).toEqual({ kind: 'play' })
+  })
+
+  it('`sample ` offers samples, and the named args after them', () => {
+    const doc = 'synth a\n  sample '
+    expect(rondoPositionAt(doc, doc.length)).toEqual({ kind: 'penum', builtin: 'sample', block: 'synth' })
+    const out = at(doc)
+    expect(out, 'the built-in kit').toContain('break')
+    /* the panel sorts by SCORE, not by list order, so the slot's own names carry
+     * a boost -- without it the browser interleaved them with `end:` and `fade:` */
+    const sample = optionsFor(rondoPositionAt(doc, doc.length), OPTIONS, { locals: [], macros: [], samples: sampleNames(doc) })
+    expect(sample.find((o) => o.label === 'break')?.boost, 'the slot the cursor is in must win the sort').toBe(1)
+    expect(sample.find((o) => o.label === 'root:')?.boost).toBeUndefined()
+    expect(out, 'the named args are still reachable').toContain('root:')
+  })
+
+  it('a document `zonedef` is a sample name too', () => {
+    expect(at('zonedef piano\n  c2..b3 low\n\nsynth a\n  sample ')).toContain('piano')
+  })
+
+  it('once a name is typed, the slot is arguments again', () => {
+    expect(rondoPositionAt('synth a\n  sample bd ', 20)).toEqual({ kind: 'args', builtin: 'sample', block: 'synth' })
+  })
+
+  it('a builtin whose first positional is NOT a name is unaffected', () => {
+    expect(rondoPositionAt('synth a\n  svf ', 14)).toEqual({ kind: 'args', builtin: 'svf', block: 'synth' })
+  })
+
+  it('`scale:a-` offers the modes, INCLUDING the short forms', () => {
+    /* The named-argument rule could never reach this: on a play line the
+     * modifier's own name is the first word, so `callName === arg` and it
+     * declined. `min` and `maj` are how every example is written. */
+    const doc = 'play lead\n  0 3 5  scale:a-'
+    expect(rondoPositionAt(doc, doc.length)).toEqual({ kind: 'scale' })
+    const out = at(doc)
+    expect(out).toContain('min')
+    expect(out).toContain('dorian')
+  })
+
+  it('a `scaledef` in the document is offered as a mode', () => {
+    expect(at('scaledef weird cents 0 133 400\n\nplay a\n  0 3  scale:c-')).toContain('weird')
+  })
+
+  it('`scale:` with no root yet is not a mode slot', () => {
+    // the root comes first; offering `minor` where `a` goes would be wrong
+    expect(rondoPositionAt('play a\n  0  scale:', 17).kind).not.toBe('scale')
+  })
+
+  it('`overchord:` offers chord names, from the table JS uses', () => {
+    for (const doc of ['play pad\n  overchord: <Am7 ', 'play pad\n  overchord Am7 ']) {
+      expect(rondoPositionAt(doc, doc.length)).toEqual({ kind: 'chord' })
+      const out = at(doc)
+      expect(out).toContain('Am7')
+      expect(out).toContain('Fmaj7')
+      expect(out).toContain('C')
+    }
+  })
+
+  it('the chord list is the SAME list, not a second copy of it', () => {
+    const rondo = at('play pad\n  overchord ')
+    expect(rondo).toEqual(CHORD_OPTIONS.map((o) => String(o.label)))
+  })
+})
+
+describe('live sample names', () => {
+  it('offers what the session has LOADED, not just the built-in kit', () => {
+    const doc = 'synth a\n  sample '
+    const where = rondoPositionAt(doc, doc.length)
+    const out = optionsFor(where, OPTIONS, {
+      locals: [], macros: [], samples: sampleNames(doc, ['my_take', 'vox_hook']),
+    }).map((o) => String(o.label))
+    expect(out).toContain('my_take')
+    expect(out).toContain('break')
+  })
+
+  it('falls back to the built-in kit when nothing is registered', () => {
+    // the docs pages have no audio session
+    expect(sampleNames('').length).toBeGreaterThan(0)
   })
 })

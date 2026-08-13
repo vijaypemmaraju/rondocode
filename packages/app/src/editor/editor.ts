@@ -32,7 +32,7 @@ import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
-import { rondoLanguage, rondoAutocomplete } from './rondo'
+import { rondoLanguage, rondoAutocomplete, setLiveSampleNames } from './rondo'
 import { codeWidgets } from './rondo/widgets'
 import { isDesktop, openVirtualMidi } from '../desktop/bridge'
 import { NoteOut } from '../desktop/midiout'
@@ -666,6 +666,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       ],
     }),
   })
+
+  /* Sample-name completion reads what is actually loaded, which only the
+   * session knows. Registered here rather than passed through the completion
+   * source because that source is a module-level extension shared with the docs
+   * pages, which have no audio and correctly fall back to the built-in kit. */
+  setLiveSampleNames(() => session.loadedSampleNames())
 
   // Pattern-event fanout: the Session's onPatternEvents is single-consumer, and
   // the flasher already owns it — so we route it through here to also feed the

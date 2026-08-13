@@ -19,6 +19,7 @@ import { autocompletion } from '@codemirror/autocomplete'
 import { restTag } from '../theme'
 import { rondoMode } from '../langflag'
 import { makeRondoCompletionSource } from './complete'
+export { setLiveSampleNames } from './complete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
 import type { Hooks as RondoWidgetHooks } from './widgets'
@@ -156,6 +157,19 @@ export const OPTIONS: RondoOption[] = [
   c('shape', 'function', 'shape drive type:tube', 'Waveshaper drive: soft/hard/sine/tube.'),
   c('bitcrush', 'function', 'bitcrush bits:8', 'Bit/rate crusher — lo-fi grit.'),
   c('compress', 'function', 'compress threshold:… ratio:…', 'Compressor on the running signal.'),
+  /* The dynamics and repair chain. Every one of these was in the language, in
+   * the engine and in the guide, and in NO completion list — the table is
+   * hand-written, so a builtin only appears here if somebody remembers. There
+   * is now a generated floor for any that get missed (see complete.ts), but a
+   * generated entry is a signature with no prose, and the prose is the part
+   * that says WHEN to reach for it. */
+  c('noisegate', 'function', 'noisegate threshold:… range:…', 'Turn down the QUIET parts: bleed, hiss, room tone between the notes. Goes FIRST in a chain, so nothing downstream amplifies the noise you were about to remove.', 'noisegate threshold:-45 range:-30 hold:.05'),
+  c('deess', 'function', 'deess freq:… threshold:…', 'A compressor on ONE band, and only when that band is loud — sibilance that is harsh on some notes and fine on others. A plain compressor cannot fix that: ducking enough to tame the harsh note ducks the whole part with it.', 'deess freq:6500 threshold:-24 ratio:4'),
+  c('limiter', 'function', 'limiter ceiling:…', 'Hold a CEILING nothing crosses, for a bounce or a PA feed. It turns down BEFORE the peak arrives, which is why it delays the signal. A safety net, not a sound: if it is working hard all the time, the thing in front of it is set wrong.', 'limiter ceiling:-1 release:.05'),
+  c('tape', 'function', 'tape wow:… sat:…', 'Tape: slow pitch drift (wow), fast flutter, soft saturation and a rolled-off top. The cheapest way to make a stiff, in-the-grid part sound played.', 'tape wow:.3 flutter:.2 sat:.4'),
+  c('pitchshift', 'function', 'pitchshift semitones:…', 'Shift pitch without changing length. `window:` trades smearing against warble; `mix:` keeps the dry underneath for a detuned double.', 'pitchshift semitones:-12 mix:.5'),
+  c('convolve', 'function', 'convolve NAME mix:…', 'Convolution reverb: the space is a RECORDING, so any loaded sample is a legal room. `hall` ships built in.', 'convolve hall mix:.3'),
+  c('follow', 'function', 'follow attack:… release:…', 'An envelope FOLLOWER: turns a signal into its own loudness, as a control signal. Feed it to a filter and the part opens itself.', 'cut = follow attack:.01 release:.2'),
   c('phaser', 'function', 'phaser rate:… depth:…', 'Swept-notch phaser motion.'),
   c('comb', 'function', 'comb freq [feedback]', 'Comb filter — metallic resonance.'),
   c('formant', 'function', 'formant morph', 'Vowel filter: morph 0..1 scans a→e→i→o→u.'),

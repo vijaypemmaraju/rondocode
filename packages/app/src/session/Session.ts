@@ -388,11 +388,25 @@ export class Session {
    * while you are still writing the line, or between choosing a sample and
    * loading it, and failing the eval there would fight the person typing.
    */
-  private missingSampleDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
+  /**
+   * Sample names that are loaded right now, by FAMILY: `bd:1` and `bd:2` are
+   * both `bd`, because that is the name you write.
+   *
+   * Public because the editor completes sample names from it. That is the same
+   * list `missingSampleDiags` warns against, deliberately — offering a name and
+   * then warning that it is not loaded would be the editor arguing with itself.
+   */
+  loadedSampleNames(): string[] {
     const list = this.audio.getSamples?.()
     if (list === undefined) return []
-    const loaded = new Set<string>()
-    for (const s of list) loaded.add(parseSampleRef(s.name).base)
+    const out = new Set<string>()
+    for (const s of list) out.add(parseSampleRef(s.name).base)
+    return [...out].sort()
+  }
+
+  private missingSampleDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
+    if (this.audio.getSamples === undefined) return []
+    const loaded = new Set<string>(this.loadedSampleNames())
     const wanted = new Set<string>()
     for (const def of synths.values()) {
       for (const n of sampleNamesIn(def.graph)) wanted.add(n)

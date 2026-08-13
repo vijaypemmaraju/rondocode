@@ -213,6 +213,51 @@ play wah
 cps .5`,
     why: 'This is the half `sidechain` does not cover. Sidechain ducks on note ONSETS -- which is why the pump keeps working when you mute the kick -- so nothing in the engine reacted to how loud anything actually IS. `follow` returns the level as an ordinary signal, so it composes: multiply by it, subtract it from 1 to duck, or map it through `->` into a cutoff like this. The asymmetry is the craft: a fast attack catches the transient, a slow release stops the control chattering between syllables. Equal times give a tremolo of the source waveform, which is the classic way to make a follower useless.', },
   {
+    id: 'band-key',
+    title: 'Tame harshness only when it actually bites',
+    tags: ['compress', 'sidechain', 'key', 'de-ess', 'dynamics', 'mix'],
+    code: `synth lead
+  src
+  svf 4200 res:.3
+  * adsr .01 .12 .7 .2
+  * .5
+  src = saw note
+  # the DETECTOR is a high band of the same signal, so the compressor only
+  # reacts when the top end spikes -- and turns down the WHOLE note when it does
+  bite = svf src 3500 mode:hp
+  compress threshold:-26 ratio:8 attack:2 release:90 key:bite
+
+play lead
+  <0 4 7 11>*2
+  scale: a-min
+  dur: .9
+
+cps .5`,
+    why: 'A static filter cut is always cutting, including on the notes that were fine. `key` gives the compressor its own detector input, so it listens to a high-band split of the signal and turns the whole note down only when that band spikes. That is what a de-esser is, generalised: the thing being turned down and the thing deciding when are separated. Note the key must live in the SAME synth -- a synth runs once per voice, so it has no single output another synth could read. Ducking one instrument under another is `sidechain`, which fires on note onsets instead.', },
+  {
+    id: 'section-sweep',
+    title: 'Open a filter once across a whole section',
+    tags: ['curve', 'automation', 'arrangement', 'build', 'filter'],
+    code: `synth pad
+  supersaw note detune:.25
+  svf cut res:.35
+  * adsr .3 .3 .8 .4
+  * .4
+  cut = knob 500 200..9000 log
+
+section build 16
+  play pad
+    <0 3 5 7>
+    scale: a-min
+    dur: .95
+    # ONE pass over 16 bars: 8 opening, 8 easing back. It does not loop.
+    cut: curve 8 1 8 .35 400..7000
+
+song build
+
+cps .5`,
+    why: '`lfo` and `saw` are CYCLIC -- they restart every bar, or every n bars, so a filter written with one can never simply open across a section and stay open. `curve` is measured in cycles against the transport and holds its last level instead of looping, which makes it a timeline automation lane rather than a modulator. The pairs are duration-then-level, so `curve 8 1 8 .35` is eight bars up to full and eight easing back to a third. A third number on a pair gives that leg its own easing, `from:` sets the level before the first one, and `loop:1` opts back into repeating.', },
+  {
     id: 'pump',
     title: 'Make everything duck under the kick',
     tags: ['sidechain', 'mix', 'pump', 'house'],

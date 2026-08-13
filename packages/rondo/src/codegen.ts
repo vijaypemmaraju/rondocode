@@ -5,7 +5,7 @@
  * `p('NAME', n('…')…)`, tempo as `setCps(x)`. We collect which synth-ctx
  * members each synth uses and emit exactly that destructure. */
 
-import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue } from './ast'
+import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue, ZoneRow } from './ast'
 import { BUILTINS, RESERVED_TOP_LEVEL } from './builtins'
 
 /** May a patdef name be expanded INSIDE another figure?
@@ -137,6 +137,10 @@ class SynthGen {
     /** Names a `js{ }` block brings into scope. Unknown-name checking has to
      *  know about these or the escape hatch stops working. */
     readonly jsNames: ReadonlySet<string> = new Set(),
+    /** `zonedef NAME` blocks, by name. A `sample NAME` that matches one is a
+     *  MULTISAMPLE: the zones are inlined into that node rather than kept in a
+     *  registry, so they travel with the node they configure. */
+    readonly zoneDefs: ReadonlyMap<string, ZoneRow[]> = new Map(),
   ) {}
 
   expr(e: Expr): string {
@@ -374,6 +378,20 @@ class SynthGen {
     }
     if (spec.kind === 'gated') {
       this.uses.add('gate')
+      /* A `sample NAME` whose NAME is a zonedef becomes a multisample. The
+       * zones ride in the node's options, so nothing has to resolve a registry
+       * at graph-construction time — and the emitted JS is the same call a
+       * reader would write by hand. */
+      if (name === 'sample' && e.args[0]?.t === 'enum') {
+        const zs = this.zoneDefs.get(e.args[0].name)
+        if (zs !== undefined) {
+          const rows = zs.map((z) => `{ lo: ${z.lo}, hi: ${z.hi}, name: ${q(z.name)}, root: ${z.root} }`)
+          const withZones = parts.length > 0
+            ? `, { ${parts.join(', ')}, zones: [${rows.join(', ')}] }`
+            : `, { zones: [${rows.join(', ')}] }`
+          return `${name}(gate${a.length > 0 ? ', ' + a.join(', ') : ''}${withZones})`
+        }
+      }
       return `${name}(gate${a.length > 0 ? ', ' + a.join(', ') : ''}${opts})`
     }
     if (name === 'reverb' && e.named.mix !== undefined) {
@@ -470,6 +488,7 @@ function cgChain(
     noMacros?: { why: string; pos: Pos }
     synths?: ReadonlySet<string>
     jsNames?: ReadonlySet<string>
+    zoneDefs?: ReadonlyMap<string, ZoneRow[]>
   } = {},
 ): string {
   const g = new SynthGen(
@@ -478,6 +497,7 @@ function cgChain(
     opts.macros,
     opts.synths,
     opts.jsNames,
+    opts.zoneDefs,
   )
   const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
@@ -562,7 +582,7 @@ function cgSynth(
   block: SynthBlock,
   errors: RondoError[],
   macros: ReadonlySet<string>,
-  scope: { synths: ReadonlySet<string>; jsNames: ReadonlySet<string> },
+  scope: { synths: ReadonlySet<string>; jsNames: ReadonlySet<string>; zoneDefs?: ReadonlyMap<string, ZoneRow[]> },
 ): string {
   /* A synth becomes `const NAME = synth(…)` beside the pattern functions, so
    * a name they already use is a JS redeclaration — which surfaces as
@@ -1247,7 +1267,12 @@ export function codegen(program: Program, errors: RondoError[]): string {
       jsNames.add(m[1]!)
     }
   }
-  const scope = { synths: synthNames, jsNames }
+  /* Zonedefs, by name, so a `sample piano` inside any synth can be recognised
+   * as a multisample. Collected up front because a zonedef may be written
+   * after the synth that uses it, exactly like a macro or a wavetable. */
+  const zoneDefs = new Map<string, ZoneRow[]>()
+  for (const it of program.items) if (it.t === 'zonedef') zoneDefs.set(it.name, it.zones)
+  const scope = { synths: synthNames, jsNames, zoneDefs }
   /** Sections emitted so far — what a `with` may name (see cgSection). */
   const sectionsSoFar = new Set<string>()
   for (const it of program.items) {
@@ -1283,6 +1308,10 @@ export function codegen(program: Program, errors: RondoError[]): string {
     // a patdef emits NOTHING: it was substituted into its use sites above,
     // so by here it is a definition with no runtime existence at all
     if (item.t === 'patdef') return ''
+    /* nor does a zonedef: it is INLINED into the `sample` nodes that name it,
+     * so the zones travel with the node they configure rather than living in a
+     * registry the graph has to resolve at construction. */
+    if (item.t === 'zonedef') return ''
     // `timesig 3 4` → setTimeSig(3, 4). The evaluator resolves `bpm` against
     // it at the END of the eval, so the two lines commute.
     if (item.t === 'timesig') return `setTimeSig(${item.num}, ${item.den})`

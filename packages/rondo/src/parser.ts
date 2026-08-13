@@ -12,9 +12,10 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, TimeSigItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue } from './ast'
+import type { Binding, Comb, CpsItem, TimeSigItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue, ZoneRow } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
+import { noteNameToMidi } from '@rondocode/pattern'
 import type { BuiltinSpec } from './builtins'
 
 const SIGNALS = new Set(['sine', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'sine2', 'rand', 'perlin'])
@@ -355,6 +356,15 @@ function parseKnob(c: Cursor): Expr {
 
 /** Steps a single `sum` may unroll to. */
 const SUM_MAX_STEPS = 64
+
+/** A note name or a MIDI number as MIDI. Shared by zonedef ranges and roots. */
+function midiOf(tok: string): number | undefined {
+  if (/^\d+$/.test(tok)) {
+    const n = Number(tok)
+    return n >= 0 && n <= 127 ? n : undefined
+  }
+  return noteNameToMidi(tok)
+}
 
 function bodyLines(lines: Line[], start: number, min = 0): { body: Line[]; next: number } {
   const body: Line[] = []
@@ -967,7 +977,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
 export const BLOCK_KEYWORDS: readonly string[] = [
   'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'patdef',
   'bus', 'sidechain', 'master', 'stereo', 'macro', 'switch', 'curvedef', 'scaledef',
-  'wavedef', 'visual', 'js',
+  'wavedef', 'zonedef', 'visual', 'js',
 ]
 
 /** The top-level items that are ONE LINE rather than a block with an indented
@@ -1327,6 +1337,56 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       i++
     }
     // `bus NAME` block: FX lines fold from `input`; `send SYNTH AMT` routes
+    /* `zonedef piano` + rows of `lo..hi SAMPLE root:N` — a multisample
+     * instrument. Ranges and roots take NOTE NAMES as well as MIDI numbers,
+     * because `c2..b3 piano_low root:c3` is the form a musician can check and
+     * `36..59 piano_low root:48` is the form they have to look up. */
+    else if (head.v === 'zonedef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'zonedef needs a name (`zonedef piano`)', line: ln.line, col: ln.rawCol })
+      }
+      const { body, next } = bodyLines(lines, i + 1)
+      const zones: ZoneRow[] = []
+      if (body.length === 0) {
+        errors.push({
+          message: 'zonedef needs rows (`c2..b3 piano_low root:c3`), indented under it',
+          line: ln.line,
+          col: ln.rawCol,
+        })
+      }
+      for (const b of body) {
+        const m = /^(\S+)\.\.(\S+)[ \t]+([a-zA-Z_][\w]*(?::\d+)?)(?:[ \t]+root:(\S+))?[ \t]*$/.exec(b.raw.trim())
+        if (m === null) {
+          errors.push({
+            message: 'a zonedef row is `lo..hi SAMPLE root:NOTE` (`c2..b3 piano_low root:c3`)',
+            line: b.line,
+            col: b.rawCol,
+          })
+          continue
+        }
+        const lo = midiOf(m[1]!)
+        const hi = midiOf(m[2]!)
+        const root = m[4] === undefined ? 60 : midiOf(m[4])
+        if (lo === undefined || hi === undefined || root === undefined) {
+          errors.push({
+            message: 'a zonedef range and root are note names or MIDI numbers (`c2..b3 … root:c3`)',
+            line: b.line,
+            col: b.rawCol,
+          })
+          continue
+        }
+        if (hi < lo) {
+          errors.push({ message: `zonedef range is backwards: ${m[1]}..${m[2]}`, line: b.line, col: b.rawCol })
+          continue
+        }
+        zones.push({ lo, hi, name: m[3]!, root })
+      }
+      if (zones.length > 0) items.push({ t: 'zonedef', name, zones, pos: head.pos })
+      i = next
+      continue
+    }
     else if (head.v === 'bus') {
       const nameTok = ln.toks[1]
       const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''

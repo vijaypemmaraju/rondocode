@@ -262,6 +262,28 @@ export interface WaveDefItem {
   pos: Pos
 }
 
+/** One row of a `zonedef`: a key range, the sample that answers it, and the
+ *  note that sample was recorded at. */
+export interface ZoneRow {
+  lo: number
+  hi: number
+  name: string
+  root: number
+}
+
+/** `zonedef NAME` + indented `lo..hi SAMPLE root:N` rows — a multisample
+ *  instrument. `sample NAME` in a synth then plays the zones.
+ *
+ *  A BLOCK rather than a `/`-separated line like `wavedef`: a wavedef row is
+ *  bare numbers, while a zone row carries a range, a name and a root, and four
+ *  of those on one line is unreadable on the phone this language is for. */
+export interface ZoneDefItem {
+  t: 'zonedef'
+  name: string
+  zones: ZoneRow[]
+  pos: Pos
+}
+
 /** A `bus NAME` block: an FX spine folded from `input` + `send SYNTH AMT`
  *  routing lines. */
 export interface BusBlock {
@@ -361,7 +383,7 @@ export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
   | SidechainItem | MasterItem
   | StereoItem | LevelItem | PatDefItem | BusBlock | VisualItem
-  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
+  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | ZoneDefItem | MacroItem | CurveDefItem
 
 export interface Program {
   items: TopItem[]

@@ -1318,3 +1318,73 @@ describe('patdef composition keeps its source map', () => {
     expect(c.notes[0]!.pieces).toBeUndefined()
   })
 })
+
+describe('zonedef: a multisample instrument', () => {
+  /* Key zones shipped as a JavaScript-only option because rondo node
+   * arguments are num/sig/bool/enum and there is no way to write a list of
+   * records inline. A BLOCK is the fit: `wavedef` gets away with a
+   * `/`-separated line because its rows are bare numbers, while a zone row
+   * carries a range, a name and a root. */
+  it('inlines the zones into the `sample` node that names it', () => {
+    const out = ok([
+      'zonedef piano',
+      '  c1..b2 piano_low root:c2',
+      '  c3..b4 piano_mid root:c4',
+      '',
+      'synth kit',
+      '  sample piano',
+      '',
+      'play kit',
+      '  c3',
+      '',
+      'cps .5',
+    ].join('\n'))
+    expect(out).toContain("sample(gate, 'piano', { zones: [")
+    expect(out).toContain("{ lo: 24, hi: 47, name: 'piano_low', root: 36 }")
+    expect(out).toContain("{ lo: 48, hi: 71, name: 'piano_mid', root: 60 }")
+  })
+
+  it('takes MIDI numbers as well as note names', () => {
+    const out = ok('zonedef k\n  0..59 lo root:48\n  60..127 hi root:72\n\nsynth kit\n  sample k\n\nplay kit\n  c3\n\ncps .5')
+    expect(out).toContain('{ lo: 0, hi: 59, name: \'lo\', root: 48 }')
+    expect(out).toContain('{ lo: 60, hi: 127, name: \'hi\', root: 72 }')
+  })
+
+  it('a zone name may be a FAMILY member, so round robin still works inside it', () => {
+    const out = ok('zonedef k\n  0..127 snare:1 root:60\n\nsynth kit\n  sample k\n\nplay kit\n  c3\n\ncps .5')
+    expect(out).toContain("name: 'snare:1'")
+  })
+
+  it('defaults the root to 60 when a row omits it', () => {
+    expect(ok('zonedef k\n  0..127 one\n\nsynth kit\n  sample k\n\nplay kit\n  c3\n\ncps .5')).toContain('root: 60')
+  })
+
+  it('emits NOTHING of its own — it is inlined, not registered', () => {
+    const out = ok('zonedef k\n  0..127 one root:60\n\nsynth kit\n  sample k\n\nplay kit\n  c3\n\ncps .5')
+    expect(out, 'a zonedef should have no runtime existence').not.toContain('zonedef')
+  })
+
+  it('a sample name that is NOT a zonedef is left alone', () => {
+    const out = ok('synth kit\n  sample vox\n\nplay kit\n  c3\n\ncps .5')
+    expect(out).toContain("sample(gate, 'vox')")
+    expect(out).not.toContain('zones')
+  })
+
+  it('says what a malformed row should look like', () => {
+    const c = compile('zonedef k\n  nonsense here\n\nsynth kit\n  saw\n\nplay kit\n  0\n\ncps .5')
+    expect(c.ok).toBe(false)
+    expect(c.errors[0]!.message).toMatch(/lo\.\.hi SAMPLE root/)
+  })
+
+  it('refuses a backwards range rather than drawing no notes at all', () => {
+    const c = compile('zonedef k\n  c4..c2 low root:c3\n\nsynth kit\n  saw\n\nplay kit\n  0\n\ncps .5')
+    expect(c.ok).toBe(false)
+    expect(c.errors[0]!.message).toMatch(/backwards/)
+  })
+
+  it('needs rows', () => {
+    const c = compile('zonedef k\n\nsynth kit\n  saw\n\nplay kit\n  0\n\ncps .5')
+    expect(c.ok).toBe(false)
+    expect(c.errors[0]!.message).toMatch(/needs rows/)
+  })
+})

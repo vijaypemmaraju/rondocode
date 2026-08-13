@@ -126,6 +126,7 @@ export const OPTIONS: RondoOption[] = [
   c('level', 'keyword', 'level -4', "Overall output level in dB (0 = unity). Scales every part equally, so it moves the level without touching the balance. Reach for it when a bounce says it was normalized: above that ceiling per-part gains are inert.", 'level -4'),
   c('scaledef', 'keyword', 'scaledef pelog 0 1.2 2.7 5.4 6.7', 'Define a custom tuning: step offsets in semitones from the root (floats welcome), then `scale: c-pelog`. `Nedo` scales (`scale: c-19edo`) need no scaledef.'),
   c('wavedef', 'keyword', 'wavedef vox 1 .3 / .5 1 .6', 'Define a custom wavetable: `/`-separated frames of harmonic partial amplitudes, then `wavetable note pos table:vox`. The inline editor draws the morph; drag the bars to shape it.'),
+  c('zonedef', 'keyword', 'zonedef piano', 'A MULTISAMPLE: indented rows of `lo..hi SAMPLE root:NOTE` give each range of the keyboard its own recording, and `sample piano` in a synth plays them. Ranges and roots take note names or MIDI numbers; a row may name a family member (`snare:1`) so round robin still applies inside the zone; a note outside every zone is silent.', 'zonedef piano\n  c1..b2 piano_low root:c2\n  c3..b4 piano_mid root:c4'),
   c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),
   c('send', 'keyword', 'send lead .35', 'Route a synth into this bus (0..1, pre-fader).'),
   c('visual', 'keyword', 'visual', 'A WGSL fragment shader block, rendered behind the code.'),

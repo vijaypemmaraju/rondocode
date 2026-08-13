@@ -383,6 +383,34 @@ class Parser {
     this.next()
   }
 
+  /**
+   * A number used as a MODIFIER ARGUMENT must not carry a note's decorations.
+   *
+   * `'name:value` lane suffixes are attached by the tokenizer to the number it
+   * just read, so in `0@2'rel:.5` the nearest number is the WEIGHT — the lane
+   * lands on `2`, the parser reads the weight's value, and the lane is thrown
+   * away. It was silent, which is the worst way for it to fail: the notation
+   * is there, the note plays, and the param never moves, so the search starts
+   * in the synth. Same for a trailing accidental (`0@2#`).
+   *
+   * Lanes belong to the note, and the note is to the LEFT of every modifier:
+   * `0'rel:.5@2` is the same term and works.
+   */
+  private refuseDecoratedArg(t: Tok, op: string): void {
+    const lane = t.lanes === undefined ? undefined : Object.keys(t.lanes)[0]
+    if (lane !== undefined) {
+      const shown = lane === DEFAULT_LANE ? `'${t.lanes![lane]!}` : `'${lane}:${t.lanes![lane]!}`
+      this.err(
+        `${shown} is a lane on the NOTE, but here it is attached to the argument of '${op}'. `
+        + `Write the lane directly after the note instead: '0${shown}${op}…'`,
+        t.start,
+      )
+    }
+    if ((t.acc ?? 0) !== 0) {
+      this.err(`an accidental belongs to the NOTE, not to the argument of '${op}'`, t.start)
+    }
+  }
+
   private isTermStart(t: Tok): boolean {
     if (t.kind === 'word' || t.kind === 'number') return true
     return t.kind === 'punct' && (t.text === '~' || t.text === '[' || t.text === '<' || t.text === '{')
@@ -571,6 +599,7 @@ class Parser {
           if (!Number.isInteger(num.value) || num.value < 1) {
             this.err(`count for '!' must be a positive integer`, num.start)
           }
+          this.refuseDecoratedArg(num, '!')
           this.next()
           /* ACCUMULATE, do not assign. `!` can appear more than once on a
            * term — `0 ! !` is three copies — and assigning meant the second
@@ -589,6 +618,7 @@ class Parser {
           this.err(`expected a number after '@'`)
         }
         if (!(num.value > 0)) this.err(`weight for '@' must be positive`, num.start)
+        this.refuseDecoratedArg(num, '@')
         this.next()
         weight = num.value
       } else if (t.text === '(') {
@@ -599,6 +629,7 @@ class Parser {
         let p = 0.5
         const num = this.peek()
         if (num !== undefined && num.kind === 'number' && num.start === t.end) {
+          this.refuseDecoratedArg(num, '?')
           this.next()
           p = Math.min(1, Math.max(0, num.value)) // clamp: contract is [0,1]
         }
@@ -626,6 +657,7 @@ class Parser {
     const kind = wantInt ? 'an integer' : 'a number'
     const t = this.peek()
     if (t !== undefined && t.kind === 'number') {
+      this.refuseDecoratedArg(t, op)
       this.next()
       this.checkArg(op, wantInt, t.value, t.start)
       return t.value
@@ -854,6 +886,7 @@ class Parser {
       ) {
         this.err(`expected a positive integer after '%'`)
       }
+      this.refuseDecoratedArg(num, '%')
       this.next()
       base = num.value
     }

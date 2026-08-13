@@ -64,16 +64,16 @@ export interface PulseSpan {
 }
 
 export type CompileResult =
-  | { ok: true; code: string; notes: NoteSpan[]; jsRegions: JsRegion[]; pulses: PulseSpan[]; errors: [] }
-  | { ok: false; code: null; notes: []; jsRegions: []; pulses: []; errors: RondoError[] }
+  | { ok: true; code: string; lineMap: number[]; notes: NoteSpan[]; jsRegions: JsRegion[]; pulses: PulseSpan[]; errors: [] }
+  | { ok: false; code: null; lineMap: []; notes: []; jsRegions: []; pulses: []; errors: RondoError[] }
 
 /** Compile rondo source into a rondocode DSL source string. On any lex/parse/
  *  codegen error, returns `{ ok: false }` with positioned diagnostics. */
 export function compile(src: string): CompileResult {
   const { program, errors, jsRegions } = parse(src)
-  if (errors.length > 0) return { ok: false, code: null, notes: [], jsRegions: [], pulses: [], errors }
-  const code = codegen(program, errors)
-  if (errors.length > 0) return { ok: false, code: null, notes: [], jsRegions: [], pulses: [], errors }
+  if (errors.length > 0) return { ok: false, code: null, lineMap: [], notes: [], jsRegions: [], pulses: [], errors }
+  const { code, lineMap } = codegen(program, errors)
+  if (errors.length > 0) return { ok: false, code: null, lineMap: [], notes: [], jsRegions: [], pulses: [], errors }
   const notes: NoteSpan[] = program.items
     .flatMap((it) => (it.t === 'play' ? [it] : it.t === 'section' ? it.plays : []))
     .flatMap((p) => {
@@ -123,5 +123,5 @@ export function compile(src: string): CompileResult {
     ])
     .filter((l) => /^irand\b/.test(l.notation))
     .map((l) => ({ from: l.from, to: l.from + l.notation.length, sound: l.sound }))
-  return { ok: true, code, notes, jsRegions, pulses, errors: [] }
+  return { ok: true, code, lineMap, notes, jsRegions, pulses, errors: [] }
 }

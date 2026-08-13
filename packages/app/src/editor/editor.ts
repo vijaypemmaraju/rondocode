@@ -33,6 +33,7 @@ import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
 import { rondoLanguage, rondoAutocomplete, setLiveSampleNames } from './rondo'
+import { mapToRondo } from './rondomap'
 import { codeWidgets } from './rondo/widgets'
 import { isDesktop, openVirtualMidi } from '../desktop/bridge'
 import { NoteOut } from '../desktop/midiout'
@@ -391,6 +392,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   /** The last successfully EVALUATED program (post-transpile JS in rondo
    *  mode) — what "the staged track" means to resample-to-loop. */
   let lastStagedJs: string | null = null
+  /** Which rondo line each line of the last transpile came from — how an eval
+   *  diagnostic finds its way back onto this buffer. Empty in JS mode, where
+   *  positions already point at what you are looking at. */
+  let rondoLineMap: number[] = []
   let dirtyVsGood = true
   // Synth/channel names of the current sing() vocals (for karaoke detection).
   let singSoundNames = new Set<string>()
@@ -431,6 +436,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       rondoNotes = compiled.notes
       rondoJsRegions = compiled.jsRegions
       rondoPulses = compiled.pulses
+      rondoLineMap = compiled.lineMap
     }
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
@@ -845,16 +851,25 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const renderDiagnostics = (diags: Diagnostic[]): void => {
     try {
       const evalDiags = diags.filter((d) => d.source === 'eval')
-      // rondo mode: eval diagnostics reference the TRANSPILED JS, not this
-      // buffer — clamped squiggles would land on unrelated rondo text, so they
-      // join the status strip instead. (Rondo COMPILE errors, whose positions
-      // do point at this buffer, are dispatched directly from applyDoc.)
-      // A successful eval still clears stale compile squiggles: empty set.
-      view.dispatch(
-        setDiagnostics(view.state, lang === 'rondo' ? [] : toCmDiagnostics(view.state.doc, evalDiags)),
-      )
+      /* In rondo mode an eval diagnostic's position points at the TRANSPILED
+       * JS, so it used to be dropped from the buffer entirely and shown as a
+       * line of text under the editor. Everything the eval checks — an unknown
+       * `.ctrl` param, a note longer than its step, a chord on a mono synth, a
+       * staging target that does not exist, any runtime throw — was a message
+       * with no place, in a language whose whole pitch is that you can see what
+       * you are editing.
+       *
+       * The compiler now says which rondo line each JS line came from, so they
+       * land on the block. Anything the map cannot place still goes to the
+       * strip rather than being clamped onto whatever text is nearest, which
+       * is the failure the old comment was avoiding. */
+      const placed = lang === 'rondo' ? evalDiags.map((d) => mapToRondo(d, rondoLineMap)) : evalDiags
+      const inBuffer = lang === 'rondo' ? placed.filter((d): d is Diagnostic => d !== null) : evalDiags
+      view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc, inBuffer)))
       const stripDiags = [
-        ...(lang === 'rondo' ? evalDiags : []),
+        // rondo: only the ones with nowhere to point. In JS they all have a
+        // squiggle already, so repeating them under the editor is noise.
+        ...(lang === 'rondo' ? evalDiags.filter((_, i) => placed[i] === null) : []),
         ...diags.filter((d) => d.source !== 'eval'),
       ].slice(-2)
       strip.replaceChildren(

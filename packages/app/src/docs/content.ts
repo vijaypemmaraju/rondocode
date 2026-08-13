@@ -94,6 +94,27 @@ const vizTable = (): TableBlock =>
  *  (docs.ts) and the style sweeps in the tests. A new block kind that forgets
  *  to report its text here goes silently unsearchable, so this is the ONE
  *  place that knows how to read a block's words. */
+/** A block's PROSE only: a code block contributes its caption, not its source.
+ *
+ *  Search ranks on this above the full text, because code is illustration and
+ *  prose is what a section is about. Measured: `gate` put "Patterns &
+ *  mini-notation" first because every example calls `adsr(gate, …)`, and
+ *  `reverb mix` put "Singing" first because its post chain happens to contain
+ *  both words. Neither section is about either thing. */
+export function blockProse(b: Block): string {
+  switch (b.kind) {
+    case 'p':
+    case 'note':
+      return b.text
+    case 'code':
+      return b.caption ?? ''
+    case 'list':
+      return b.items.join(' ')
+    case 'table':
+      return [b.caption ?? '', ...b.headers, ...b.rows.flat()].join(' ')
+  }
+}
+
 export function blockText(b: Block): string {
   switch (b.kind) {
     case 'p':

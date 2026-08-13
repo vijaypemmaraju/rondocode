@@ -694,6 +694,65 @@ a:hover {
   outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
+/* The result list. Sits directly under the search box, above the filtered
+ * page, so a reader can either jump straight to the best answer or keep
+ * reading the narrowed page below. */
+.doc-results {
+  margin-top: var(--sp-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.doc-results-head {
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--c-dim);
+  font-family: var(--mono);
+  font-size: var(--fs-sm, 0.85em);
+  border-bottom: 1px solid var(--c-border);
+}
+.doc-result {
+  display: block;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--c-border);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.doc-result:last-child {
+  border-bottom: 0;
+}
+.doc-result:hover,
+.doc-result.on {
+  background: var(--c-raised);
+}
+.doc-result.on {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.doc-result-title {
+  display: block;
+  font-family: var(--mono);
+  color: var(--c-text);
+}
+.doc-result-snip {
+  display: block;
+  margin-top: 2px;
+  color: var(--c-dim);
+  font-size: var(--fs-sm, 0.85em);
+}
+.doc-result mark,
+.doc-elsewhere mark {
+  background: var(--c-accent);
+  color: var(--c-bg, #000);
+  border-radius: 2px;
+  padding: 0 1px;
+}
 .doc-nohits {
   color: var(--c-dim);
   font-family: var(--mono);

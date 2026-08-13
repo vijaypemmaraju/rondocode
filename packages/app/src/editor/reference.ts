@@ -22,6 +22,7 @@
  * ------------------------------------------------------------------------- */
 
 import type { DocEntry } from '../docs/dsl-docs'
+import { rank, terms } from '../docs/search'
 import type { DocBlock } from './docblock'
 import type { EditorLang } from './editor'
 import type { RondoOption } from './rondo'
@@ -85,17 +86,44 @@ export function referenceGroups(
   ].filter((g) => g.entries.length > 0)
 }
 
-/** Groups narrowed to a search, empty groups dropped. Matches on every field
- *  shown, so searching for a word you can see always finds its row. */
+/**
+ * Groups narrowed to a search, empty groups dropped, best match first.
+ *
+ * EVERY TERM must appear, not the query as one substring. Measured on the
+ * shipped reference: `reverb` matched 5 entries and `mix` matched 17, while
+ * `reverb mix` matched none — and so did every other two-word query, which is
+ * how a reader naturally describes what they are after.
+ *
+ * Ranked within each group, because matching on every field shown means a
+ * common word like `mix` matches 17 rows and the one actually called `mix`
+ * has to be first.
+ */
+/** The leading identifier of a signature: `reverb` from `reverb(input, …)`,
+ *  `a*n` from the mini-notation rows that have no parentheses. */
+const symbolName = (signature: string): string =>
+  (/^[^(\s:]+/.exec(signature.trim())?.[0] ?? signature).toLowerCase()
+
 export function filterGroups(groups: readonly RefGroup[], query: string): RefGroup[] {
-  const q = query.trim().toLowerCase()
-  if (q === '') return [...groups]
+  const ts = terms(query)
+  if (ts.length === 0) return [...groups]
+  /* GROUPS MOVE TOO. Ranking only inside a group leaves the best answer under
+   * whichever group happens to come first in authoring order: searching
+   * `reverb` put a `synth(...)` row that merely mentions it above the `reverb`
+   * entry itself, because globals are listed before effects. A search has no
+   * reason to preserve the browsing order. */
   return groups
-    .map((g) => ({
-      title: g.title,
-      entries: g.entries.filter((e) =>
-        `${e.signature} ${e.summary} ${e.example ?? ''}`.toLowerCase().includes(q),
-      ),
-    }))
+    .map((g) => {
+      const ranked = rank(g.entries, ts, (e) => ({
+        /* The SYMBOL NAME, not the whole signature. Every argument list is
+         * full of common words, so `mix` ranked `supersaw(freq, opts?: {
+         * detune?, mix? })` level with `mix(...)` itself. What a reader typed
+         * is nearly always the name. */
+        title: symbolName(e.signature),
+        body: `${e.signature} ${e.summary} ${e.example ?? ''}`.toLowerCase(),
+      }))
+      return { title: g.title, entries: ranked.map((r) => r.item), best: ranked[0]?.score ?? -1 }
+    })
     .filter((g) => g.entries.length > 0)
+    .sort((a, b) => b.best - a.best)
+    .map(({ title, entries }) => ({ title, entries }))
 }

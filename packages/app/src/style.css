@@ -1804,6 +1804,11 @@ body.shaderviz-on .cm-content {
   z-index: 45;
   min-width: 240px;
   max-width: min(320px, 92vw);
+  /* The panel grew a monitor and became taller than a laptop viewport (855px
+     against 813), which would have put the clock section out of reach. */
+  max-height: min(80vh, 40rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
@@ -2359,4 +2364,96 @@ body.shaderviz-on .cm-content {
 .opt-audio-status {
   padding: var(--sp-1) var(--sp-2) 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- MIDI monitor ------------------------------------------------------- *
+ * A scrolling log of what arrived. Monospace and dense on purpose: it is read
+ * by scanning for the line that is missing, not by reading each row. */
+.midi-mon-ports {
+  display: flex;
+  flex-direction: column;
+}
+.midi-mon-port {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-ctrl);
+  border-top: 1px solid var(--c-border);
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.midi-mon-port:first-child {
+  border-top: none;
+}
+.midi-mon-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--c-text);
+}
+.midi-mon-state {
+  flex: 0 0 auto;
+}
+/* the port that is actually sending is the answer to the multi-port question */
+.midi-mon-port.speaking .midi-mon-state {
+  color: var(--c-accent);
+}
+.midi-mon-port.failed .midi-mon-state {
+  color: var(--c-error);
+}
+.midi-mon-log {
+  max-height: 14rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+}
+.midi-mon-row {
+  display: flex;
+  gap: var(--sp-2);
+  padding: 1px var(--sp-2);
+  white-space: nowrap;
+}
+.midi-mon-row:nth-child(even) {
+  background: var(--c-surface-2, rgb(255 255 255 / 3%));
+}
+.midi-mon-dev {
+  flex: 0 1 7rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--c-dim);
+}
+.midi-mon-kind {
+  flex: 0 0 5.5rem;
+  color: var(--c-accent);
+}
+.midi-mon-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.midi-mon-ch,
+.midi-mon-raw {
+  flex: 0 0 auto;
+  color: var(--c-dim);
+}
+.midi-mon-empty,
+.midi-mon-clocks {
+  padding: var(--sp-2);
+  color: var(--c-dim);
+}
+.midi-mon-warn {
+  padding: var(--sp-2);
+  color: var(--c-error);
+  white-space: normal;
+}
+.midi-mon-clear {
+  align-self: flex-start;
 }

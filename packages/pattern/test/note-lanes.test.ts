@@ -11,7 +11,7 @@ import { Fraction as F, TimeSpan, hasOnset, n, note, s } from '../src/index'
  * which would then lose track of which note it meant the moment the notation
  * grew a rest or a subgroup.
  *
- * THREE NAMES ARE STRUCTURAL (vel, len, chance) because the pattern engine
+ * THREE NAMES ARE STRUCTURAL (gain, dur, chance) because the pattern engine
  * consumes them. Everything else is an ordinary param and reaches the synth
  * untouched, which is the point: the language should not own a vocabulary of
  * musical properties when the synth already has one.
@@ -21,7 +21,11 @@ const cyc = (p: unknown, c = 0): Record<string, unknown>[] =>
   (p as { query: (t: TimeSpan) => { value: Record<string, unknown> }[] })
     .query(new TimeSpan(new F(c), new F(c + 1)))
     .filter(hasOnset as never)
-    .map((h) => { const v = { ...h.value }; delete v['loc']; return v })
+    /* Strip the METADATA that rides along with every event: `loc` for the
+     * editor's note flash, `laneKeys` for lane provenance (see ControlMap).
+     * Neither is a control, and asserting them here would make every test in
+     * this file about bookkeeping rather than about what a lane does. */
+    .map((h) => { const v = { ...h.value }; delete v['loc']; delete v['laneKeys']; return v })
 
 describe('named lanes', () => {
   it('a bare value still means `expr`', () => {
@@ -109,5 +113,70 @@ describe('notation that must keep working', () => {
 
   it('still reads an accidental beside the lanes', () => {
     expect(cyc(n("2#'gain:.5"))).toEqual([{ n: 2, nAcc: 1, gain: 0.5 }])
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A LANE BEATS A BLOCK MODIFIER.
+ *
+ * `cutoff: 17100` on the block and `0'cutoff:500` on a note used to resolve to
+ * 17100 — not by any decision, but because `.ctrl()` was applied after the
+ * notation was built and overwrote whatever was there. So a lane looked broken
+ * on exactly the blocks where it is most useful: the ones that also set a
+ * baseline for every other note.
+ *
+ * The value written ON the note is the more specific of the two, and
+ * specificity is what every other layered system resolves by.
+ * ------------------------------------------------------------------------- */
+
+describe('a per-note lane overrides a block modifier', () => {
+  it('an ordinary param: the lane wins, other notes take the block value', () => {
+    const got = cyc((n("0'cutoff:500 3") as never as { ctrl: (k: string, v: number) => unknown })
+      .ctrl('cutoff', 17100))
+    expect(got[0]!['cutoff'], 'the block overwrote the note').toBe(500)
+    expect(got[1]!['cutoff'], 'a note with no lane should take the block value').toBe(17100)
+  })
+
+  it('the structural ones too — gain and dur', () => {
+    const p = n("0'gain:.1'dur:.1 3") as never as
+      { gain: (v: number) => { dur: (v: number) => unknown } }
+    const got = cyc(p.gain(0.9).dur(0.7))
+    expect(got[0]!['gain']).toBe(0.1)
+    expect(got[0]!['dur']).toBe(0.1)
+    expect(got[1]!['gain']).toBe(0.9)
+    expect(got[1]!['dur']).toBe(0.7)
+  })
+
+  it('a lane only defends ITS OWN control', () => {
+    // `0'gain:.1` must not stop the block from setting cutoff on that note
+    const got = cyc((n("0'gain:.1") as never as
+      { gain: (v: number) => { ctrl: (k: string, v: number) => unknown } })
+      .gain(0.9).ctrl('cutoff', 900))
+    expect(got[0]!['gain']).toBe(0.1)
+    expect(got[0]!['cutoff'], 'an unrelated control was blocked').toBe(900)
+  })
+
+  it('chained ctrl calls still override each other', () => {
+    /* Only a LANE is protected. Two block modifiers for the same control are
+     * both block-level, so the later one wins as it always did. */
+    const got = cyc((n('0') as never as { gain: (v: number) => { gain: (v: number) => unknown } })
+      .gain(0.5).gain(0.9))
+    expect(got[0]!['gain']).toBe(0.9)
+  })
+
+  it('a block modifier still reaches every note when none carries a lane', () => {
+    const got = cyc((n('0 3 5') as never as { gain: (v: number) => unknown }).gain(0.42))
+    expect(got.map((g) => g['gain'])).toEqual([0.42, 0.42, 0.42])
+  })
+
+  it('the provenance never reaches a synth', () => {
+    /* `laneKeys` is bookkeeping. It is in RESERVED_PARAM_NAMES so it can never
+     * be mistaken for a param, and it is not a number so every dispatcher
+     * skips it anyway — belt and braces, because a stray control key becomes a
+     * silent `unknown param` at the engine. */
+    const raw = (n("0'cutoff:500") as never as { query: (t: TimeSpan) => { value: Record<string, unknown> }[] })
+      .query(new TimeSpan(new F(0), new F(1)))[0]!.value
+    expect(raw['laneKeys']).toEqual(['cutoff'])
+    expect(typeof raw['laneKeys']).not.toBe('number')
   })
 })

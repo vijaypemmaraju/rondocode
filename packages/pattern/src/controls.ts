@@ -55,6 +55,16 @@ export interface ControlMap {
   /** Per-note probability from `'chance:n`. STRUCTURAL: consumed when the
    *  pattern is built and never reaches a synth. */
   chance?: number
+  /** Which controls on this event came from a per-note LANE (`0'gain:.8`).
+   *
+   *  Provenance, so `.ctrl()` can leave them alone: a value written ON a note
+   *  is more specific than one written for the whole block, and the specific
+   *  one should win. Without this the block modifier simply landed later and
+   *  overwrote it, which made a lane look broken on any block that also set
+   *  the same control.
+   *
+   *  STRUCTURAL: listed in RESERVED_PARAM_NAMES so it never reaches a synth. */
+  laneKeys?: readonly string[]
   /** Absolute midi note (post-scale resolution, or set directly by `note()`). */
   note?: number
   /** Synth name the scheduler routes the event to. */
@@ -77,7 +87,7 @@ export interface ControlMap {
    *  actually fires. */
   locs?: Loc[]
   /** Any other key is a synth param (cutoff, res, wobble, ...). */
-  [param: string]: number | string | Loc | Loc[] | undefined
+  [param: string]: number | string | Loc | Loc[] | readonly string[] | undefined
 }
 
 /** What a control method accepts: a literal, a value pattern, or a mini string. */
@@ -194,6 +204,7 @@ export const RENAMED_LANES: ReadonlyMap<string, string> = new Map([['vel', 'gain
  *  the filter below and stripped there, so this stays a pure mapping. */
 function applyLanes(out: ControlMap, lanes: Readonly<Record<string, number>> | undefined): ControlMap {
   if (lanes === undefined) return out
+  const from: string[] = []
   for (const [k, v] of Object.entries(lanes)) {
     const renamed = RENAMED_LANES.get(k)
     if (renamed !== undefined) {
@@ -206,7 +217,9 @@ function applyLanes(out: ControlMap, lanes: Readonly<Record<string, number>> | u
     else if (k === 'dur') out.dur = v
     else if (k === 'chance') out.chance = v
     else (out as Record<string, unknown>)[k] = v
+    from.push(k)
   }
+  if (from.length > 0) out.laneKeys = [...(out.laneKeys ?? []), ...from]
   return out
 }
 
@@ -383,7 +396,14 @@ Pattern.prototype.ctrl = function (
     throw new TypeError(`ctrl('${name}') is reserved: ${why}`)
   }
   return this.appLeft(liftValue(x), (c, v): ControlMap => {
-    const out: ControlMap = { ...c, [name]: v.value }
+    /* A LANE WINS. `0'cutoff:500` inside a block that also says
+     * `cutoff: 17100` keeps its 500: the value written on the note is the more
+     * specific of the two, and specificity is what every other layered system
+     * resolves by. Previously the block modifier merely landed later and
+     * overwrote it, so a lane looked broken on exactly the blocks where it was
+     * most useful. Notes with no lane for this control still take the block's
+     * value, which is the point of setting it there. */
+    const out: ControlMap = c.laneKeys?.includes(name) === true ? { ...c } : { ...c, [name]: v.value }
     const locs = withLoc(c, v.loc)
     if (locs !== undefined) out.locs = locs
     return out

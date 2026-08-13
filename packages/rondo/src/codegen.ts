@@ -1030,10 +1030,16 @@ function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
  * render — ever learns that a name was involved, so a named pattern cannot
  * behave differently from the notation written out by hand.
  *
- * A whole line only. That is not a shortcut: it covers the case this exists
- * for exactly (every duplicated line measured in a real arrangement WAS a
- * whole line), and substituting inside a bracket would make `<riff riff2>`
- * mean something a reader could not see the length of.
+ * A name is spliced wherever it stands — on its own as a whole line, or inline
+ * in a figure (`0 ~ ghost 3`) exactly as inside a patdef body. It used to be
+ * whole-line only on the grounds that every duplicated line measured in a real
+ * arrangement WAS a whole line; that stopped being true once lanes gave a
+ * single NOTE something worth naming (`2'dur:.1'gain:.1'cutoff:500`, five
+ * times in a bar), and the docs had promised inline all along.
+ *
+ * The two rules composition already had carry over: a name that reads as a
+ * note is never spliced (see `inlinable`), and every chunk keeps its origin so
+ * note-flash lights the reference rather than the text it expands to.
  */
 function applyPatDefs(program: Program, errors: RondoError[]): void {
   const defs = new Map<string, { notation: string; from: number }>()
@@ -1163,10 +1169,30 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
   // The notation moves AND so does where it came from: a substituted play
   // line's text now lives on the patdef line, and note-flash lights whatever
   // offset it is handed (see compile.ts's NoteSpan).
-  const sub = <T extends { notation: string; notationFrom: number; notationPieces?: Piece[]; notationRefs?: Ref[] }>(t: T): void => {
+  const sub = <T extends { notation: string; notationFrom: number; notationPieces?: Piece[]; notationRefs?: Ref[] }>(
+    t: T,
+    pos: Pos,
+  ): void => {
     const key = t.notation.trim()
     const d = defs.get(key)
-    if (d === undefined) return
+    if (d === undefined) {
+      /* INLINE, the same as inside a patdef body. `2 ~ ghost 2` on a play line
+       * expands `ghost` where it stands; it used to pass straight through and
+       * fail later as "not a note name", which made the documented promise
+       * ("write the name anywhere notation goes") false exactly where a
+       * reader would first try it.
+       *
+       * Same machinery as composition, so it inherits the same two rules: a
+       * name that reads as a note is not expanded (see `inlinable`), and every
+       * chunk keeps its origin so note-flash lights the reference rather than
+       * the expansion. */
+      const e = expandPieces(t.notation, t.notationFrom, '', pos, new Set(), 0)
+      if (e.text === t.notation) return
+      t.notation = e.text
+      if (e.pieces.length > 1) t.notationPieces = e.pieces
+      t.notationRefs = e.refs
+      return
+    }
     const wasFrom = t.notationFrom
     const wasLen = t.notation.trim().length
     t.notation = d.notation
@@ -1186,8 +1212,8 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
     for (const it of items) {
       if (it.t === 'section') { walk(it.plays); continue }
       if (it.t !== 'play') continue
-      sub(it)
-      if (it.voices !== undefined) for (const v of it.voices) sub(v)
+      sub(it, it.pos)
+      if (it.voices !== undefined) for (const v of it.voices) sub(v, it.pos)
     }
   }
   walk(program.items)

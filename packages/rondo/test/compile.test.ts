@@ -1178,6 +1178,59 @@ describe('patdef composition', () => {
     expect(out).toContain("n('<[0] <[1 2] [1 2]>>')")
   })
 
+  it('a PLAY LINE splices a reference inline, not just as the whole line', () => {
+    /* The documented promise is "write the name anywhere notation goes -- a
+     * play line, a beat row, another patdef". A play line only substituted a
+     * LONE name, so `2 ~ ghost 2` passed straight through and failed later as
+     * "'ghost' is not a note name" — false exactly where a reader first tries
+     * it, and the one place a per-note figure most wants to be named once. */
+    const out = ok('patdef ghost [1 2]\n\nsynth q\n  saw\n\nplay q\n  0 ~ ghost 3\n\ncps .5\n')
+    expect(out).toContain("n('0 ~ [1 2] 3')")
+  })
+
+  it('inline on a play line works inside brackets and alternations', () => {
+    const g = 'patdef ghost [1 2]\n\nsynth q\n  saw\n\nplay q\n'
+    expect(ok(`${g}  [ghost] 3\n\ncps .5\n`)).toContain("n('[[1 2]] 3')")
+    expect(ok(`${g}  <ghost 3>*2\n\ncps .5\n`)).toContain("n('<[1 2] 3>*2')")
+  })
+
+  it('a per-note LANE survives the splice, which is the point of naming it', () => {
+    const out = ok("patdef ghost 2'dur:.1'gain:0.1\n\nsynth q\n  saw\n\nplay q\n  2 ~ ghost 2\n\ncps .5\n")
+    expect(out).toContain("2\\'dur:.1\\'gain:0.1")
+  })
+
+  it('a name that reads as a NOTE is still not spliced on a play line', () => {
+    /* Same rule as inside a figure: notation is where note names live, so
+     * expanding `patdef e …` would rewrite every `e` in every line. */
+    const out = ok('patdef e [1 2]\n\nsynth q\n  saw\n\nplay q\n  2 ~ e 2\n\ncps .5\n')
+    expect(out).toContain("note('2 ~ e 2')")
+  })
+
+  it('an inline splice keeps note-flash pointing at the right TEXT', () => {
+    /* The whole reason expansion carries a piece map. An assembled play line
+     * exists nowhere in the buffer as one run — `0 ~ ghost 3` is eleven
+     * characters standing for text from two different lines — so a span that
+     * only knew its start would light whatever happened to sit there. Each
+     * chunk must map back to where it actually came from. */
+    const src = 'patdef ghost [1 2]\n\nsynth q\n  saw\n\nplay q\n  0 ~ ghost 3\n\ncps .5\n'
+    const c = compile(src)
+    if (!c.ok) throw new Error(JSON.stringify(c.errors))
+    const span = c.notes[0]!
+    expect(span.content).toBe('0 ~ [1 2] 3')
+    expect(span.pieces, 'an assembled line needs its origin map').toBeDefined()
+    for (const p of span.pieces!) {
+      expect(src.slice(p.sourceStart, p.sourceStart + p.length))
+        .toBe(span.content.slice(p.assembledStart, p.assembledStart + p.length))
+    }
+    // and the reference itself is lightable, so a note inside `ghost` lights
+    // the word `ghost` where it stands
+    expect(span.refs?.map((r) => src.slice(r.from, r.to))).toEqual(['ghost'])
+  })
+
+  it('a line with no reference is left exactly alone', () => {
+    expect(ok('patdef ghost [1 2]\n\nsynth q\n  saw\n\nplay q\n  0 3 5\n\ncps .5\n')).toContain("n('0 3 5')")
+  })
+
   it('a cycle is an ERROR, not a hang', () => {
     failsAt('patdef loop <[0] loop>\n\nsynth q\n  saw\n\nplay q\n  loop\n\ncps .5\n', 'expands forever', 1, 1)
   })

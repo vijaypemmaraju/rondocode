@@ -56,7 +56,7 @@ load (or record, or resample) a sample.
 [TidalCycles](https://tidalcycles.org), [Strudel](https://strudel.cc) and
 [Gibber](https://gibber.cc) already exist and are excellent. The pattern side
 of rondocode follows the model Tidal invented and the mini-notation Strudel
-carried to the browser — see [NOTICE.md](NOTICE.md) for what this project
+carried to the browser -- see [NOTICE.md](NOTICE.md) for what this project
 borrows and from whom. If you live-code
 on a laptop and love them, keep them. rondocode exists because of three bets
 they are not making:
@@ -85,8 +85,8 @@ they are not making:
    JavaScript as readily as over rondo, writing back inside the string or array
    literal they came from.
    A differential test compiles a rondo program and requires both scanners to
-   find the same widgets, so those cannot quietly drift. The newest two — the
-   compressor transfer curve and the sidechain duck envelope — are rondo-only
+   find the same widgets, so those cannot quietly drift. The newest two -- the
+   compressor transfer curve and the sidechain duck envelope -- are rondo-only
    so far, and the same test names them rather than leaving the gap unstated.
    The two languages convert both ways: the editor
    decompiles JavaScript into rondo, and whatever the terse syntax cannot

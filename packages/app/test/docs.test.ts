@@ -172,6 +172,39 @@ describe('docs style rules', () => {
     }
   })
 
+  it('nor in the RONDO vocabulary, which is docs too', async () => {
+    /* This table is prose the reader sees: it renders in the completion panel
+     * and in every hover card. The rule was written for the docs page and
+     * enforced only there, so 26 of its 129 entries carried one -- the same
+     * copy, held to a different standard depending on which surface showed it. */
+    const { OPTIONS } = await import('../src/editor/rondo')
+    for (const o of OPTIONS) {
+      const copy = `${String(o.detail ?? '')} ${String(o.info ?? '')} ${o.example ?? ''}`
+      expect(copy.includes('—'), `em dash in the rondo entry for '${String(o.label)}'`).toBe(false)
+    }
+  })
+
+  it('nor in the repo markdown a reader arrives at first', async () => {
+    /* README, CONTRIBUTING, NOTICE and docs/ are the docs somebody meets before
+     * the app, and no check had ever looked at them: 50 em dashes across six
+     * files, including 29 in the agent guide. */
+    const { readFileSync, existsSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { join } = await import('node:path')
+    const { globSync } = await import('node:fs')
+    const root = fileURLToPath(new URL('../../..', import.meta.url))
+    const files = [
+      'README.md', 'CONTRIBUTING.md', 'NOTICE.md',
+      ...globSync('docs/**/*.md', { cwd: root }),
+    ]
+    expect(files.length, 'the glob must actually find the docs').toBeGreaterThan(3)
+    for (const rel of files) {
+      const abs = join(root, rel)
+      if (!existsSync(abs)) continue
+      expect(readFileSync(abs, 'utf8').includes('—'), `em dash in ${rel}`).toBe(false)
+    }
+  })
+
   it('every section carries a nav group', async () => {
     const { SECTIONS } = await import('../src/docs/content')
     for (const s of SECTIONS) expect(s.group.length, `section '${s.id}' has no group`).toBeGreaterThan(0)

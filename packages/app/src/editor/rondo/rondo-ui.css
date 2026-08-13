@@ -936,3 +936,48 @@
   color: var(--c-dim, #7b8494);
   pointer-events: none;
 }
+
+/* THE AUTOMATION LANE — `cut: curve 8 1 8 .35 400..7000`.
+ *
+ * Sits after its own line like the filter and LFO curves. The bar grid is the
+ * part that makes it a LANE rather than a shape: automation here is measured
+ * in bars against the transport, so being able to count them is the whole
+ * difference between reading the picture and guessing at it. */
+.rondo-curvelane {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 22%, transparent);
+}
+.rondo-curvelane svg { display: block; }
+.rondo-curvelane .cl-bar {
+  stroke: var(--c-border, #2a2e37);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.rondo-curvelane .cl-line {
+  fill: none;
+  stroke: var(--c-accent, #7fd1b9);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.rondo-curvelane .cl-head {
+  stroke: var(--c-accent-alt, #d9a441);
+  stroke-width: 1;
+}
+/* A breakpoint is a HANDLE, so it has to look grabbable: filled, and it grows
+ * under the pointer rather than only changing colour. */
+.rondo-curvelane .cl-pt {
+  fill: var(--c-accent, #7fd1b9);
+  stroke: var(--c-bg, #14161a);
+  stroke-width: 1;
+  cursor: ew-resize;
+  transition: r 90ms ease-out;
+}
+.rondo-curvelane .cl-pt:hover {
+  r: 6;
+  cursor: move;
+}

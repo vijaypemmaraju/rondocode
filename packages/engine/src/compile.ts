@@ -31,7 +31,7 @@ import type { BitcrushConfig } from './dsp/bitcrush'
 import { ShapeKernel } from './dsp/shape'
 import type { ShapeType } from './dsp/shape'
 import { SampleKernel } from './dsp/sample'
-import type { SampleSliceConfig } from './dsp/sample'
+import type { SampleSliceConfig, SampleZone } from './dsp/sample'
 import { GranularKernel } from './dsp/granular'
 import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
@@ -170,7 +170,9 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   // gate required (retrigger edge); speed optional, 1 = natural pitch; pitch is
   // the note-to-reference RATIO that picks a chop when `slices` is set (1 = the
   // reference note = slice 0), ignored otherwise.
-  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }, { name: 'variant', def: 0 }],
+  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }, { name: 'variant', def: 0 },
+    // note frequency, so the kernel can pick a KEY ZONE by note
+    { name: 'nfreq', def: 440 }],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],
@@ -362,6 +364,9 @@ const sampleCfg = (c: Record<string, unknown>): SampleSliceConfig => {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   if (typeof c['reverse'] === 'boolean') out.reverse = c['reverse']
+  // `zones` is an ARRAY, so the numeric sweep above would drop it — the same
+  // way compressCfg silently dropped a boolean `key`
+  if (Array.isArray(c['zones'])) out.zones = c['zones'] as SampleZone[]
   return out
 }
 

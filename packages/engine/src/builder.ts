@@ -16,6 +16,7 @@ export interface ParamOpts {
 }
 import type { Math2Op, MathOp } from './dsp/math'
 import type { EnvPoint } from './dsp/env'
+import type { SampleZone } from './dsp/sample'
 
 /* ------------------------------------------------------------------------- *
  * Synth builder DSL: the user-facing API for defining synths. A build
@@ -211,6 +212,11 @@ export interface SynthCtx {
        *  `bd:1` and `bd:2` are one family, and this picks among them, wrapping
        *  past the end so a pattern can drive it without falling silent. */
       variant?: SigIn
+      /** KEY ZONES: a different recording per range of the keyboard, each
+       *  pitched from its own root. One buffer stretched across a keyboard is
+       *  what gives a sampler away. Zones compose with families, so a zone
+       *  name may itself be `piano_mid:2`. */
+      zones?: SampleZone[]
     },
   ): Sig
   /** GRANULAR synthesis over a loaded sample: sprays short windowed grains from
@@ -1175,6 +1181,10 @@ const makeCtx = (b: Builder): SynthCtx => {
       if (speed !== undefined) inputs['speed'] = src(speed, 'sample speed')
       if (opts?.slices !== undefined) inputs['pitch'] = src(noteFreq.div(rootFreq), 'sample pitch')
       if (opts?.variant !== undefined) inputs['variant'] = src(opts.variant, 'sample variant')
+      // KEY ZONES need the note itself: the kernel picks the zone, and each
+      // zone carries its own root, so the pitch ratio is the kernel's to work
+      // out rather than something the graph can precompute.
+      if (opts?.zones !== undefined) inputs['nfreq'] = src(noteFreq, 'sample note')
       return b.node(
         'sample',
         inputs,
@@ -1186,6 +1196,7 @@ const makeCtx = (b: Builder): SynthCtx => {
           reverse: opts?.reverse,
           slices: opts?.slices,
           fade: opts?.fade,
+          zones: opts?.zones,
         }),
       )
     },

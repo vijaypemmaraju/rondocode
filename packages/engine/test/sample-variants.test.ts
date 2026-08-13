@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { SampleBank, parseSampleRef, sampleRefName } from '../src/samples'
 import { SampleKernel } from '../src/dsp/sample'
+import { synth } from '../src/builder'
+import { renderOffline } from '../src/render'
 
 /* ------------------------------------------------------------------------- *
  * SAMPLE FAMILIES.
@@ -188,5 +190,143 @@ describe('a note picks its variant', () => {
     const out2 = new Float32Array(8)
     k.process(8, { gate: gate2 }, out2, { sampleRate: sr })
     expect(out2[3]).toBe(5)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * KEY ZONES.
+ *
+ * One buffer stretched across a keyboard is the thing that gives a sampler
+ * away: a piano pitched down two octaves is a different instrument, not a
+ * lower note. Zones map ranges of the keyboard to different recordings, each
+ * pitched from its own root.
+ *
+ * They compose with families rather than replacing them — a zone name may be
+ * `piano_mid:2`, so round robin still applies within the zone.
+ * ------------------------------------------------------------------------- */
+
+const freqOf = (midi: number): number => 440 * Math.pow(2, (midi - 69) / 12)
+
+describe('key zones', () => {
+  const zones = [
+    { lo: 0, hi: 59, name: 'low', root: 48 },
+    { lo: 60, hi: 71, name: 'mid', root: 60 },
+    { lo: 72, hi: 127, name: 'high', root: 84 },
+  ]
+  const zoned = (): SampleBank => {
+    const b = new SampleBank()
+    b.set('low', pcm(1), sr)
+    b.set('mid', pcm(2), sr)
+    b.set('high', pcm(3), sr)
+    return b
+  }
+  /** The value the note plays, which identifies the sample it chose. */
+  const played = (midi: number, bank = zoned(), zs = zones): number => {
+    const k = new SampleKernel('low', false, bank, { zones: zs } as never)
+    const n = 32
+    const out = new Float32Array(n)
+    const gate = new Float32Array(n).fill(1)
+    k.process(n, { gate, nfreq: new Float32Array(n).fill(freqOf(midi)) }, out, { sampleRate: sr })
+    return out[1]!
+  }
+
+  it('picks the recording for the note, not one sample for all of them', () => {
+    expect(played(40)).toBe(1)
+    expect(played(64)).toBe(2)
+    expect(played(90)).toBe(3)
+  })
+
+  it('the boundaries are inclusive on both sides', () => {
+    expect(played(59)).toBe(1)
+    expect(played(60)).toBe(2)
+    expect(played(71)).toBe(2)
+    expect(played(72)).toBe(3)
+  })
+
+  it('a note outside every zone is SILENT, not the nearest neighbour', () => {
+    /* Same choice the family gap makes: substituting a sample nobody asked
+     * for sounds deliberate, which is worse than hearing nothing. */
+    expect(played(64, zoned(), [{ lo: 0, hi: 40, name: 'low', root: 40 }])).toBe(0)
+  })
+
+  it('each zone pitches from ITS OWN root', () => {
+    // a ramp, so the playback rate is readable from how fast it climbs
+    const b = new SampleBank()
+    b.set('a', Float32Array.from({ length: 4000 }, (_, i) => i / 4000), sr)
+    const rate = (midi: number): number => {
+      const k = new SampleKernel('a', false, b, { zones: [{ lo: 0, hi: 127, name: 'a', root: 60 }] } as never)
+      const n = 400
+      const out = new Float32Array(n)
+      k.process(n, { gate: new Float32Array(n).fill(1), nfreq: new Float32Array(n).fill(freqOf(midi)) }, out, { sampleRate: sr })
+      return ((out[300]! - out[100]!) / 200) * 4000
+    }
+    expect(rate(60)).toBeCloseTo(1, 3)
+    expect(rate(72)).toBeCloseTo(2, 3)
+    expect(rate(48)).toBeCloseTo(0.5, 3)
+  })
+
+  it('a zone name may be a FAMILY member, so round robin still works inside it', () => {
+    const b = zoned()
+    b.set('mid:1', pcm(9), sr)
+    expect(played(64, b, [{ lo: 60, hi: 71, name: 'mid:1', root: 60 }])).toBe(9)
+  })
+
+  it('no zones at all leaves the plain name behaviour untouched', () => {
+    const b = new SampleBank()
+    b.set('plain', pcm(7), sr)
+    const k = new SampleKernel('plain', false, b)
+    const out = new Float32Array(16)
+    k.process(16, { gate: new Float32Array(16).fill(1) }, out, { sampleRate: sr })
+    expect(out[1]).toBe(7)
+  })
+
+  it('survives a missing or nonsense note frequency rather than going mad', () => {
+    const k = new SampleKernel('low', false, zoned(), { zones } as never)
+    const n = 16
+    const out = new Float32Array(n)
+    const bad = new Float32Array(n).fill(NaN)
+    expect(() => k.process(n, { gate: new Float32Array(n).fill(1), nfreq: bad }, out, { sampleRate: sr })).not.toThrow()
+    for (const v of out) expect(Number.isFinite(v)).toBe(true)
+  })
+})
+
+describe('key zones through the REAL build path', () => {
+  /* The kernel tests above construct it directly, which skips `sampleCfg` —
+   * and that is exactly where the compressor's `key` was silently dropped,
+   * because those mappers copy config by sweeping a list of NUMERIC keys. An
+   * array falls through the same hole, so this goes synth() -> graph ->
+   * compile -> kernel like a real program does. */
+  const zones = [
+    { lo: 0, hi: 59, name: 'low', root: 60 },
+    { lo: 60, hi: 127, name: 'high', root: 60 },
+  ]
+  const flat = (v: number): { data: Float32Array; sampleRate: number } =>
+    ({ data: Float32Array.from(Array(4000).fill(v)), sampleRate: sr })
+
+  const play = (midi: number): number => {
+    const def = synth((c) => c.sample(c.gate, 'low', { zones }))
+    const r = renderOffline(def, [{ type: 'noteOn', time: 0, note: midi, velocity: 1 }], 0.2, {
+      sampleRate: sr,
+      samples: { low: flat(0.25), high: flat(0.75) },
+    })
+    let peak = 0
+    for (const v of r.left) peak = Math.max(peak, Math.abs(v))
+    return peak
+  }
+
+  it('a low note and a high note play DIFFERENT samples', () => {
+    const lo = play(40)
+    const hi = play(90)
+    expect(lo, 'the low zone was silent').toBeGreaterThan(0)
+    expect(hi, 'the high zone was silent').toBeGreaterThan(0)
+    expect(hi, 'both notes played the same sample — zones never reached the kernel')
+      .toBeGreaterThan(lo * 1.5)
+  })
+
+  it('the config survives the graph, which is the part that gets dropped', () => {
+    const def = synth((c) => c.sample(c.gate, 'low', { zones }))
+    const node = def.graph.nodes.find((n) => n.type === 'sample')
+    expect(node?.config?.['zones'], 'zones missing from the graph').toHaveLength(2)
+    expect(node?.inputs['nfreq'], 'the note never reached the kernel').toBeDefined()
   })
 })

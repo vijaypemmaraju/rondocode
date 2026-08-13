@@ -32,6 +32,7 @@ import { activate } from './activation'
 import { CompCurveWidget, scanCompressors } from './compcurve'
 import { DuckCurveWidget, scanDucks } from './duckcurve'
 import { LfoCurveWidget, scanLfos } from './lfocurve'
+import { CurveLaneWidget, scanCurveLanes } from './curvelane'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
@@ -3088,6 +3089,18 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
       // "Block decorations may not be specified via plugins" — and these
       // widgets all arrive that way.
       Decoration.widget({ widget: new LfoCurveWidget(ls, JSON.stringify(ls), fcW, hooks), side: 1 }).range(ls.at),
+    )
+  }
+  /* THE AUTOMATION LANE. Every other shape here is drawn — the ADSR, the LFO,
+   * the filter response, the compressor curve, the duck. `curve` is the one
+   * measured in BARS, where a wrong number costs a whole section, and it was
+   * the one you had to imagine. */
+  for (const cl of scanCurveLanes(text)) {
+    items.push(
+      Decoration.widget({
+        widget: new CurveLaneWidget(cl, JSON.stringify(cl), fcW, hooks, drag),
+        side: 1,
+      }).range(cl.at),
     )
   }
   for (const cs of scanCompressors(text)) {

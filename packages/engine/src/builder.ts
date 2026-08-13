@@ -297,7 +297,7 @@ export interface SynthCtx {
    *  -18), ratio (def 4), attack/release (ms, def 10/120), knee (dB, def 6),
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
-  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number; key?: SigIn }): Sig
   /** NOISE GATE / downward expander — turns QUIET things down, which is the
    *  opposite of a compressor and the problem a stage has: kit bleed into a
    *  vocal mic, amp hiss, room tone that becomes feedback once you add gain.
@@ -416,7 +416,7 @@ export interface PostCtx {
    *  -18), ratio (def 4), attack/release (ms, def 10/120), knee (dB, def 6),
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
-  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number; key?: SigIn }): Sig
   /** NOISE GATE / downward expander — turns QUIET things down, which is the
    *  opposite of a compressor and the problem a stage has: kit bleed into a
    *  vocal mic, amp hiss, room tone that becomes feedback once you add gain.
@@ -895,12 +895,18 @@ const makeShared = (b: Builder) => {
     },
     compress: (
       inp: SigIn,
-      opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number },
+      opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number; key?: SigIn },
     ): Sig =>
       b.node(
         'compress',
-        { in: src(inp, 'compress in') },
+        opts?.key === undefined
+          ? { in: src(inp, 'compress in') }
+          : { in: src(inp, 'compress in'), key: src(opts.key, 'compress key') },
         definedConfig({
+          /* CONFIG, not input presence: an unwired input arrives as a
+           * constant-zero buffer, and "no key" must not read the same as "a
+           * key that is currently silent" — they mean opposite things. */
+          key: opts?.key === undefined ? undefined : true,
           threshold: opts?.threshold,
           ratio: opts?.ratio,
           attack: opts?.attack,

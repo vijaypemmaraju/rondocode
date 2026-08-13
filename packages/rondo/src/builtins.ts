@@ -106,9 +106,12 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   formant: { kind: 'proc', pos: ['sig'] },
   pan: { kind: 'proc', pos: ['sig'] },
   bitcrush: { kind: 'proc', pos: [], named: { bits: 'num', downsample: 'num' } },
+  // `key` is an EXTERNAL SIDECHAIN: the detector listens to that signal rather
+  // than to the input, so what gets turned down and what decides when are
+  // separate. A signal, so it can be any node or binding in the synth.
   compress: {
     kind: 'proc', pos: [],
-    named: { threshold: 'num', ratio: 'num', attack: 'num', release: 'num', knee: 'num', makeup: 'num' },
+    named: { threshold: 'num', ratio: 'num', attack: 'num', release: 'num', knee: 'num', makeup: 'num', key: 'sig' },
   },
   // rate/depth/feedback/mix are SIGNALS (per-sample inputs); `stages` sizes
   // the allpass array, so it stays a construction number

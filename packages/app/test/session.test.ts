@@ -378,22 +378,51 @@ describe('Session: scheduler events → engine messages', () => {
     expect(ofKind('noteOn').at(-1)).toMatchObject({ synth: 'a', note: 62, atFrame: 24000 })
   })
 
-  it('adaptive slide: defers a slide note release until its next note lands (bridging a gap)', () => {
+  it('a slide does NOT bridge a rest: it releases at the end of its own step', () => {
+    /* REVERSES A DELIBERATE DECISION. This test used to assert the opposite —
+     * that note 60 held across all three rests until 67 landed at 0.75s,
+     * "bridging the gap" — and the code was written that way on purpose.
+     *
+     * It is wrong musically. `slide` is documented as tying into the NEXT
+     * note, and a rest is not a note to glide into: what you hear is a stuck
+     * gate. Reported from a real patch where a sliding sixteenth held 1.25s
+     * across two rests on a 0.11s step.
+     *
+     * A tie is a relationship between ADJACENT steps. This one has three rests
+     * after it, so it ends where any other note would. */
     const { session, audio, tick, ofKind } = rig()
     session.evalCode(`const a = ${SYNTH_SRC}\np('m', note('60 ~ ~ 67').slide('1 0 0 0').sound('a'))`)
     audio.currentTimeFrames = 0
     session.transport('play', { cps: 1 })
     tick() // window [0, 0.1): note 60 (slide) at t=0
-    // the slide note's release is DEFERRED — no early cut near its own end
-    // (~0.25s = 12000 frames); only a far-out safety noteOff exists so far.
-    expect(ofKind('noteOff').filter((o) => o.note === 60 && o.atFrame < 24000)).toHaveLength(0)
-    audio.currentTimeFrames = 36000 // t = 0.75s, when note 67 fires
-    tick()
+    // run past its own step (0.25s at cps 1) and on toward where 67 fires
+    for (let f = 0; f <= 40000; f += 1200) {
+      audio.currentTimeFrames = f
+      tick()
+    }
     const on67 = ofKind('noteOn').find((o) => o.note === 67)!
-    // note 60 is now cut just as 67 lands — bridging the 3-rest gap
     const cut60 = ofKind('noteOff').filter((o) => o.note === 60).sort((a, b) => a.atFrame - b.atFrame)[0]!
-    expect(cut60.atFrame).toBeGreaterThanOrEqual(on67.atFrame)
-    expect(cut60.atFrame - on67.atFrame).toBeLessThan(2000)
+    // released around its own step end (12000 frames) + the tie overlap,
+    // NOT held to 67 at 36000
+    expect(cut60.atFrame, 'released before its step ended').toBeGreaterThanOrEqual(12000)
+    expect(cut60.atFrame, 'still bridging the rests').toBeLessThan(on67.atFrame - 6000)
+  })
+
+  it('but it DOES tie when the next note is adjacent', () => {
+    // the case slide exists for: the gate must still be held when the next
+    // note opens, which is what makes the pitch glide instead of jumping
+    const { session, audio, tick, ofKind } = rig()
+    session.evalCode(`const a = ${SYNTH_SRC}\np('m', note('60 67 62 64').slide('1 0 0 0').sound('a'))`)
+    audio.currentTimeFrames = 0
+    session.transport('play', { cps: 1 })
+    for (let f = 0; f <= 30000; f += 1200) {
+      audio.currentTimeFrames = f
+      tick()
+    }
+    const on67 = ofKind('noteOn').find((o) => o.note === 67)!
+    const cut60 = ofKind('noteOff').filter((o) => o.note === 60).sort((a, b) => a.atFrame - b.atFrame)[0]!
+    expect(cut60.atFrame, 'cut before the note it was gliding into').toBeGreaterThanOrEqual(on67.atFrame)
+    expect(cut60.atFrame - on67.atFrame, 'held far past the tie').toBeLessThan(2000)
   })
 
   it('gate gap: back-to-back same-note events leave a low-gate window', () => {
@@ -859,5 +888,98 @@ describe('scheduled params are stamped with their note frame', () => {
       if (n === undefined) break
       expect(p.atFrame, 'param frame does not match its note').toBe(n.atFrame)
     }
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A SLIDE HELD ACROSS RESTS.
+ *
+ * `slide` ties a note into the NEXT one so it glides in, which means holding
+ * its gate open until that note arrives. The deadline for "never arrives" was
+ * a flat 4 seconds, so a slide note followed by rests sustained across them:
+ * measured at 1.25s from a step of 0.11s, which reads as a stuck gate rather
+ * than a glide.
+ *
+ * A tie is a relationship between ADJACENT steps. Anything further away has a
+ * rest in between, and a rest is not a note to glide into.
+ * ------------------------------------------------------------------------- */
+
+const SLIDE_SYNTH =
+  `const blip = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: .004, d: .12, s: .5, r: .25 })),\n`
+  + `  undefined, { mono: true, glide: 0.1 })`
+
+/** Gate lengths in seconds, per noteOn, in time order. */
+const gates = (r: ReturnType<typeof rig>, src: string, secs = 4): { note: number; on: number; gate: number }[] => {
+  const sr = r.audio.sampleRate
+  expect(r.session.evalCode(`${SLIDE_SYNTH}\n${src}\nsetCps(0.5)`).ok, 'eval failed').toBe(true)
+  r.session.transport('play')
+  const step = Math.round(0.025 * sr)
+  for (let t = 0; t < secs * sr; t += step) {
+    r.audio.currentTimeFrames = t
+    r.tick()
+  }
+  const evs = r.sent.filter((m) => m.kind === 'noteOn' || m.kind === 'noteOff') as
+    { kind: string; note: number; atFrame?: number }[]
+  return evs.filter((e) => e.kind === 'noteOn')
+    .sort((a, b) => (a.atFrame ?? 0) - (b.atFrame ?? 0))
+    .map((on) => {
+      const off = evs.filter((e) => e.kind === 'noteOff' && e.note === on.note && (e.atFrame ?? 0) > (on.atFrame ?? 0))
+        .sort((a, b) => (a.atFrame ?? 0) - (b.atFrame ?? 0))[0]
+      const onS = (on.atFrame ?? 0) / sr
+      return { note: on.note, on: onS, gate: off === undefined ? Infinity : (off.atFrame ?? 0) / sr - onS }
+    })
+}
+
+describe('a slide only holds for its own step', () => {
+  it('does not sustain across rests', () => {
+    /* The reported shape: two sixteenths inside the first third, then rests.
+     * The second note carries slide (the modifier line covers both), and used
+     * to hold 1.25s waiting for a note two thirds of a cycle away. */
+    const g = gates(rig(), `p('p', n('[[2 4] ~ ~] ~ 2').scale('d major').sound('blip').dur(0.1)\n`
+      + `  .ctrl('slide', mini('[1 0] 0 0')))`)
+    const held = g.find((x) => x.on > 0.1 && x.on < 0.2)
+    expect(held, 'the sliding note was never dispatched').toBeDefined()
+    /* Its step is 1/18 of a 2s cycle = 0.111s. Anything near a second is the
+     * old behaviour; anything at the step (plus the tie overlap) is right. */
+    expect(held!.gate, `held ${held!.gate}s for a 0.111s step`).toBeLessThan(0.25)
+  })
+
+  it('still TIES when the next note is adjacent', () => {
+    // the thing slide is for: the gate must outlast the step so the next note
+    // opens while it is still held, which is what makes the pitch glide
+    const g = gates(rig(), `p('p', n('0 2 4 5').scale('d major').sound('blip').slide('1 1 1 1'))`)
+    for (const x of g.slice(0, 3)) {
+      expect(x.gate, `note ${x.note} did not outlast its 0.5s step`).toBeGreaterThan(0.5)
+    }
+  })
+
+  it('a non-sliding note in the same line is unaffected', () => {
+    const g = gates(rig(), `p('p', n('0 2 4 5').scale('d major').sound('blip').slide('1 0 1 0'))`)
+    const sliding = g[0]!
+    const plain = g[1]!
+    expect(sliding.gate).toBeGreaterThan(0.5)
+    expect(plain.gate, 'a plain note should end within its own step').toBeLessThan(0.5)
+  })
+
+  it('a short `dur` does not shrink the tie window', () => {
+    /* durSec is the SOUNDING length (step x dur), so reading it directly would
+     * make `dur: 0.1` refuse every tie — the note would release a tenth of a
+     * step in and never reach the note it is gliding into. */
+    const g = gates(rig(), `p('p', n('0 2 4 5').scale('d major').sound('blip').dur(0.1).slide('1 1 1 1'))`)
+    for (const x of g.slice(0, 3)) {
+      expect(x.gate, `dur:0.1 broke the tie on note ${x.note}`).toBeGreaterThan(0.4)
+    }
+  })
+
+  it('every note is released — none is left hanging', () => {
+    const SECS = 4
+    const g = gates(rig(), `p('p', n('[[2 4] ~ ~] ~ 2').scale('d major').sound('blip').dur(0.1)\n`
+      + `  .ctrl('slide', mini('[1 0] 0 0')))`, SECS)
+    /* Ignore the tail of the window: notes are dispatched a lookahead ahead of
+     * the clock, so the last one or two are legitimately still open when the
+     * scan stops. Anything older than that must have released. */
+    const settled = g.filter((x) => x.on < SECS - 0.5)
+    expect(settled.length, 'nothing to check').toBeGreaterThan(3)
+    for (const x of settled) expect(x.gate, `note ${x.note} at ${x.on}s never released`).toBeLessThan(Infinity)
   })
 })

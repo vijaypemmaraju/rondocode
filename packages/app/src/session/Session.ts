@@ -181,6 +181,19 @@ const SLIDE_OVERLAP_SEC = 0.03
  *  arrives (prevents a stuck gate at pattern end / on a long gap). */
 const MAX_SLIDE_HOLD_SEC = 4
 
+
+/** A note's own STEP length in seconds, undoing the `dur` multiplier.
+ *
+ *  `durSec` is the sounding length (whole x 1/cps x dur), so a `dur: 0.1` note
+ *  reports a tenth of its step. A tie is about where the NEXT STEP begins, not
+ *  how long this note happens to sound, so the multiplier has to come back out
+ *  or a short `dur` would refuse every tie. */
+function slideStepSec(ev: SchedulerEvent): number {
+  const d = ev.controls.dur
+  const mult = typeof d === 'number' && d > 0 ? d : 1
+  return ev.durSec / mult
+}
+
 export class Session {
   private readonly audio: AudioSessionLike
   private readonly onDiagnostics: ((d: Diagnostic[]) => void) | undefined
@@ -960,11 +973,25 @@ export class Session {
       this.audio.send({ kind: 'noteOn', synth: sound, note, velocity, atFrame })
       const slide = typeof ev.controls.slide === 'number' && ev.controls.slide > 0
       if (slide) {
-        // Defer the release: hold until the NEXT note for this synth arrives
-        // (resolved above). A safety noteOff far out prevents a stuck note if
-        // no next note ever comes; whichever fires first wins, the other is a
-        // no-op in the engine.
-        this.pendingSlide.set(sound, { note, deadlineFrame: atFrame + Math.round(MAX_SLIDE_HOLD_SEC * sr) })
+        /* Hold until the NEXT note for this synth arrives (resolved above),
+         * but NO LONGER THAN THIS NOTE'S OWN STEP.
+         *
+         * A tie is a relationship between ADJACENT steps: the next note begins
+         * where this one's step ends. Anything further away has a REST in
+         * between, and a rest is not a note to glide into. The deadline used
+         * to be a flat 4 seconds, so a slide note followed by rests sustained
+         * across them — measured at 1.25s from a step of 0.11s, which reads as
+         * a stuck gate rather than a glide.
+         *
+         * BOUNDED, not detected. Rests emit no events, and the scheduler's
+         * lookahead is often shorter than a step, so "is there a next note?"
+         * has no reliable answer at this point — peeking into the batch made
+         * the release land differently depending on where the window fell.
+         * The deadline needs no lookahead: an adjacent note is dispatched
+         * before the clock reaches it and resolves the tie first, and nothing
+         * else can hold the gate past its own step. */
+        const bound = Math.min(slideStepSec(ev) + SLIDE_OVERLAP_SEC, MAX_SLIDE_HOLD_SEC)
+        this.pendingSlide.set(sound, { note, deadlineFrame: atFrame + Math.round(bound * sr) })
       } else {
         // Gate gap: shorten the gate slightly so back-to-back events on the
         // SAME note leave a low-gate window between them, so the retriggered

@@ -391,6 +391,7 @@ export class CurveLaneWidget extends WidgetType {
     head.setAttribute('opacity', '0')
     svg.append(head)
 
+    const dots: SVGCircleElement[] = []
     for (const hnd of curveHandles(l.points, iw, ih, 0, l.range !== undefined)) {
       const c = mk('circle')
       c.setAttribute('class', 'cl-pt')
@@ -399,8 +400,26 @@ export class CurveLaneWidget extends WidgetType {
       c.setAttribute('r', '4.5')
       c.dataset['i'] = String(hnd.i)
       svg.append(c)
-      this.grab(c, hnd.i, view, iw, ih)
+      dots.push(c)
     }
+
+    /* REDRAW FROM THE LIVE VALUES. The decoration is deliberately NOT rebuilt
+     * while a drag is in flight (that would destroy the element the pointer is
+     * captured on), so the widget has to move its own geometry — otherwise the
+     * source updates under a picture that sits perfectly still, which is what
+     * "the UI is not actually updating on node drag" is. */
+    const redraw = (pts: readonly CurvePoint[]): void => {
+      const ranged = l.range !== undefined
+      line.setAttribute('points', shift(curveLanePath(pts, iw, ih, 0, ranged), PAD, PAD))
+      const hs = curveHandles(pts, iw, ih, 0, ranged)
+      hs.forEach((hnd, k) => {
+        const d = dots[k]
+        if (d === undefined) return
+        d.setAttribute('cx', String(PAD + hnd.x))
+        d.setAttribute('cy', String(PAD + hnd.y))
+      })
+    }
+    dots.forEach((c, k) => { this.grab(c, k, view, iw, ih, redraw) })
 
     /* ADD AND REMOVE. Double-click the lane to put a breakpoint where you
      * clicked, double-click a breakpoint to take it away. Without this the
@@ -445,7 +464,14 @@ export class CurveLaneWidget extends WidgetType {
   }
 
   /** Drag one breakpoint: x is its leg in bars, y is its level. */
-  private grab(el: SVGElement, i: number, view: EditorView, iw: number, ih: number): void {
+  private grab(
+    el: SVGElement,
+    i: number,
+    view: EditorView,
+    iw: number,
+    ih: number,
+    redraw: (pts: readonly CurvePoint[]) => void,
+  ): void {
     const p = this.lane.points[i]
     if (p === undefined) return
     attachGesture(el as unknown as HTMLElement, this.drag, 'window', (e) => {
@@ -464,8 +490,13 @@ export class CurveLaneWidget extends WidgetType {
         onMove: (ev) => {
           const dv = -((ev.clientY - y0) / ih) * span
           const dt = ((ev.clientX - x0) / iw) * total
-          lw.write(fmtCurveNum(clampCurveLevel(p.level + dv, this.lane.range !== undefined)))
-          tw.write(fmtCurveNum(Math.max(0, p.cycles + dt)))
+          const level = clampCurveLevel(p.level + dv, this.lane.range !== undefined)
+          const cycles = Math.max(0, p.cycles + dt)
+          lw.write(fmtCurveNum(level))
+          tw.write(fmtCurveNum(cycles))
+          // and move the picture with the numbers
+          const live = this.lane.points.map((q, k) => (k === i ? { ...q, cycles, level } : q))
+          redraw(live)
         },
       }
     })

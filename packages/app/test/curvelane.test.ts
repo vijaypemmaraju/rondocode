@@ -279,3 +279,36 @@ describe('adding and removing breakpoints', () => {
     expect(removePointEdit(lane, 9)).toBeNull()
   })
 })
+
+describe('the picture follows the numbers during a drag', () => {
+  /* The decoration is deliberately NOT rebuilt while a drag is in flight —
+   * that would destroy the element the pointer is captured on — so the widget
+   * has to move its own geometry. It did not, and the source updated under a
+   * picture sitting perfectly still. Measured mid-drag before the fix: source
+   * `1` -> `.474`, handle y unchanged at 4.
+   *
+   * The redraw is DOM work, so what is testable here is the geometry it is
+   * driven by: the same inputs the live path and handles are computed from
+   * have to move when a level does. */
+  const lane = scanCurveLanes('play x\n  cut: curve 0 0.7 4 1 0..20000\n')[0]!
+
+  it('a live level change moves the handle and the path', () => {
+    const live = lane.points.map((q, k) => (k === 1 ? { ...q, level: 0.474 } : q))
+    const before = curveHandles(lane.points, 200, 38, 0, true)[1]!.y
+    const after = curveHandles(live, 200, 38, 0, true)[1]!.y
+    expect(after, 'the handle did not move').toBeGreaterThan(before + 5)
+    expect(curveLanePath(live, 200, 38, 0, true)).not.toBe(curveLanePath(lane.points, 200, 38, 0, true))
+  })
+
+  it('a live CYCLES change moves the bend sideways', () => {
+    /* Needs THREE points. The x axis is normalised to the lane's total, so
+     * stretching the only meaningful leg changes the duration and nothing
+     * about the shape — my first version of this test asserted otherwise and
+     * was simply wrong. */
+    const three = scanCurveLanes('play x\n  cut: curve 2 1 2 .5 2 1 0..20000\n')[0]!
+    const live = three.points.map((q, k) => (k === 0 ? { ...q, cycles: 4 } : q))
+    const before = curveHandles(three.points, 200, 38, 0, true)[0]!.x
+    const after = curveHandles(live, 200, 38, 0, true)[0]!.x
+    expect(after, 'the bend did not move').toBeGreaterThan(before + 5)
+  })
+})

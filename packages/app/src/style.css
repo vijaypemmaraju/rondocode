@@ -2457,3 +2457,9 @@ body.shaderviz-on .cm-content {
 .midi-mon-clear {
   align-self: flex-start;
 }
+/* Why the keyboard is silent: the code on screen has not been run yet. */
+.midi-run-notice {
+  font-size: var(--fs-meta);
+  color: var(--c-warn, var(--c-error));
+  line-height: 1.3;
+}

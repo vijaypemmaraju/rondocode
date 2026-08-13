@@ -5,6 +5,8 @@ import {
   clampCurveLevel,
   curveLevelAt,
   fmtCurveNum,
+  insertPointEdit,
+  removePointEdit,
   scanCurveLanes,
 } from '../src/editor/rondo/curvelane'
 
@@ -190,5 +192,90 @@ describe('clampCurveLevel', () => {
     // clamping there would be the widget overruling the program
     expect(clampCurveLevel(1.192, false)).toBe(1.192)
     expect(clampCurveLevel(-3, false)).toBe(-3)
+  })
+})
+
+describe('the axis does not follow the value', () => {
+  const at = (level: string): number[] => {
+    const l = scanCurveLanes(`play x\n  cutoff: curve 0 0.7 4 ${level} 0..20000\n`)[0]!
+    return curveHandles(l.points, 200, 38, 0, l.range !== undefined).map((h) => Number(h.y.toFixed(1)))
+  }
+
+  it('a dragged handle MOVES as its number changes', () => {
+    /* Reported as "it barely moves when the number changes due to the scale of
+     * the range". The axis was derived from the current levels, so the highest
+     * point pinned itself to the top of the box: dragging it from 1 down to
+     * 0.7 rescaled the axis and left the handle at y=0 the whole way. */
+    const ys = ['1', '0.9', '0.8', '0.7'].map((v) => at(v)[1]!)
+    for (let i = 1; i < ys.length; i++) {
+      expect(ys[i]!, `level ${i} did not move`).toBeGreaterThan(ys[i - 1]!)
+    }
+    expect(ys[ys.length - 1]! - ys[0]!, 'the handle barely moved').toBeGreaterThan(8)
+  })
+
+  it('and the OTHER handles stay where they are', () => {
+    // the giveaway that the axis was moving: everything shifted at once
+    expect(at('1')[0]).toBe(at('0.7')[0])
+  })
+
+  it('an UNRANGED lane still derives its axis, because it has no declared one', () => {
+    const l = scanCurveLanes('play x\n  cut: curve 4 400 4 7000\n')[0]!
+    const h = curveHandles(l.points, 200, 38, 0, false)
+    expect(h[1]!.y).toBeCloseTo(0, 5)
+    expect(h[0]!.y).toBeGreaterThan(30)
+  })
+})
+
+describe('adding and removing breakpoints', () => {
+  const doc = 'play x\n  cutoff: curve 0 0.7 4 1 0..20000\n'
+  const lane = scanCurveLanes(doc)[0]!
+  const apply = (e: { from: number; to: number; insert: string } | null): string =>
+    e === null ? '(refused)' : (doc.slice(0, e.from) + e.insert + doc.slice(e.to)).split('\n')[1]!
+
+  it('splits a leg, PRESERVING the lane length', () => {
+    /* Adding a point should change where the curve bends, never how long the
+     * automation runs — a lane that got longer every time you shaped it would
+     * drift out of its section. */
+    const out = apply(insertPointEdit(lane, 1, 0.5, curveLevelAt(lane.points, 2)))
+    expect(out).toBe('  cutoff: curve 0 0.7 2 .85 2 1 0..20000')
+    const after = scanCurveLanes(`play x\n${out}\n`)[0]!
+    expect(after.cycles).toBe(lane.cycles)
+    expect(after.points).toHaveLength(3)
+  })
+
+  it('the new point sits ON the curve it split', () => {
+    const out = apply(insertPointEdit(lane, 1, 0.5, curveLevelAt(lane.points, 2)))
+    const after = scanCurveLanes(`play x\n${out}\n`)[0]!
+    expect(curveLevelAt(after.points, 2)).toBeCloseTo(curveLevelAt(lane.points, 2), 2)
+  })
+
+  it('removes a breakpoint without leaving a gap in the line', () => {
+    expect(apply(removePointEdit(lane, 1))).toBe('  cutoff: curve 0 0.7 0..20000')
+    expect(apply(removePointEdit(lane, 0))).toBe('  cutoff: curve 4 1 0..20000')
+  })
+
+  it('and what is left still SCANS, which is the real test of an edit', () => {
+    for (const i of [0, 1]) {
+      const out = apply(removePointEdit(lane, i))
+      expect(scanCurveLanes(`play x\n${out}\n`), `removing ${i} broke the lane`).toHaveLength(1)
+    }
+  })
+
+  it('REFUSES to remove the last one', () => {
+    /* A lane with no breakpoints is not a shorter lane, it is a syntax error:
+     * `curve` with no pairs does not compile. A widget that can delete its own
+     * program is worse than one that cannot delete at all. */
+    const one = scanCurveLanes('play x\n  cutoff: curve 4 1\n')[0]!
+    expect(removePointEdit(one, 0)).toBeNull()
+  })
+
+  it('clamps a split at the very edge, so a zero-length leg is not created', () => {
+    const e = insertPointEdit(lane, 1, 0, 0.5)!
+    expect(e.insert.startsWith('0 ')).toBe(false)
+  })
+
+  it('an out-of-range index edits nothing', () => {
+    expect(insertPointEdit(lane, 9, 0.5, 0.5)).toBeNull()
+    expect(removePointEdit(lane, 9)).toBeNull()
   })
 })

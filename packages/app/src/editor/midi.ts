@@ -8,6 +8,7 @@ import type { AudioSession } from '../audio/AudioSession'
 import type { ParamTarget } from '../session/Session'
 import { ACTIVE_PROJECT_EVENT, getActiveProjectId } from './library'
 import { CcRouter, loadMappings, parseCc, saveMappings } from '../midi/cc'
+import { MidiMonitor, describeMidi } from '../midi/monitor'
 import type { ParamRange } from '../midi/cc'
 import { CLOCK_BYTE, MidiClockFollower, MidiClockSender, parseClock } from '../midi/clock'
 import type { ClockMessage } from '../midi/clock'
@@ -102,6 +103,85 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     'export-hint',
     'pick a param, tap learn, then move a knob. A mapped knob owns that param until you unmap it, so a patterned sweep on it steps aside.',
   )
+
+  /* ---- monitor --------------------------------------------------------- *
+   * Every message that arrives, with the port it came from. Built because
+   * "detected but silent" and "arrived but ignored" are the same experience
+   * from outside, and telling them apart was otherwise guesswork. */
+  const monitor = new MidiMonitor()
+  const failedPorts = new Set<string>()
+  const monHead = el('div', 'export-head', 'monitor')
+  const monPorts = el('div', 'midi-mon-ports')
+  const monLog = el('div', 'midi-mon-log')
+  const monClear = el('button', 'export-btn midi-mon-clear', 'clear')
+  monClear.type = 'button'
+  monClear.addEventListener('click', () => {
+    monitor.clear()
+    failedPorts.clear()
+    renderMonitor()
+  })
+  const monHint = el(
+    'div',
+    'export-hint',
+    'every message that arrives, newest first, before anything here routes it. Clock and active sensing are counted rather than listed, because a running clock is 24 messages a beat and would push everything else out.',
+  )
+
+  const renderMonitor = (): void => {
+    /* Ports are listed with whether they have SPOKEN, not merely whether they
+     * enumerate. A controller with three ports shows which one carries the
+     * keys, which is the question the multi-port devices actually raise. */
+    const ins = inputs()
+    monPorts.replaceChildren(
+      ...ins.map((i) => {
+        const name = i.name ?? i.id
+        const spoke = monitor.speaking.has(name)
+        const failed = failedPorts.has(name)
+        const row = el('div', `midi-mon-port${spoke ? ' speaking' : ''}${failed ? ' failed' : ''}`)
+        row.append(
+          el('span', 'midi-mon-name', name),
+          el('span', 'midi-mon-state', failed ? 'would not open' : spoke ? 'sending' : `open, silent (${i.state})`),
+        )
+        return row
+      }),
+    )
+    if (ins.length === 0) monPorts.append(el('div', 'midi-mon-port', 'no input ports'))
+    const lines = monitor.recent()
+    const clocks = monitor.noisyCount()
+    monLog.replaceChildren(
+      ...(clocks > 0 ? [el('div', 'midi-mon-clocks', `${clocks} clock / sensing messages (not listed)`)] : []),
+      ...lines.map((l) => {
+        const row = el('div', 'midi-mon-row')
+        row.append(
+          el('span', 'midi-mon-dev', l.device),
+          el('span', 'midi-mon-kind', l.kind),
+          el('span', 'midi-mon-detail', l.detail),
+          el('span', 'midi-mon-ch', l.channel > 0 ? `ch${l.channel}` : ''),
+          el('span', 'midi-mon-raw', l.raw),
+        )
+        return row
+      }),
+    )
+    if (lines.length === 0 && clocks === 0) {
+      monLog.append(el('div', 'midi-mon-empty', enabled ? 'nothing received yet' : 'enable MIDI to listen'))
+    }
+    /* A note that arrived and went nowhere has ONE remaining explanation, and
+     * it is the one nothing else in this panel would tell you. */
+    if (lines.some((l) => l.kind === 'note on') && activeSynth() === '') {
+      monLog.prepend(el('div', 'midi-mon-warn', 'notes are arriving, but no synth is running to play them: press Run.'))
+    }
+  }
+
+  /* Coalesced to a frame: a knob sweep is a few hundred messages a second and
+   * each one would otherwise rebuild the list. */
+  let monPending = false
+  const scheduleMonitorRender = (): void => {
+    if (monPending) return
+    monPending = true
+    requestAnimationFrame(() => {
+      monPending = false
+      if (!pop.classList.contains('hidden')) renderMonitor()
+    })
+  }
 
   // ---- clock sync ------------------------------------------------------
   const syncHead = el('div', 'export-head', 'clock')
@@ -218,6 +298,11 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     learnRow,
     rowList,
     mapHint,
+    monHead,
+    monPorts,
+    monLog,
+    monClear,
+    monHint,
     syncHead,
     syncPick,
     tempoLine,
@@ -497,6 +582,13 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   const onMidi = (e: MIDIMessageEvent): void => {
     const data = e.data
     if (!data) return
+    /* LOG FIRST, before any of our own routing decides to ignore it. The whole
+     * point is to separate "nothing arrived" from "it arrived and we dropped
+     * it", and a monitor fed downstream of the filters can only ever show the
+     * first. */
+    const port = e.target as MIDIInput | null
+    monitor.add(describeMidi(port?.name ?? port?.id ?? 'unknown', data))
+    scheduleMonitorRender()
     // Clock first: it is by far the most frequent thing on the wire.
     const clock = parseClock(data)
     if (clock !== undefined) {
@@ -581,10 +673,34 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   const inputs = (): MIDIInput[] =>
     access ? Array.from((access.inputs as Map<string, MIDIInput>).values()) : []
 
+  /**
+   * Attach to every input port, and OPEN each one explicitly.
+   *
+   * Setting `onmidimessage` is supposed to open the port implicitly, and in
+   * Chrome it does. Not everywhere: a user with two working controllers had
+   * them enumerate and never deliver a byte in Firefox. `open()` is the
+   * spec-sanctioned way to say what we meant, it is a no-op on a port that is
+   * already open, and unlike the implicit path it REPORTS -- a port that
+   * refuses to open now says so instead of being indistinguishable from a
+   * device sitting quietly.
+   *
+   * Every port is bound, not just the first. Controllers routinely present
+   * several (an A-800 Pro has three) and the one that carries the keys is not
+   * necessarily the first.
+   */
   const bindInputs = (): void => {
     const ins = inputs()
-    for (const input of ins) input.onmidimessage = onMidi
+    for (const input of ins) {
+      input.onmidimessage = onMidi
+      // fire and forget: a rejection is a diagnosis, not a reason to stop
+      // binding the other ports
+      void Promise.resolve(input.open?.()).catch(() => {
+        failedPorts.add(input.name ?? input.id)
+        renderMonitor()
+      })
+    }
     status.textContent = ins.length === 0 ? 'no devices found' : `${ins.length} device${ins.length === 1 ? '' : 's'} connected`
+    renderMonitor()
   }
 
   const enable = async (): Promise<void> => {
@@ -636,6 +752,9 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     refreshParamPick()
     renderMappings()
     refreshTempo()
+    // the monitor is only rendered while it is on screen, so it needs one here
+    // -- otherwise the panel opens on an empty box that explains nothing
+    renderMonitor()
     pop.classList.remove('hidden') // visible first so anchorPopover can measure it
     anchorPopover(pop, anchor)
     open = true

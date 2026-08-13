@@ -208,7 +208,8 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   comb: [{ name: 'in' }, { name: 'freq', def: 220 }, { name: 'feedback', def: 0.5 }],
   bitcrush: [{ name: 'in' }],
   shape: [{ name: 'in' }, { name: 'drive', def: 1 }],
-  compress: [{ name: 'in' }],
+  // `key` is the DETECTOR input: absent = the compressor listens to itself
+  compress: [{ name: 'in' }, { name: 'key', def: 0 }],
   noisegate: [{ name: 'in' }],
   deess: [{ name: 'in' }],
   follow: [{ name: 'in' }],
@@ -378,6 +379,9 @@ const compressCfg = (c: Record<string, unknown>): CompressConfig => {
   for (const k of ['threshold', 'ratio', 'attack', 'release', 'knee', 'makeup'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
+  // `key` is a BOOLEAN, so the numeric sweep above silently dropped it and the
+  // sidechain input read as absent however it was patched
+  if (c['key'] === true) out.key = true
   return out
 }
 

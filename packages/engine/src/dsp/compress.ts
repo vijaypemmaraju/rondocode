@@ -13,6 +13,11 @@ export interface CompressConfig {
   /** How fast gain RECOVERS when the signal drops, ms. Default 120.
    *  Clamped to [1, 3000]. */
   release?: number
+  /** A `key` input is patched: detect from THAT signal rather than from the
+   *  input. Set by the builder when `opts.key` is given — an unwired input is
+   *  a constant-zero buffer, so presence alone cannot tell "no key" from "a
+   *  key that is currently silent". */
+  key?: boolean
   /** Soft-knee width in dB around the threshold (0 = hard knee). Default 6. */
   knee?: number
   /** Output makeup gain in dB, applied after compression. Default 0. */
@@ -59,6 +64,7 @@ export class CompressKernel implements Kernel {
   private readonly releaseMs: number
   private readonly knee: number
   private readonly makeupLin: number
+  private readonly keyed: boolean
   /** Current gain reduction in dB (>= 0). Smoothed across samples. */
   private grDb = 0
   private sr = 0
@@ -72,10 +78,26 @@ export class CompressKernel implements Kernel {
     this.releaseMs = clamp(cfg.release ?? 120, 1, 3000)
     this.knee = Math.max(0, cfg.knee ?? 6)
     this.makeupLin = Math.pow(10, (cfg.makeup ?? 0) / 20)
+    /* Whether a key was PATCHED, from config rather than from the input.
+     * An unwired input arrives as a constant-zero buffer, which is
+     * indistinguishable from a key that happens to be silent — and those must
+     * mean opposite things: no key is "listen to yourself", a silent key is
+     * "nothing to duck under". */
+    this.keyed = cfg.key === true
   }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
     const input = inputs['in']!
+    /* EXTERNAL SIDECHAIN. The detector reads `key` when one is patched and the
+     * input otherwise, which is the whole of what a sidechain input is: what
+     * the compressor LISTENS to, separated from what it turns down.
+     *
+     * `sidechain(source)` already ducks a channel on another synth's note
+     * ONSETS, and that stays the right tool for a house pump — it works even
+     * when the kick is muted. This is the other half: ducking a pad under a
+     * vocal that has no note events the mix can see, or driving a de-esser
+     * from a band-split of its own input. */
+    const key = this.keyed ? (inputs['key'] ?? input) : input
     if (ctx.sampleRate !== this.sr) {
       this.sr = ctx.sampleRate
       this.atk = smoothCoeff(this.attackMs, this.sr)
@@ -85,7 +107,7 @@ export class CompressKernel implements Kernel {
     let gr = this.grDb
     for (let i = 0; i < n; i++) {
       const x = input[i]!
-      const lin = Math.abs(x)
+      const lin = Math.abs(key[i]!)
       const db = lin > 0 ? 20 * Math.log10(lin) : DB_FLOOR
       // target reduction from the static curve, clamped so it can't run away
       const target = clamp(gainReductionDb(db, this.threshold, this.ratio, this.knee), 0, 60)

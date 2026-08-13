@@ -1239,7 +1239,23 @@ function applyPatDefs(program: Program, errors: RondoError[]): void {
   walk(program.items)
 }
 
-export function codegen(program: Program, errors: RondoError[]): string {
+/**
+ * Generated JavaScript, plus which rondo line each of its lines came from.
+ *
+ * `lineMap[i]` is the 1-based rondo source line behind 0-based JS line `i`, or
+ * 0 for a line that stands for nothing (the blank between statements). BLOCK
+ * granularity: every line a `synth lead` emits maps to the `synth lead` header,
+ * because that is the relationship codegen actually knows — a synth's stages
+ * are rearranged, folded and sometimes emitted more than once, so a per-line
+ * claim would be a guess, and a squiggle under the wrong stage is worse than
+ * one under the block.
+ */
+export interface CodegenOut {
+  code: string
+  lineMap: number[]
+}
+
+export function codegen(program: Program, errors: RondoError[]): CodegenOut {
   applyPatDefs(program, errors)
   const sections = program.items.filter((it): it is Extract<TopItem, { t: 'section' }> => it.t === 'section')
   const song = program.items.find((it): it is Extract<TopItem, { t: 'song' }> => it.t === 'song')
@@ -1284,6 +1300,10 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const isDef = (it: TopItem): boolean =>
     it.t === 'scaledef' || it.t === 'wavedef' || it.t === 'macro' || it.t === 'curvedef'
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
+  /* The rondo line behind each part, collected alongside `parts` rather than
+   * derived from it: hoisting has already reordered `items`, so by the time
+   * the text exists there is nothing left in it that says where it came from. */
+  const partLines: number[] = items.map((it) => ('pos' in it ? it.pos.line : 0))
   const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors, macroNames, scope)
     if (item.t === 'play') return cgPlay(item, errors, macroNames)
@@ -1335,8 +1355,17 @@ export function codegen(program: Program, errors: RondoError[]): string {
       entries.push(`[${num(sec.len)}, __sec_${name}]`)
     }
     parts.push(`p('song', arrange(${entries.join(', ')}))`)
+    partLines.push(song?.pos.line ?? 0)
   } else if (song !== undefined) {
     errors.push({ message: 'song needs section blocks to sequence', line: song.pos.line, col: song.pos.col })
   }
-  return parts.filter((s) => s !== '').join('\n\n') + '\n'
+  const kept = parts
+    .map((text, i) => ({ text, line: partLines[i] ?? 0 }))
+    .filter((p) => p.text !== '')
+  const lineMap: number[] = []
+  for (const p of kept) {
+    if (lineMap.length > 0) lineMap.push(0) // the blank line `join` puts between parts
+    for (let i = 0; i < p.text.split('\n').length; i++) lineMap.push(p.line)
+  }
+  return { code: kept.map((p) => p.text).join('\n\n') + '\n', lineMap }
 }

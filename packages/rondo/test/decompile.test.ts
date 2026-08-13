@@ -756,3 +756,136 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
       .toContain('js{')
   })
 })
+
+describe('zonedef comes back OUT of the synth it was folded into', () => {
+  /* A multisample is written as a top-level `zonedef` block and compiled by
+   * INLINING its rows into every `sample NAME` that refers to it. Coming back
+   * the other way is therefore not a rename but a lift: the zones have to be
+   * pulled out of the synth and given their block above it. Until this landed,
+   * a zoned sample was the one shape that always fell out to a `js{ }` blob. */
+  const rt = (src: string): { rondo: string; js: string; again: string } => {
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) throw new Error('compile failed')
+    const rondo = decompile(first.code)
+    const second = compile(rondo)
+    expect(second.ok, `re-compile:\n${rondo}\n${JSON.stringify(second.ok ? [] : second.errors)}`).toBe(true)
+    if (!second.ok) throw new Error('recompile failed')
+    return { rondo, js: first.code, again: second.code }
+  }
+
+  it('round-trips the block, the ranges and the roots', () => {
+    const { rondo, js, again } = rt([
+      'zonedef piano',
+      '  c2..b3 piano_low root:c3',
+      '  c4..b5 piano_hi root:c5',
+      '',
+      'synth pno',
+      '  sample piano',
+      '',
+    ].join('\n'))
+    expect(rondo).toContain('zonedef piano')
+    expect(rondo).toContain('  c2..b3 piano_low root:c3')
+    expect(rondo).toContain('  sample piano')
+    expect(rondo, 'the escape hatch should not be needed').not.toContain('js{')
+    expect(again).toBe(js)
+  })
+
+  it('writes ranges as NOTE NAMES, which is the form a musician can check', () => {
+    // and the only form that covers the line: the row grammar takes `\d+`, so
+    // a zone below MIDI 0 (`c-2` is legal in the source) has no numeric spelling
+    const { rondo } = rt('zonedef z\n  36..59 low root:48\n\nsynth sy\n  sample z\n')
+    expect(rondo).toContain('  c2..b3 low root:c3')
+  })
+
+  it('keeps the sample\'s OWN named args, which are not part of the zonedef', () => {
+    const { rondo, js, again } = rt('zonedef z\n  c2..b3 low\n\nsynth sy\n  sample z loop:1 speed:2\n')
+    // the pair comes back in the emitter's order, not the source's
+    expect(rondo).toContain('  sample z speed:2 loop:1')
+    expect(again).toBe(js)
+  })
+
+  it('omits a root of 60, which both the parser and the sampler default to', () => {
+    const { rondo, js, again } = rt('zonedef z\n  c2..b3 low root:c4\n\nsynth sy\n  sample z\n')
+    expect(rondo).toContain('  c2..b3 low\n')
+    expect(again, 'the default must survive being left unwritten').toBe(js)
+  })
+
+  it('emits the block ONCE when two synths share it', () => {
+    const { rondo, js, again } = rt(
+      'zonedef z\n  c2..b3 low\n\nsynth a\n  sample z\n\nsynth b\n  sample z\n',
+    )
+    expect(rondo.match(/zonedef z/g), 'one definition, two references').toHaveLength(1)
+    expect(again).toBe(js)
+  })
+
+  it('puts the block ABOVE the synth that needs it', () => {
+    const { rondo } = rt('zonedef z\n  c2..b3 low\n\nsynth sy\n  sample z\n')
+    expect(rondo.indexOf('zonedef z')).toBeLessThan(rondo.indexOf("synth sy"))
+  })
+})
+
+describe('zonedef: the cases that must NOT become one', () => {
+  /* A zonedef is a global table keyed by name, so it captures every `sample`
+   * of that name in the file. Both refusals here are that one fact: writing a
+   * second block, or writing a bare reference, quietly re-points a synth at
+   * someone else's samples. Neither errors — the wrong instrument just plays. */
+  const Z = "{ lo: 36, hi: 59, name: 'low', root: 48 }"
+  const zoned = (name: string, z = Z): string =>
+    `const ${name} = synth(({ gate, sample }) => {\n  return sample(gate, 'pno', { zones: [${z}] })\n})`
+  const round = (js: string): void => {
+    const back = compile(decompile(js))
+    expect(back.ok, JSON.stringify(back.ok ? [] : back.errors)).toBe(true)
+    if (back.ok) expect(back.code.trim()).toBe(js.trim())
+  }
+
+  it('a PLAIN sample of a zoned name stays JavaScript', () => {
+    /* The silent one. `sample(gate, 'pno')` has no zones, but `sample pno`
+     * next to a `zonedef pno` picks them up — so the plain synth came back
+     * playing the multisample. */
+    const js = `${zoned('a')}\n\nconst b = synth(({ gate, sample }) => {\n  return sample(gate, 'pno')\n})`
+    const rondo = decompile(js)
+    expect(rondo).toContain('zonedef pno')
+    expect(rondo, 'the plain sample must not read as a zonedef reference').toContain("js{ sample(gate, 'pno') }")
+    round(js)
+  })
+
+  it('catches it when the plain sample is written FIRST', () => {
+    // the reason the names are scanned up front: one pass has not met the
+    // zonedef yet when it renders the synth above it
+    const js = `const b = synth(({ gate, sample }) => {\n  return sample(gate, 'pno')\n})\n\n${zoned('a')}`
+    expect(decompile(js)).toContain("js{ sample(gate, 'pno') }")
+    round(js)
+  })
+
+  it('a SECOND, different list under the same name stays JavaScript', () => {
+    const js = `${zoned('a')}\n\n${zoned('b', "{ lo: 60, hi: 83, name: 'hi', root: 72 }")}`
+    const rondo = decompile(js)
+    expect(rondo.match(/zonedef pno/g), 'only the first can have the name').toHaveLength(1)
+    expect(rondo).toContain('js{ sample(gate')
+    round(js)
+  })
+
+  it('zones it cannot read stay JavaScript rather than being dropped', () => {
+    for (const z of ['someVar', "[{ lo: 0, hi: 12, name: 'x', extra: 1 }]", '[]', "[{ lo: 12, hi: 0, name: 'x' }]"]) {
+      const js = `const a = synth(({ gate, sample }) => {\n  return sample(gate, 'pno', { zones: ${z} })\n})`
+      const rondo = decompile(js)
+      expect(rondo, z).toContain('js{ sample(gate')
+      expect(rondo, `${z} must not emit a block it could not read`).not.toContain('zonedef')
+      round(js)
+    }
+  })
+
+  it('never emits a block nothing refers to', () => {
+    // rendering is speculative in places, so a zones array can be READ by an
+    // attempt whose line ends up a js blob anyway
+    for (const js of [
+      "const a = synth(({ gate, sample }) => sample(gate, 'pno', { zones: [" + Z + "], nope: 1 }))",
+      "const a = synth(({ gate, sample }) => sample(gate, 'pno', { zones: [" + Z + "] }).weird())",
+    ]) {
+      const rondo = decompile(js)
+      const declared = rondo.includes('zonedef pno')
+      expect(declared && !/(^|\s)sample pno(\s|$)/m.test(rondo), `dead block:\n${rondo}`).toBe(false)
+    }
+  })
+})

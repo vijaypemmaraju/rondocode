@@ -9,6 +9,8 @@ import type { ParamTarget } from '../session/Session'
 import { ACTIVE_PROJECT_EVENT, getActiveProjectId } from './library'
 import { CcRouter, loadMappings, parseCc, saveMappings } from '../midi/cc'
 import { MidiMonitor, describeMidi } from '../midi/monitor'
+import { outlineOf } from './outline'
+import { synthListView } from '../midi/synthlist'
 import type { ParamRange } from '../midi/cc'
 import { CLOCK_BYTE, MidiClockFollower, MidiClockSender, parseClock } from '../midi/clock'
 import type { ClockMessage } from '../midi/clock'
@@ -88,6 +90,10 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   pick.setAttribute('aria-label', 'synth to play')
   const toggle = el('button', 'export-btn', 'enable MIDI')
   toggle.type = 'button'
+  /* Why the keyboard is silent when it is silent for the ONE reason this panel
+   * cannot otherwise show: the code on screen has not been run. */
+  const runNotice = el('div', 'midi-run-notice')
+  runNotice.hidden = true
 
   // ---- knob mappings ---------------------------------------------------
   const mapHead = el('div', 'export-head', 'knob mappings')
@@ -288,6 +294,7 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     status,
     el('label', 'export-label', 'play synth'),
     pick,
+    runNotice,
     toggle,
     el('div', 'export-hint', 'plays a running synth from a connected keyboard'),
     arpRow,
@@ -310,18 +317,40 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   )
   document.body.append(pop)
 
+  /** The synth notes go to. `target` may name one the engine does not have
+   *  (the code was loaded but not run); the implicit default falls back to what
+   *  is actually STAGED, so "last defined" keeps meaning something playable. */
   const activeSynth = (): string => target || synths[synths.length - 1] || ''
 
+  /** The synths WRITTEN in the buffer, whether or not they have been run. */
+  const bufferSynths = (): string[] => {
+    try {
+      return outlineOf(editor.getDoc(), editor.getLang())
+        .filter((i) => i.kind === 'synth')
+        .map((i) => i.name)
+    } catch {
+      return [] // a half-typed buffer must never take the panel down
+    }
+  }
+
+  /**
+   * The synth list, from the BUFFER rather than from what is staged.
+   *
+   * The rule itself lives in midi/synthlist.ts; this is the DOM half.
+   */
   const refreshPick = (): void => {
     const cur = pick.value
+    const view = synthListView(bufferSynths(), synths)
     pick.replaceChildren(el('option', undefined, 'last defined'))
     ;(pick.firstChild as HTMLOptionElement).value = ''
-    for (const s of synths) {
-      const o = el('option', undefined, s)
-      o.value = s
-      pick.append(o)
+    for (const o of view.options) {
+      const node = el('option', undefined, o.label)
+      node.value = o.value
+      pick.append(node)
     }
-    pick.value = synths.includes(cur) || cur === '' ? cur : ''
+    pick.value = view.options.some((o) => o.value === cur) || cur === '' ? cur : ''
+    runNotice.textContent = view.notice
+    runNotice.hidden = view.notice === ''
   }
   pick.addEventListener('change', () => (target = pick.value))
 
@@ -384,6 +413,14 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     // Learning with MIDI off would wait forever: turn it on first.
     if (enabled) arm()
     else void enable().then(() => { if (enabled) arm() })
+  })
+
+  /* Loading a preset replaces the buffer WITHOUT running it, so nothing in the
+   * session changes and onState never fires. That is exactly the case the user
+   * hit: preset after preset, the same four instruments listed. */
+  const offDoc = editor.onDoc(() => {
+    refreshPick()
+    if (!pop.classList.contains('hidden')) renderMonitor()
   })
 
   const offState = editor.onState(() => {
@@ -775,6 +812,7 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
 
   return () => {
     offState()
+    offDoc()
     stopArps()
     if (enabled) disable()
     stopClockPoll()

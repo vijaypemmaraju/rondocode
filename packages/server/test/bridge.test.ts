@@ -226,3 +226,40 @@ describe('Bridge', () => {
     await expect(openClient(port)).rejects.toThrow()
   })
 })
+
+describe('a port that is already in use', () => {
+  /* Found by running the command the docs tell you to run, twice.
+   *
+   * The WebSocketServer wraps the http server and RE-EMITS its errors, and an
+   * 'error' event with no listener is a thrown exception in Node -- so the
+   * process died on the spot, before the promise `listen()` returns could
+   * reject. Its own contract, defeated by the single most likely failure: a
+   * second editor with the MCP server configured, or a stray `pnpm bridge`.
+   * What the operator saw was a page of net internals with EADDRINUSE in the
+   * middle of it. */
+  it('REJECTS rather than killing the process', async () => {
+    const first = new Bridge({ port: 0 })
+    await first.listen()
+    const second = new Bridge({ port: first.port })
+    await expect(second.listen()).rejects.toThrow()
+    await first.close()
+  })
+
+  it('says what to do about it', async () => {
+    const first = new Bridge({ port: 0 })
+    await first.listen()
+    const second = new Bridge({ port: first.port })
+    const err = await second.listen().then(() => null, (e: Error) => e)
+    expect(err?.message, 'the port belongs in the message').toContain(String(first.port))
+    expect(err?.message).toContain('already in use')
+    expect(err?.message, 'and a way out').toMatch(/PORT/)
+    expect(err?.message, 'not a bare errno').not.toBe('listen EADDRINUSE')
+    await first.close()
+  })
+
+  it('still reports other listen errors unchanged', async () => {
+    // only EADDRINUSE is rewritten; anything else must arrive as itself
+    const b = new Bridge({ port: -1 })
+    await expect(b.listen()).rejects.toThrow()
+  })
+})

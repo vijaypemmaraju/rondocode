@@ -20,8 +20,8 @@ you (MCP client) ── stdio ──> mcp server ── ws :6070 ──> browser
 - The **browser app** hosts the **live** session -- the sound the human hears
   right now. The *live* tools (`get_code`, `eval_code`, `set_param`,
   `set_channel`, `transport`, `get_state`) need a browser tab open; without one
-  they return `no browser session connected -- open the rondocode app`, which a
-  human must fix by opening (or refreshing) the app page.
+  they return an error beginning `no browser session connected`, which a human
+  must fix by opening (or refreshing) the app page.
 - The **render tools** (`render_code`, `render_synth`, `compare_renders`) need
   **no browser** -- they evaluate and render your code offline in the MCP server
   itself and hand back analysis + a WAV file. Use them to *hear* your work

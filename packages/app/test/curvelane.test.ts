@@ -312,3 +312,52 @@ describe('the picture follows the numbers during a drag', () => {
     expect(after, 'the bend did not move').toBeGreaterThan(before + 5)
   })
 })
+
+describe('successive edits stay correct, which needs a RE-SCAN each time', () => {
+  /* The reported corruption. The widget holds a snapshot of the lane taken
+   * when it was built, and one edit that changes the line's length invalidates
+   * every offset in it. A stale offset does not fail — it splices into the
+   * middle of a neighbour:
+   *
+   *   start     curve 2 1:3 2 .5 2 1 200..9000
+   *   drag pt0  curve 2.146 1:3 2 .5 2 1 …        (fine)
+   *   drag pt1  curve 2.146 1.913:.1842 .5 2 1 …  (wrote over the easing)
+   *   drag pt2  curve 2.146 1.9132.218.1842 …     (wrote over that)
+   *
+   * The gesture re-reads the line now. This is that property in the pure
+   * layer: edits composed through a re-scan stay right. */
+  const apply = (doc: string, e: { from: number; to: number; insert: string } | null): string =>
+    e === null ? doc : doc.slice(0, e.from) + e.insert + doc.slice(e.to)
+
+  it('three edits in a row, each re-scanned, land where they should', () => {
+    let doc = 'play x\n  cut: curve 2 1:3 2 .5 2 1 200..9000\n'
+    for (const i of [0, 1, 2]) {
+      const lane = scanCurveLanes(doc)[0]!
+      const p = lane.points[i]!
+      // the drag's edit: rewrite the whole pair as one range
+      doc = apply(doc, { from: p.tFrom, to: p.lTo, insert: `${fmtCurveNum(p.cycles + 0.5)} ${fmtCurveNum(p.level)}` })
+    }
+    expect(doc.split('\n')[1]).toBe('  cut: curve 2.5 1:3 2.5 .5 2.5 1 200..9000')
+  })
+
+  it('a STALE offset is what corrupts it — the same edits without re-scanning', () => {
+    /* Kept as the counter-example, because "re-scan each time" reads like
+     * defensive boilerplate until you see what skipping it does. */
+    const doc0 = 'play x\n  cut: curve 2 1:3 2 .5 2 1 200..9000\n'
+    const stale = scanCurveLanes(doc0)[0]!
+    let doc = doc0
+    for (const i of [0, 1, 2]) {
+      const p = stale.points[i]!
+      doc = apply(doc, { from: p.tFrom, to: p.lTo, insert: `${fmtCurveNum(p.cycles + 0.5)} ${fmtCurveNum(p.level)}` })
+    }
+    expect(doc.split('\n')[1], 'stale offsets should mangle it').not.toBe('  cut: curve 2.5 1:3 2.5 .5 2.5 1 200..9000')
+  })
+
+  it('the per-leg easing survives an edit to its own pair', () => {
+    const doc = 'play x\n  cut: curve 2 1:3 2 .5\n'
+    const p = scanCurveLanes(doc)[0]!.points[0]!
+    const out = apply(doc, { from: p.tFrom, to: p.lTo, insert: '2.146 1' })
+    expect(out.split('\n')[1]).toBe('  cut: curve 2.146 1:3 2 .5')
+    expect(scanCurveLanes(out)[0]!.points[0]!.curve, 'the easing was eaten').toBe(3)
+  })
+})

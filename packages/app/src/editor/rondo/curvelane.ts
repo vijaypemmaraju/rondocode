@@ -433,9 +433,10 @@ export class CurveLaneWidget extends WidgetType {
       const hit = target?.classList.contains('cl-pt') === true
         ? Number((target as SVGElement).dataset['i'])
         : -1
+      const cur = this.live(view, svg) ?? l
       const edit = hit >= 0
-        ? removePointEdit(l, hit)
-        : addAt(l, ((ev.clientX - box.left) / box.width) * (w / iw) - PAD / iw)
+        ? removePointEdit(cur, hit)
+        : addAt(cur, ((ev.clientX - box.left) / box.width) * (w / iw) - PAD / iw)
       if (edit !== null) view.dispatch({ changes: edit })
     })
     wrap.append(svg)
@@ -463,6 +464,33 @@ export class CurveLaneWidget extends WidgetType {
     return wrap
   }
 
+  /**
+   * This lane as it is in the document RIGHT NOW.
+   *
+   * The widget's own `lane` is a snapshot from when it was built, and a
+   * decoration is not rebuilt mid-gesture (nor, it turns out, reliably between
+   * one drag and the next before the next edit lands). Once any edit changes
+   * the line's length, every offset in that snapshot is wrong — and an edit
+   * written at a wrong offset does not fail, it splices into the middle of a
+   * neighbour. Measured: dragging three points in turn produced
+   * `curve 2.146 1.9132.218.1842 .5 2 1`.
+   *
+   * So each gesture re-reads the line it is actually on, found through the
+   * widget's live DOM position rather than a remembered offset.
+   */
+  private live(view: EditorView, el: Element): CurveLane | null {
+    let pos: number
+    try {
+      pos = view.posAtDOM(el)
+    } catch {
+      return null
+    }
+    const line = view.state.doc.lineAt(pos)
+    const found = scanCurveLanes(view.state.doc.toString())
+      .find((c) => c.at >= line.from && c.at <= line.to)
+    return found ?? null
+  }
+
   /** Drag one breakpoint: x is its leg in bars, y is its level. */
   private grab(
     el: SVGElement,
@@ -472,31 +500,39 @@ export class CurveLaneWidget extends WidgetType {
     ih: number,
     redraw: (pts: readonly CurvePoint[]) => void,
   ): void {
-    const p = this.lane.points[i]
-    if (p === undefined) return
     attachGesture(el as unknown as HTMLElement, this.drag, 'window', (e) => {
+      const lane = this.live(view, el) ?? this.lane
+      const p = lane.points[i]
+      if (p === undefined) return null
       const x0 = e.clientX
       const y0 = e.clientY
       // the SAME axis the drawing uses, or the handle would not track the
       // pointer it is being dragged by
-      const { span } = curveAxis(this.lane.points, 0, this.lane.range !== undefined)
-      const total = this.lane.cycles || 1
-      /* Two writers, because the two numbers are separate ranges and a drag
-       * usually moves both. Level first: it sits AFTER the cycles number, so
-       * rewriting it cannot shift the offsets of the one still to be written. */
-      const lw = new LiveWriter(view, p.lFrom, p.lTo)
-      const tw = new LiveWriter(view, p.tFrom, p.tTo)
+      const { span } = curveAxis(lane.points, 0, lane.range !== undefined)
+      const total = lane.cycles || 1
+      /* ONE writer over the WHOLE PAIR, not one per number.
+       *
+       * Two writers drift: the cycles number comes first, so the moment it
+       * changes length every offset after it moves and the level writer's
+       * range is stale. LiveWriter notices the text is not what it left there
+       * and aborts, so the level silently stops responding while the cycles
+       * keep going — measured, a diagonal drag froze the level at `.895` and
+       * kept writing `4.029 … 4.388`.
+       *
+       * The separator is read from the buffer rather than assumed, so a line
+       * written with aligned columns keeps them. */
+      const sep = view.state.doc.sliceString(p.tTo, p.lFrom)
+      const pw = new LiveWriter(view, p.tFrom, p.lTo)
       return {
         onMove: (ev) => {
           const dv = -((ev.clientY - y0) / ih) * span
           const dt = ((ev.clientX - x0) / iw) * total
-          const level = clampCurveLevel(p.level + dv, this.lane.range !== undefined)
+          const level = clampCurveLevel(p.level + dv, lane.range !== undefined)
           const cycles = Math.max(0, p.cycles + dt)
-          lw.write(fmtCurveNum(level))
-          tw.write(fmtCurveNum(cycles))
+          pw.write(`${fmtCurveNum(cycles)}${sep}${fmtCurveNum(level)}`)
           // and move the picture with the numbers
-          const live = this.lane.points.map((q, k) => (k === i ? { ...q, cycles, level } : q))
-          redraw(live)
+          const shown = lane.points.map((q, k) => (k === i ? { ...q, cycles, level } : q))
+          redraw(shown)
         },
       }
     })

@@ -15,7 +15,12 @@ bridge.onNotify = (kind, payload) => {
   console.log(`[bridge] notify ${kind}:`, JSON.stringify(payload))
 }
 
-await bridge.listen()
+try {
+  await bridge.listen()
+} catch (e) {
+  console.error(`[bridge] ${e instanceof Error ? e.message : String(e)}`)
+  process.exit(1)
+}
 console.log(`bridge listening :${bridge.port}`)
 
 process.on('SIGINT', () => {

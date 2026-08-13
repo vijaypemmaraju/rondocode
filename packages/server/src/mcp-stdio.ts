@@ -22,7 +22,13 @@ console.error(
 // Bridge first: an agent's first tool call should meet a listening ws even
 // if the browser hasn't dialed in yet (it gets the actionable NO_SESSION
 // error, not a dead port).
-await bridge.listen()
+try {
+  await bridge.listen()
+} catch (e) {
+  // STDERR: stdout carries MCP frames, and a crash dump there corrupts them
+  console.error(`[rondocode-mcp] ${e instanceof Error ? e.message : String(e)}`)
+  process.exit(1)
+}
 console.error(`[rondocode-mcp] bridge listening on ws://localhost:${bridge.port}/session`)
 
 await server.connect(new StdioServerTransport())

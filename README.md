@@ -117,7 +117,7 @@ pnpm workspace, TypeScript throughout. Packages import each other by name
 | `@rondocode/engine` | The DSP: oscillators, filters, envelopes, effects, the `synth()` builder, live mic input, offline render, WAV encode. |
 | `@rondocode/rondo` | The rondo language: lexer, parser, codegen (rondo → JavaScript), the **decompiler** (JavaScript → rondo), and a property fuzzer that pins the round trip. |
 | `@rondocode/app` | The browser app: CodeMirror editor with live widgets, the audio session, the tap palette, onboarding, the docs page, the built-in examples (`src/examples/index.ts`). |
-| `@rondocode/server` | Headless/bridge tooling: the MCP server, offline render runner, dev scripts. |
+| `@rondocode/server` | Headless/bridge tooling: the MCP server, the browser bridge ([docs](docs/reference/mcp-bridge.md)), offline render runner, dev scripts. |
 
 ## Develop
 
@@ -137,6 +137,15 @@ Fuzz the rondo compiler/decompiler round trip beyond the CI seeds:
 ```sh
 pnpm tsx packages/rondo/scripts/fuzz.ts 100000
 ```
+
+### Letting an agent drive the live session
+
+Optional, and off unless you set it up: see
+[docs/reference/mcp-bridge.md](docs/reference/mcp-bridge.md) for how to run the
+MCP bridge and what it can do. That page also explains the
+`can't establish a connection to ws://localhost:6070/session` message the
+browser console prints when the bridge is **not** running, which is expected and
+harmless.
 
 ## The DSL
 

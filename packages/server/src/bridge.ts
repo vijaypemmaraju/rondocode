@@ -60,6 +60,7 @@ export class Bridge {
   private readonly wss: WebSocketServer
   private readonly pending = new Map<string, Pending>()
   private session: WebSocket | undefined
+  private listening = false
 
   /** Browser-initiated notifications land here (assign before/after listen). */
   onNotify: ((kind: NotifyKind, payload: unknown) => void) | undefined
@@ -76,6 +77,16 @@ export class Bridge {
     })
     this.wss = new WebSocketServer({ server: this.server, path: '/session' })
     this.wss.on('connection', (ws) => this.adopt(ws))
+    /* The WebSocketServer wraps the http server and RE-EMITS its errors. An
+     * 'error' event with no listener is a thrown exception in Node, so a port
+     * that is already in use killed the process on the spot -- before the
+     * promise `listen()` returns could reject, defeating its own contract and
+     * burying `EADDRINUSE` in a page of internals. Handled here so the failure
+     * arrives where the caller is already looking. */
+    this.wss.on('error', (err) => {
+      if (!this.listening) return // the bind failure: server's own handler rejects
+      console.warn('[bridge] websocket server error:', err.message)
+    })
   }
 
   /** True while a browser session socket is open. */
@@ -95,9 +106,18 @@ export class Bridge {
 
   listen(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.server.once('error', reject)
+      this.server.once('error', (err: NodeJS.ErrnoException) => {
+        // the message a person can act on, in place of a stack of net internals
+        reject(err.code === 'EADDRINUSE'
+          ? new Error(
+            `port ${this.requestedPort} is already in use -- another rondocode bridge is `
+            + 'probably running (a second editor with the MCP server configured, or a stray '
+            + '`pnpm bridge`). Stop it, or set PORT to another port.')
+          : err)
+      })
       this.server.listen(this.requestedPort, () => {
-        this.server.removeListener('error', reject)
+        this.listening = true
+        this.server.removeAllListeners('error')
         resolve()
       })
     })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { F, TimeSpan, mini } from '../src/index'
+import { F, TimeSpan, mini, n } from '../src/index'
 import type { MiniValue, Pattern } from '../src/index'
 
 /* ------------------------------------------------------------------------- *
@@ -253,5 +253,77 @@ describe('the new operators compose with the old ones', () => {
   it('and none of it disturbed a plain pattern', () => {
     expect(cyc('bd(3,8) [sn sn] ~')).toBe(cyc('bd(3,8) [sn sn] ~'))
     expect(values('0 1 2 3')).toEqual([0, 1, 2, 3])
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A LANE WRITTEN AFTER A MODIFIER USED TO VANISH.
+ *
+ * The tokenizer attaches a `'name:value` suffix to the number it just read, so
+ * in `0@2'rel:.5` the nearest number is the WEIGHT: the lane landed on `2`, the
+ * parser read the weight's value, and the lane was thrown away.
+ *
+ * Silently. The notation was there, the note played, and the param never
+ * moved — so the search for the fault starts in the synth, which is where it
+ * was reported from. Every modifier that takes a number had this.
+ *
+ * A lane belongs to the note, and the note is to the LEFT of every modifier,
+ * so the same term written `0'rel:.5@2` always worked.
+ * ------------------------------------------------------------------------- */
+
+/* Read through `n()`, not `mini()`: lanes become CONTROLS on the event, and
+ * the bare `mini()` export unwraps each hap to its raw value. */
+const laneOf = (src: string, name: string): unknown => {
+  const h = (n(src) as unknown as { query: (s: TimeSpan) => { whole?: unknown; value: Record<string, unknown> }[] })
+    .query(new TimeSpan(F(0), F(1))).filter((x) => x.whole !== undefined)[0]
+  return h?.value[name]
+}
+
+describe('a lane on a modifier ARGUMENT is refused, not dropped', () => {
+  for (const src of ["0@2'rel:.5", "0*2'rel:.5", "0/2'rel:.5", "0!2'rel:.5", "0?0.5'rel:.5", "{0 1}%4'rel:.5"]) {
+    it(`${src} errors`, () => {
+      expect(() => mini(src)).toThrow(/lane on the NOTE/)
+    })
+  }
+
+  it('the message shows the lane and where to put it', () => {
+    /* An error is only better than silence if it says what to write. */
+    expect(() => mini("0@2'rel:.5")).toThrow(/'rel:0\.5/)
+    expect(() => mini("0@2'rel:.5")).toThrow(/'@'/)
+    expect(() => mini("0@2'rel:.5")).toThrow(/directly after the note/)
+  })
+
+  it('names the anonymous lane too', () => {
+    expect(() => mini("0@2'3")).toThrow(/'3 is a lane/)
+  })
+
+  it('an ACCIDENTAL on an argument is refused for the same reason', () => {
+    expect(() => mini('0@2#')).toThrow(/accidental belongs to the NOTE/)
+  })
+})
+
+describe('and the correct spelling still works everywhere', () => {
+  it('the reported term, with the lane moved left', () => {
+    // 0@0.586'rel:.0!3 was the report; this is the same thing spelled right
+    const hs = (n("0'rel:.0@0.586!3") as unknown as
+      { query: (s: TimeSpan) => { whole?: unknown; value: Record<string, unknown> }[] })
+      .query(new TimeSpan(F(0), F(1))).filter((h) => h.whole !== undefined)
+    expect(hs).toHaveLength(3)
+    for (const h of hs) expect(h.value['rel'], 'a copy lost its lane').toBe(0)
+  })
+
+  it('a lane composes with every modifier when written on the note', () => {
+    for (const src of ["0'rel:.5@2", "0'rel:.5*2", "0'rel:.5/2", "0'rel:.5!2", "0'rel:.5?0", "0'rel:.5(3,8)"]) {
+      expect(laneOf(src, 'rel'), src).toBe(0.5)
+    }
+  })
+
+  it('the anonymous lane and an accidental are unaffected', () => {
+    expect(laneOf("0'2@2", 'expr')).toBe(2)
+    expect(laneOf('2#@2', 'nAcc')).toBe(1)
+  })
+
+  it('a plain modifier argument is still just a number', () => {
+    expect(() => mini('0@2 1*3 2!2 3?0.5 {4 5}%8')).not.toThrow()
   })
 })

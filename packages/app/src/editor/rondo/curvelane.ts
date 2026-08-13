@@ -166,14 +166,43 @@ export function curveLevelAt(points: readonly CurvePoint[], cycle: number, from 
   return prev
 }
 
-/** An SVG polyline for the lane in a `w` by `h` box, sampled so an eased leg
- *  reads as a curve rather than a straight line between its ends. */
-export function curveLanePath(points: readonly CurvePoint[], w: number, h: number, from = 0): string {
-  const total = points.reduce((n, p) => n + p.cycles, 0)
-  if (total <= 0 || points.length === 0) return `0,${h / 2} ${w},${h / 2}`
+/**
+ * The vertical extent the box shows.
+ *
+ * A RANGED lane is pinned to 0..1, because that is the shape the `lo..hi`
+ * maps: it does not move when a level does. Deriving the axis from the current
+ * levels instead makes the highest point pin itself to the top of the box —
+ * so dragging it DOWN rescales the axis and the handle does not move, while
+ * the number underneath changes. Reported exactly that way, and measured:
+ * `curve 0 0.7 4 1 0..20000` held its handle at y=0 the whole way from 1 to
+ * 0.7.
+ *
+ * An unranged lane has no declared extent, so it still has to be derived —
+ * there the levels ARE the values and no fixed axis would be honest.
+ */
+export function curveAxis(
+  points: readonly CurvePoint[],
+  from: number,
+  ranged: boolean,
+): { lo: number; span: number } {
+  if (ranged) return { lo: 0, span: 1 }
   const lo = Math.min(from, ...points.map((p) => p.level))
   const hi = Math.max(from, ...points.map((p) => p.level))
-  const span = hi - lo || 1
+  return { lo, span: hi - lo || 1 }
+}
+
+/** An SVG polyline for the lane in a `w` by `h` box, sampled so an eased leg
+ *  reads as a curve rather than a straight line between its ends. */
+export function curveLanePath(
+  points: readonly CurvePoint[],
+  w: number,
+  h: number,
+  from = 0,
+  ranged = false,
+): string {
+  const total = points.reduce((n, p) => n + p.cycles, 0)
+  if (total <= 0 || points.length === 0) return `0,${h / 2} ${w},${h / 2}`
+  const { lo, span } = curveAxis(points, from, ranged)
   const y = (v: number): number => h - ((v - lo) / span) * h
   const N = Math.max(24, Math.min(160, Math.round(w)))
   const out: string[] = []
@@ -191,12 +220,11 @@ export function curveHandles(
   w: number,
   h: number,
   from = 0,
+  ranged = false,
 ): { x: number; y: number; i: number }[] {
   const total = points.reduce((n, p) => n + p.cycles, 0)
   if (total <= 0) return []
-  const lo = Math.min(from, ...points.map((p) => p.level))
-  const hi = Math.max(from, ...points.map((p) => p.level))
-  const span = hi - lo || 1
+  const { lo, span } = curveAxis(points, from, ranged)
   const out: { x: number; y: number; i: number }[] = []
   let t = 0
   points.forEach((p, i) => {
@@ -224,6 +252,56 @@ export function fmtCurveNum(v: number, decimals = 3): string {
   const r = Number(v.toFixed(decimals))
   const s = String(r)
   return s.startsWith('0.') ? s.slice(1) : s.startsWith('-0.') ? `-${s.slice(2)}` : s
+}
+
+/** A single text edit: what to replace, and with what. */
+export interface CurveEdit {
+  from: number
+  to: number
+  insert: string
+}
+
+/**
+ * Split the leg ending at `i` at fraction `f`, giving a new breakpoint there.
+ *
+ * ONE edit, not two. The new pair and the shortened leg both touch the same
+ * cycles number, and two changes at one offset is the shape CodeMirror rejects
+ * as overlapping — so this rewrites that number to `newT newLevel restT` in a
+ * single replacement.
+ *
+ * The leg's total length is PRESERVED: adding a point should change where the
+ * curve bends, never how long the lane is.
+ */
+export function insertPointEdit(lane: CurveLane, i: number, f: number, level: number): CurveEdit | null {
+  const p = lane.points[i]
+  if (p === undefined) return null
+  const frac = f < 0.02 ? 0.02 : f > 0.98 ? 0.98 : f
+  const first = p.cycles * frac
+  const rest = p.cycles - first
+  const lv = clampCurveLevel(level, lane.range !== undefined)
+  return {
+    from: p.tFrom,
+    to: p.tTo,
+    insert: `${fmtCurveNum(first)} ${fmtCurveNum(lv)} ${fmtCurveNum(rest)}`,
+  }
+}
+
+/**
+ * Remove breakpoint `i`, taking one separating space with it so the line does
+ * not collect gaps.
+ *
+ * REFUSES THE LAST ONE: a lane with no breakpoints is not a shorter lane, it
+ * is a syntax error — `curve` with no pairs does not compile, and a widget
+ * that can delete its own program is worse than one that cannot delete at all.
+ */
+export function removePointEdit(lane: CurveLane, i: number): CurveEdit | null {
+  const p = lane.points[i]
+  if (p === undefined || lane.points.length <= 1) return null
+  // eat the space BEFORE it, except on the first, where the one after goes
+  const prev = lane.points[i - 1]
+  const next = lane.points[i + 1]
+  if (prev !== undefined) return { from: prev.lTo, to: p.lTo, insert: '' }
+  return { from: p.tFrom, to: next !== undefined ? next.tFrom : p.lTo, insert: '' }
 }
 
 // --------------------------------------------------------------- the widget
@@ -303,7 +381,7 @@ export class CurveLaneWidget extends WidgetType {
 
     const line = mk('polyline')
     line.setAttribute('class', 'cl-line')
-    line.setAttribute('points', shift(curveLanePath(l.points, iw, ih), PAD, PAD))
+    line.setAttribute('points', shift(curveLanePath(l.points, iw, ih, 0, l.range !== undefined), PAD, PAD))
     svg.append(line)
 
     const head = mk('line')
@@ -313,7 +391,7 @@ export class CurveLaneWidget extends WidgetType {
     head.setAttribute('opacity', '0')
     svg.append(head)
 
-    for (const hnd of curveHandles(l.points, iw, ih)) {
+    for (const hnd of curveHandles(l.points, iw, ih, 0, l.range !== undefined)) {
       const c = mk('circle')
       c.setAttribute('class', 'cl-pt')
       c.setAttribute('cx', String(PAD + hnd.x))
@@ -324,6 +402,23 @@ export class CurveLaneWidget extends WidgetType {
       this.grab(c, hnd.i, view, iw, ih)
     }
 
+    /* ADD AND REMOVE. Double-click the lane to put a breakpoint where you
+     * clicked, double-click a breakpoint to take it away. Without this the
+     * shape is fixed at whatever was typed and the widget can only nudge it,
+     * which is most of the way to not being an editor. */
+    svg.addEventListener('dblclick', (e) => {
+      const ev = e as MouseEvent
+      ev.preventDefault()
+      const box = svg.getBoundingClientRect()
+      const target = ev.target as Element | null
+      const hit = target?.classList.contains('cl-pt') === true
+        ? Number((target as SVGElement).dataset['i'])
+        : -1
+      const edit = hit >= 0
+        ? removePointEdit(l, hit)
+        : addAt(l, ((ev.clientX - box.left) / box.width) * (w / iw) - PAD / iw)
+      if (edit !== null) view.dispatch({ changes: edit })
+    })
     wrap.append(svg)
 
     /* LIVE POSITION, in the lane's own bars. `cycleAt` is the transport's
@@ -356,10 +451,9 @@ export class CurveLaneWidget extends WidgetType {
     attachGesture(el as unknown as HTMLElement, this.drag, 'window', (e) => {
       const x0 = e.clientX
       const y0 = e.clientY
-      const levels = this.lane.points.map((q) => q.level)
-      const lo = Math.min(0, ...levels)
-      const hi = Math.max(0, ...levels)
-      const span = hi - lo || 1
+      // the SAME axis the drawing uses, or the handle would not track the
+      // pointer it is being dragged by
+      const { span } = curveAxis(this.lane.points, 0, this.lane.range !== undefined)
       const total = this.lane.cycles || 1
       /* Two writers, because the two numbers are separate ranges and a drag
        * usually moves both. Level first: it sits AFTER the cycles number, so
@@ -389,6 +483,22 @@ export class CurveLaneWidget extends WidgetType {
   override ignoreEvent(): boolean {
     return true
   }
+}
+
+/** Which leg an x fraction falls in, and the insert that splits it there. */
+function addAt(lane: CurveLane, xFrac: number): CurveEdit | null {
+  const total = lane.cycles
+  if (total <= 0) return null
+  const cyc = Math.min(total, Math.max(0, xFrac)) * total
+  let t = 0
+  for (let i = 0; i < lane.points.length; i++) {
+    const p = lane.points[i]!
+    if (cyc <= t + p.cycles && p.cycles > 0) {
+      return insertPointEdit(lane, i, (cyc - t) / p.cycles, curveLevelAt(lane.points, cyc))
+    }
+    t += p.cycles
+  }
+  return null
 }
 
 /** Offset a polyline's points, so the drawing math can ignore the padding. */

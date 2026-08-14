@@ -1,7 +1,7 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { BUILT_IN_SAMPLE_NAMES } from '../audio/demo-samples'
 import { snippetCompletion } from '@codemirror/autocomplete'
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import type { DocEntry } from '../docs/dsl-docs'
 import { docsOfKind } from '../docs/dsl-docs'
@@ -46,14 +46,36 @@ const VALUE_GLOBALS = new Set([
 
 export type SyntacticContext = 'string' | 'synth' | 'top'
 
+/** How long to spend parsing up to the cursor when the background parse has
+ *  not reached it. Only paid on the cold path: once the language's own worker
+ *  has caught up, `ensureSyntaxTree` returns immediately. CodeMirror's own
+ *  default for this call. */
+const PARSE_BUDGET_MS = 50
+
+/**
+ * The syntax tree, parsed as far as `pos` if it is not already.
+ *
+ * `syntaxTree` returns only what has been parsed SO FAR, and the initial parse
+ * runs on a time budget: measured here, a fresh state stops at 3007 characters
+ * whatever the document's length. Eighteen of the forty-nine shipped examples
+ * are longer than that, the largest by seven times. Past the boundary every
+ * position resolved to the tree's root, so `syntacticContext` answered 'top'
+ * for a cursor plainly inside a string, and completion offered the global
+ * vocabulary in the middle of a mini-notation pattern.
+ *
+ * It read as a FLAKY TEST rather than a bug: with a small document the initial
+ * parse finishes, so it only ever failed when the machine was loaded enough
+ * for the budget to run out early.
+ */
+const treeAt = (state: EditorState, pos: number): ReturnType<typeof syntaxTree> =>
+  ensureSyntaxTree(state, pos, PARSE_BUDGET_MS) ?? syntaxTree(state)
+
 /**
  * Classify a document position: inside a string/template literal, inside a
- * synth(...) call's arguments, or ordinary top-level code. Tree-based; if
- * the parse tree does not reach `pos` (never the case for the small docs a
- * live-coding editor holds, but cheap to guard), everything reads as 'top'.
+ * synth(...) call's arguments, or ordinary top-level code.
  */
 export const syntacticContext = (state: EditorState, pos: number): SyntacticContext => {
-  const tree = syntaxTree(state)
+  const tree = treeAt(state, pos)
   for (let node: ReturnType<typeof tree.resolveInner> | null = tree.resolveInner(pos, -1); node !== null; node = node.parent) {
     if (node.name === 'String' || node.name === 'TemplateString') return 'string'
     if (node.name === 'CallExpression') {
@@ -68,7 +90,7 @@ export const syntacticContext = (state: EditorState, pos: number): SyntacticCont
  *  string is — the bare callee (`chord`, `note`, `s`) or the member method
  *  (`.scale`, `.sound`). null if not inside a call's string argument. */
 export const stringCallName = (state: EditorState, pos: number): string | null => {
-  const tree = syntaxTree(state)
+  const tree = treeAt(state, pos)
   for (
     let node: ReturnType<typeof tree.resolveInner> | null = tree.resolveInner(pos, -1);
     node !== null;

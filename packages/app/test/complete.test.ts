@@ -189,3 +189,56 @@ describe('chord completions cannot drift from the parser', () => {
     }
   })
 })
+
+describe('a document longer than the initial parse budget', () => {
+  /* This arrived as a FLAKY TEST: `completes note names inside note()` failed
+   * once in a full-suite run and passed on its own and on every rerun.
+   *
+   * The cause was not the test. `syntaxTree` returns only what has been parsed
+   * SO FAR, and the initial parse runs on a time budget -- measured here, a
+   * fresh state stops at 3007 characters however long the document is. Past
+   * that boundary every position resolved to the tree's root, so a cursor
+   * plainly inside a string was classified 'top' and completion offered the
+   * global vocabulary in the middle of a mini-notation pattern.
+   *
+   * Small documents parse fully, which is why it only ever showed up as a
+   * flake: it took a machine loaded enough for the budget to run out early.
+   * EIGHTEEN of the forty-nine shipped examples are longer than 3007
+   * characters, the largest by seven times, so this was reachable by opening
+   * one of them and typing. */
+  const PAST_BUDGET = 8000
+  const padded = (tail: string): string =>
+    `${`// ${'x'.repeat(60)}\n`.repeat(Math.ceil(PAST_BUDGET / 64))}${tail}`
+
+  it('still knows the cursor is inside a string', () => {
+    const doc = padded("note('c|')")
+    expect(doc.length, 'the point is to be past the budget').toBeGreaterThan(3007)
+    const c = ctxAt(doc)
+    expect(syntacticContext(c.state, c.pos)).toBe('string')
+  })
+
+  it('still completes note names there', () => {
+    // the flaky test, made deterministic
+    const opts = labels(padded("note('c|')"))
+    expect(opts).toContain('c4')
+    expect(opts).toContain('g3')
+  })
+
+  it('and chords, scales and sounds, which share the same lookup', () => {
+    expect(labels(padded("chord('C|')"))).toContain('Cmaj7')
+    expect(labels(padded("n('0').scale('c ma|')"))).toContain('major')
+  })
+
+  it('and still offers NOTHING inside a plain mini-notation string', () => {
+    /* The dangerous half. Misclassifying a string as 'top' does not merely
+     * lose completions, it offers the whole global vocabulary inside a pattern
+     * -- confidently wrong rather than silent. */
+    expect(labels(padded("n('0 3 |')"))).toEqual([])
+  })
+
+  it('recognises a synth body past the boundary too', () => {
+    const doc = padded('const a = synth(({ gate, adsr }) => adsr(|gate))')
+    const c = ctxAt(doc)
+    expect(syntacticContext(c.state, c.pos)).toBe('synth')
+  })
+})

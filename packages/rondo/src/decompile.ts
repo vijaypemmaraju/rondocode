@@ -1633,12 +1633,20 @@ function decompilePlay(stmt: Node): string | null {
 
 /** A section const: its plays (one per stack member), or null. */
 function sectionPlays(chainNode: Node): string[] | null {
-  const members = isCall(chainNode) && calleeName(chainNode) === 'stack' &&
-      !((chainNode['arguments'] as Node[]).some((a) => {
-        const en = isCall(a) ? calleeName(a) : undefined
-        // a stack of ENTRIES is stacked voices, not section plays
-        return en === 'n' || en === 'note' || en === 'chord' || en === 's' || en === 'sound'
-      }))
+  /* Every member of a `const __sec_X = stack(...)` IS a section play: that is
+   * what the name means, and this is the only caller.
+   *
+   * It used to bail when any member was a bare `n(…)`/`s(…)` call, on the
+   * theory that such a stack was one play's stacked voices. An unmodified
+   * `beat` compiles to exactly a bare `s('kick ~ snare ~')`, so a section
+   * holding both a `play` and a `beat` looked like stacked voices, failed to
+   * convert, and took the whole section out to a `js` block with it. Measured
+   * on the shipped examples: `reverse cymbal` and `buildup + drop` each lost
+   * three blocks that way, and either kind of block ALONE was fine, which is
+   * what made it hard to see.
+   *
+   * A member that genuinely is not a play still returns null below. */
+  const members = isCall(chainNode) && calleeName(chainNode) === 'stack'
     ? (chainNode['arguments'] as Node[])
     : [chainNode]
   const out: string[] = []

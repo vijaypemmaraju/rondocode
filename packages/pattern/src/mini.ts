@@ -337,12 +337,33 @@ interface Entry {
  * The chosen pattern is queried in place (no timeline shifting) — for the
  * single-cycle seqs `|` joins, in-place and shifted are indistinguishable.
  */
-const randcat = <T>(pats: Pattern<T>[]): Pattern<T> =>
+const randcat = <T>(pats: Pattern<T>[], weights?: number[]): Pattern<T> =>
   new Pattern<T>((span) => {
     const cycle = span.begin.sam()
-    const i = Math.min(Math.floor(timeHash(cycle, 0) * pats.length), pats.length - 1)
+    const i = weights === undefined
+      ? Math.min(Math.floor(timeHash(cycle, 0) * pats.length), pats.length - 1)
+      : weightedIndex(timeHash(cycle, 0), weights)
     return pats[i]!.query(span)
   }).splitQueries()
+
+/**
+ * Pick an index from `weights` given one uniform draw in [0, 1).
+ *
+ * Walks the cumulative total, which reduces EXACTLY to the unweighted
+ * `floor(r * n)` when every weight is 1 -- deliberately, so adding weights
+ * cannot change what an existing `a | b | c` chooses on any cycle.
+ */
+const weightedIndex = (r: number, weights: number[]): number => {
+  // every weight is > 0 (see the `@` parser), so `acc < 0` and `acc <= 0`
+  // pick the same index: acc can only reach exactly 0 before a subtraction
+  const total = weights.reduce((a, b) => a + b, 0)
+  let acc = r * total
+  for (let i = 0; i < weights.length - 1; i++) {
+    acc -= weights[i]!
+    if (acc < 0) return i
+  }
+  return weights.length - 1
+}
 
 class Parser {
   private i = 0
@@ -437,9 +458,9 @@ class Parser {
    *  divergence, so a program that worked here would not work in Strudel. The
    *  fix is to say which grouping you meant: `[0|1], 2`. */
   private parsePattern(): Pattern<MiniValue> {
-    const head = this.parseSeq()
+    const head = this.parseSeqWeighted()
     if (this.isPunct(this.peek(), ',')) {
-      const parts = [head]
+      const parts = [head.pat]
       while (this.isPunct(this.peek(), ',')) {
         this.next()
         parts.push(this.parseSeq())
@@ -448,15 +469,27 @@ class Parser {
       return Pattern.stack(...parts)
     }
     if (this.isPunct(this.peek(), '|')) {
+      /* WEIGHTED CHOICE. `a@3 | b` picks a three times as often. The weight is
+       * the one an alternative carries as a whole (see parseSeqWeighted),
+       * which until now parsed and did nothing at all -- in Strudel too,
+       * measured at an even split for `a@3 | b`. Giving it the obvious meaning
+       * costs no syntax and reuses the character that already means weight.
+       *
+       * Without any `@` this is bit-for-bit the old uniform choice: see
+       * weightedIndex. */
       const seqs = [head]
       while (this.isPunct(this.peek(), '|')) {
         this.next()
-        seqs.push(this.parseSeq())
+        seqs.push(this.parseSeqWeighted())
       }
       this.refuseMixed(',', '|')
-      return randcat(seqs)
+      // no zero or negative guard needed: `@` already refuses anything <= 0,
+      // so every weight arriving here is positive
+      const weights = seqs.map((s) => s.weight)
+      const uniform = weights.every((w) => w === 1)
+      return randcat(seqs.map((s) => s.pat), uniform ? undefined : weights)
     }
-    return head
+    return head.pat
   }
 
   /** `,` and `|` do not mix at one level — say which grouping was meant. */
@@ -534,10 +567,32 @@ class Parser {
    * so unlike that pair it needs no disambiguation.
    */
   private parseSeq(): Pattern<MiniValue> {
+    return this.parseSeqWeighted().pat
+  }
+
+  /**
+   * A seq, plus the weight it carries as a whole.
+   *
+   * A weight on a seq's ONLY top-level term is meaningless in the seq itself:
+   * `timecat([[3, p]])` and `timecat([[1, p]])` both give p the whole cycle. So
+   * `a@3` alone has always parsed and always done nothing, which is exactly
+   * the slot a choice weight can occupy without ambiguity -- see the `|`
+   * branch of parsePattern. Anything else (several terms, or `.` groups)
+   * weighs 1: there the `@` is already doing its normal job INSIDE the seq.
+   */
+  private parseSeqWeighted(): { pat: Pattern<MiniValue>; weight: number } {
     const flat = (es: Entry[]): Pattern<MiniValue> =>
       Pattern.timecat(es.map((e) => [e.weight, e.pat]))
     let group = this.parseSeqEntries()
-    if (!this.isPunct(this.peek(), '.')) return flat(group)
+    if (!this.isPunct(this.peek(), '.')) {
+      return { pat: flat(group), weight: group.length === 1 ? group[0]!.weight : 1 }
+    }
+    return { pat: this.parseDotGroups(group), weight: 1 }
+  }
+
+  private parseDotGroups(group: Entry[]): Pattern<MiniValue> {
+    const flat = (es: Entry[]): Pattern<MiniValue> =>
+      Pattern.timecat(es.map((e) => [e.weight, e.pat]))
     const groups: Pattern<MiniValue>[] = []
     for (;;) {
       groups.push(flat(group))

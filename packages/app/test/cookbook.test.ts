@@ -423,3 +423,99 @@ describe('the generative beat does what its title claims', () => {
     expect(lo, `quietest second was ${lo.toFixed(4)} against ${hi.toFixed(4)}`).toBeGreaterThan(0.02)
   })
 })
+
+describe('the generative melody does what its title claims', () => {
+  /* The third generative recipe, and deliberately the INVERSE of the beat one:
+   * `generative-beat` randomises which hits survive and keeps the pitch fixed;
+   * this randomises the pitch and writes the rhythm down. Both claims are
+   * measured, because either one drifts away silently under editing. */
+  const r = RECIPES.find((x) => x.id === 'generative-melody')!
+  const CYCLES = 24
+
+  const perBar = (): Map<string, { rhythms: Set<string>; pitches: Set<string> }> => {
+    const c = compile(r.code)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) throw new Error('compile')
+    const st = stageCode(c.code)
+    if (!st.ok) throw new Error(JSON.stringify(st.diagnostics))
+    const cps = st.cps ?? 0.5
+    const evs = runPatterns(st.patterns, { cycles: CYCLES, cps })
+    const out = new Map<string, { rhythms: Set<string>; pitches: Set<string> }>()
+    for (const [name, list] of evs) {
+      const bars = new Map<number, { slots: number[]; notes: number[] }>()
+      for (const e of list as { time: number; type: string; note: number }[]) {
+        if (e.type !== 'noteOn') continue
+        const pos = e.time * cps
+        const cyc = Math.floor(pos + 1e-6)
+        if (!bars.has(cyc)) bars.set(cyc, { slots: [], notes: [] })
+        bars.get(cyc)!.slots.push(Math.round((pos - cyc) * 8))
+        bars.get(cyc)!.notes.push(e.note)
+      }
+      const ks = [...bars.keys()].sort((a, b) => a - b)
+      out.set(String(name), {
+        rhythms: new Set(ks.map((k) => bars.get(k)!.slots.join(','))),
+        pitches: new Set(ks.map((k) => bars.get(k)!.notes.join(','))),
+      })
+    }
+    return out
+  }
+
+  it('the rhythm is a FIGURE you wrote, not just a constant one', () => {
+    /* Constancy alone proves nothing, which the sabotage pass is what showed:
+     * strip `struct` and `irand` plays flat eighths, so the rhythm is still
+     * identical in every bar while sounding exactly like the machine the
+     * recipe exists to avoid. What `struct` buys is that the figure has RESTS
+     * in it, so both halves are asserted. */
+    for (const voice of ['lead', 'echo']) {
+      const v = perBar().get(voice)!
+      expect(v.rhythms.size, `${voice}: the figure moved between bars`).toBe(1)
+      const slots = [...v.rhythms][0]!.split(',').length
+      expect(slots, `${voice}: every slot is filled, so this is a grid not a figure`).toBeLessThan(8)
+    }
+  })
+
+  it('and the NOTES are different nearly every bar', () => {
+    const lead = perBar().get('lead')!
+    expect(lead.pitches.size, 'the melody repeated itself').toBeGreaterThan(CYCLES * 0.75)
+  })
+
+  it('no roll of the dice can produce a semitone clash', () => {
+    /* The other half of the move. Measured while writing it: the same
+     * generator on a 7-note scale gave nine minor 2nds over 24 bars, and the
+     * pentatonic gave zero -- there is no semitone IN the scale, so random
+     * degrees cannot find one. */
+    const c = compile(r.code)
+    if (!c.ok) throw new Error('compile')
+    const st = stageCode(c.code)
+    if (!st.ok) throw new Error('stage')
+    const cps = st.cps ?? 0.5
+    const evs = runPatterns(st.patterns, { cycles: CYCLES, cps })
+    const notes = new Set<number>()
+    for (const [, list] of evs) {
+      for (const e of list as { type: string; note: number }[]) if (e.type === 'noteOn') notes.add(e.note)
+    }
+    const pcs = [...new Set([...notes].map((n) => ((n % 12) + 12) % 12))].sort((a, b) => a - b)
+    for (let i = 0; i < pcs.length; i++) {
+      for (let j = i + 1; j < pcs.length; j++) {
+        const d = Math.min(pcs[j]! - pcs[i]!, 12 - (pcs[j]! - pcs[i]!))
+        expect(d, `pitch classes ${pcs[i]} and ${pcs[j]} are a semitone apart`).not.toBe(1)
+      }
+    }
+    expect(pcs.length, 'a pentatonic, so five pitch classes').toBe(5)
+  })
+
+  it('sits at a level the render does not have to touch', () => {
+    const c = compile(r.code)
+    if (!c.ok) throw new Error('compile')
+    const st = stageCode(c.code)
+    if (!st.ok) throw new Error('stage')
+    const cps = st.cps ?? 0.5
+    const SECS = 48
+    const evs = runPatterns(st.patterns, { cycles: Math.ceil(SECS * cps), cps })
+    const mix = renderMix(st.synths, evs, SECS, mixOptsFor(st, { cps, sampleRate: 11025 }))
+    expect(mix.normalized, 'ships a level a reader would copy').toBe(false)
+    let peak = 0
+    for (const v of mix.left) peak = Math.max(peak, Math.abs(v))
+    expect(peak, `wastes headroom at ${peak.toFixed(3)}`).toBeGreaterThan(0.5)
+  })
+})

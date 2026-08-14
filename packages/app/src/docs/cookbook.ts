@@ -834,4 +834,50 @@ cps .34
 level -4`,
     why: 'Write the pattern DENSE and let probability thin it. A sparse figure is a loop: play it twice and you have heard it. Sixteen hits at `degradeby .84` keep about three, a different three each bar, and every one of them still lands on a grid position you chose rather than somewhere random. Measured over sixteen bars: the ticks were unique in all sixteen, the kick in fifteen. The catch is that probability alone wanders, and one bar in the render fell to a twentieth of the loudest. So one voice never rolls the dice. That single certain pulse is the difference between a beat and a scatter.',
   },
+  {
+    id: 'generative-melody',
+    title: 'Let a melody write itself',
+    tags: ['generative', 'melody', 'irand', 'scale', 'pentatonic', 'struct', 'ambient'],
+    code: `synth lead
+  tri note
+  svf 2600 res:.15
+  * adsr .004 .5 0 .6
+  * .5
+  post
+    reverb room:.86 damp:.4 mix:.36
+
+synth echo
+  sine note
+  * adsr .01 .9 0 1.1
+  * .22
+  post
+    reverb room:.9 mix:.45
+
+synth bed unison:3 detune:6
+  saw note
+  ladder 700 res:.15
+  * adsr 3 2 .8 4
+  * .16
+
+# the pitches are a dice roll; the RHYTHM is written down
+play lead
+  irand 5 seg:8
+  scale:d-minorpentatonic
+  struct 1 ~ 1 1 ~ 1 ~ ~
+
+play echo
+  irand 5 seg:8
+  scale:d-minorpentatonic
+  struct ~ ~ ~ 1 ~ ~ 1 ~
+  sub 7
+
+play bed
+  <0 3>/6
+  scale:d-minorpentatonic
+
+cps .42
+
+level 2`,
+    why: 'Randomise ONE dimension and write the rest down. `irand` rolls a new degree every step, and on its own that is a flat run of eighths: constant, and unmistakably a machine. `struct` replaces the run with a FIGURE, rests and all, so the same shape comes back bar after bar with different notes in it and the ear hears a melody being varied. The scale is the other half: a minor pentatonic contains no semitone, so no roll of the dice can produce the one interval that sounds like a mistake. Measured over 24 bars, a 7-note scale gave nine minor 2nds and the pentatonic gave zero, with the rhythm identical in every bar and the notes different in 21 of them.',
+  },
 ]

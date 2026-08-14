@@ -889,3 +889,55 @@ describe('zonedef: the cases that must NOT become one', () => {
     }
   })
 })
+
+describe('a binding can stand where a number does', () => {
+  /* `adsr .002 dec2 0 0` and `lfo .2 -> lo..hi` are both things rondo says,
+   * and both came back as `js{ }`: those sites asked for a literal and read
+   * "not a number" as "cannot be written". A binding name is the common case
+   * and rather the point, since the numbers in a patch are usually knobs.
+   *
+   * Found by auditing whether every shipped program survives rondo -> JS ->
+   * rondo without an escape hatch. Two local examples needed one purely for
+   * this. */
+  const rt = (rondo: string): { back: string; sameJs: boolean } => {
+    const a = compile(rondo)
+    expect(a.ok, a.ok ? '' : JSON.stringify(a.errors)).toBe(true)
+    if (!a.ok) throw new Error('compile')
+    const back = decompile(a.code)
+    const b = compile(back)
+    expect(b.ok, b.ok ? '' : `${back}\n${JSON.stringify(b.errors)}`).toBe(true)
+    return { back, sameJs: b.ok && b.code.replace(/\s+/g, ' ').trim() === a.code.replace(/\s+/g, ' ').trim() }
+  }
+
+  it('adsr takes a binding for one of its four numbers', () => {
+    const { back, sameJs } = rt('synth a\n  saw note\n  * adsr .002 dec2 0 0\n  dec2 = knob .2 .05..1\n\nplay a\n  0\n\ncps .5')
+    expect(back).toContain('adsr 0.002 dec2 0 0')
+    expect(back).not.toContain('js{')
+    expect(sameJs).toBe(true)
+  })
+
+  it('a range takes bindings for both ends', () => {
+    const { back, sameJs } = rt('synth a\n  saw note\n  ladder cut\n  lo = knob 200 100..900\n  hi = knob 4000 1000..9000\n  cut = lfo .2 -> lo..hi\n\nplay a\n  0\n\ncps .5')
+    expect(back).toContain('-> lo..hi')
+    expect(back).not.toContain('js{')
+    expect(sameJs).toBe(true)
+  })
+
+  it('and one end of a range may still be a literal', () => {
+    const { back } = rt('synth a\n  saw note\n  ladder cut\n  hi = knob 4000 1000..9000\n  cut = lfo .2 -> 200..hi\n\nplay a\n  0\n\ncps .5')
+    expect(back).toContain('-> 200..hi')
+  })
+
+  it('all-literal forms are unchanged', () => {
+    expect(rt('synth a\n  saw note\n  * adsr .002 .2 0 0\n\nplay a\n  0\n\ncps .5').back).toContain('adsr 0.002 0.2 0 0')
+    expect(rt('synth a\n  saw note\n  ladder cut\n  cut = lfo .2 -> 200..4000\n\nplay a\n  0\n\ncps .5').back).toContain('-> 200..4000')
+  })
+
+  it('a LOOSE operand still bails rather than mis-associating', () => {
+    /* The slots are juxtaposed with what follows: `adsr` reads exactly four
+     * positionals and `..` reads two, so an operand that rendered loosely
+     * would swallow the next one. Better a blob than a wrong rhythm. */
+    const back = decompile("const a = synth(({ gate, adsr, saw, note, lfo }) => saw(note.freq).mul(adsr(gate, { a: 0.002, d: lfo(0.2).range(1, 2), s: 0, r: 0 })))\n")
+    expect(back.includes('js{') || /^\s*\w+ = /m.test(back), 'either a blob or a hoisted binding, never an inline mis-parse').toBe(true)
+  })
+})

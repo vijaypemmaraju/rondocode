@@ -396,6 +396,25 @@ function hoistAs(role: string, r: R): string {
   return name
 }
 
+/**
+ * A number literal, or an expression tight enough to stand where one would.
+ *
+ * `adsr .002 dec2 0 0` and `lfo .2 -> lo..hi` are both things rondo says, and
+ * both used to come back as `js{ }` because these sites asked for a literal
+ * and read `undefined` as "cannot be written". A binding name is the common
+ * case and rather the point: the numbers in a patch are usually knobs.
+ *
+ * TIGHT and CLOSED, because these slots are juxtaposed with what follows:
+ * `adsr` reads exactly four positionals and `..` reads two, so an operand that
+ * rendered loosely would swallow the next one.
+ */
+function numOrTight(n: Node): string | null {
+  const v = numValue(n)
+  if (v !== undefined) return num(v)
+  const r = rExpr(n, true)
+  return r !== null && r.prec >= 3 && r.openPrec === undefined && !r.arityOpen ? r.s : null
+}
+
 /** A positional argument in a builtin application parses at prec ≥ 2.
  *  A NON-last positional must also be fully closed: an arity-open rendering
  *  (`saw` bare, `fm 100`) would swallow the next positional as its own. */
@@ -541,10 +560,10 @@ function rExprRaw(n: Node, closed = false): R | null {
     // .range(lo, hi) → `x -> lo..hi`
     if (m.method === 'range' && m.args.length === 2) {
       const x = rExpr(m.obj)
-      const lo = numValue(m.args[0]!)
-      const hi = numValue(m.args[1]!)
-      if (x === null || x.prec < 2 || lo === undefined || hi === undefined) return null
-      return { s: `${x.s} -> ${num(lo)}..${num(hi)}`, prec: 1, arityOpen: false }
+      const lo = numOrTight(m.args[0]!)
+      const hi = numOrTight(m.args[1]!)
+      if (x === null || x.prec < 2 || lo === null || hi === null) return null
+      return { s: `${x.s} -> ${lo}..${hi}`, prec: 1, arityOpen: false }
     }
     return null
   }
@@ -556,15 +575,15 @@ function rExprRaw(n: Node, closed = false): R | null {
       if (args.length === 2 && isIdent(args[0], 'gate')) {
         const o = objEntries(args[1]!)
         if (o !== undefined) {
-          const vals = ['a', 'd', 's', 'r'].map((k) => (o[k] !== undefined ? numValue(o[k]!) : 0))
-          if (vals.every((x) => x !== undefined)) {
+          const vals = ['a', 'd', 's', 'r'].map((k) => (o[k] !== undefined ? numOrTight(o[k]!) : '0'))
+          if (vals.every((x) => x !== null)) {
             // CLOSED, not openPrec 2. adsr takes exactly four positionals, so
             // the parser finishes the call and binds any following operator to
             // the whole thing — verified for ^, * and +. Claiming it was open
             // blocked `^` (prec 4) while allowing `->` (prec 1), which is why
             // `adsr … ^ 3 -> 48..190` decompiled to a js{ } blob even though
             // rondo says it natively.
-            return { s: `adsr ${vals.map((x) => num(x!)).join(' ')}`, prec: 5, arityOpen: false }
+            return { s: `adsr ${vals.join(' ')}`, prec: 5, arityOpen: false }
           }
         }
       }

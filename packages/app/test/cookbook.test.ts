@@ -333,3 +333,93 @@ describe('the endless drone does what its title claims', () => {
     expect(r.why, 'the number in the prose').toContain('924')
   })
 })
+
+describe('the generative beat does what its title claims', () => {
+  /* "Makes sound" would pass a loop. This recipe promises a bar that is never
+   * the same twice AND still a beat, and those two pull against each other:
+   * pure probability wanders into near-silence, which is why one voice is
+   * certain. Both halves are measured here, because the second one is the part
+   * that gets tuned away by accident. */
+  const r = RECIPES.find((x) => x.id === 'generative-beat')!
+  const CYCLES = 16
+
+  const staged = (): { st: Extract<ReturnType<typeof stageCode>, { ok: true }>; cps: number } => {
+    const c = compile(r.code)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) throw new Error('compile')
+    const st = stageCode(c.code)
+    if (!st.ok) throw new Error(JSON.stringify(st.diagnostics))
+    return { st, cps: st.cps ?? 0.5 }
+  }
+
+  /** Per voice: the note-on slot fingerprint of each cycle. */
+  const fingerprints = (): Map<string, string[]> => {
+    const { st, cps } = staged()
+    const evs = runPatterns(st.patterns, { cycles: CYCLES, cps })
+    const out = new Map<string, string[]>()
+    for (const [name, list] of evs) {
+      const byCycle = new Map<number, number[]>()
+      for (const e of list as { time: number; type: string }[]) {
+        if (e.type !== 'noteOn') continue
+        const pos = e.time * cps // events are in SECONDS; the grid is in cycles
+        const cyc = Math.floor(pos + 1e-6)
+        const slot = Math.round((pos - cyc) * 16)
+        if (!byCycle.has(cyc)) byCycle.set(cyc, [])
+        byCycle.get(cyc)!.push(slot)
+      }
+      out.set(String(name), [...byCycle.keys()].sort((a, b) => a - b)
+        .map((k) => byCycle.get(k)!.join(',')))
+    }
+    return out
+  }
+
+  it('NEVER THE SAME BAR TWICE for the probabilistic voices', () => {
+    const fp = fingerprints()
+    for (const voice of ['thud', 'tick', 'bowl']) {
+      const bars = fp.get(voice) ?? []
+      expect(bars.length, `${voice}: no bars`).toBeGreaterThan(10)
+      const uniq = new Set(bars).size
+      expect(uniq / bars.length, `${voice}: ${uniq}/${bars.length} bars differ`).toBeGreaterThan(0.75)
+    }
+  })
+
+  it('and the surviving hits still land ON the grid, never between', () => {
+    /* Probability chooses WHICH hits, not where they fall. A drop that shifted
+     * timing would be a different (and much worse) recipe. */
+    const { st, cps } = staged()
+    const evs = runPatterns(st.patterns, { cycles: CYCLES, cps })
+    for (const [, list] of evs) {
+      for (const e of list as { time: number; type: string }[]) {
+        if (e.type !== 'noteOn') continue
+        const pos = e.time * cps
+        const off = Math.abs(pos * 16 - Math.round(pos * 16))
+        expect(off, `hit at cycle ${pos.toFixed(4)} is off the 16th grid`).toBeLessThan(0.01)
+      }
+    }
+  })
+
+  it('but ONE voice is certain, which is what keeps it a beat', () => {
+    // the measured failure without it: a bar at a twentieth of the loudest
+    const bars = fingerprints().get('pulse') ?? []
+    expect(bars.length).toBe(CYCLES)
+    expect(new Set(bars).size, 'the anchor must not be probabilistic').toBe(1)
+  })
+
+  it('so no second falls away to nothing', () => {
+    const { st, cps } = staged()
+    const SR = 11025
+    const SECS = 48
+    const evs = runPatterns(st.patterns, { cycles: Math.ceil(SECS * cps), cps })
+    const mix = renderMix(st.synths, evs, SECS, mixOptsFor(st, { cps, sampleRate: SR }))
+    expect(mix.normalized, 'the render had to turn it down: ships a level a reader would copy').toBe(false)
+    const rms: number[] = []
+    for (let a = 0; a + SR <= mix.left.length; a += SR) {
+      let e = 0
+      for (let i = a; i < a + SR; i++) e += mix.left[i]! * mix.left[i]!
+      rms.push(Math.sqrt(e / SR))
+    }
+    const lo = Math.min(...rms)
+    const hi = Math.max(...rms)
+    expect(lo, `quietest second was ${lo.toFixed(4)} against ${hi.toFixed(4)}`).toBeGreaterThan(0.02)
+  })
+})

@@ -174,7 +174,7 @@ export class MiniError extends Error {
 // ---------------------------------------------------------------- tokenizer
 
 interface Tok {
-  readonly kind: 'word' | 'number' | 'punct'
+  readonly kind: 'word' | 'number' | 'punct' | 'lanes'
   readonly text: string
   /** Numeric value; only meaningful when kind === 'number'. */
   readonly value: number
@@ -318,6 +318,18 @@ function tokenize(src: string): Tok[] {
       toks.push({ kind: 'punct', text: c, value: NaN, start: i, end: i + 1 })
       i++
       continue
+    }
+    /* A `'…` run that follows something other than a word or number: the
+     * timing lanes a GROUP carries, `[hh*8]'swing:.6`. Attached lanes are read
+     * with the atom above; this is the same reader, reached from the one place
+     * an atom cannot be. */
+    if (c === "'") {
+      const ex = readLanes(src, i)
+      if (ex !== undefined) {
+        toks.push({ kind: 'lanes', text: src.slice(i, ex.next), value: NaN, start: i, end: ex.next, lanes: ex.lanes })
+        i = ex.next
+        continue
+      }
     }
     throw new MiniError(`unexpected character '${c}'`, i, src)
   }
@@ -638,8 +650,30 @@ class Parser {
     let pat = this.parseAtom()
     let weight = 1
     let reps = 1
+    let grooved = false
     for (;;) {
       const t = this.peek()
+      if (t !== undefined && t.kind === 'lanes') {
+        this.next()
+        pat = this.applyGroove(pat, t)
+        grooved = true
+        continue
+      }
+      /* Euclid takes its STRUCTURE from the pattern underneath, and sampling a
+       * pattern whose events have been nudged off the grid picks some of them
+       * up twice: `[hh*8]'swing:.33(3,8)` measured as five onsets, two of them
+       * doubled, where `(3,8)` alone gives three. Nothing about the notation
+       * says which order was meant, so it says so instead of choosing. The
+       * other suffixes (`*`, `/`, `!`, `@`, `?`) commute with a nudge and are
+       * left alone. */
+      if (grooved && t !== undefined && t.kind === 'punct' && t.text === '(') {
+        this.err(
+          `a euclid cannot follow a groove: the structure has to be chosen `
+          + `before the timing is nudged. Write the '(…)' first, as in `
+          + `"[hh*8](3,8)'swing:.6"`,
+          t.start,
+        )
+      }
       if (t === undefined || t.kind !== 'punct') break
       if (t.text === '*' || t.text === '/') {
         this.next()
@@ -764,6 +798,40 @@ class Parser {
       next[i] = typeof v === 'object' && v !== null ? (v as MiniValue).value as number : (v as number)
       return this.applyArgs(next, f)
     })
+  }
+
+  /**
+   * The TIMING lanes a group carries: `[hh*8]'swing:.6`.
+   *
+   * `swing` delays the second half of every `grid` subdivision, which is the
+   * shuffle: measured on `hh*8` at grid 4, the off-beats move from 1, 3, 5, 7
+   * to 1.33, 3.33, 5.33, 7.33 and the on-beats do not move at all.
+   *
+   * GRID IS EXPLICIT, defaulting to 4. It cannot be inferred: `[hh*8]` is one
+   * term that expands to eight events, `[a b c d]` is four terms that make
+   * four, and any rule reading the written structure gets one of them wrong.
+   * 4 is the default because shuffled eighths in four-four is what swing means
+   * almost every time; `'grid:2` swings quarters, `'grid:8` sixteenths.
+   *
+   * An unknown lane name is an ERROR here, not a shrug. On an atom a lane is
+   * a control and any name may be one, but on a group the only meanings are
+   * the ones this understands, and a silently ignored `'swng:.6` would be a
+   * groove that never arrives.
+   */
+  private applyGroove(pat: Pattern<MiniValue>, t: Tok): Pattern<MiniValue> {
+    const lanes = t.lanes ?? {}
+    for (const name of Object.keys(lanes)) {
+      if (name !== 'swing' && name !== 'grid') {
+        this.err(`'${name}' is not a timing lane. A group takes 'swing:' and 'grid:'`, t.start)
+      }
+    }
+    const amount = lanes['swing']
+    if (amount === undefined) this.err(`'grid:' needs a 'swing:' to go with it`, t.start)
+    const grid = lanes['grid'] ?? 4
+    if (!Number.isInteger(grid) || grid < 1) {
+      this.err(`'grid:' must be a whole number of subdivisions, not ${grid}`, t.start)
+    }
+    return pat.swingBy(amount, grid)
   }
 
   /** '(' already consumed: arg ',' arg (',' arg)? ')' -> euclid. Each

@@ -134,6 +134,7 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:?', //   a?p     — random drop
       'mini:|', //   a | b   — random choice per cycle (weighted with @)
       "mini:'swing", // [hh*8]'swing:.6 — groove on a group
+      'mini:$', //   $a=[bd sn] $a — name a figure, reuse it
 
       "mini:'", // 0'2 0'gain:.8 — per-note lanes
     ]

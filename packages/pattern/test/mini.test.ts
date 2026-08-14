@@ -609,7 +609,9 @@ describe('MiniError', () => {
     ['*2 a', 0, /unexpected '\*'/],
     ['_ a', 0, /'_'/],
     ['! a', 0, /unexpected '!'/],
-    ['a $ b', 2, /character/],
+    // `$` used to be an unknown CHARACTER; it names a figure now, so a lone
+    // one is a reference with no name rather than a stray symbol
+    ['a $ b', 2, /needs a name/],
     ['a %2', 2, /unexpected '%'/],
     ['a |', 3, /end of input/],
     // A run-together decimal must ERROR, not silently split into two atoms

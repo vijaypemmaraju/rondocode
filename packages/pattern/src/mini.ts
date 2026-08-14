@@ -186,7 +186,7 @@ interface Tok {
   readonly lanes?: Record<string, number>
 }
 
-const PUNCT = new Set('[]<>{}(),|*/!@?%~_.')
+const PUNCT = new Set('[]<>{}(),|*/!@?%~_.$=')
 
 /** The lane a bare `'2` writes to. Named so the mapping is stated once. */
 export const DEFAULT_LANE = 'expr'
@@ -381,6 +381,8 @@ class Parser {
   private i = 0
   /** Every atom in parse order — the `n` tag validates against this. */
   readonly atoms: { value: string | number; loc: Loc }[] = []
+  /** Figures named on this line with `$a=…`, by name. */
+  private readonly motifs = new Map<string, Pattern<MiniValue>>()
 
   constructor(
     private readonly toks: Tok[],
@@ -446,17 +448,58 @@ class Parser {
 
   private isTermStart(t: Tok): boolean {
     if (t.kind === 'word' || t.kind === 'number') return true
-    return t.kind === 'punct' && (t.text === '~' || t.text === '[' || t.text === '<' || t.text === '{')
+    return t.kind === 'punct'
+      && (t.text === '~' || t.text === '[' || t.text === '<' || t.text === '{' || t.text === '$')
   }
 
   // ------------------------------------------------------------ productions
 
   /** Whole source: empty is silence; anything unconsumed is an error. */
+  /**
+   * `$a=[bd sn] $a ~ $a $a` -- name a figure, then use it.
+   *
+   * Definitions come first and take ONE term each, so where they stop and the
+   * pattern starts never has to be guessed. A reference carries the `$` for
+   * the same reason a definition does: a bare `a` is already a legal atom (the
+   * sample called `a`), so an unsigilled reference would make a typo in the
+   * definition play a sample instead of failing.
+   */
   parseTop(): Pattern<MiniValue> {
     if (this.toks.length === 0) return Pattern.silence
+    while (this.isMotifDef()) this.parseMotifDef()
+    if (this.toks.length > 0 && this.peek() === undefined) {
+      this.err(`this line defines a figure but never plays one: add a pattern after the definitions`)
+    }
     const pat = this.parsePattern()
     if (this.peek() !== undefined) this.errUnexpected()
     return pat
+  }
+
+  /** `$` `name` `=` at the cursor: a definition rather than a reference. */
+  private isMotifDef(): boolean {
+    const dollar = this.peek()
+    const name = this.toks[this.i + 1]
+    return this.isPunct(dollar, '$')
+      && name?.kind === 'word'
+      && name.start === dollar!.end // adjacent, as a sigil must be
+      && this.isPunct(this.toks[this.i + 2], '=')
+  }
+
+  private parseMotifDef(): void {
+    const dollar = this.next()!
+    const name = this.next()!.text
+    this.next() // '='
+    if (this.motifs.has(name)) {
+      this.err(`'$${name}' is already defined on this line`, dollar.start)
+    }
+    const first = this.peek()
+    if (first === undefined || !this.isTermStart(first)) {
+      this.err(`'$${name}=' needs a figure after it, like '$${name}=[bd sn]'`, dollar.start)
+    }
+    // ONE term: `$a=[bd sn]` or `$a=bd`. A bare sequence would swallow the
+    // pattern that follows it, so a multi-step figure is bracketed.
+    const { pat } = this.parseTerm()
+    this.motifs.set(name, pat)
   }
 
   /** pattern := seq ('|' seq)* */
@@ -879,6 +922,27 @@ class Parser {
   private parseAtom(): Pattern<MiniValue> {
     const t = this.peek()
     if (t === undefined) this.errUnexpected()
+    if (this.isPunct(t, '$')) {
+      this.next()
+      const name = this.peek()
+      // ADJACENT: `$a` is a reference, `$ a` is a `$` with no name. A sigil
+      // that reached across a space would read `bd $ sn` as a reference to sn.
+      if (name === undefined || name.kind !== 'word' || name.start !== t.end) {
+        this.err(`'$' names a figure, so it needs a name straight after it, like '$a'`, t.start)
+      }
+      const pat = this.motifs.get(name.text)
+      if (pat === undefined) {
+        const known = [...this.motifs.keys()]
+        this.err(
+          `'$${name.text}' is not defined on this line`
+          + (known.length > 0 ? `. Defined here: ${known.map((k) => `$${k}`).join(', ')}` : '')
+          + `. Define it first, as in '$${name.text}=[bd sn] $${name.text} ~'`,
+          t.start,
+        )
+      }
+      this.next()
+      return pat
+    }
     if (t.kind === 'word' || t.kind === 'number') {
       this.next()
       return this.mkAtom(t.kind === 'word' ? t.text : t.value, {

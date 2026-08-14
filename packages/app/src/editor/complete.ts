@@ -56,16 +56,19 @@ const PARSE_BUDGET_MS = 50
  * The syntax tree, parsed as far as `pos` if it is not already.
  *
  * `syntaxTree` returns only what has been parsed SO FAR, and the initial parse
- * runs on a time budget: measured here, a fresh state stops at 3007 characters
- * whatever the document's length. Eighteen of the forty-nine shipped examples
- * are longer than that, the largest by seven times. Past the boundary every
- * position resolved to the tree's root, so `syntacticContext` answered 'top'
- * for a cursor plainly inside a string, and completion offered the global
- * vocabulary in the middle of a mini-notation pattern.
+ * runs on a time budget: measured, a bare state stops at 3007 characters
+ * whatever the document's length. Past that every position resolves to the
+ * tree's root, so `syntacticContext` answers 'top' for a cursor plainly inside
+ * a string, and the global vocabulary gets offered in the middle of a
+ * mini-notation pattern. Confidently wrong rather than silent.
  *
- * It read as a FLAKY TEST rather than a bug: with a small document the initial
- * parse finishes, so it only ever failed when the machine was loaded enough
- * for the budget to run out early.
+ * IN THE EDITOR this was survivable and, measured in a browser at 20k
+ * characters, did not actually happen: CodeMirror parses the VIEWPORT, and the
+ * cursor is by definition in it. But that is an implicit dependency on
+ * something completion never asked for, and it does not hold for a caller
+ * without a view. It held as a flaky test instead, failing once in a full
+ * suite and passing alone, which is the same bug wearing the cheapest
+ * possible disguise.
  */
 const treeAt = (state: EditorState, pos: number): ReturnType<typeof syntaxTree> =>
   ensureSyntaxTree(state, pos, PARSE_BUDGET_MS) ?? syntaxTree(state)

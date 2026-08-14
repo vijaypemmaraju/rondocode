@@ -941,3 +941,50 @@ describe('a binding can stand where a number does', () => {
     expect(back.includes('js{') || /^\s*\w+ = /m.test(back), 'either a blob or a hoisted binding, never an inline mis-parse').toBe(true)
   })
 })
+
+describe('sections that layer, and sections the song never plays', () => {
+  /* Two more shapes that used to take a whole arrangement out to JavaScript,
+   * both found by auditing the round trip on real programs rather than by
+   * reading the decompiler. */
+  const back = (rondo: string): string => {
+    const a = compile(rondo)
+    expect(a.ok, a.ok ? '' : JSON.stringify(a.errors)).toBe(true)
+    if (!a.ok) throw new Error('compile')
+    return decompile(a.code)
+  }
+  const S = 'synth a\n  saw note\n\nsynth b\n  sine note\n\n'
+
+  it('`with` comes back as `with`, not as a blob', () => {
+    /* A with is emitted as a REFERENCE to the other section's const, so that
+     * the shared part stays shared. Coming back, that identifier is the one
+     * member of the stack that is not a play, and it used to take the section
+     * with it. */
+    const out = back(`${S}section base 4\n  play a\n    0 3\n\nsection main 4 with base\n  play b\n    5 7\n\nsong base main\n\ncps .5`)
+    expect(out).toContain('section main 4 with base')
+    expect(out).not.toContain('js')
+  })
+
+  it('and several withs keep their order', () => {
+    const out = back(`${S}section one 4\n  play a\n    0\n\nsection two 4\n  play b\n    3\n\nsection all 4 with one with two\n  play a\n    5\n\nsong one two all\n\ncps .5`)
+    expect(out).toContain('section all 4 with one with two')
+  })
+
+  it('a section the song never plays does not take the others down', () => {
+    /* Its LENGTH is genuinely unrecoverable: codegen writes the length only
+     * into `arrange([8, __sec_x])`, so a section nobody arranges carries none.
+     * That is real -- a `with` base, or one parked while writing. It used to
+     * bail the whole matcher, so ONE such section sent every other section out
+     * to JavaScript with it. */
+    const out = back(`${S}section base 4\n  play a\n    0 3\n\nsection used 4\n  play b\n    5 7\n\nsong used\n\ncps .5`)
+    expect(out, 'the arranged one is recovered').toContain('section used 4')
+    expect(out, 'and the unarranged one keeps its raw form, rather than an invented length').toContain('js')
+    expect(out).toContain('song used')
+  })
+
+  it('all-arranged programs stay completely clean', () => {
+    const out = back(`${S}section one 4\n  play a\n    0\n\nsection two 4\n  play b\n    3\n\nsong one two\n\ncps .5`)
+    expect(out).not.toContain('js')
+    expect(out).toContain('section one 4')
+    expect(out).toContain('section two 4')
+  })
+})

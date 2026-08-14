@@ -731,7 +731,14 @@ class Parser {
        * query is the wrong place to throw — clamp to the smallest legal
        * figure, which is what an empty one would sound like anyway. */
       if (!(st! >= 1)) return Pattern.silence
-      return pat.euclid(p!, st!, r!)
+      /* A NEGATIVE pulse count is the COMPLEMENT: `a(-3,8)` plays the five
+       * slots `a(3,8)` leaves empty, which is how you write the counter-rhythm
+       * to a figure without restating it. Strudel reads it the same way.
+       *
+       * It used to fall through to `euclid`, where bjorklund answers "pulses
+       * <= 0 means all rests" -- so the whole line went silent with no error,
+       * and the only clue was that nothing played. */
+      return p! < 0 ? pat.euclidInv(-p!, st!, r!) : pat.euclid(p!, st!, r!)
     })
   }
 

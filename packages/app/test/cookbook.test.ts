@@ -217,3 +217,119 @@ describe('the cookbook covers the things people come looking for', () => {
     expect(WANTED.length).toBeGreaterThan(5)
   })
 })
+
+describe('the endless drone does what its title claims', () => {
+  /* Every recipe is checked for "makes sound". This one promises something
+   * stronger and more falsifiable -- that it EVOLVES and never ends -- and a
+   * drone that renders a steady tone would pass the generic bar while failing
+   * the reader completely.
+   *
+   * The measurements below are the ones that shaped the recipe. An earlier
+   * draft moved so slowly that the first forty seconds were flat; another was
+   * hot enough that the offline render silently normalised it down 2 dB, which
+   * hides exactly the kind of level mistake a reader would then copy. */
+  const r = RECIPES.find((x) => x.id === 'endless-drone')!
+  const SR = 11025
+  const SECS = 60
+
+  const render = (): Float32Array => {
+    const c = compile(r.code)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) throw new Error('compile')
+    const st = stageCode(c.code)
+    if (!st.ok) throw new Error(JSON.stringify(st.diagnostics))
+    const cps = st.cps ?? 0.5
+    const evs = runPatterns(st.patterns, { cycles: Math.ceil(SECS * cps), cps })
+    const mix = renderMix(st.synths, evs, SECS, mixOptsFor(st, { cps, sampleRate: SR }))
+    expect(mix.normalized, 'the render had to turn it DOWN: the recipe ships a level a reader would copy').toBe(false)
+    return mix.left
+  }
+
+  /** Share of energy in the fast-changing part of the signal: brightness. */
+  const bright = (x: Float32Array, from: number, to: number): number => {
+    let hi = 0, all = 0, prev = 0
+    for (let i = from; i < to; i++) {
+      const v = x[i]!
+      const d = v - prev
+      prev = v
+      hi += d * d
+      all += v * v
+    }
+    return all === 0 ? 0 : hi / all
+  }
+
+  /* Computed on first use, not in the describe body: an assertion that throws
+   * during collection aborts the whole FILE rather than failing one test, so
+   * the level check below reported "no tests" instead of naming itself. */
+  let cached: { rms: number; bright: number }[] | undefined
+  const windowsOf = (): { rms: number; bright: number }[] => {
+    if (cached !== undefined) return cached
+    const mix = render()
+    const win = 5 * SR
+    const out: { rms: number; bright: number }[] = []
+    for (let w = 0; w + win <= mix.length; w += win) {
+      let e = 0
+      for (let i = w; i < w + win; i++) e += mix[i]! * mix[i]!
+      out.push({ rms: Math.sqrt(e / win), bright: bright(mix, w, w + win) })
+    }
+    cached = out
+    return out
+  }
+
+  it('ships a level the offline render does not have to turn down', () => {
+    render() // the normalized assertion lives in here
+  })
+
+  it('EVOLVES: the timbre keeps moving', () => {
+    const b = windowsOf().map((w) => w.bright)
+    const lo = Math.min(...b)
+    const hi = Math.max(...b)
+    expect(hi / lo, `brightness barely moved (${lo.toFixed(4)}..${hi.toFixed(4)})`).toBeGreaterThan(2)
+  })
+
+  it('and it WANDERS rather than sweeping once and settling', () => {
+    /* A single slow filter sweep would pass the range check above while
+     * sounding like one gesture and then nothing. Direction has to change. */
+    const b = windowsOf().map((w) => w.bright)
+    let turns = 0
+    for (let i = 2; i < b.length; i++) {
+      const a = b[i - 1]! - b[i - 2]!
+      const c = b[i]! - b[i - 1]!
+      if (a !== 0 && c !== 0 && Math.sign(a) !== Math.sign(c)) turns++
+    }
+    expect(turns, 'the brightness only went one way').toBeGreaterThan(3)
+  })
+
+  it('NEVER ENDS: no window falls silent', () => {
+    /* TWO mechanisms hold this up and either one alone is enough, which the
+     * sabotage pass is what revealed: shortening `dur:` changes nothing
+     * measurable, and shortening the release changes nothing either (with a
+     * long `dur:` the gate never closes, so the release is never reached).
+     * Shorten BOTH and the quietest second goes to 0.0000. So this assertion
+     * only bites on the combination, and the recipe's prose says so instead of
+     * crediting `dur:` alone, which is what it used to claim. */
+    const quietest = Math.min(...windowsOf().map((w) => w.rms))
+    expect(quietest, 'the drone gapped').toBeGreaterThan(0.01)
+  })
+
+  it('and both of the things holding it up are still in the code', () => {
+    // because the measurement above cannot see either one going missing alone
+    expect([...r.code.matchAll(/dur: (\d+)/g)].map((m) => m[1]), 'both dur lines, each longer than its step').toEqual(['7', '11'])
+    expect(r.code, 'a release measured in seconds').toMatch(/adsr [\d.]+ [\d.]+ [\d.]+ [4-9]/)
+  })
+
+  it('the arithmetic in `why` is the arithmetic in the code', () => {
+    /* The claim is "924 cycles and not once before". That is lcm(4x7, 3x11),
+     * and it is only true while the code says 7 and 11 -- a later tweak to
+     * either number would leave the prose quietly wrong. */
+    const steps = [...r.code.matchAll(/<([^>]+)>\/(\d+)/g)]
+      .map((m) => [m[1]!.trim().split(/\s+/).length, Number(m[2])] as const)
+    expect(steps.length, 'two figures').toBe(2)
+    const periods = steps.map(([n, slow]) => n * slow)
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
+    const lcm = periods[0]! * periods[1]! / gcd(periods[0]!, periods[1]!)
+    expect(periods).toEqual([28, 33])
+    expect(lcm).toBe(924)
+    expect(r.why, 'the number in the prose').toContain('924')
+  })
+})

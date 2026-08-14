@@ -745,4 +745,46 @@ cps .4
 # and the slow LFO keeps wandering after the envelope has settled`,
     why: 'Two modulators on the same wavetable position, summed. The envelope makes the note ARRIVE somewhere, and the slow LFO keeps it moving after the envelope has finished. With only the envelope a long chord freezes the moment it reaches sustain, which is the thing that makes a pad sound synthetic.',
   },
+  {
+    id: 'endless-drone',
+    title: 'Make a drone that never repeats',
+    tags: ['drone', 'ambient', 'generative', 'lfo', 'evolving', 'pad', 'endless'],
+    code: `synth drone unison:5 detune:8 voices:4
+  wavetable note pos table:harmonic
+  ladder cut res:.26
+  * adsr 6 3 .9 8
+  pan sway
+  pos = lfo .037 -> .10..0.66
+  cut = 240 + open + creep
+  open = lfo .061 -> 0..1200
+  creep = lfo .023 -> 0..800
+  sway = lfo .013 -> -.5..0.5
+  post
+    width .9
+    reverb room:.92 damp:.35 mix:.42
+
+synth sub voices:2
+  sine note
+  * adsr 4 2 .95 8
+
+# 4 steps of 7 cycles, against 3 steps of 11: coprime, so they
+# realign after 924 cycles and not once before. dur: is longer than
+# the step on purpose, so a note is still sounding when the next
+# arrives and the gate never closes between them
+play drone
+  <0 4 2 7>/7
+  scale:d-min
+  dur: 7
+
+play sub
+  <0 -3 1>/11
+  scale:d-min
+  dur: 11
+  gain: .35
+
+cps .25
+
+level -3`,
+    why: 'Nothing shares a period with anything else. The instinct is to write a long pattern, but a loop is a loop however long you make it. Instead two short figures run at coprime lengths, 4 steps of 7 cycles against 3 steps of 11, which realign after 924 cycles and not once before: about an hour at this tempo. The LFOs are set in SECONDS while the notes move in cycles, so they drift across the note grid rather than locking to it. Staying seamless is a separate job, done by two things that each cover for the other: a `dur:` longer than the step, and a release measured in seconds. Shorten either alone and nothing changes; shorten both and it gaps.',
+  },
 ]

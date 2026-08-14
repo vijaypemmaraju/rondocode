@@ -787,4 +787,51 @@ cps .25
 level -3`,
     why: 'Nothing shares a period with anything else. The instinct is to write a long pattern, but a loop is a loop however long you make it. Instead two short figures run at coprime lengths, 4 steps of 7 cycles against 3 steps of 11, which realign after 924 cycles and not once before: about an hour at this tempo. The LFOs are set in SECONDS while the notes move in cycles, so they drift across the note grid rather than locking to it. Staying seamless is a separate job, done by two things that each cover for the other: a `dur:` longer than the step, and a release measured in seconds. Shorten either alone and nothing changes; shorten both and it gaps.',
   },
+  {
+    id: 'generative-beat',
+    title: 'Make a beat that plays itself',
+    tags: ['generative', 'ambient', 'beat', 'probability', 'degrade', 'percussion', 'endless'],
+    code: `synth pulse
+  sine note
+  * adsr .01 1.6 .25 1.4
+  * .22
+
+synth thud
+  sine drop
+  * adsr .002 .25 0 .18
+  drop = adsr .001 .1 0 .05 ^ 2 -> 42..105
+
+synth tick
+  noise
+  svf 6200 mode:hp
+  * adsr .001 .035 0 .04
+  * .28
+
+synth bowl
+  fm note 3.5
+  * adsr .002 1.6 0 1.2
+  * .3
+
+# the one certain voice: everything else is a coin toss
+play pulse
+  c1
+
+# written DENSE and thinned, not written sparse
+play thud
+  c2*16
+  degradeby .84
+
+play tick
+  c4*16
+  degradeby .72
+
+play bowl
+  c5(5,16)
+  degradeby .5
+
+cps .34
+
+level -4`,
+    why: 'Write the pattern DENSE and let probability thin it. A sparse figure is a loop: play it twice and you have heard it. Sixteen hits at `degradeby .84` keep about three, a different three each bar, and every one of them still lands on a grid position you chose rather than somewhere random. Measured over sixteen bars: the ticks were unique in all sixteen, the kick in fifteen. The catch is that probability alone wanders, and one bar in the render fell to a twentieth of the loudest. So one voice never rolls the dice. That single certain pulse is the difference between a beat and a scatter.',
+  },
 ]

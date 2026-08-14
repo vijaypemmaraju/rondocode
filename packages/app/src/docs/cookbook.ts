@@ -291,14 +291,20 @@ cps .5`,
   (saw note) * .5
   svf 2400 res:.15
   * adsr .01 .25 .5 .35
-  convolve hall mix:.45
+  # in POST, not on a spine line. A convolver there is one per VOICE,
+  # and this chord has four notes: measured 3.1x the cost for a
+  # sample-for-sample identical result, because convolution is linear
+  # and convolving the sum is the same as summing the convolutions.
+  # It also keeps the tails, which a stolen voice would cut off.
+  post
+    convolve hall mix:.45
 
 play keys
   <Cmaj7 Am7 Fmaj7 G>
   dur: .95
 
 cps .4`,
-    why: 'An impulse response is what a room does to a single click, and it turns out that IS the room -- convolving with it reproduces the space completely, where `reverb` approximates one with a network of delays. The trade is the knob: `reverb` lets you move `room` and `damp` while it plays, and a convolution can only ever be the measurement you handed it. The IR is a SAMPLE, so anything you can load is a space: `hall` ships built in, and convolving with something that is not a room at all -- a snare hit, a struck pipe -- is a standard way to get a sound nothing else makes. It is normalised to unit energy, so `mix` means the same thing whatever you point it at.',
+    why: 'An impulse response is what a room does to a single click, and it turns out that IS the room -- convolving with it reproduces the space completely, where `reverb` approximates one with a network of delays. The trade is the knob: `reverb` lets you move `room` and `damp` while it plays, and a convolution can only ever be the measurement you handed it. The IR is a SAMPLE, so anything you can load is a space: `hall` ships built in, and convolving with something that is not a room at all -- a snare hit, a struck pipe -- is a standard way to get a sound nothing else makes. Keep it in `post`, for the reason in the code: one shared space costs a third of one space per voice.',
   },
   {
     id: 'sweeping-modulation',

@@ -527,10 +527,13 @@ const sampler = `// SAMPLER, play loaded audio samples, not just oscillators.
 
 // A pitched vocal chop. root:57 = A3 (the sample's natural pitch), so the
 // pattern's notes transpose it melodically. Shape + space it like any synth.
-const vox = synth(({ note, gate, adsr, sample, svf, reverb }) => {
+const vox = synth(({ note, gate, adsr, sample, svf }) => {
   const env = adsr(gate, { a: 0.01, d: 0.3, s: 0.7, r: 0.35 })
-  const v = svf(sample(gate, 'vox', { root: 57 }), 4200).mul(env).mul(0.9)
-  return v.mix(reverb(v, { roomSize: 0.88, damp: 0.4 }), 0.32)
+  return svf(sample(gate, 'vox', { root: 57 }), 4200).mul(env).mul(0.9)
+}, ({ input, reverb }) => {
+  // the space is SHARED: a reverb in the voice would be rebuilt per note, and
+  // its tail cut off whenever that voice was stolen. Same sound, less work.
+  return input.mix(reverb(input, { roomSize: 0.88, damp: 0.4 }), 0.32)
 })
 // A one-shot noise riser for the build (plays through, gated by its long env).
 const riser = synth(({ gate, adsr, sample }) =>
@@ -555,16 +558,20 @@ setCps(0.5)
 // Granular, an ambient grain cloud over the built-in 'pad' sample.
 const granular = `// GRANULAR done DREAMY, smooth harmonic source, big overlapping grains, almost
 // no spray, a consonant chord = an ambient wash instead of a horror choir.
-const cloud = synth(({ note, gate, adsr, granular, lfo, reverb, chorus }) => {
+const cloud = synth(({ note, gate, adsr, granular, lfo, chorus }) => {
   const env = adsr(gate, { a: 1.2, d: 1, s: 0.9, r: 2.2 })
   const g = granular(gate, 'pad', {
     root: 57,                          // pad tone is A3
     pos: lfo(0.03).range(0.2, 0.6),    // gentle drift
     size: 0.22, density: 70, spray: 0.004,   // big + dense + tight = smooth
   })
-  const w = chorus(g.mul(env).mul(1.25), { rate: 0.3, depth: 0.005, mix: 0.4 })
-  return w.mix(reverb(w, { roomSize: 0.94, damp: 0.35 }), 0.5)
-}, undefined, { voices: 12 })
+  return chorus(g.mul(env).mul(1.25), { rate: 0.3, depth: 0.005, mix: 0.4 })
+}, ({ input, reverb }) => {
+  // ONE shared space. In the voice this was twelve reverbs (voices: 12), for
+  // an identical result -- reverb is linear, so reverbing the sum is the same
+  // as summing the reverbs.
+  return input.mix(reverb(input, { roomSize: 0.94, damp: 0.35 }), 0.5)
+}, { voices: 12 })
 
 // a lush progression: A - E - F#m - D (chord() voices these in octave 3,
 // exactly the notes hand-stacked before)
@@ -1553,9 +1560,10 @@ synth cloud voices:12
   * env
   * 1.25
   chorus rate:.3 depth:.005 mix:.4
-  reverb room:.94 damp:.35 mix:.5
   drift = lfo .03 -> .2..0.6
   env = adsr 1.2 1 .9 2.2
+  post
+    reverb room:.94 damp:.35 mix:.5
 
 play cloud
   <A E F#m D>
@@ -1741,8 +1749,9 @@ synth vox
   svf 4200
   * env
   * .9
-  reverb room:.88 damp:.4 mix:.32
   env = adsr .01 .3 .7 .35
+  post
+    reverb room:.88 damp:.4 mix:.32
 
 synth riser
   sample riser
@@ -3180,7 +3189,8 @@ synth keys
   (saw note) * .45
   svf 2400 res:.15
   * adsr .01 .25 .5 .35
-  convolve hall mix:.5
+  post
+    convolve hall mix:.5
 
 synth keysB
   (saw note) * .45

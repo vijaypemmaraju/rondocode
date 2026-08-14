@@ -1651,7 +1651,7 @@ function decompilePlay(stmt: Node): string | null {
 }
 
 /** A section const: its plays (one per stack member), or null. */
-function sectionPlays(chainNode: Node): string[] | null {
+function sectionPlays(chainNode: Node): { plays: string[]; withs: string[] } | null {
   /* Every member of a `const __sec_X = stack(...)` IS a section play: that is
    * what the name means, and this is the only caller.
    *
@@ -1669,13 +1669,26 @@ function sectionPlays(chainNode: Node): string[] | null {
     ? (chainNode['arguments'] as Node[])
     : [chainNode]
   const out: string[] = []
+  const withs: string[] = []
   for (const m of members) {
+    /* A bare `__sec_x` member is `with x`: codegen emits a with as a
+     * REFERENCE to the other section's const rather than by copying its plays,
+     * so that the shared part stays shared. Coming back, an identifier is the
+     * only member that is not a play at all -- and it used to take the whole
+     * section out to a `js` block, since chainToPlay can make nothing of it. */
+    if (isIdent(m) && (m['name'] as string).startsWith('__sec_')) {
+      withs.push((m['name'] as string).slice('__sec_'.length))
+      continue
+    }
     const play = chainToPlay(m)
     if (play === null) return null
     const header = play.entry === 'sound' ? '  beat' : `  play ${play.sound}`
     out.push([header, ...play.body.map((l) => `    ${l}`)].join('\n'))
   }
-  return out
+  /* `plays` may be empty only in principle: the parser requires a section to
+   * have at least one play, so a with-only section cannot be written and
+   * cannot arrive here. */
+  return { plays: out, withs }
 }
 
 /** p('name', sing([voice,] lyrics, notes, { name, post? })<mods>) → a sing
@@ -2037,7 +2050,7 @@ export function decompile(js: string): string {
   // sections: `const __sec_X = <stack of plays>` held aside; the matching
   // p('song', arrange([len, __sec_X], …)) emits section blocks + a song line.
   // A partial match falls back to js blocks for everything involved.
-  const pendingSecs = new Map<string, { plays: string[]; raw: string; placeholder: number }>()
+  const pendingSecs = new Map<string, { plays: string[]; withs: string[]; raw: string; placeholder: number }>()
   const secConst = (stmt: Node): string | null => {
     if (stmt.type !== 'VariableDeclaration') return null
     const d = (stmt['declarations'] as Node[])[0]
@@ -2052,7 +2065,7 @@ export function decompile(js: string): string {
     // placeholder index must come after it, or a bailed statement written
     // just above this section would be emitted below it (order inversion)
     flushJs()
-    pendingSecs.set(name.slice('__sec_'.length), { plays, raw: slice(stmt), placeholder: parts.length })
+    pendingSecs.set(name.slice('__sec_'.length), { plays: plays.plays, withs: plays.withs, raw: slice(stmt), placeholder: parts.length })
     parts.push('') // placeholder — filled by the song matcher (or restored raw)
     return ''
   }
@@ -2081,13 +2094,25 @@ export function decompile(js: string): string {
       lens.set(name, len)
       order.push(name)
     }
-    // fill each section's placeholder with its block, in definition position
+    /* Fill each section's placeholder with its block, in definition position.
+     *
+     * A section the song never sequences keeps its raw statement, because its
+     * LENGTH is genuinely unrecoverable: codegen writes the length only into
+     * `arrange([8, __sec_x])`, so a section nobody arranges carries none. That
+     * happens for real -- a section used only as a `with` base, or one parked
+     * while writing.
+     *
+     * It used to bail the WHOLE matcher, so one unarranged section sent every
+     * other section out to JavaScript with it. Recovering the ones that can be
+     * recovered is strictly better than recovering none, and the one that
+     * cannot is left alone rather than given an invented length. */
     for (const [name, sec] of pendingSecs) {
       const len = lens.get(name)
-      if (len === undefined) return null // a section the song never uses → bail
-      parts[sec.placeholder] = [`section ${name} ${num(len)}`, ...sec.plays].join('\n')
+      if (len === undefined) continue // no length in the JS: leave it raw
+      const withs = sec.withs.map((w) => ` with ${w}`).join('')
+      parts[sec.placeholder] = [`section ${name} ${num(len)}${withs}`, ...sec.plays].join('\n')
     }
-    pendingSecs.clear()
+    for (const name of lens.keys()) pendingSecs.delete(name)
     return `song ${order.join(' ')}`
   }
   for (const stmt of program['body'] as Node[]) {

@@ -142,8 +142,8 @@ describe('recipes reach the docs page as first-class sections', () => {
   /* Reusing Section rather than inventing a parallel content type is what
    * gets the cookbook nav, search, "open in editor" and the llms.txt export
    * for free. These pin that it really is wired in, not merely importable. */
-  it('every recipe appears in SECTIONS, under the cookbook group', () => {
-    const cook = SECTIONS.filter((s) => s.group === 'cookbook')
+  it('every recipe appears in SECTIONS, on a cookbook shelf', () => {
+    const cook = SECTIONS.filter((s) => s.group.startsWith('cookbook'))
     expect(cook).toHaveLength(RECIPES.length)
     for (const r of RECIPES) {
       expect(cook.some((s) => s.id === `recipe-${r.id}`), r.id).toBe(true)
@@ -152,14 +152,15 @@ describe('recipes reach the docs page as first-class sections', () => {
 
   it('sits after the guide and before the reference in the nav', () => {
     const groups = orderedSections().map((s) => s.group)
-    const first = groups.indexOf('cookbook')
+    const first = groups.findIndex((g) => g.startsWith('cookbook'))
     expect(first).toBeGreaterThan(0)
-    // and it is one contiguous run, not scattered through the guide
-    expect(groups.lastIndexOf('cookbook') - first).toBe(RECIPES.length - 1)
+    // and the shelves are one contiguous run, not scattered through the guide
+    const last = groups.length - 1 - [...groups].reverse().findIndex((g) => g.startsWith('cookbook'))
+    expect(last - first).toBe(RECIPES.length - 1)
   })
 
   it('carries the code as a RONDO block, so it opens in the right language', () => {
-    for (const s of SECTIONS.filter((x) => x.group === 'cookbook')) {
+    for (const s of SECTIONS.filter((x) => x.group.startsWith('cookbook'))) {
       const code = s.blocks.find((b) => b.kind === 'code')
       expect(code, s.id).toBeDefined()
       expect((code as { lang?: string }).lang, s.id).toBe('rondo')

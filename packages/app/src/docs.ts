@@ -676,9 +676,14 @@ async function build(): Promise<void> {
   // to one "contents" button and opens as grouped chips, so the guide starts
   // with the guide instead of a wall of links.
   let navBody: HTMLElement = nav
+  /* `cookbook: rhythm` is one group KEY and two words of heading, and the
+   * first of them is the page you are already on. The prefix exists to keep
+   * the shelves distinct in GROUP_ORDER and on the route; it has no business
+   * in the label. */
+  const shelfLabel = (name: string): string => name.replace(/^cookbook: /, '')
   const startGroup = (name: string): void => {
     const sect = el('div', 'nav-sect')
-    sect.append(el('div', 'nav-group', name))
+    sect.append(el('div', 'nav-group', shelfLabel(name)))
     nav.append(sect)
     navBody = sect
   }

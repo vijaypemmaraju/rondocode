@@ -49,7 +49,16 @@ export const ROUTES: readonly RouteDef[] = [
     view: 'cookbook',
     path: '/cookbook',
     label: 'cookbook',
-    groups: ['cookbook'],
+    // one shelf per kind of question (see cookbook.ts's RecipeGroup); the
+    // route claims them all, so the page is still one browsable list
+    groups: [
+      'cookbook: instruments',
+      'cookbook: rhythm',
+      'cookbook: notes & harmony',
+      'cookbook: mix & space',
+      'cookbook: live & performance',
+      'cookbook: arrangement',
+    ],
     blurb: 'Complete programs for things you might want. Paste one and press play.',
   },
   {

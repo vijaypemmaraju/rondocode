@@ -23,8 +23,20 @@
  * terse form is where that pays. Every one round-trips to JavaScript.
  * ------------------------------------------------------------------------- */
 
+/** The shelf a recipe sits on. Thirty-six in one flat list is a wall; these
+ *  are the six questions someone actually arrives with. Required, so a new
+ *  recipe has to choose one rather than landing at the bottom by default. */
+export type RecipeGroup =
+  | 'instruments'
+  | 'rhythm'
+  | 'notes & harmony'
+  | 'mix & space'
+  | 'live & performance'
+  | 'arrangement'
+
 export interface Recipe {
   id: string
+  group: RecipeGroup
   /** The want, phrased the way a reader would say it to themselves. */
   title: string
   /** Scannable, and the search index reads them. */
@@ -38,6 +50,7 @@ export interface Recipe {
 export const RECIPES: Recipe[] = [
   {
     id: 'mic-strip',
+    group: 'live & performance',
     title: 'Make a microphone usable on stage',
     tags: ['mic', 'live', 'gate', 'de-esser', 'compressor', 'limiter', 'vocal'],
     code: `synth voice
@@ -60,6 +73,7 @@ cps .5`,
   },
   {
     id: 'modulate',
+    group: 'notes & harmony',
     title: 'Change key without rewriting the notes',
     tags: ['scale', 'key', 'modulation', 'degrees', 'harmony'],
     code: `synth keys
@@ -88,6 +102,7 @@ cps .45`,
   },
   {
     id: 'diatonic-harmony',
+    group: 'notes & harmony',
     title: 'Add a harmony that stays in the key',
     tags: ['harmony', 'superimpose', 'scale', 'degrees', 'diatonic'],
     code: `synth lead
@@ -110,6 +125,7 @@ cps .5`,
   },
   {
     id: 'harmoniser',
+    group: 'notes & harmony',
     title: 'Add a harmony line without writing one',
     tags: ['pitchshift', 'harmony', 'voice', 'mic', 'effect'],
     code: `synth lead
@@ -132,6 +148,7 @@ cps .5`,
   },
   {
     id: 'mono-bass',
+    group: 'mix & space',
     title: 'Stop the low end wandering on a big system',
     tags: ['stereo', 'mid/side', 'mix', 'mastering', 'bass'],
     code: `synth sub
@@ -168,6 +185,7 @@ cps .5`,
   },
   {
     id: 'note-expression',
+    group: 'notes & harmony',
     title: 'Give every note its own feel',
     tags: ['expression', 'velocity', 'probability', 'notes', 'humanize'],
     code: `synth lead
@@ -194,6 +212,7 @@ cps .5`,
   },
   {
     id: 'auto-wah',
+    group: 'live & performance',
     title: 'Make a sound react to how loud something is',
     tags: ['follow', 'envelope', 'mic', 'filter', 'dynamics', 'sidechain'],
     code: `synth wah
@@ -214,6 +233,7 @@ cps .5`,
     why: 'This is the half `sidechain` does not cover. Sidechain ducks on note ONSETS -- which is why the pump keeps working when you mute the kick -- so nothing in the engine reacted to how loud anything actually IS. `follow` returns the level as an ordinary signal, so it composes: multiply by it, subtract it from 1 to duck, or map it through `->` into a cutoff like this. The asymmetry is the craft: a fast attack catches the transient, a slow release stops the control chattering between syllables. Equal times give a tremolo of the source waveform, which is the classic way to make a follower useless.', },
   {
     id: 'band-key',
+    group: 'mix & space',
     title: 'Tame harshness only when it actually bites',
     tags: ['compress', 'sidechain', 'key', 'de-ess', 'dynamics', 'mix'],
     code: `synth lead
@@ -236,6 +256,7 @@ cps .5`,
     why: 'A static filter cut is always cutting, including on the notes that were fine. `key` gives the compressor its own detector input, so it listens to a high-band split of the signal and turns the whole note down only when that band spikes. That is what a de-esser is, generalised: the thing being turned down and the thing deciding when are separated. Note the key must live in the SAME synth -- a synth runs once per voice, so it has no single output another synth could read. Ducking one instrument under another is `sidechain`, which fires on note onsets instead.', },
   {
     id: 'section-sweep',
+    group: 'arrangement',
     title: 'Open a filter once across a whole section',
     tags: ['curve', 'automation', 'arrangement', 'build', 'filter'],
     code: `synth pad
@@ -259,6 +280,7 @@ cps .5`,
     why: '`lfo` and `saw` are CYCLIC -- they restart every bar, or every n bars, so a filter written with one can never simply open across a section and stay open. `curve` is measured in cycles against the transport and holds its last level instead of looping, which makes it a timeline automation lane rather than a modulator. The pairs are duration-then-level, so `curve 8 1 8 .35` is eight bars up to full and eight easing back to a third. A third number on a pair gives that leg its own easing, `from:` sets the level before the first one, and `loop:1` opts back into repeating.', },
   {
     id: 'pump',
+    group: 'mix & space',
     title: 'Make everything duck under the kick',
     tags: ['sidechain', 'mix', 'pump', 'house'],
     code: `synth kick
@@ -285,6 +307,7 @@ cps .5`,
   },
   {
     id: 'real-room',
+    group: 'mix & space',
     title: 'Put a sound in a real space, not an approximation of one',
     tags: ['convolve', 'reverb', 'impulse response', 'space', 'sample'],
     code: `synth keys
@@ -308,6 +331,7 @@ cps .4`,
   },
   {
     id: 'sweeping-modulation',
+    group: 'mix & space',
     title: 'Make a chorus or flanger move on its own',
     tags: ['chorus', 'flanger', 'phaser', 'lfo', 'automation', 'modulation'],
     code: `synth pad
@@ -329,6 +353,7 @@ cps .4`,
   },
   {
     id: 'drums',
+    group: 'rhythm',
     title: 'Program a drum pattern',
     tags: ['beat', 'drums', 'rhythm', 'kick', 'snare', 'hat'],
     code: `synth kick
@@ -363,6 +388,7 @@ cps .5`,
   },
   {
     id: 'shared-room',
+    group: 'mix & space',
     title: 'Put several parts in the same space',
     tags: ['bus', 'send', 'reverb', 'mix', 'space'],
     code: `synth keys
@@ -397,6 +423,7 @@ cps .45`,
   },
   {
     id: 'chop',
+    group: 'rhythm',
     title: 'Chop a break and rebuild the beat',
     tags: ['sample', 'slices', 'chop', 'break', 'sampler'],
     code: `synth chop
@@ -421,6 +448,7 @@ cps .5`,
   },
   {
     id: 'loudness',
+    group: 'mix & space',
     title: 'Make it louder without making it worse',
     tags: ['master', 'level', 'loudness', 'mastering', 'mix'],
     code: `synth pad
@@ -450,6 +478,7 @@ cps .45`,
   },
   {
     id: 'plucked',
+    group: 'instruments',
     title: 'Make something that is struck or plucked',
     tags: ['pluck', 'modal', 'physical', 'string', 'bell'],
     code: `synth harp
@@ -477,6 +506,7 @@ cps .45`,
   },
   {
     id: 'fm-bell',
+    group: 'instruments',
     title: 'Get a bell or electric piano out of two sine waves',
     tags: ['fm', 'bell', 'electric piano', 'synth'],
     code: `synth ep
@@ -504,6 +534,7 @@ cps .4`,
   },
   {
     id: 'granular-freeze',
+    group: 'instruments',
     title: 'Stretch or freeze a sound without changing its pitch',
     tags: ['granular', 'sample', 'texture', 'ambient', 'timestretch'],
     code: `synth cloud voices:8
@@ -523,6 +554,7 @@ cps .3`,
     why: '`pos` and pitch are INDEPENDENT, and that is the one thing granular does that nothing else can. `sample speed:` ties them together: play a loop slower and it drops in pitch, like a record at the wrong rpm. Here the NOTE sets the pitch and `pos` sets where in the file the grains are read from, so a very slow LFO walks through the sample while the chords stay in tune, and freezing `pos` on a number holds one moment open indefinitely. `density` times `size` is the overlap: 60 grains a second at 0.13s each means about eight sounding at once, which is what makes a continuous tone instead of a stutter.', },
   {
     id: 'supersaw',
+    group: 'instruments',
     title: 'Build a wide supersaw lead',
     tags: ['synth', 'lead', 'supersaw', 'unison', 'trance'],
     code: `synth lead unison:9 detune:22 spread:1 curve:4
@@ -546,6 +578,7 @@ cps .5`,
   },
   {
     id: 'tape',
+    group: 'instruments',
     title: 'Stop a part sounding perfectly in tune',
     tags: ['tape', 'wow', 'flutter', 'saturation', 'lofi', 'character'],
     code: `synth keys
@@ -562,6 +595,7 @@ cps .4`,
     why: 'WOW is the one doing the work, and it is not the saturator. An oscillator holds a pitch perfectly and nothing physical ever has -- so a held chord that drifts a fraction of a percent stops sounding synthesised, and that is most of what people mean by "tape". `flutter` is the same thing about ten times faster, too quick to hear as pitch, so it lands as texture instead. Both are TWO oscillators at unrelated rates, because a single one is a vibrato and sounds like one. `tone` matters more than it looks: taking the top off is most of why a saturator alone sounds harsh where tape sounds warm.', },
   {
     id: 'talkbox',
+    group: 'live & performance',
     title: 'Sing through a synth with the microphone',
     tags: ['vocoder', 'mic', 'talkbox', 'voice'],
     code: `synth talkbox
@@ -585,6 +619,7 @@ cps .45`,
   },
   {
     id: 'one-knob',
+    group: 'live & performance',
     title: 'Control several things with one knob',
     tags: ['macro', 'knob', 'performance'],
     code: `macro bright 1400 300..7000 log
@@ -610,6 +645,7 @@ cps .52`,
   },
   {
     id: 'ab-switch',
+    group: 'live & performance',
     title: 'Flip between two settings while playing',
     tags: ['switch', 'performance', 'arrangement'],
     code: `switch drive .9 .15
@@ -632,6 +668,7 @@ cps .5`,
   },
   {
     id: 'acid',
+    group: 'instruments',
     title: 'Get a 303 acid line with slides',
     tags: ['303', 'acid', 'slide', 'bass'],
     code: `synth acid mono glide:.06
@@ -652,6 +689,7 @@ cps .55`,
   },
   {
     id: 'outside-scale',
+    group: 'notes & harmony',
     title: 'Play a note that is not in the scale',
     tags: ['scale', 'accidental', 'chromatic', 'notation'],
     code: `synth keys
@@ -671,6 +709,7 @@ cps .5`,
   },
   {
     id: 'arrangement',
+    group: 'arrangement',
     title: 'Arrange an intro, a drop and an outro',
     tags: ['arrangement', 'sections', 'song', 'form'],
     code: `synth kick
@@ -703,6 +742,7 @@ cps .5`,
   },
   {
     id: 'euclid',
+    group: 'rhythm',
     title: 'Spread hits evenly over a bar',
     tags: ['euclid', 'rhythm', 'percussion'],
     code: `synth hat
@@ -727,6 +767,7 @@ cps .5`,
   },
   {
     id: 'wavetable-morph',
+    group: 'instruments',
     title: 'Make a pad that keeps moving',
     tags: ['wavetable', 'pad', 'movement', 'lfo'],
     code: `synth pad unison:5 detune:14
@@ -753,6 +794,7 @@ cps .4
   },
   {
     id: 'endless-drone',
+    group: 'arrangement',
     title: 'Make a drone that never repeats',
     tags: ['drone', 'ambient', 'generative', 'lfo', 'evolving', 'pad', 'endless'],
     code: `synth drone unison:5 detune:8 voices:4
@@ -795,6 +837,7 @@ level -3`,
   },
   {
     id: 'generative-beat',
+    group: 'rhythm',
     title: 'Make a beat that plays itself',
     tags: ['generative', 'ambient', 'beat', 'probability', 'degrade', 'percussion', 'endless'],
     code: `synth pulse
@@ -842,6 +885,7 @@ level -4`,
   },
   {
     id: 'generative-melody',
+    group: 'notes & harmony',
     title: 'Let a melody write itself',
     tags: ['generative', 'melody', 'irand', 'scale', 'pentatonic', 'struct', 'ambient'],
     code: `synth lead
@@ -888,6 +932,7 @@ level 2`,
   },
   {
     id: 'swing-one-part',
+    group: 'rhythm',
     title: 'Shuffle the hats and leave the kick straight',
     tags: ['swing', 'shuffle', 'groove', 'hats', 'feel', 'timing'],
     code: `synth hat
@@ -924,6 +969,7 @@ level -2`,
   },
   {
     id: 'counter-rhythm',
+    group: 'rhythm',
     title: 'Write the answer to a rhythm without restating it',
     tags: ['euclid', 'complement', 'counter-rhythm', 'interlock', 'percussion'],
     code: `synth kick
@@ -961,6 +1007,7 @@ level -2`,
   },
   {
     id: 'lean-a-choice',
+    group: 'notes & harmony',
     title: 'Make a random choice lean one way',
     tags: ['random', 'generative', 'choice', 'weight', 'probability', 'variation'],
     code: `synth pluck
@@ -993,6 +1040,7 @@ level -3`,
   },
   {
     id: 'mic-harmony',
+    group: 'live & performance',
     title: 'Sing a harmony above your own voice',
     tags: ['mic', 'harmony', 'pitchshift', 'voice', 'live', 'interval'],
     code: `synth harm

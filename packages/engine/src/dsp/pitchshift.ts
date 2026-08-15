@@ -70,10 +70,14 @@ export function ratioFor(semitones: number): number {
 }
 
 export class PitchShiftKernel implements Kernel {
-  private readonly ratio: number
+  /** Fallback when nothing is connected to the `semitones` input. */
+  private readonly cfgSemis: number
   private readonly windowMs: number
-  /** True when the node must not touch the signal at all. */
-  private readonly bypass: boolean
+  /** Last shift seen, and its ratio: `Math.pow` per SAMPLE would cost more
+   *  than the rest of the loop, and a control signal is constant across a
+   *  block almost every time. */
+  private lastSemis = Number.NaN
+  private lastRatio = 1
 
   private buf = new Float32Array(1)
   private writeIdx = 0
@@ -84,10 +88,17 @@ export class PitchShiftKernel implements Kernel {
   private sr = 0
 
   constructor(cfg: PitchShiftConfig = {}) {
-    const semis = clamp(cfg.semitones ?? 0, -24, 24)
-    this.ratio = ratioFor(semis)
+    this.cfgSemis = clamp(cfg.semitones ?? 0, -24, 24)
     this.windowMs = clamp(cfg.window ?? 50, 5, MAX_WINDOW_MS)
-    this.bypass = semis === 0
+  }
+
+  /** Ratio for `s`, remembering the last one. */
+  private ratioOf(s: number): number {
+    if (s !== this.lastSemis) {
+      this.lastSemis = s
+      this.lastRatio = ratioFor(clamp(s, -24, 24))
+    }
+    return this.lastRatio
   }
 
   private resize(sr: number): void {
@@ -116,19 +127,45 @@ export class PitchShiftKernel implements Kernel {
     // `mix` is a per-sample SIGNAL, not construction config — see the note on
     // ConvolveKernel.process for why that distinction was not cosmetic
     const mixIn = inputs['mix']
-    if (this.bypass) {
+    /* SO IS THE SHIFT, and it used to be construction config alone: a knob or
+     * a per-note `.ctrl` reached the node as a signal, was not a number, and
+     * was dropped by the config mapper. The node then saw 0 and took the
+     * bypass below, so a harmoniser whose interval was supposed to move
+     * returned the dry signal and said nothing. Measured on a 220 Hz source, a
+     * patterned `<0 4 7 12>` gave 221 Hz on every step. */
+    const semiIn = inputs['semitones']
+    if (ctx.sampleRate !== this.sr) this.resize(ctx.sampleRate)
+
+    /* ZERO IS STILL BIT-EXACT (see the note on this class). At 0 the read
+     * heads sit at two fixed delays and sum to a comb, not to the input, so
+     * passthrough has to be explicit rather than emergent.
+     *
+     * PER SAMPLE, not per block. A block-level check looked equivalent and was
+     * not: with a per-note shift, the block holding a note boundary contains
+     * both 0 and non-zero, so every zero sample in it would have gone through
+     * the comb. The whole-block case is kept only as a fast path. */
+    let allZero = true
+    for (let i = 0; i < n; i++) {
+      const s = semiIn === undefined ? this.cfgSemis : (Number.isFinite(semiIn[i]!) ? semiIn[i]! : 0)
+      if (s !== 0) { allZero = false; break }
+    }
+    if (allZero) {
       out.set(input.subarray(0, n))
       return
     }
-    if (ctx.sampleRate !== this.sr) this.resize(ctx.sampleRate)
     const W = this.win
-    // delay slides at (1 - ratio) samples per sample; as a fraction of the
-    // window that is the phase increment
-    const step = (1 - this.ratio) / W
 
     for (let i = 0; i < n; i++) {
       const x = Number.isFinite(input[i]!) ? input[i]! : 0
       this.buf[this.writeIdx] = x
+      const semis = semiIn === undefined ? this.cfgSemis : (Number.isFinite(semiIn[i]!) ? semiIn[i]! : 0)
+      if (semis === 0) {
+        // exact passthrough, while the line keeps filling so the history is
+        // continuous when the shift comes back
+        out[i] = x
+        this.writeIdx = (this.writeIdx + 1) % this.size
+        continue
+      }
 
       let p = this.phase
       // wrap into [0,1): the read head circling the window is the whole trick
@@ -160,6 +197,9 @@ export class PitchShiftKernel implements Kernel {
         g2 = Math.sin(th)
       }
       const shifted = this.tap(p * W) * g1 + this.tap(q * W) * g2
+      // delay slides at (1 - ratio) samples per sample; as a fraction of the
+      // window that is the phase increment
+      const step = (1 - this.ratioOf(semis)) / W
 
       const wet = clamp(mixIn === undefined ? 1 : (Number.isFinite(mixIn[i]!) ? mixIn[i]! : 1), 0, 1)
       out[i] = (1 - wet) * x + wet * shifted

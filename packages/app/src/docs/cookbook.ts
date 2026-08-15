@@ -128,7 +128,7 @@ play lead
   dur: .9
 
 cps .5`,
-    why: 'The interval is FIXED, which is the thing to know before you reach for it (see `diatonic-harmony` for one that follows the key). This is a hardware harmoniser, not a diatonic one: every note gets a fifth above it, so it stays in key here only because a fifth above the minor scale degrees used happens to land in the scale. `mix` is what makes it a harmony rather than a transposition -- at 1 you have simply moved the part, at 0.45 the original is still underneath. `window` is the artefact and cannot be turned off, because the read head has to wrap somewhere: 40 ms is short enough to keep the attacks and long enough not to warble.',
+    why: 'The interval is a SIGNAL, so it moves. `semitones:iv` with `iv = knob 7 -12..12` puts it under a finger, and an `iv:` lane on the play line writes the harmony out note for note. What it cannot do is work the interval out for itself: it hears AUDIO, where the note and the scale are already gone, so a harmony that follows the key is one you write rather than one it infers. `mix` is what makes it a harmony rather than a transposition: at 1 you have simply moved the part, at 0.45 the original is still underneath. `window` is the artefact and cannot be turned off.',
   },
   {
     id: 'mono-bass',

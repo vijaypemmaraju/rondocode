@@ -215,7 +215,7 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   noisegate: [{ name: 'in' }],
   deess: [{ name: 'in' }],
   follow: [{ name: 'in' }],
-  pitchshift: [{ name: 'in' }, { name: 'mix', def: 1 }],
+  pitchshift: [{ name: 'in' }, { name: 'mix', def: 1 }, { name: 'semitones', def: 0 }],
   convolve: [{ name: 'in' }, { name: 'mix', def: 0.35 }],
   tape: [{ name: 'in' }],
   limiter: [{ name: 'in' }],

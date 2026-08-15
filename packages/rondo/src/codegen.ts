@@ -793,10 +793,27 @@ function entryFor(notation: string): 'chord' | 'note' | 'n' {
  *  the editor's step sequencer (its playhead matches the STRIPPED text). */
 export function splitBeatVelocities(notation: string): { notes: string; gains: string; has: boolean } {
   let has = false
-  const notes = notation.replace(/([a-zA-Z_]\w*):(\d*\.?\d+)/g, (_, w: string) => { has = true; return w })
-  const gains = notation.replace(/([a-zA-Z_]\w*)(?::(\d*\.?\d+))?/g, (_, __, v: string | undefined) =>
-    // normalize spellings (`.6` → `0.6`) so decompile → recompile is stable
-    v !== undefined ? String(Number(v)) : '1')
+  /* A `'…` LANE SUFFIX is matched first and passed through untouched.
+   * `[hat*8]'swing:.55` reads as `word:number` to a velocity splitter, which
+   * tore it in two: the sound string kept `[hat*8]'swing` and the gain string
+   * got `[1*8]'0.55`, neither of which parses. It compiled and then failed at
+   * stage time with a mini error about a stray quote, which is a long way from
+   * the line that caused it.
+   *
+   * The lane goes into BOTH strings, because `.gain()` aligns by TIME: a swung
+   * note lands where an unswung gain step is not. */
+  const LANE_OR_VEL = /('(?:[a-zA-Z]+:)?-?\d*\.?\d+)|([a-zA-Z_]\w*):(\d*\.?\d+)/g
+  const notes = notation.replace(LANE_OR_VEL, (_, lane: string | undefined, w: string) => {
+    if (lane !== undefined) return lane
+    has = true
+    return w
+  })
+  const gains = notation.replace(
+    /('(?:[a-zA-Z]+:)?-?\d*\.?\d+)|([a-zA-Z_]\w*)(?::(\d*\.?\d+))?/g,
+    (_, lane: string | undefined, __: string, v: string | undefined) =>
+      // normalize spellings (`.6` → `0.6`) so decompile → recompile is stable
+      lane !== undefined ? lane : v !== undefined ? String(Number(v)) : '1',
+  )
   return { notes, gains, has }
 }
 

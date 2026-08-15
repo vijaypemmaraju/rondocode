@@ -886,4 +886,109 @@ cps .42
 level 2`,
     why: 'Randomise ONE dimension and write the rest down. `irand` rolls a new degree every step, and on its own that is a flat run of eighths: constant, and unmistakably a machine. `struct` replaces the run with a FIGURE, rests and all, so the same shape comes back bar after bar with different notes in it and the ear hears a melody being varied. The scale is the other half: a minor pentatonic contains no semitone, so no roll of the dice can produce the one interval that sounds like a mistake. Measured over 24 bars, a 7-note scale gave nine minor 2nds and the pentatonic gave zero, with the rhythm identical in every bar and the notes different in 21 of them.',
   },
+  {
+    id: 'swing-one-part',
+    title: 'Shuffle the hats and leave the kick straight',
+    tags: ['swing', 'shuffle', 'groove', 'hats', 'feel', 'timing'],
+    code: `synth hat
+  noise
+  svf 7200 mode:hp
+  * adsr .001 .03 0 .02
+  * .3
+
+synth kick
+  sine drop
+  * adsr .001 .13 0 .05
+  drop = adsr .001 .07 0 .04 ^ 2 -> 45..150
+
+synth bass
+  saw note
+  ladder 900 res:.2
+  * adsr .005 .2 .4 .15
+  * .5
+
+# the groove rides on the GROUP, so only these eight move
+beat
+  [hat*8]'swing:.55
+  kick ~ ~ kick ~ ~ kick ~
+
+play bass
+  <0 0 3 5>
+  scale:a-min
+  gain: .6
+
+cps .5
+
+level -2`,
+    why: 'Swing on the GROUP, not on the pattern. `swingBy` is a whole-pattern combinator, so shuffling the hats used to mean pulling them into their own pattern and swinging that, which splits one groove across two places. `\'swing:` attaches to `[hat*8]` and moves nothing else: the off-beat hats go late, the on-beats stay, and the kick beside them never knew. `\'grid:` is the subdivision and defaults to 4, which is shuffled eighths in four-four; `\'grid:2` swings quarters, `\'grid:8` sixteenths. It cannot be guessed from what is written, because `[hat*8]` is one term that makes eight events while `[a b c d]` is four terms that make four.',
+  },
+  {
+    id: 'counter-rhythm',
+    title: 'Write the answer to a rhythm without restating it',
+    tags: ['euclid', 'complement', 'counter-rhythm', 'interlock', 'percussion'],
+    code: `synth kick
+  sine drop
+  * adsr .001 .14 0 .05
+  drop = adsr .001 .07 0 .04 ^ 2 -> 45..150
+
+synth shk
+  noise
+  svf 6800 mode:hp
+  * adsr .001 .025 0 .02
+  * .22
+
+synth clave
+  sine 1150
+  * adsr .001 .04 0 .02
+  * .35
+
+# (3,8) and (-3,8) are the same figure, said both ways
+play kick
+  c2(3,8)
+  gain: .9
+
+play shk
+  c5(-3,8)
+
+play clave
+  c6(5,16)
+  gain: .5
+
+cps .5
+
+level -2`,
+    why: 'A NEGATIVE pulse count is the complement: `(-3,8)` plays the five slots `(3,8)` leaves empty. Written out, the answering part is five rests and five hits that have to stay correct by hand every time the kick moves; written as the complement it cannot drift, because it is derived from the figure rather than copied from it. Every slot is covered exactly once between the pair, which is where an interlocking groove comes from. Change the 3 to a 5 and both lines follow.',
+  },
+  {
+    id: 'lean-a-choice',
+    title: 'Make a random choice lean one way',
+    tags: ['random', 'generative', 'choice', 'weight', 'probability', 'variation'],
+    code: `synth pluck
+  tri note
+  svf 2600 res:.2
+  * adsr .004 .18 .2 .2
+  * .5
+
+synth pad unison:3 detune:8
+  saw note
+  ladder 1400 res:.15
+  * adsr .8 .5 .7 1.2
+  * .18
+
+# the home phrase four times as often as the answer
+play pluck
+  [0 3 5 3]@4 | [7 5 3 0]
+  scale:a-min
+  gain: .55
+  dur: .9
+
+play pad
+  <0 -3>/4
+  scale:a-min
+
+cps .45
+
+level -3`,
+    why: 'Weight the alternative with `@`. `|` is an even choice, so the only way to make one phrase likelier used to be to repeat it (`a | b | b | b`), which caps you at whole-number ratios and reads as three copies of the same idea. `[0 3 5 3]@4 | [7 5 3 0]` says the same thing once: the home phrase four times as often as the answer. The weight belongs to the alternative as a WHOLE, so `a b@3 | c` is still an even choice between two sequences and the `@3` keeps its ordinary job inside the first one.',
+  },
 ]

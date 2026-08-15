@@ -356,3 +356,61 @@ describe('a beat line with a groove lane', () => {
     expect(splitBeatVelocities('kick ~ snare ~').has).toBe(false)
   })
 })
+
+describe('a `num` argument refuses a signal instead of dropping it', () => {
+  /* SWEPT, not guessed. Every `num` named argument in the language was driven
+   * two ways -- a literal, and a knob defaulting to the same value -- and the
+   * renders compared. 47 of the 66 came back identical to the DEFAULT: the
+   * signal reached the node as a graph node, failed the config mapper's
+   * `typeof === 'number'` test, and vanished. `reverb room:`, `compress
+   * threshold:`, `tape wow:`, and the rest.
+   *
+   * Most cannot be signals at all: `phaser stages:` sizes an allpass chain,
+   * `delay maxtime:` allocates a buffer, `pluck seed:` is a construction seed.
+   * So the syntax is refused rather than honoured, and an argument that could
+   * reasonably move gets promoted to `sig` one at a time, the way
+   * `pitchshift semitones:` was in #371.
+   *
+   * The sweep's control was the 28 arguments already declared `sig`: none of
+   * them came back identical, which is what says the harness could tell the
+   * difference. */
+  const src = (arg: string, extra = ''): string =>
+    `synth a\n  saw note\n  reverb room:${arg}${extra}\n\nplay a\n  0\n\ncps .5`
+
+  it('refuses a knob, and says why', () => {
+    const c = compile(src('rm', '\n  rm = knob .7 0..1'))
+    expect(c.ok).toBe(false)
+    if (c.ok) return
+    expect(c.errors[0]?.message).toMatch(/takes a NUMBER, not a signal/)
+    expect(c.errors[0]?.message, 'it should say what to do').toMatch(/literal|macro/)
+  })
+
+  it('refuses an lfo', () => {
+    expect(compile(src('mv', '\n  mv = lfo .2 -> 0..1')).ok).toBe(false)
+  })
+
+  it('points at the ARGUMENT, not the top of the block', () => {
+    const c = compile(src('rm', '\n  rm = knob .7 0..1'))
+    expect(c.ok).toBe(false)
+    if (c.ok) return
+    expect(c.errors[0]?.line, 'the reverb line').toBe(3)
+  })
+
+  it('still takes a literal, negative or otherwise', () => {
+    expect(compile(src('.8')).ok).toBe(true)
+    expect(compile('synth a\n  saw note\n  compress threshold:-20\n\nplay a\n  0\n\ncps .5').ok).toBe(true)
+  })
+
+  it('and arithmetic of literals, which is a literal written the long way', () => {
+    expect(compile(src('(0.4 * 2)')).ok).toBe(true)
+  })
+
+  it('and a MACRO, which resolves to a number at eval', () => {
+    expect(compile(`macro rm .7\n\n${src('rm')}`).ok).toBe(true)
+  })
+
+  it('a `sig` argument is unaffected', () => {
+    // `mix` next door takes a signal and always did
+    expect(compile('synth a\n  saw note\n  reverb room:.8 mix:mv\n  mv = lfo .2 -> 0..1\n\nplay a\n  0\n\ncps .5').ok).toBe(true)
+  })
+})

@@ -182,9 +182,18 @@ export const scrubLens = (() => {
  * This does not depend on that -- a number under the pointer is one the parse
  * has to have reached -- and saying so costs a fraction of a millisecond once.
  */
-export const scrubLitAt = (state: EditorState, pos: number): ScrubLit | null => {
+export const scrubLitAt = (
+  state: EditorState,
+  pos: number,
+  /* The parse budget, overridable ONLY so a test can be independent of the
+   * machine it runs on. 50ms is generous in the editor (a 200k document parses
+   * cold in 7ms), but a test suite runs a worker per core, and a budget
+   * measured in wall-clock then measures the load rather than the code. This
+   * one flaked exactly that way. */
+  budgetMs = PARSE_BUDGET_MS,
+): ScrubLit | null => {
   const doc = state.doc.toString()
-  const tree = ensureSyntaxTree(state, pos, PARSE_BUDGET_MS) ?? syntaxTree(state)
+  const tree = ensureSyntaxTree(state, pos, budgetMs) ?? syntaxTree(state)
   let numbers = detect(doc, tree).numbers
   /* The tree walk is JS-grammar-specific; in rondo mode (a StreamLanguage
    * tree, top node "Document" not "Script") it finds nothing, so fall back to

@@ -519,3 +519,96 @@ describe('the generative melody does what its title claims', () => {
     expect(peak, `wastes headroom at ${peak.toFixed(3)}`).toBeGreaterThan(0.5)
   })
 })
+
+describe('the mic harmony recipe proves its own move', () => {
+  /* A `mic` recipe is exempt from the "makes sound" check, because a test
+   * process has no microphone: the generic guard renders it and asserts only
+   * that nothing throws. That leaves the actual claim unchecked, and the claim
+   * here is the whole recipe -- that the `iv:` lane moves the interval while a
+   * note is held.
+   *
+   * So the mic is swapped for a known tone and the output measured. By ENERGY
+   * at the expected frequency, not by autocorrelation: the first attempt used
+   * autocorrelation and reported 110 Hz for a 330 Hz harmony, because 110 is
+   * the common subharmonic of the shifted tone and the residual dry, and the
+   * detector locked onto it. The recipe was right and the measurement was
+   * wrong, which is the easier of the two to believe and the harder to notice.
+   */
+  const r = RECIPES.find((x) => x.id === 'mic-harmony')!
+
+  /** Magnitude at `hz` over a window, by direct correlation. */
+  const energyAt = (x: Float32Array, from: number, to: number, sr: number, hz: number): number => {
+    let re = 0
+    let im = 0
+    for (let i = from; i < to; i++) {
+      const t = (2 * Math.PI * hz * i) / sr
+      re += x[i]! * Math.cos(t)
+      im += x[i]! * Math.sin(t)
+    }
+    return Math.sqrt(re * re + im * im) / (to - from)
+  }
+
+  const render = (): { left: Float32Array; step: number; sr: number } => {
+    // a known tone where the microphone would be, fully wet so the harmony
+    // stands alone
+    /* Target the pitchshift LINE, not the first `mix:.5` in the file: the
+     * recipe explains itself in a comment one line above, and replacing that
+     * left the shifter at half dry. Which is what a harmoniser is meant to do,
+     * so the render looked wrong rather than the substitution. */
+    const src = r.code
+      .replace('  mic\n', '  saw 220\n')
+      .replace(/^( *pitchshift .*)mix:\.5/m, '$1mix:1')
+    const c = compile(src)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) throw new Error('compile')
+    const st = stageCode(c.code)
+    if (!st.ok) throw new Error(JSON.stringify(st.diagnostics))
+    const cps = st.cps ?? 0.5
+    const sr = 22050
+    const evs = runPatterns(st.patterns, { cycles: 2, cps })
+    const mix = renderMix(st.synths, evs, 2 / cps, mixOptsFor(st, { cps, sampleRate: sr }))
+    return { left: mix.left, step: Math.floor(mix.left.length / 8), sr }
+  }
+
+  /** The strongest of the candidate pitches in step `k`. */
+  const winner = (k: number, candidates: number[]): number => {
+    const { left, step, sr } = render()
+    const a = k * step + Math.floor(step * 0.4)
+    const b = a + Math.floor(step * 0.3)
+    let best = candidates[0]!
+    let bestE = -1
+    for (const hz of candidates) {
+      const e = energyAt(left, a, b, sr, hz)
+      if (e > bestE) { bestE = e; best = hz }
+    }
+    return best
+  }
+
+  const semis = (n: number): number => Math.round(220 * Math.pow(2, n / 12))
+
+  it('shifts the voice up by the interval the lane asks for', () => {
+    // the lane opens on 7 semitones: a fifth above 220 is 330
+    expect(winner(0, [semis(7), semis(5), semis(3), semis(0)])).toBe(semis(7))
+  })
+
+  it('and MOVES when the lane does, which is the whole recipe', () => {
+    /* Steps 2 and 3 of `<[7 7 5 5] …>` ask for 5, not 7. Before `semitones`
+     * became a signal this was impossible: the interval was fixed at build
+     * time and a lane on the play line was silently dropped. */
+    expect(winner(2, [semis(7), semis(5), semis(3), semis(0)])).toBe(semis(5))
+  })
+
+  it('and the fifth is gone once the lane stops asking for it', () => {
+    /* The pair that matters: the interval the lane names is present, and the
+     * one it has moved OFF is not. Asserted against the other INTERVALS rather
+     * than against the dry voice, which at the shipped `mix:.5` is meant to be
+     * there and is what makes this a harmony rather than a transposition. */
+    const { left, step, sr } = render()
+    const at = (k: number, hz: number): number => {
+      const a = k * step + Math.floor(step * 0.4)
+      return energyAt(left, a, a + Math.floor(step * 0.3), sr, hz)
+    }
+    expect(at(0, semis(7)), 'a fifth on step 0').toBeGreaterThan(at(0, semis(5)) * 2)
+    expect(at(2, semis(5)), 'a fourth on step 2').toBeGreaterThan(at(2, semis(7)) * 2)
+  })
+})

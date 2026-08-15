@@ -991,4 +991,31 @@ cps .45
 level -3`,
     why: 'Weight the alternative with `@`. `|` is an even choice, so the only way to make one phrase likelier used to be to repeat it (`a | b | b | b`), which caps you at whole-number ratios and reads as three copies of the same idea. `[0 3 5 3]@4 | [7 5 3 0]` says the same thing once: the home phrase four times as often as the answer. The weight belongs to the alternative as a WHOLE, so `a b@3 | c` is still an even choice between two sequences and the `@3` keeps its ordinary job inside the first one.',
   },
+  {
+    id: 'mic-harmony',
+    title: 'Sing a harmony above your own voice',
+    tags: ['mic', 'harmony', 'pitchshift', 'voice', 'live', 'interval'],
+    code: `synth harm
+  mic
+  # clean it BEFORE the shifter: plosives and rumble get harmonised too
+  eq hp 140
+  noisegate threshold:-44 range:-28 hold:60 release:120
+  # the dry voice stays underneath at mix:.5, so this is a harmony
+  pitchshift semitones:iv window:40 mix:.5
+  # a knob to ride by hand; the play line writes it out instead
+  iv = knob 7 -12..12
+  post
+    eq peak 3000 2 1.2
+    reverb room:.55 damp:.4 mix:.16
+    limiter ceiling:-1 lookahead:5
+
+# ONE held note holds the channel open; the LANE moves the interval
+play harm
+  c3*4
+  iv: <[7 7 5 5] [4 4 3 5]>
+  dur: .99
+
+cps .4`,
+    why: 'The interval is a SIGNAL, so the harmony is a LINE rather than a setting: `iv:` writes one interval per step and the voice above yours moves while you hold a note. What the shifter cannot do is choose the interval itself, because it hears AUDIO and the note and the scale are gone by then, so a third that stays in the key is one you write. Clean the microphone first or the plosives get harmonised with everything else, and wear headphones: with reverb in the chain the mic hears its own harmony and the whole thing runs away.',
+  },
 ]

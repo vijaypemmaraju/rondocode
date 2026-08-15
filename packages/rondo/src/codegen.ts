@@ -143,6 +143,18 @@ class SynthGen {
     readonly zoneDefs: ReadonlyMap<string, ZoneRow[]> = new Map(),
   ) {}
 
+  /** True when `e` is a number by the time the voice is built: a literal, a
+   *  folded arithmetic of literals, or a macro (which resolves at eval). */
+  private isNumeric(e: Expr): boolean {
+    if (e.t === 'num') return true
+    if (e.t === 'ident') return !this.bound.has(e.name) && this.declaredMacros.has(e.name)
+    /* Arithmetic of numerics is still a number: `room:(0.4 * 2)` is 0.8 by the
+     * time the voice is built, and refusing it would be refusing a literal
+     * written the long way. Recursive because `(2 * 3) + 1` is too. */
+    if (e.t === 'bin') return this.isNumeric(e.l) && this.isNumeric(e.r)
+    return false
+  }
+
   expr(e: Expr): string {
     switch (e.t) {
       case 'num':
@@ -343,6 +355,32 @@ class SynthGen {
       const v = e.named[key]
       if (v === undefined) continue
       const out = spec.alias?.[key] ?? key
+      /* A `num` ARGUMENT IS NOT A SIGNAL, and it used to accept one silently.
+       *
+       * These reach the kernel as construction config, so a knob or an `lfo`
+       * arrives as a node, fails the config mapper's `typeof === 'number'`
+       * test, and is dropped: the argument falls back to its default and
+       * nothing says a word. Swept across the language, 47 of the 66 `num`
+       * arguments behaved that way -- `reverb room:`, `compress threshold:`,
+       * `tape wow:` and the rest.
+       *
+       * Most of them cannot be signals at all: `phaser stages:` sizes an
+       * allpass chain, `delay maxtime:` allocates a buffer, `pluck seed:` is a
+       * construction seed. So the fix is to REFUSE the syntax rather than
+       * honour it, and an argument that could reasonably move gets promoted to
+       * `sig` one at a time, the way `pitchshift semitones:` was.
+       *
+       * A macro is allowed: it resolves to a number at eval, which is what
+       * this slot wants. */
+      if (kind === 'num' && !this.isNumeric(v)) {
+        this.errors.push({
+          message: `\`${name} ${key}:\` takes a NUMBER, not a signal. `
+            + `It is read once when the voice is built, so a knob or an lfo here would be ignored. `
+            + `Use a literal (or a macro), or move the movement somewhere that takes a signal.`,
+          line: v.pos.line,
+          col: v.pos.col,
+        })
+      }
       parts.push(`${out}: ${kind === 'bool' ? (v.t === 'num' && v.v !== 0 ? 'true' : 'false') : this.expr(v)}`)
     }
     for (const [key, dflt] of Object.entries(spec.defaults ?? {})) {

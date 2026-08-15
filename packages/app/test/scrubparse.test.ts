@@ -3,8 +3,16 @@ import { EditorState } from '@codemirror/state'
 import { javascript } from '@codemirror/lang-javascript'
 import { syntaxTree } from '@codemirror/language'
 import { StreamLanguage } from '@codemirror/language'
-import { scrubLitAt } from '../src/editor/widgets/scrub'
+import { scrubLitAt as scrubLitAtRaw } from '../src/editor/widgets/scrub'
 import { detect } from '../src/editor/widgets/detect'
+
+/* A budget that cannot run out. The production one is 50ms, which is generous
+ * in an editor and not generous under a suite running a worker per core: this
+ * file flaked on it once, finding no number because the parse it asked for did
+ * not finish in time. A wall-clock budget in a correctness test measures the
+ * machine. */
+const scrubLitAt = (state: Parameters<typeof scrubLitAtRaw>[0], pos: number): ReturnType<typeof scrubLitAtRaw> =>
+  scrubLitAtRaw(state, pos, 60_000)
 
 /* ------------------------------------------------------------------------- *
  * Scrubbing a number in a long document.
@@ -76,5 +84,32 @@ describe('scrubLitAt', () => {
     expect(doc.length).toBeGreaterThan(3007)
     const state = EditorState.create({ doc, extensions: [rondo] })
     expect(scrubLitAt(state, doc.lastIndexOf('1234'))?.value).toBe(1234)
+  })
+})
+
+describe('the production budget, not the test one', () => {
+  /* The override above buys load-independence and costs coverage: with every
+   * call passing 60s, nothing here would notice `PARSE_BUDGET_MS` being set to
+   * zero, and the editor would quietly stop finding numbers past the initial
+   * parse. Confirmed by sabotage -- that mutation survived until this test.
+   *
+   * So one case goes through the DEFAULT, on a document just past the 3007
+   * boundary. That parses in about a millisecond, so 50ms is fifty times the
+   * headroom, which is enough to be load-independent without being a promise
+   * about the machine. */
+  it('finds a number past the boundary on the real default', () => {
+    /* 20k, because doc LENGTH is not the precondition -- what matters is that
+     * the initial parse actually stopped short of the cursor, and for a small
+     * document it does not. The first version of this test used 4k, where the
+     * parse covers everything, so it exercised nothing and a zero budget
+     * survived the sabotage. Measured, 20k parses cold in 1.8ms, so 50ms is
+     * still twenty-five times the headroom. */
+    const doc = `${`// ${'x'.repeat(60)}\n`.repeat(320)}setCps(0.5)\n`
+    const at = doc.lastIndexOf('0.5')
+    const state = js(doc)
+    expect(syntaxTree(state).length, 'the initial parse must fall short, or this proves nothing')
+      .toBeLessThan(at)
+    // NB: scrubLitAtRaw, so the default budget is the one under test
+    expect(scrubLitAtRaw(state, at)?.value).toBe(0.5)
   })
 })

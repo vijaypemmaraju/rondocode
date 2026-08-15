@@ -35,7 +35,7 @@ describe('every section reaches exactly one route', () => {
   })
 
   it('puts the cookbook and troubleshooting on their own routes', () => {
-    expect(sectionsFor('cookbook').every((s) => s.group === 'cookbook')).toBe(true)
+    expect(sectionsFor('cookbook').every((s) => s.group.startsWith('cookbook: '))).toBe(true)
     expect(sectionsFor('troubleshooting').length).toBeGreaterThan(4)
     expect(sectionsFor('reference')).toEqual([]) // generated, not authored
   })

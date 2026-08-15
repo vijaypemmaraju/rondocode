@@ -148,9 +148,16 @@ export const GROUP_ORDER: readonly string[] = [
   'patterns & form',
   'voice & visuals',
   'the rondo language',
-  // The cookbook sits AFTER the guide: it answers "how do I say X", which is
-  // the question you have once you already know what the pieces are.
-  'cookbook',
+  /* The cookbook sits AFTER the guide: it answers "how do I say X", which is
+   * the question you have once you already know what the pieces are. Its
+   * shelves run from the thing you are MAKING to the thing you do with it
+   * once it exists. */
+  'cookbook: instruments',
+  'cookbook: rhythm',
+  'cookbook: notes & harmony',
+  'cookbook: mix & space',
+  'cookbook: live & performance',
+  'cookbook: arrangement',
   // Troubleshooting is LAST on purpose: you arrive at it from a symptom, via
   // search, rather than by reading down the page.
   'troubleshooting',
@@ -2054,7 +2061,9 @@ cps .5`,
  *  the search index finds a recipe by words its title never uses. */
 export const recipeSection = (r: Recipe): Section => ({
   id: `recipe-${r.id}`,
-  group: 'cookbook',
+  // one shelf per kind of question, because thirty-six in a flat list is a
+  // wall you scroll rather than a set of answers you scan
+  group: `cookbook: ${r.group}`,
   title: r.title,
   blocks: [rondo(r.tags.join(' \u00b7 '), r.code), note(r.why)],
 })

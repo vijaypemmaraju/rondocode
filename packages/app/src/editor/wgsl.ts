@@ -6,6 +6,7 @@ import { syntaxTree } from '@codemirror/language'
 import { snippetCompletion } from '@codemirror/autocomplete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { stringCallName } from './complete'
+import { rondoMode } from './langflag'
 import {
   VIZ_FNS, VIZ_GLOBALS, VIZ_PARAM_DETAIL, VIZ_PARAM_PREFIX, VIZ_SYNTH_GLOBALS,
 } from '../shaderviz/api'
@@ -52,7 +53,7 @@ const isType = (id: string): boolean =>
 
 // ---- tokenizer -----------------------------------------------------------
 
-interface Tok {
+export interface Tok {
   from: number
   to: number
   cls: string
@@ -64,7 +65,7 @@ const TOKEN_RE =
 /** Classify WGSL over `text`, yielding one token per visible run (whitespace
  *  produces none). Identifiers are keyword / type / audio-API / builtin / call
  *  (followed by `(`) / plain. */
-function tokenizeWgsl(text: string): Tok[] {
+export function tokenizeWgsl(text: string): Tok[] {
   const out: Tok[] = []
   TOKEN_RE.lastIndex = 0
   let m: RegExpExecArray | null
@@ -89,10 +90,69 @@ function tokenizeWgsl(text: string): Tok[] {
   return out
 }
 
-// ---- visual() template ranges (from the JS syntax tree) ------------------
+// ---- where the shader is ------------------------------------------------
+
+/**
+ * The `visual` BLOCK bodies in a rondo document.
+ *
+ * rondo writes a shader as a lone `visual` header with the body indented under
+ * it, which the parser lifts verbatim (parser.ts `bodyLines`) -- no backticks
+ * and no syntax tree to ask, so the JS path below finds nothing and a rondo
+ * shader was left coloured by rondo's own rules. That is worse than colourless:
+ * `mix`, `note`, `pan` and `sin` are rondo vocabulary too, so half the shader
+ * came out painted as though it were music.
+ *
+ * The block ends at the first NON-BLANK line indented no further than the
+ * header, matching the parser exactly -- blank lines inside a shader are
+ * normal, and closing on one would leave the rest of it uncoloured.
+ */
+/** The indent of a lone `visual` header, or null for any other line. The
+ *  parser opens the block on exactly this and nothing else, so `play visual`
+ *  and `visual bright` are ordinary music. */
+export const visualHeaderIndent = (line: string): number | null =>
+  line.trim() === 'visual' ? /^[ \t]*/.exec(line)![0].length : null
+
+/** Whether `line` is still inside a block opened at `headerIndent`. A blank
+ *  line does NOT close it -- shaders have blank lines, and closing on one
+ *  would leave the rest of every real shader outside. */
+export const inVisualBody = (headerIndent: number, line: string): boolean =>
+  line.trim() === '' || /^[ \t]*/.exec(line)![0].length > headerIndent
+
+export function visualBlockRanges(text: string): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = []
+  let open: number | null = null
+  let from = 0
+  let to = 0
+  let at = 0
+  for (const line of text.split('\n')) {
+    const end = at + line.length
+    if (open !== null) {
+      if (inVisualBody(open, line)) {
+        if (line.trim() !== '') to = end
+        at = end + 1
+        continue
+      }
+      out.push({ from, to })
+      open = null
+    }
+    const header = visualHeaderIndent(line)
+    if (header !== null) {
+      open = header
+      from = Math.min(end + 1, text.length)
+      to = from
+    }
+    at = end + 1
+  }
+  if (open !== null && to > from) out.push({ from, to })
+  return out
+}
+
+const rondoVisualRanges = (state: EditorState): { from: number; to: number }[] =>
+  visualBlockRanges(state.doc.toString())
 
 /** Content ranges (inside the backticks) of every visual(`…`) template. */
 function visualTemplateRanges(state: EditorState): { from: number; to: number }[] {
+  if (state.facet(rondoMode)) return rondoVisualRanges(state)
   const out: { from: number; to: number }[] = []
   const tree = syntaxTree(state)
   tree.iterate({
@@ -212,10 +272,19 @@ const WGSL_COMPLETIONS: Completion[] = [
   ),
 ]
 
-/** Completions inside a visual(`…`) template: WGSL + the rondocode audio API.
+/** True when `pos` is inside shader source, in EITHER spelling: a rondo
+ *  `visual` block body, or a rondocode visual(`…`) template. One predicate,
+ *  because "am I in a shader" having two answers is how the rondo side ended
+ *  up with the highlighting and not the completions. */
+export const inVisualShader = (state: EditorState, pos: number): boolean =>
+  state.facet(rondoMode)
+    ? rondoVisualRanges(state).some((r) => pos >= r.from && pos <= r.to)
+    : stringCallName(state, pos) === 'visual'
+
+/** Completions inside a shader: WGSL + the rondocode audio API.
  *  Returns null everywhere else (so mini-notation strings stay clean). */
 export const wgslCompletionSource = (context: CompletionContext): CompletionResult | null => {
-  if (stringCallName(context.state, context.pos) !== 'visual') return null
+  if (!inVisualShader(context.state, context.pos)) return null
   const word = context.matchBefore(/[A-Za-z_]\w*/)
   if (word === null && !context.explicit) return null
   return {

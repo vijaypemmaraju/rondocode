@@ -21,7 +21,21 @@ const frameLog = (ws: WebSocket): { id: string; method: string; params?: unknown
   return frames
 }
 
-const until = async (cond: () => boolean, ms = 2000): Promise<void> => {
+/* WAITING ON A SOCKET, so the budgets here are generous on purpose.
+ *
+ * These tests open a real WebSocket and wait for a real round trip. Vitest's
+ * default test timeout is 5s and the polls below allowed 2s inside it, which
+ * is a claim about how loaded the machine is rather than about the code: under
+ * the full suite, with a worker per core, an event loop can be starved for
+ * longer than that. Three of these flaked that way (twice in mcp.test.ts, once
+ * here) and every one passed alone and on rerun.
+ *
+ * A generous ceiling costs a passing run NOTHING -- the waits resolve on the
+ * event, not on the clock -- and it is the failing path that gets the room. A
+ * tight one only ever encodes the load of the machine that wrote it. */
+const SOCKET_TIMEOUT_MS = 20_000
+
+const until = async (cond: () => boolean, ms = SOCKET_TIMEOUT_MS): Promise<void> => {
   const t0 = Date.now()
   while (!cond()) {
     if (Date.now() - t0 > ms) throw new Error('until: timed out')
@@ -52,7 +66,8 @@ afterEach(async () => {
   bridges = []
 })
 
-describe('Bridge', () => {
+
+describe('Bridge', { timeout: SOCKET_TIMEOUT_MS }, () => {
   it('rejects calls when no session is connected', async () => {
     const { bridge } = await rig()
     await expect(bridge.call('getState')).rejects.toThrow('no session connected')
@@ -227,7 +242,7 @@ describe('Bridge', () => {
   })
 })
 
-describe('a port that is already in use', () => {
+describe('a port that is already in use', { timeout: SOCKET_TIMEOUT_MS }, () => {
   /* Found by running the command the docs tell you to run, twice.
    *
    * The WebSocketServer wraps the http server and RE-EMITS its errors, and an

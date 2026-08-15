@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compile, decompile } from '../src/index'
+import { compile, decompile, splitBeatVelocities } from '../src/index'
 
 /* ------------------------------------------------------------------------- *
  * The Switch: a knob with two fixed values instead of a range.
@@ -312,5 +312,47 @@ describe('a token after an osc round-trips (the last docs gap)', () => {
     const once = rt('  tri note\n  mix saw note .3\n  svf 2200 res:.2\n')
     const twice = decompile((compile(once) as { ok: true; code: string }).code)
     expect(twice).toBe(once)
+  })
+})
+
+describe('a beat line with a groove lane', () => {
+  /* `[hat*8]'swing:.55` reads as `word:number` to the velocity splitter, which
+   * tore it in two: the sound string kept `[hat*8]'swing` and the gain string
+   * got `[1*8]'0.55`, neither of which parses. It COMPILED and then failed at
+   * stage time with a mini error about a stray quote, a long way from the line
+   * that caused it.
+   *
+   * Found while writing the recipe for the feature, which is the first time
+   * anyone had put a groove on a drum grid -- the most obvious place for one. */
+  it('keeps the lane out of the velocity split', () => {
+    const r = splitBeatVelocities("[hat*8]'swing:.55")
+    expect(r.has, 'a timing lane is not a velocity').toBe(false)
+    expect(r.notes).toBe("[hat*8]'swing:.55")
+  })
+
+  it('and puts it on the GAIN pattern too, so the two stay aligned', () => {
+    /* `.gain()` aligns by TIME. A swung note lands where an unswung gain step
+     * is not, so the gains have to be swung the same way. */
+    const r = splitBeatVelocities("[hat:.5*8]'swing:.5")
+    expect(r.has).toBe(true)
+    expect(r.notes).toBe("[hat*8]'swing:.5")
+    expect(r.gains).toBe("[0.5*8]'swing:.5")
+  })
+
+  it('handles a groove beside ordinary velocity suffixes', () => {
+    const r = splitBeatVelocities("hat:.5 [hat*4]'swing:.6 hat")
+    expect(r.notes).toBe('hat [hat*4]\'swing:.6 hat')
+    expect(r.gains).toBe('0.5 [1*4]\'swing:.6 1')
+  })
+
+  it('takes every lane the group carries', () => {
+    expect(splitBeatVelocities("[hat*8]'swing:.5'grid:8").notes).toBe("[hat*8]'swing:.5'grid:8")
+  })
+
+  it('leaves an ordinary beat line exactly as it was', () => {
+    const r = splitBeatVelocities('hat:.5 hat hat:.4 hat')
+    expect(r.notes).toBe('hat hat hat hat')
+    expect(r.gains).toBe('0.5 1 0.4 1')
+    expect(splitBeatVelocities('kick ~ snare ~').has).toBe(false)
   })
 })

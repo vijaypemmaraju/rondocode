@@ -262,6 +262,26 @@ p('stab', n('0 . 2 4 . 7').scale('c major').sound('pluck').gain(0.45))
 // a PATTERNED euclid argument: 3 hits one cycle, 5 the next
 p('kick', note('c2(<3 5>,8)').sound('pluck').gain(0.6))`,
       ),
+      p("Four more shape the SEQUENCE rather than the steps. `a@3 | b` weights a random choice, so `a` comes up three times as often instead of half the time, and repeating an alternative (`a | b | b | b`) is no longer the only way to lean it. A NEGATIVE pulse count is the complement: `hh(-3,8)` plays the five slots `bd(3,8)` leaves empty, which is how the counter-rhythm gets written without restating the figure."),
+      p("`[hh*8]'swing:.6` puts GROOVE on one group, so a hat can shuffle while the kick beside it stays straight. It reuses the `'` suffix that already carries per-step controls, and `'grid:` sets the subdivision (4 by default, which is shuffled eighths; `'grid:2` swings quarters). And `$a=[bd sn] $a ~ $a $a` NAMES a figure so it can be reused in the same pattern: change the definition and every use changes. The `$` is on the reference too, because a bare word is already a sample name and a typo should be an error rather than a different sound."),
+      code(
+        'Weighted choice, the complement of a euclid, groove on one group, and a named figure. The hats shuffle while the kick underneath them does not.',
+        `const tick = synth(({ note, gate, adsr, sine, svf, noise }) =>
+  svf(noise(), 7000, { mode: 'hp' }).mul(adsr(gate, { a: 0.001, d: 0.03, s: 0, r: 0.02 })))
+const drum = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.001, d: 0.14, s: 0, r: 0.04 })))
+
+// GROOVE on the hats only: the kick below is untouched
+p('hats', note("[c6*8]'swing:.55").sound('tick').gain(0.3))
+
+// the figure, and its COMPLEMENT: every slot covered once, between them
+p('kick', note('c2(3,8)').sound('drum').gain(0.9))
+p('rim', note('c5(-3,8)').sound('tick').gain(0.22))
+
+// a NAMED figure, used three times, plus a WEIGHTED choice of what follows
+p('bass', n('$a=[0 3] $a ~ $a $a').scale('a minor').sound('drum').gain(0.5))
+p('stab', n('0 | 5@3').scale('a minor').sound('drum').gain(0.35))`,
+      ),
       p('The API reference panel (search or scroll to Mini-notation) lists every operator with a one-line description, `*` `/` `!` `@` `~` `_` `[]` `<>` `{}` `?` `|` `,` `..` `.` and the euclid form, in one place.'),
     ],
   },

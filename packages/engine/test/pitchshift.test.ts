@@ -259,3 +259,88 @@ describe('a harmony a third above, in a voice', () => {
     expect(third, 'no harmony was added').toBeGreaterThan(absent * 4)
   })
 })
+
+describe('the shift is a SIGNAL, not construction config', () => {
+  /* It used to be config only. A knob or a per-note `.ctrl` reached the node
+   * as a signal, failed the config mapper's `typeof === 'number'` test, and
+   * vanished -- the node then saw 0 and took the bypass, so a harmoniser whose
+   * interval was meant to move returned the dry signal and said nothing.
+   *
+   * Measured through the whole stack on a 220 Hz saw: a per-note `0 4 7 12`
+   * gave 221 Hz on every step before, and 221 / 276 / 329 / 441 after. */
+  const SR = 44100
+  const run = (semis: Float32Array | number, samples: number): Float32Array => {
+    const k = new PitchShiftKernel(typeof semis === 'number' ? { semitones: semis, window: 40 } : { window: 40 })
+    const input = new Float32Array(samples)
+    for (let i = 0; i < samples; i++) input[i] = Math.sin((2 * Math.PI * 220 * i) / SR)
+    const out = new Float32Array(samples)
+    const inputs: Record<string, Float32Array> = { in: input }
+    if (typeof semis !== 'number') inputs['semitones'] = semis
+    k.process(samples, inputs, out, { sampleRate: SR } as never)
+    return out
+  }
+  const constant = (v: number, n: number): Float32Array => new Float32Array(n).fill(v)
+
+  it('a constant-zero SIGNAL is still bit-exact passthrough', () => {
+    /* The documented guarantee, and it cannot be emergent: at 0 the read heads
+     * sit at two fixed delays and sum to something that is not the input. */
+    const n = 2048
+    const out = run(constant(0, n), n)
+    const dry = run(0, n)
+    for (let i = 0; i < n; i++) expect(out[i]).toBe(dry[i])
+  })
+
+  it('a signal shifts as far as the same literal would', () => {
+    const n = 8192
+    const bySig = run(constant(7, n), n)
+    const byCfg = run(7, n)
+    let maxd = 0
+    for (let i = 0; i < n; i++) maxd = Math.max(maxd, Math.abs(bySig[i]! - byCfg[i]!))
+    expect(maxd, 'the two routes must agree').toBeLessThan(1e-6)
+  })
+
+  it('follows the signal when it CHANGES mid-render', () => {
+    // the thing that was impossible: an interval that moves
+    const n = 16384
+    const semis = new Float32Array(n)
+    for (let i = 0; i < n; i++) semis[i] = i < n / 2 ? 0 : 12
+    const out = run(semis, n)
+    const flat = run(constant(0, n), n)
+    let firstHalf = 0
+    let secondHalf = 0
+    for (let i = 0; i < n / 2; i++) firstHalf = Math.max(firstHalf, Math.abs(out[i]! - flat[i]!))
+    for (let i = n / 2; i < n; i++) secondHalf = Math.max(secondHalf, Math.abs(out[i]! - flat[i]!))
+    expect(firstHalf, 'unchanged while the signal reads 0').toBeLessThan(1e-6)
+    expect(secondHalf, 'and shifted once it does not').toBeGreaterThan(0.1)
+  })
+
+  it('half a block of shift is still a shift', () => {
+    // the zero check has to cover the WHOLE block, or a shift that starts
+    // mid-block is silently dropped for that block
+    const n = 512
+    const semis = new Float32Array(n)
+    for (let i = n / 2; i < n; i++) semis[i] = 7
+    const out = run(semis, n)
+    const dry = run(constant(0, n), n)
+    let d = 0
+    for (let i = 0; i < n; i++) d = Math.max(d, Math.abs(out[i]! - dry[i]!))
+    expect(d).toBeGreaterThan(0)
+  })
+
+  it('clamps a signal the way it clamps config', () => {
+    const n = 4096
+    const wild = run(constant(96, n), n)
+    const capped = run(constant(24, n), n)
+    let maxd = 0
+    for (let i = 0; i < n; i++) maxd = Math.max(maxd, Math.abs(wild[i]! - capped[i]!))
+    expect(maxd, 'past two octaves is clamped, not followed').toBeLessThan(1e-6)
+  })
+
+  it('survives a non-finite value in the signal', () => {
+    const n = 1024
+    const semis = constant(7, n)
+    semis[10] = Number.NaN
+    semis[20] = Number.POSITIVE_INFINITY
+    for (const v of run(semis, n)) expect(Number.isFinite(v)).toBe(true)
+  })
+})

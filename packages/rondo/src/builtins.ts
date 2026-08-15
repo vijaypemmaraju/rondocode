@@ -135,7 +135,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   },
   tape: { kind: 'proc', pos: [], named: { wow: 'num', flutter: 'num', sat: 'num', tone: 'num' } },
   convolve: { kind: 'proc', pos: ['enum'], named: { mix: 'sig' } },
-  pitchshift: { kind: 'proc', pos: [], named: { semitones: 'num', window: 'num', mix: 'sig' } },
+  pitchshift: { kind: 'proc', pos: [], named: { semitones: 'sig', window: 'num', mix: 'sig' } },
   follow: { kind: 'proc', pos: [], named: { attack: 'num', release: 'num', mode: 'enum' } },
   noisegate: {
     kind: 'proc',

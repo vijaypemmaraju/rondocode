@@ -324,7 +324,7 @@ export interface SynthCtx {
   /** Envelope follower: audio in, a 0..1 control signal out. */
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** Shift a signal in semitones without changing its length. */
-  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: SigIn }): Sig
+  pitchshift(inp: SigIn, opts?: { semitones?: SigIn; window?: number; mix?: SigIn }): Sig
   /** Convolve a signal with an impulse response held as a sample. */
   convolve(inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig
   /** Tape character: wow, flutter, saturation and the top coming off. */
@@ -443,7 +443,7 @@ export interface PostCtx {
   /** Envelope follower: audio in, a 0..1 control signal out. */
   follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
   /** Shift a signal in semitones without changing its length. */
-  pitchshift(inp: SigIn, opts?: { semitones?: number; window?: number; mix?: SigIn }): Sig
+  pitchshift(inp: SigIn, opts?: { semitones?: SigIn; window?: number; mix?: SigIn }): Sig
   /** Convolve a signal with an impulse response held as a sample. */
   convolve(inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig
   /** Tape character: wow, flutter, saturation and the top coming off. */
@@ -956,15 +956,16 @@ const makeShared = (b: Builder) => {
     },
     pitchshift: (
       inp: SigIn,
-      opts?: { semitones?: number; window?: number; mix?: SigIn },
+      opts?: { semitones?: SigIn; window?: number; mix?: SigIn },
     ): Sig => {
       const inputs: Record<string, InputSource> = { in: src(inp, 'pitchshift in') }
       if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'pitchshift mix')
-      return b.node(
-        'pitchshift',
-        inputs,
-        definedConfig({ semitones: opts?.semitones, window: opts?.window }),
-      )
+      /* An INPUT, not config. As config a knob or a `.ctrl` arrived as a
+       * signal, failed the mapper's `typeof === 'number'` test, and vanished:
+       * the node saw 0 and passed the dry signal through. A harmoniser whose
+       * interval cannot move is a transposer. */
+      if (opts?.semitones !== undefined) inputs['semitones'] = src(opts.semitones, 'pitchshift semitones')
+      return b.node('pitchshift', inputs, definedConfig({ window: opts?.window }))
     },
     follow: (
       inp: SigIn,

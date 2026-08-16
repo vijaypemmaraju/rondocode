@@ -146,7 +146,8 @@ export const GROUP_ORDER: readonly string[] = [
   'sound design',
   'effects & mix',
   'patterns & form',
-  'voice & visuals',
+  'voice, midi & files',
+  'visuals',
   'the rondo language',
   /* The cookbook sits AFTER the guide: it answers "how do I say X", which is
    * the question you have once you already know what the pieces are. Its
@@ -158,6 +159,7 @@ export const GROUP_ORDER: readonly string[] = [
   'cookbook: mix & space',
   'cookbook: live & performance',
   'cookbook: arrangement',
+  'cookbook: visuals',
   // Troubleshooting is LAST on purpose: you arrive at it from a symptom, via
   // search, rather than by reading down the page.
   'troubleshooting',
@@ -1148,7 +1150,7 @@ cps .5`,
   },
   {
     id: 'singing',
-    group: 'voice & visuals',
+    group: 'voice, midi & files',
     title: 'Singing',
     blocks: [
       p('`sing(voice, lyrics, notes)` runs a neural voice entirely on your device: it sings your `lyrics` on your `notes`, both in mini-notation, one syllable per note (a hyphen splits a word, so "twin-kle" is two notes).'),
@@ -1202,7 +1204,7 @@ cps .34`,
   },
   {
     id: 'live-mic',
-    group: 'voice & visuals',
+    group: 'voice, midi & files',
     title: 'Live mic',
     blocks: [
       p('`mic` is the device microphone as a LIVE signal: run your voice through the synth graph in real time. Feed it to `vocoder` as the modulator and the synth talks; hi-pass it and it whispers; `granular`-freeze it and it smears. The mic connects only while code that uses it is playing, and the browser asks permission the first time.'),
@@ -1243,7 +1245,7 @@ setCps(0.5)`,
   },
   {
     id: 'visuals',
-    group: 'voice & visuals',
+    group: 'visuals',
     title: 'Visuals',
     blocks: [
       p("`visual(...)` attaches a WGSL fragment shader that renders behind the code, driven by the audio. Press play to hear it, then open it in the editor and toggle the visuals button to see it."),
@@ -1278,8 +1280,109 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'visuals-react',
+    group: 'visuals',
+    title: 'Making a visual follow the music',
+    blocks: [
+      p('There are two families of value, and reaching for the wrong family is the usual reason a visual feels attached to the music by wishful thinking. The MIX-WIDE ones describe the whole output: `level`, `bass`, `mid`, `treble`, `centroid`, `flux`, `peak`, `crest`, `duck`, `beat`. The PER-SYNTH ones describe one voice, and are generated from your program: `hit_<name>`, `lvl_<name>`, `note_<name>`, `vel_<name>`.'),
+      p('Use a mix-wide value when you want the ROOM to move: haze thickening on the low end, a wash that follows loudness. Use a per-synth one when a specific instrument should drive a specific thing, which is most of the time. A shader driven only by `level` looks the same for every tune, because loudness is the one thing every tune has.'),
+      table(
+        'The four per-synth values, and what each is for.',
+        ['read', 'what it does', 'reach for it when'],
+        [
+          ['`hit_pad`', 'spikes on each note onset and decays over about a tenth of a second', 'something should FLASH: a strobe, a bloom, a camera shake'],
+          ['`lvl_pad`', 'follows that voice while the note is held, and falls with its release', 'something should SWELL: a pad opening, a wash, a size'],
+          ['`note_pad`', 'the last MIDI number that voice was sent, so it changes on every note', 'the visual should answer the MELODY: a hue per pitch, a position per pitch'],
+          ['`vel_pad`', 'the last velocity (pattern gain) it was sent, 0..1', 'an accent should read as an accent, not just as more of the same'],
+        ],
+      ),
+      note('`hit_` on a pad is the classic mistake. A pad note lasts two seconds and `hit_` is gone in a tenth of one, so the visual twitches at the start of a chord and then sits still for the rest of it. The snippet below puts the two side by side so the difference is visible rather than described.'),
+      rondo('Left half is `hit_pad`, right half is `lvl_pad`. Same pattern, same voice.', `synth pad unison:4 detune:9
+  saw note
+  ladder 1600 res:.2
+  * adsr .35 .3 .8 .7
+  * .28
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  amp = adsr .001 .16 0 .06
+
+play kick
+  c2 c2 c2 c2
+
+play pad
+  <c3 g2>/2
+
+visual
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let bar = smoothstep(0.5, 0.0, abs(p.y));
+    let left = step(p.x, 0.0) * hit_pad;
+    let right = step(0.0, p.x) * lvl_pad;
+    let split = smoothstep(0.02, 0.0, abs(p.x));
+    let col = vec3f(1.0, 0.4, 0.3) * left + vec3f(0.3, 0.9, 0.6) * right;
+    return vec4f(col * bar + vec3f(0.25) * split + vec3f(0.2, 0.3, 0.6) * hit_kick * 0.3, 1.0);
+  }
+
+cps .5`),
+      p('`note_` is the one worth knowing about, because it is what turns a level meter into a light show. It is a MIDI number, so `fract(note_lead / 12.0)` is the pitch class as a 0..1 hue and `note_lead / 12.0` is the octave. Hash it and you get a stable per-note position, which is how a moving-head fixture picks a new angle on each note and holds it until the next one.'),
+      note('A synth that has not played yet reads 0, not silence, so guard with `max(note_lead, 1.0)` if you divide by it. And `flux` is the fallback for sound that has no note behind it: samples and the live mic never fire a `hit_`, because there is no pattern note to fire it, but they do change the spectrum.'),
+      p('`duck` deserves its own mention: it is the sidechain envelope ITSELF, the same signal ducking your mix, not an approximation of it built from `bass`. Multiplying a rig brightness by `duck` makes the lights pump exactly with the audio, including the release shape you dialled in.'),
+    ],
+  },
+  {
+    id: 'visuals-arrangement',
+    group: 'visuals',
+    title: 'Making a visual follow the arrangement',
+    blocks: [
+      p('Three clocks, and they are not interchangeable. `time` is a smooth wall clock in seconds: good for drift and wander, and it will never land on a beat. `phase` is the position inside the current cycle, 0 to 1. `cycle` counts cycles since play and follows the TRANSPORT, so it rebases when you stop and start rather than carrying on from wherever the last run left it.'),
+      p('One cycle is one bar, so `cycle` is your bar count and `fract(cycle / N) * N` is the position inside an N-bar arrangement. Everything else follows from that: `act(bars, 16, 32)` asks whether the build is playing, `clamp((bars - 16) / 16, 0, 1)` is how far through it you are.'),
+      rondo('Bars from `cycle`, and a pulse from `phase`. The colour changes halfway through the loop.', `synth bell
+  sine note
+  * adsr .002 .5 0 .4
+  * .35
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  amp = adsr .001 .16 0 .06
+
+play kick
+  c2 c2 c2 c2
+
+play bell
+  <c5 g4 e5 g4>
+
+visual
+  fn act(bars: f32, a: f32, b: f32) -> f32 {
+    return smoothstep(a - 0.125, a + 0.125, bars) * (1.0 - smoothstep(b - 0.125, b + 0.125, bars));
+  }
+
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let bars = fract(cycle / 4.0) * 4.0;
+    let half = act(bars, 0.0, 2.0);
+    let tick = pow(1.0 - phase, 6.0);
+    let ring = 0.02 / (abs(length(p) - 0.25 - tick * 0.1) + 0.02);
+    let col = mix(vec3f(1.0, 0.6, 0.2), vec3f(0.3, 0.6, 1.0), half) * ring
+            * (0.3 + lvl_bell * 2.0 + hit_kick);
+    return vec4f(col / (1.0 + col * 0.5), 1.0);
+  }
+
+cps .5`),
+      note('N HAS TO BE THE SONG LENGTH. Writing the visual around a loop length that seemed nice is the trap, and it fails silently: a shader built when the tune was 8 bars keeps running its own 8-bar loop after the arrangement grows to 56, so the visual drop fires three and a half times a pass and never once where the kick actually lands. Nothing errors. It just stops meaning anything, and it looks like the shader is broken rather than out of date.', 'warn'),
+      p('Soften every section edge. `bars > 16.0` changes between one frame and the next, which pops; `smoothstep(15.875, 16.125, bars)` crosses over an eighth of a bar, which reads as a cue. That is the whole reason the `act` helper above is two smoothsteps rather than two comparisons.'),
+      p('For anything that must land on a beat, drive it from `phase` rather than from `time`: `pow(1.0 - phase, 6.0)` is a pulse that fires on the downbeat and decays, and it stays locked no matter what the frame rate does.'),
+    ],
+  },
+  {
     id: 'midi-hardware',
-    group: 'voice & visuals',
+    group: 'voice, midi & files',
     title: 'Playing from hardware',
     blocks: [
       p('The midi button in the header opens the input panel. Enable MIDI, pick which synth the keys play, and a connected controller plays it live: note on and note off go straight to the engine, velocity included.'),
@@ -1309,7 +1412,7 @@ setCps(0.5)`,
   },
   {
     id: 'midi-clock',
-    group: 'voice & visuals',
+    group: 'voice, midi & files',
     title: 'Playing in time with other gear',
     blocks: [
       p('The clock selector in the midi panel decides where the tempo comes from. Internal is the tune, which is what you have been using. Follow takes it from a drum machine, a groovebox, a DAW or a DJ mixer over MIDI clock. Send makes that gear follow you instead.'),
@@ -1331,7 +1434,7 @@ setCps(0.5)`,
   },
   {
     id: 'export',
-    group: 'voice & visuals',
+    group: 'voice, midi & files',
     title: 'Export: WAV, stems, loudness',
     blocks: [
       p('The export button in the header (next to play) writes the staged track out. Every option renders the code exactly as it stands, offline and faster than real time, from the same path the editor plays.'),
@@ -1373,7 +1476,7 @@ setCps(0.5)`,
   },
   {
     id: 'midi-import',
-    group: 'voice & visuals',
+    group: 'voice, midi & files',
     title: 'MIDI import & export',
     blocks: [
       p('MIDI travels both directions. The export button writes the staged notes out as a Standard MIDI File (see "Export"), and a MIDI file from anywhere else can become rondocode.'),

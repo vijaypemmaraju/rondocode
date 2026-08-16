@@ -24,8 +24,8 @@
  * ------------------------------------------------------------------------- */
 
 /** The shelf a recipe sits on. Thirty-six in one flat list is a wall; these
- *  are the six questions someone actually arrives with. Required, so a new
- *  recipe has to choose one rather than landing at the bottom by default. */
+ *  are the questions someone actually arrives with. Required, so a new recipe
+ *  has to choose one rather than landing at the bottom by default. */
 export type RecipeGroup =
   | 'instruments'
   | 'rhythm'
@@ -33,6 +33,7 @@ export type RecipeGroup =
   | 'mix & space'
   | 'live & performance'
   | 'arrangement'
+  | 'visuals'
 
 export interface Recipe {
   id: string
@@ -1065,5 +1066,157 @@ play harm
 
 cps .4`,
     why: 'The interval is a SIGNAL, so the harmony is a LINE rather than a setting: `iv:` writes one interval per step and the voice above yours moves while you hold a note. What the shifter cannot do is choose the interval itself, because it hears AUDIO and the note and the scale are gone by then, so a third that stays in the key is one you write. Clean the microphone first or the plosives get harmonised with everything else, and wear headphones: with reverb in the chain the mic hears its own harmony and the whole thing runs away.',
+  },
+  {
+    id: 'viz-note-flash',
+    group: 'visuals',
+    title: 'Make the visuals fire on every note',
+    tags: ['visual', 'shader', 'wgsl', 'note', 'flash', 'reactive'],
+    code: `synth lead unison:3 detune:12 spread:.4
+  saw note
+  ladder 2600 res:.3
+  * adsr .004 .14 .45 .18
+  * .45
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  amp = adsr .001 .16 0 .06
+
+play kick
+  c2 c2 c2 c2
+
+play lead
+  0 3 7 10 7 3 0 -2  scale:c-min
+
+visual
+  fn hue(h: f32) -> vec3f {
+    let k = abs(fract(h + vec3f(0.0, 0.667, 0.333)) * 6.0 - 3.0) - 1.0;
+    return clamp(k, vec3f(0.0), vec3f(1.0));
+  }
+
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let col = hue(fract(note_lead / 12.0));
+    let ring = abs(length(p) - 0.18 - hit_lead * 0.30);
+    let lit = 0.015 / (ring + 0.015) * (0.25 + lvl_lead * 2.5);
+    let thump = hit_kick * 0.10 / (dot(p, p) + 0.12);
+    return vec4f(col * lit + vec3f(0.5, 0.6, 1.0) * thump, 1.0);
+  }
+
+cps .5`,
+    why: '`hit_` and `lvl_` are not two names for the same thing, and picking the wrong one is why a visual feels disconnected. `hit_lead` is an ONSET envelope: it spikes and decays in about a tenth of a second, so it flashes once per note and is useless for a pad. `lvl_lead` follows the voice while the note is HELD, so a swell reads as a swell. The third one is the one people miss: `note_lead` is the MIDI number, so its pitch class is a hue that changes on every note. That is the difference between a visual that answers the loudness and one that answers the melody.',
+  },
+  {
+    id: 'viz-beams',
+    group: 'visuals',
+    title: 'Light a stage with beams instead of blobs',
+    tags: ['visual', 'shader', 'wgsl', 'beam', '3d', 'light', 'concert'],
+    code: `synth stab unison:5 detune:16 spread:.5
+  saw note
+  ladder cut res:.35
+  * adsr .004 .2 .3 .25
+  * .4
+  cut = adsr .01 .3 .2 .3 ^ 2 -> 500..4200
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  amp = adsr .001 .16 0 .06
+
+play kick
+  c2 c2 c2 c2
+
+play stab
+  <0 -3 5 3>  scale:f-min
+
+visual
+  fn beam(ro: vec3f, rd: vec3f, src: vec3f, dir: vec3f, len: f32, w: f32) -> f32 {
+    let w0 = ro - src;
+    let b = dot(rd, dir);
+    let d = dot(rd, w0);
+    let e = dot(dir, w0);
+    let den = max(1.0 - b * b, 0.0004);
+    let tc = max((b * e - d) / den, 0.0);
+    let sc = clamp((e - b * d) / den, 0.0, len);
+    let dist = length((ro + rd * tc) - (src + dir * sc));
+    let r = w + 0.05 * sc;
+    return (exp(-dist * dist / (r * r)) + 0.3 * exp(-dist * dist / (r * r * 9.0)))
+         * exp(-sc * 0.1) * smoothstep(0.0, 0.6, sc);
+  }
+
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let ro = vec3f(0.0, 1.5, 7.0);
+    let rd = normalize(vec3f(p.x * 0.6, p.y * 0.6 + 0.1, -1.0));
+    var col = vec3f(0.0);
+    for (var i = 0; i < 6; i = i + 1) {
+      let f = f32(i);
+      let src = vec3f(-3.75 + f * 1.5, 4.2, -1.5);
+      let pan = sin(time * 0.4 + f) * 0.4 + fract(note_stab * 0.37 + f) - 0.5;
+      let dir = normalize(vec3f(sin(pan), -0.9, -0.5));
+      let tint = vec3f(0.35 + 0.65 * fract(f * 0.5), 0.65, 1.0 - 0.5 * fract(f * 0.5));
+      col += tint * beam(ro, rd, src, dir, 14.0, 0.06) * (0.2 + lvl_stab * 1.6 + hit_kick * 0.7);
+    }
+    col += vec3f(0.05, 0.07, 0.12) * smoothstep(-1.0, 3.0, ro.y + rd.y * 8.0) * (0.3 + bass);
+    return vec4f(col / (1.0 + col * 0.6), 1.0);
+  }
+
+cps .5`,
+    why: 'A beam through haze is the integral of a glow around a LINE, and the closest approach between two lines is closed form. So there is no raymarching here and no loop over depth: six fixtures cost about what one screen-space blur costs, and because they are real lines in space they foreshorten when they point at you. The second move is the two gaussians. A single wide one is a soft wash, which is what a first attempt always looks like; a real shaft is a narrow hot core inside a much wider, much dimmer halo, and the RATIO between them is what reads as intensity.',
+  },
+  {
+    id: 'viz-sections',
+    group: 'visuals',
+    title: 'Change the visual when the section changes',
+    tags: ['visual', 'shader', 'wgsl', 'arrangement', 'section', 'cycle'],
+    code: `synth pad unison:4 detune:10
+  saw note
+  ladder 1400 res:.2
+  * adsr .5 .4 .8 .8
+  * .3
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  drop = adsr .001 .09 0 .05 ^ 3 -> 48..190
+  amp = adsr .001 .16 0 .06
+
+section intro 4
+  play pad
+    <c3 g2>/2
+
+section drop 4
+  play pad
+    <c3 g2>/2
+  play kick
+    c2 c2 c2 c2
+
+song intro drop
+
+visual
+  fn act(bars: f32, a: f32, b: f32) -> f32 {
+    return smoothstep(a - 0.125, a + 0.125, bars) * (1.0 - smoothstep(b - 0.125, b + 0.125, bars));
+  }
+
+  fn render(uv: vec2f) -> vec4f {
+    let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);
+    let bars = fract(cycle / 8.0) * 8.0;
+    let intro = act(bars, 0.0, 4.0);
+    let drop = act(bars, 4.0, 8.0);
+    let rise = clamp(bars / 4.0, 0.0, 1.0);
+    let glow = 0.02 / (abs(length(p) - 0.3 - drop * 0.2) + 0.02);
+    let col = vec3f(0.2, 0.5, 1.0) * intro * glow * (0.2 + rise * 0.4 + lvl_pad * 1.2)
+            + vec3f(1.0, 0.5, 0.2) * drop * glow * (0.6 + hit_kick * 2.0);
+    return vec4f(col / (1.0 + col * 0.5), 1.0);
+  }
+
+cps .5`,
+    why: '`cycle` is the bar count, and it follows the transport rather than the wall clock, so it rebases when you press play. That makes `fract(cycle / N) * N` the position inside an N-bar arrangement, and the number N has to be the SONG length. Writing the visual around a loop length you liked is the trap: a shader built for 8 bars keeps running its own 8-bar loop after the arrangement grows to 56, so its drop lands three and a half times a pass and never where the kick is. The softened edges in `act` matter too: a hard comparison changes on a frame boundary, which pops.',
   },
 ]

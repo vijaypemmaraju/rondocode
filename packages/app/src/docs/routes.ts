@@ -42,7 +42,7 @@ export const ROUTES: readonly RouteDef[] = [
     view: 'guide',
     path: '/docs',
     label: 'guide',
-    groups: ['start here', 'sound design', 'effects & mix', 'patterns & form', 'voice & visuals', 'the rondo language'],
+    groups: ['start here', 'sound design', 'effects & mix', 'patterns & form', 'voice, midi & files', 'visuals', 'the rondo language'],
     blurb: 'Read it through, or jump to a topic. Every snippet plays.',
   },
   {
@@ -58,6 +58,7 @@ export const ROUTES: readonly RouteDef[] = [
       'cookbook: mix & space',
       'cookbook: live & performance',
       'cookbook: arrangement',
+      'cookbook: visuals',
     ],
     blurb: 'Complete programs for things you might want. Paste one and press play.',
   },

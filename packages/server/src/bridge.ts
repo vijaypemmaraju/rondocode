@@ -71,6 +71,17 @@ export class Bridge {
     // Non-upgrade HTTP requests: give the optional handler (the /complete
     // routes) first look, else a plain 404.
     this.server = createServer((req, res) => {
+      // `GET /doc` — the EDITOR's document, for tooling that has to write what
+      // the human is actually looking at back to disk (scripts/pull-local.ts).
+      //
+      // HTTP rather than a second WebSocket ON PURPOSE. The newest /session
+      // connection wins and closes the previous one, so a tool that connected
+      // to ask what the tab was showing would disconnect the very tab it was
+      // asking about. A read cannot be allowed to do that.
+      if (req.method === 'GET' && (req.url === '/doc' || (req.url ?? '').startsWith('/doc?'))) {
+        this.serveDoc(res)
+        return
+      }
       if (httpHandler?.(req, res)) return
       res.writeHead(404, { 'content-type': 'text/plain' })
       res.end('rondocode bridge: WebSocket endpoint at /session\n')
@@ -87,6 +98,24 @@ export class Bridge {
       if (!this.listening) return // the bind failure: server's own handler rejects
       console.warn('[bridge] websocket server error:', err.message)
     })
+  }
+
+  /** Answer `GET /doc` from the connected browser, as JSON. */
+  private serveDoc(res: ServerResponse): void {
+    const send = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (!this.connected) {
+      // the same wording the MCP tools use, because it is the same fix: only
+      // a human can open or refresh the app
+      send(503, { error: 'no browser session connected' })
+      return
+    }
+    this.call('getDoc').then(
+      (doc) => send(200, doc),
+      (err: unknown) => send(502, { error: err instanceof Error ? err.message : String(err) }),
+    )
   }
 
   /** True while a browser session socket is open. */

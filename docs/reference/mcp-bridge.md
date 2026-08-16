@@ -126,6 +126,37 @@ Three documentation resources come over the same connection:
 `rondocode://docs/dsl-reference`, `rondocode://docs/agent-guide` and
 `rondocode://docs/examples`.
 
+## Pulling the buffer back to a file
+
+The editor reads local examples from `packages/app/src/examples/local/`, and
+until recently nothing went the other way: edits made in the browser lived in
+the project store while the file on disk quietly fell behind.
+
+```
+pnpm pull-local levels          # write the running buffer to local/levels.ts
+pnpm pull-local levels --dry    # say what would change, write nothing
+```
+
+It reads `GET /doc` on the bridge, which answers with the EDITOR's text and the
+language it is in:
+
+```json
+{ "text": "synth pad\n  saw note\n", "lang": "rondo" }
+```
+
+That is deliberately not `get_code`, which answers with the session's evaluated
+JavaScript: what you are editing may be rondo, and a file written from the
+compiled output would lose the source. When the buffer is rondo the file gets
+both, with the JavaScript COMPILED from it rather than written twice, so the
+two halves cannot drift into different tunes. A buffer that does not compile is
+refused rather than written.
+
+It is an HTTP read rather than a second WebSocket for one reason: the bridge
+gives the session to the newest `/session` connection and closes the previous
+one, so a tool that dialled in to ask what the tab was showing would disconnect
+the tab it was asking about. With no browser connected it answers 503 and the
+command says so.
+
 ## Ghost-text completion
 
 The bridge process also serves the editor's inline AI completion, over HTTP on

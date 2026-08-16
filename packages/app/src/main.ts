@@ -2,6 +2,7 @@ import './style.css'
 import { AudioSession } from './audio/AudioSession'
 import { mountEditor } from './editor/editor'
 import type { EditorHandle } from './editor/editor'
+import { rondoMode } from './editor/langflag'
 import { mountLibrary } from './editor/library'
 import type { ProjectStore } from './session/projects'
 import { mountDocs } from './editor/docspanel'
@@ -40,6 +41,14 @@ const startBridge = (editor: EditorHandle): void => {
     handlers: {
       evalCode: (p) => session.evalCode(str(obj(p).source, 'source')),
       getCode: () => ({ code: session.code, lastAttempted: session.lastAttempted }),
+      /* The EDITOR's text, which is NOT `getCode`: that answers with the
+       * session's evaluated JavaScript, and the human may be writing rondo.
+       * Tooling that writes a file back to disk needs the source they are
+       * editing, in the language they are editing it in. */
+      getDoc: () => ({
+        text: editor.view.state.doc.toString(),
+        lang: editor.view.state.facet(rondoMode) ? 'rondo' : 'rondocode',
+      }),
       setParam: (p) => {
         const q = obj(p)
         session.setParam(

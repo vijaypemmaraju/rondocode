@@ -21,6 +21,7 @@
   ],
   "scripts": {
     "dev": "pnpm --filter @rondocode/app dev",
+    "pull-local": "pnpm --filter @rondocode/server exec tsx scripts/pull-local.ts",
     "bridge": "pnpm --filter @rondocode/server exec tsx src/main.ts",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",

@@ -67,6 +67,62 @@ afterEach(async () => {
 })
 
 
+/* ------------------------------------------------------------------------- *
+ * GET /doc — the editor's document, for tooling that writes it back to disk.
+ *
+ * Read over HTTP rather than over a second WebSocket ON PURPOSE: the newest
+ * /session connection wins and closes the previous one, so a tool that dialled
+ * in to ask what the tab was showing would disconnect the tab it was asking
+ * about. The last test here is the one that pins that.
+ * ------------------------------------------------------------------------- */
+describe('GET /doc', () => {
+  /** A fake browser that answers `getDoc` with `doc`. */
+  const speaks = (ws: WebSocket, doc: unknown): void => {
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data)) as { id: string; method: string }
+      if (msg.method === 'getDoc') ws.send(JSON.stringify({ id: msg.id, result: doc }))
+    })
+  }
+
+  it('answers with whatever the editor is showing, in its own language', async () => {
+    const { bridge, port } = await rig()
+    const ws = await connect(port)
+    speaks(ws, { text: 'synth pad\n  saw note\n', lang: 'rondo' })
+    await until(() => bridge.connected)
+    const res = await fetch(`http://127.0.0.1:${port}/doc`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ text: 'synth pad\n  saw note\n', lang: 'rondo' })
+  })
+
+  it('says 503 with no browser, which is the one thing only a human can fix', async () => {
+    const { port } = await rig()
+    const res = await fetch(`http://127.0.0.1:${port}/doc`)
+    expect(res.status).toBe(503)
+    expect(((await res.json()) as { error: string }).error).toContain('no browser session connected')
+  })
+
+  it('reading the doc does NOT take the session away from the tab', async () => {
+    // a WebSocket read would have: newest /session connection wins
+    const { bridge, port } = await rig()
+    const ws = await connect(port)
+    speaks(ws, { text: 'x', lang: 'rondocode' })
+    await until(() => bridge.connected)
+    let closed = false
+    ws.on('close', () => { closed = true })
+    await fetch(`http://127.0.0.1:${port}/doc`)
+    await fetch(`http://127.0.0.1:${port}/doc`)
+    expect(closed, 'the browser socket was closed by a read').toBe(false)
+    expect(bridge.connected).toBe(true)
+  })
+
+  it('leaves the other routes alone', async () => {
+    const { port } = await rig()
+    const res = await fetch(`http://127.0.0.1:${port}/nope`)
+    expect(res.status).toBe(404)
+  })
+})
+
+
 describe('Bridge', { timeout: SOCKET_TIMEOUT_MS }, () => {
   it('rejects calls when no session is connected', async () => {
     const { bridge } = await rig()

@@ -128,9 +128,10 @@ Three documentation resources come over the same connection:
 
 ## Pulling the buffer back to a file
 
-The editor reads local examples from `packages/app/src/examples/local/`, and
-until recently nothing went the other way: edits made in the browser lived in
-the project store while the file on disk quietly fell behind.
+The editor reads local examples from the gitignored local directory beside
+`packages/app/src/examples/local-loader.ts`, and until recently nothing went
+the other way: edits made in the browser lived in the project store while the
+file on disk quietly fell behind.
 
 ```
 pnpm pull-local levels          # write the running buffer to local/levels.ts

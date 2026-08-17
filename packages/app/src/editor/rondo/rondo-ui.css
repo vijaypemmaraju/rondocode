@@ -777,6 +777,13 @@
 /* a rest has no pitch to bend: draw it faint so the slot still reads as a
    step, without implying it carries a value */
 .rondo-bendlane .bl-curve.rest { opacity: 0.18; }
+/* A note that INHERITED its value rather than setting one. Dashed and dimmer:
+   the level is real (the engine is holding it) but the note does not own it,
+   so it is not the one to drag if you want to change it. */
+.rondo-bendlane .bl-curve.held {
+  opacity: 0.45;
+  stroke-dasharray: 3 3;
+}
 
 /* The sustain guide: the curve no longer touches sustain at the decay handle
    (it is one time constant, 63.2% of the way), so the level needs its own

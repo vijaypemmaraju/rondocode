@@ -77,6 +77,32 @@ export function laneText(notes: readonly BendNote[]): string {
   return notes.map((n) => stepText(n.step, n.acc, n.expr, n.lanes)).join(' ')
 }
 
+/**
+ * The value IN EFFECT at each note, which is not the same as the value each
+ * note carries.
+ *
+ * A lane whose name the engine does not know sets a PARAM, and a param is a
+ * control setting rather than a property of a note: it keeps whatever it was
+ * last given. So one note carrying `'0.9` holds every note after it at 0.9,
+ * and the engine emits exactly ONE param event for four notes.
+ *
+ * The lane used to draw those later notes flat, at rest, while the engine was
+ * still holding them displaced. That is the one thing this widget must not do
+ * (see `bendPath`): it may only draw what it actually knows, and what it knows
+ * is that the value persists.
+ *
+ * A rest gets `undefined` because it sounds nothing, but it does NOT clear the
+ * held value: the note after a rest inherits across it, exactly as the param
+ * does.
+ */
+export function effectiveExpr(notes: readonly BendNote[]): (number | undefined)[] {
+  let held: number | undefined
+  return notes.map((n) => {
+    if (n.expr !== undefined) held = n.expr
+    return n.step === null ? undefined : held
+  })
+}
+
 const LANE_H = 46
 /** Value range a drag spans, and what the curve is drawn against. */
 export const BEND_RANGE = 1
@@ -143,6 +169,13 @@ export class BendLaneWidget extends WidgetType {
     svg.appendChild(zero)
 
     const paths: SVGPathElement[] = []
+    const curveClass = (n: BendNote, eff: number | undefined): string =>
+      'bl-curve'
+      + (n.step === null ? ' rest' : '')
+      // `held` says "this note did not set the value, it inherited it", which
+      // is the difference between the note you can edit here and the notes it
+      // reaches
+      + (n.expr === undefined && eff !== undefined ? ' held' : '')
     notes.forEach((n, i) => {
       const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
       g.setAttribute('transform', `translate(${(i * slot).toFixed(2)} 0)`)
@@ -154,15 +187,23 @@ export class BendLaneWidget extends WidgetType {
       hit.setAttribute('width', String(slot)); hit.setAttribute('height', String(LANE_H))
       hit.dataset['i'] = String(i)
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-      path.setAttribute('class', 'bl-curve' + (n.step === null ? ' rest' : ''))
-      path.setAttribute('d', bendPath(n.expr, slot - 2, LANE_H))
+      const eff0 = effectiveExpr(notes)[i]
+      path.setAttribute('class', curveClass(n, eff0))
+      path.setAttribute('d', bendPath(n.expr ?? eff0, slot - 2, LANE_H))
       g.appendChild(hit); g.appendChild(path)
       svg.appendChild(g)
       paths.push(path)
     })
 
-    const redraw = (i: number): void => {
-      paths[i]?.setAttribute('d', bendPath(notes[i]!.expr, slot - 2, LANE_H))
+    // the WHOLE lane, not one slot: changing a value moves every note after
+    // it that was inheriting the old one
+    const redraw = (): void => {
+      const eff = effectiveExpr(notes)
+      paths.forEach((p, k) => {
+        const n = notes[k]!
+        p.setAttribute('class', curveClass(n, eff[k]))
+        p.setAttribute('d', bendPath(n.expr ?? eff[k], slot - 2, LANE_H))
+      })
     }
 
     attachGesture(wrap, this.drag, 'element', (e) => {
@@ -185,7 +226,7 @@ export class BendLaneWidget extends WidgetType {
           const snapped = Math.abs(cl) < 0.02 ? undefined : Number(cl.toFixed(2))
           if (notes[i]!.expr === snapped) return
           notes[i]!.expr = snapped
-          redraw(i)
+          redraw()
           commit()
         },
         onEnd: () => {

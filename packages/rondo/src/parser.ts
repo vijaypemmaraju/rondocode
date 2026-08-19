@@ -12,9 +12,10 @@
  * Expressions use precedence climbing (^ > * / > + -) where the primary is a
  * builtin call with space-separated arguments (`square note/2`, `adsr a d s r`). */
 
-import type { Binding, Comb, CpsItem, TimeSigItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue } from './ast'
+import type { Binding, Comb, CpsItem, TimeSigItem, CtrlValue, CurveDefItem, Expr, MacroItem, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem , SingBlock, ScValue, ZoneRow } from './ast'
 import { lex, type Line, type Tok } from './lexer'
 import { BUILTINS, isTransform, isReservedBinding } from './builtins'
+import { noteNameToMidi } from '@rondocode/pattern'
 import type { BuiltinSpec } from './builtins'
 
 const SIGNALS = new Set(['sine', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'sine2', 'rand', 'perlin'])
@@ -22,8 +23,8 @@ const CTRL_METHODS = new Set(['gain', 'dur', 'pan'])
 const NUM_RE = /^-?\d*\.?\d+$/
 
 /** synth-header voice options: `synth acid mono glide:.08 unison:5 …`. */
-const VOICE_FLAGS = new Set(['mono'])
-const VOICE_OPTS = new Set(['glide', 'unison', 'detune', 'spread', 'curve', 'blend', 'octaves', 'humanize', 'voices'])
+export const VOICE_FLAGS: ReadonlySet<string> = new Set(['mono'])
+export const VOICE_OPTS: ReadonlySet<string> = new Set(['glide', 'unison', 'detune', 'spread', 'curve', 'blend', 'octaves', 'humanize', 'voices'])
 
 const PREC: Record<string, number> = { '+': 2, '-': 2, '*': 3, '/': 3, '^': 4 }
 
@@ -64,6 +65,50 @@ class Cursor {
     const a = this.peek(), b = this.peek2()
     return !!a && a.k === 'ident' && !!b && b.k === 'colon'
   }
+
+  /* A named argument now walks OUTWARD until some call declares it (see
+   * parseNamed). That is the right rule and it costs a diagnostic: when
+   * nothing accepts `rez:`, the leftover surfaces at end of line, and
+   * "unexpected tokens" is a much worse thing to read than "`svf` has no
+   * `rez:` argument". So each refusal is remembered, innermost last, and the
+   * end-of-line message spends them. */
+  readonly declined: { arg: string; by: string }[] = []
+
+  /** `name` was refused by builtin `by`. */
+  decline(arg: string, by: string): void {
+    this.declined.push({ arg, by })
+  }
+
+  /** Some enclosing call took `arg` after all — it is nobody's error. */
+  accepted(arg: string): void {
+    for (let i = this.declined.length - 1; i >= 0; i--) {
+      if (this.declined[i]!.arg === arg) this.declined.splice(i, 1)
+    }
+  }
+
+  /** The innermost call that refused `arg`, if any. */
+  refuser(arg: string): string | undefined {
+    for (let i = this.declined.length - 1; i >= 0; i--) {
+      if (this.declined[i]!.arg === arg) return this.declined[i]!.by
+    }
+    return undefined
+  }
+}
+
+/** What to say about tokens left over at the end of a line. A stray `)` is
+ *  worth naming: "unexpected tokens" sends someone looking at the whole line
+ *  when one character is wrong. */
+function leftoverMsg(c: Cursor, fallback: string): string {
+  if (c.peek()?.k === 'rparen') return 'unmatched `)`'
+  if (c.atNamedArg()) {
+    const arg = (c.peek() as Tok & { v: string }).v
+    const by = c.refuser(arg)
+    // name the INNERMOST call that refused it: that is where the author was
+    // looking when they typed it
+    if (by !== undefined) return `\`${by}\` has no \`${arg}:\` argument`
+    return `no call here takes a \`${arg}:\` argument`
+  }
+  return fallback
 }
 
 /* ---- expressions --------------------------------------------------------- */
@@ -99,16 +144,32 @@ function parseExpr(c: Cursor, minPrec: number): Expr {
 /** True if the next token can begin a space-separated argument. */
 function canStartArg(c: Cursor): boolean {
   const t = c.peek()
-  return !!t && t.sp && (t.k === 'num' || t.k === 'jsexpr' || (t.k === 'ident' && !c.atNamedArg()))
+  return !!t && t.sp && (t.k === 'num' || t.k === 'jsexpr' || t.k === 'lparen' || (t.k === 'ident' && !c.atNamedArg()))
 }
 
 /** Parse named args (`res:.85 mode:hp`). Enum-kind named values (per the
  *  builtin's spec) take a bare word as a quoted enum, not a binding ref. */
-function parseNamed(c: Cursor, spec?: BuiltinSpec): Record<string, Expr> {
+function parseNamed(c: Cursor, spec?: BuiltinSpec, by = '?'): Record<string, Expr> {
   const named: Record<string, Expr> = {}
   while (c.atNamedArg()) {
+    /* ONLY WHAT THIS CALL DECLARES. A named argument belongs to the nearest
+     * enclosing call that ACCEPTS THAT NAME, so anything else is left in the
+     * stream for an outer call to claim.
+     *
+     * This used to be all-or-nothing — declare any named arg and the call
+     * swallowed every pair that followed — which made `vocoder supersaw
+     * detune:.4 bands:16` a parse error (supersaw ate `bands:`), and meant
+     * giving `mic` a `device:` argument broke `vocoder mic bands:24`. Adding a
+     * named argument to a NESTED builtin should not change how a following
+     * one binds. */
+    const peeked = c.peek() as Tok & { v: string }
+    if (spec?.named?.[peeked.v] === undefined) {
+      c.decline(peeked.v, by)
+      break
+    }
     const nameTok = c.next() as Tok & { v: string }
     c.next() // colon
+    c.accepted(nameTok.v)
     const vt = c.peek()
     if (spec?.named?.[nameTok.v] === 'enum' && vt && vt.k === 'ident') {
       c.next()
@@ -168,6 +229,24 @@ function parseEqBands(c: Cursor): Expr[] {
 function parseApp(c: Cursor): Expr {
   const t = c.peek()
   if (!t) { c.err('unexpected end of line'); return { t: 'num', v: 0, pos: c.pos() } }
+  // ( … ) groups arithmetic, and nothing else: the contents are a full
+  // expression, so precedence and `->` inside a group work as written.
+  if (t.k === 'lparen') {
+    c.next()
+    const inner = parseExpr(c, 0)
+    const close = c.peek()
+    if (!close || close.k !== 'rparen') {
+      c.err('unclosed `(`', t.pos)
+      return inner
+    }
+    c.next()
+    return inner
+  }
+  if (t.k === 'rparen') {
+    c.err('unmatched `)`', t.pos)
+    c.next()
+    return { t: 'num', v: 0, pos: t.pos }
+  }
   if (t.k === 'jsexpr') { c.next(); return { t: 'js', code: t.v, pos: t.pos } }
   if (t.k === 'num') { c.next(); return { t: 'num', v: t.v, pos: t.pos } }
   if (t.k === 'ident') {
@@ -198,7 +277,7 @@ function parseApp(c: Cursor): Expr {
         }
         args.push(arg)
       }
-      const named = parseNamed(c, BUILTINS['env'])
+      const named = parseNamed(c, BUILTINS['env'], 'env')
       if (args.length === 0 && Object.keys(named).length === 0) return { t: 'ident', name, pos: t.pos }
       if (args.length === 0 || args.length % 2 !== 0) c.err('env takes time/level pairs, e.g. `env .005 1 .15 .4 release:.3`', t.pos)
       return { t: 'call', name, args, named, pos: t.pos }
@@ -221,7 +300,7 @@ function parseApp(c: Cursor): Expr {
       // a builtin that declares NO named args consumes none — trailing
       // `key:value` pairs belong to an ENCLOSING call (`vocoder mic bands:24`
       // must give bands: to the vocoder, not the nested mic)
-      const named = spec.named !== undefined && Object.keys(spec.named).length > 0 ? parseNamed(c, spec) : {}
+      const named = parseNamed(c, spec, name)
       return { t: 'call', name, args, named, pos: t.pos }
     }
     // a plain reference: a binding name, or note / gate / velocity / input
@@ -275,11 +354,81 @@ function parseKnob(c: Cursor): Expr {
 
 /* ---- blocks -------------------------------------------------------------- */
 
+/** Steps a single `sum` may unroll to. */
+const SUM_MAX_STEPS = 64
+
+/** A note name or a MIDI number as MIDI. Shared by zonedef ranges and roots. */
+function midiOf(tok: string): number | undefined {
+  if (/^\d+$/.test(tok)) {
+    const n = Number(tok)
+    return n >= 0 && n <= 127 ? n : undefined
+  }
+  return noteNameToMidi(tok)
+}
+
 function bodyLines(lines: Line[], start: number, min = 0): { body: Line[]; next: number } {
   const body: Line[] = []
   let j = start
   while (j < lines.length && lines[j]!.indent > min) { body.push(lines[j]!); j++ }
   return { body, next: j }
+}
+
+/**
+ * `sum k 1..16` — header and indented body into one Expr.
+ *
+ * The range is written with the same `..` the rest of the language uses, and
+ * both ends must be plain integers: this unrolls at compile time, so a range
+ * that is not known then is not a range this can take.
+ */
+function parseSum(header: Line, body: Line[], errors: RondoError[]): Expr | null {
+  const at = { line: header.line, col: header.rawCol }
+  const nameTok = header.toks[1]
+  if (!nameTok || nameTok.k !== 'ident') {
+    errors.push({ message: 'sum needs an index name and a range (`sum k 1..16`)', ...at })
+    return null
+  }
+  const lo = header.toks[2]
+  const dots = header.toks[3]
+  const hi = header.toks[4]
+  if (lo?.k !== 'num' || dots?.k !== 'range' || hi?.k !== 'num') {
+    errors.push({ message: `sum needs a range after the index (\`sum ${nameTok.v} 1..16\`)`, ...at })
+    return null
+  }
+  const loV = (lo as Tok & { v: number }).v
+  const hiV = (hi as Tok & { v: number }).v
+  if (!Number.isInteger(loV) || !Number.isInteger(hiV)) {
+    errors.push({ message: 'sum range ends must be whole numbers — the body is repeated once per step', ...at })
+    return null
+  }
+  if (hiV < loV) {
+    errors.push({ message: `sum range runs backwards (\`${loV}..${hiV}\`)`, ...at })
+    return null
+  }
+  // A guard, not a limit anyone will meet writing music: every step becomes
+  // real DSP nodes, so a typo'd `1..1000` should say so rather than build a
+  // graph that stalls the audio thread.
+  if (hiV - loV + 1 > SUM_MAX_STEPS) {
+    errors.push({ message: `sum of ${hiV - loV + 1} steps is more voices than this can build (max ${SUM_MAX_STEPS})`, ...at })
+    return null
+  }
+  if (body.length === 0) {
+    errors.push({ message: 'sum needs an indented body — the lines to repeat', ...at })
+    return null
+  }
+  const folded = foldSpine(body, null, errors)
+  if (folded.spine === null) {
+    errors.push({ message: 'sum body has no audio line', ...at })
+    return null
+  }
+  return {
+    t: 'sum',
+    index: nameTok.v,
+    lo: loV,
+    hi: hiV,
+    bindings: folded.bindings,
+    body: folded.spine,
+    pos: header.toks[0]!.pos,
+  }
 }
 
 /** Fold a run of body lines into one spine expression + a list of bindings.
@@ -288,15 +437,30 @@ function bodyLines(lines: Line[], start: number, min = 0): { body: Line[]; next:
 function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { spine: Expr | null; bindings: Binding[] } {
   const bindings: Binding[] = []
   let spine = initial
-  for (const ln of body) {
+  for (let li = 0; li < body.length; li++) {
+    const ln = body[li]!
     const c = new Cursor(ln.toks, errors, { line: ln.line, col: ln.rawCol })
     const t0 = ln.toks[0]
+    // `sum k 1..16` + an indented body: the body summed once per k. Parsed
+    // here rather than as an expression because it OWNS the lines under it,
+    // and only the line walker knows where they end. A following `=` means a
+    // binding, which `sum` is reserved against — but reading the header first
+    // would report the wrong error for it.
+    if (t0 && t0.k === 'ident' && t0.v === 'sum' && ln.toks[1]?.k !== 'eq') {
+      const sub = bodyLines(body, li + 1, ln.indent)
+      const sumExpr = parseSum(ln, sub.body, errors)
+      li = sub.next - 1
+      if (sumExpr === null) continue
+      if (spine === null) spine = sumExpr
+      else spine = { t: 'bin', op: '+', l: spine, r: sumExpr, pos: t0.pos }
+      continue
+    }
     // binding: NAME = …
     if (ln.toks.length >= 2 && t0 && t0.k === 'ident' && ln.toks[1]!.k === 'eq') {
       const bname = t0.v
       c.next(); c.next()
       const rhs = parseExpr(c, 0)
-      if (!c.eof()) c.err('unexpected tokens after binding')
+      if (!c.eof()) c.err(leftoverMsg(c, 'unexpected tokens after binding'))
       if (bindings.some((b) => b.name === bname)) {
         c.err(`duplicate binding '${bname}' — each name can be defined once`, t0.pos)
         continue
@@ -318,13 +482,13 @@ function foldSpine(body: Line[], initial: Expr | null, errors: RondoError[]): { 
       const name = t0.v; c.next()
       const spec = BUILTINS[name]!
       const args: Expr[] = [spine, ...(name === 'eq' ? parseEqBands(c) : parsePositionals(c, spec))]
-      const named = parseNamed(c, spec)
+      const named = parseNamed(c, spec, name)
       spine = { t: 'call', name, args, named, pos: t0.pos }
     } else {
       c.err('expected a transform — an operator (`* env`), a filter/effect (`ladder …`, `delay …`), or a sig op (`tanh`).')
       continue
     }
-    if (!c.eof()) c.err('unexpected tokens at end of line')
+    if (!c.eof()) c.err(leftoverMsg(c, 'unexpected tokens at end of line'))
   }
   return { spine, bindings }
 }
@@ -405,7 +569,7 @@ const CURVE_NUM = /^-?\d*\.?\d+(?::-?\d*\.?\d+)?$/
 
 /** Parse a modifier value: number | signal (`sine 200..2400 slow:4`,
  *  `rise 8 0..1`, `curve 8 1 8 .2`, `shape swell 16`) | mini. */
-function parseCtrlValue(raw: string): CtrlValue {
+function parseCtrlValue(raw: string, from?: number): CtrlValue {
   const s = raw.trim()
   const toks = s.split(/\s+/)
   if (toks.length === 1 && NUM_RE.test(toks[0]!)) return { kind: 'num', v: Number(toks[0]) }
@@ -452,7 +616,7 @@ function parseCtrlValue(raw: string): CtrlValue {
     }
     return v
   }
-  return { kind: 'mini', text: s }
+  return from === undefined ? { kind: 'mini', text: s } : { kind: 'mini', text: s, from: from + (raw.length - raw.trimStart().length) }
 }
 
 function parseMod(ln: Line, errors: RondoError[]): Mod | null {
@@ -475,7 +639,11 @@ function parseMod(ln: Line, errors: RondoError[]): Mod | null {
   const kv = /^([a-zA-Z_]\w*)\s*:\s*(.+)$/.exec(raw)
   if (kv) {
     const name = kv[1]!
-    const value = parseCtrlValue(kv[2]!)
+    /* Where the VALUE starts in the buffer. `(.+)$` is greedy to the end of
+     * the trimmed line, so the value begins that many characters from its end;
+     * `ln.offset` is where `raw` began before trimming. */
+    const valueFrom = ln.offset + ln.raw.indexOf(raw) + (raw.length - kv[2]!.length)
+    const value = parseCtrlValue(kv[2]!, valueFrom)
     if (CTRL_METHODS.has(name)) return { kind: 'method', name: name as 'gain', value, pos }
     return { kind: 'ctrl', name, value, pos }
   }
@@ -551,6 +719,68 @@ function notationOf(ln: Line, errors: RondoError[]): { notation: string; from: n
   return { notation, from: ln.offset, scale: m?.[1], synth: sy?.[1] }
 }
 
+/**
+ * How many notation groups a line leaves OPEN: `<` `[` `{` minus their closers.
+ *
+ * Only structural characters count. `(` is euclid (`rim(7,16)`) and never
+ * spans lines, and a `#` inside a note name has already gone.
+ */
+function openDepth(text: string): number {
+  let d = 0
+  for (const c of text) {
+    if (c === '<' || c === '[' || c === '{') d++
+    else if (c === '>' || c === ']' || c === '}') d--
+  }
+  return d
+}
+
+/**
+ * Join notation lines that are still INSIDE a group onto the line that opened
+ * it, so a long pattern can be broken across lines.
+ *
+ * The rule is "you haven't closed your bracket yet", which needs nothing new
+ * to learn and — the reason it is safe — can only change programs that do not
+ * work today. Two notation lines already mean two STACKED voices, so joining
+ * by adjacency or indentation would silently re-read working code; an
+ * unbalanced line is an eval error (`unclosed '<'`), so giving it a meaning
+ * takes nothing away.
+ *
+ * The join uses the EXACT gap between the two lines, filled with spaces, so
+ * every character of the merged notation sits at the offset it occupies in the
+ * document. That is what keeps note-play flash lighting the right characters
+ * on a continuation line, and mini-notation reads a run of spaces the same as
+ * the newline it replaced.
+ */
+function joinOpenLines(body: Line[], errors: RondoError[]): Line[] {
+  const out: Line[] = []
+  for (let i = 0; i < body.length; i++) {
+    let ln = body[i]!
+    if (openDepth(ln.raw) <= 0) {
+      out.push(ln)
+      continue
+    }
+    const startedAt = ln
+    let depth = openDepth(ln.raw)
+    let raw = ln.raw
+    while (depth > 0 && i + 1 < body.length) {
+      const nxt = body[++i]!
+      const gap = Math.max(1, nxt.offset - (ln.offset + raw.length))
+      raw += ' '.repeat(gap) + nxt.raw
+      depth += openDepth(nxt.raw)
+      ln = startedAt
+    }
+    if (depth > 0) {
+      errors.push({
+        message: 'notation leaves a group open — add the closing `>`, `]` or `}` (a pattern may run across lines while it is open)',
+        line: startedAt.line,
+        col: startedAt.rawCol,
+      })
+    }
+    out.push({ ...startedAt, raw })
+  }
+  return out
+}
+
 /** `irand N [seg:M]` as a notation line — random scale degrees. */
 const IRAND_RE = /^irand[ \t]+(\d+)(?:[ \t]+seg:(\d+))?$/
 
@@ -582,15 +812,16 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   // 1:1 — that's what lets note-play flash highlight the source.
   const noteLines: Line[] = []
   const modLines: Line[] = []
-  for (const ln of body) {
+  for (const ln of joinOpenLines(body, errors)) {
     if (modLines.length === 0 && !isModifierLine(ln, kind)) noteLines.push(ln)
     else modLines.push(ln)
   }
   let notation = ''
   let notationFrom = body[0]?.offset ?? 0
   let scale: string | undefined
+  let scaleFrom: number | undefined
   let scalePos: Pos | undefined
-  let voices: { notation: string; notationFrom: number; synthName?: string }[] | undefined
+  let voices: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]; notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[] }[] | undefined
   let lineSynth: string | undefined
   const noteInfos: { text: string; pos: Pos }[] = []
   for (let v = 0; v < noteLines.length; v++) {
@@ -617,6 +848,17 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
   for (const ln of modLines) {
     // `scale: a-min` as a modifier line (the stacked-voices form needs it
     // somewhere other than inline)
+    /* A PATTERN of scales modulates the key: `scale: <c-maj f-min>`. Anything
+     * with mini structure in it is taken as notation; a bare word stays the
+     * single-scale form it always was. */
+    const smPat = /^scale[ \t]*:[ \t]*(.*[<>[\]{}*!@?|,].*)$/.exec(ln.raw)
+    if (smPat) {
+      const raw = smPat[1]!
+      scale = raw.trim()
+      scaleFrom = ln.offset + ln.raw.indexOf(raw) + (raw.length - raw.trimStart().length)
+      scalePos = { line: ln.line, col: ln.rawCol }
+      continue
+    }
     const sm = /^scale[ \t]*:[ \t]*([a-gA-G][a-zA-Z0-9#_-]*)[ \t]*$/.exec(ln.raw)
     if (sm) { scale = sm[1]; scalePos = { line: ln.line, col: ln.rawCol }; continue }
     const mod = parseMod(ln, errors)
@@ -633,6 +875,7 @@ function parsePlay(lines: Line[], i: number, errors: RondoError[], kind: 'play' 
     errors.push({ message: "a beat block's words are synth names — `scale:` doesn't apply", line: p.line, col: p.col })
   }
   const block: PlayBlock = { t: 'play', name, notation, notationFrom, scale, mods, pos: header.toks[0]!.pos }
+  if (scaleFrom !== undefined) block.scaleFrom = scaleFrom
   if (kind === 'beat') block.entry = 'sound'
   // a `synth:` on the FIRST notation line is the same thing the header says,
   // so it settles into synthName rather than needing a second place to look
@@ -732,9 +975,9 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
  *  BODY-level words (`post`, `send`) are NOT here: they open nothing at the
  *  top level. See words.ts, which adds them for highlighting. */
 export const BLOCK_KEYWORDS: readonly string[] = [
-  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig',
-  'bus', 'sidechain', 'master', 'macro', 'switch', 'curvedef', 'scaledef',
-  'wavedef', 'visual', 'js',
+  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'patdef',
+  'bus', 'sidechain', 'master', 'stereo', 'macro', 'switch', 'curvedef', 'scaledef',
+  'wavedef', 'zonedef', 'visual', 'js',
 ]
 
 /** The top-level items that are ONE LINE rather than a block with an indented
@@ -743,7 +986,7 @@ export const BLOCK_KEYWORDS: readonly string[] = [
  *  added to one list and not the other — so it lives HERE, next to the dispatch
  *  that defines it, and the formatter imports it. */
 export const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
-  'cps', 'bpm', 'timesig', 'song', 'sidechain', 'master', 'macro', 'scaledef', 'wavedef',
+  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'stereo', 'macro', 'scaledef', 'wavedef', 'patdef',
 ])
 
 /** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
@@ -797,7 +1040,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     else if (head.v === 'timesig') { const r = parseTimeSig(lines, i, errors); items.push(r.block); i = r.next }
     // `sing NAME [voice:WORD]` — a neural vocal block
     else if (head.v === 'sing') { const r = parseSing(lines, i, errors); items.push(r.block); i = r.next }
-    // `sidechain kick depth:.7 release:.09 lead:.5 …` — extra named args are
+    // `sidechain kick depth:.7 release:90 lead:.5 …` — extra named args are
     // per-channel duck amounts
     else if (head.v === 'sidechain') {
       const srcTok = ln.toks[1]
@@ -926,6 +1169,35 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push({ t: 'curvedef', name, points, pos: head.pos })
       i++
     }
+    // `patdef riff <[0 ~ 3] [5 ~ 7]>` — name a pattern, write it once
+    else if (head.v === 'patdef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'patdef needs a name (`patdef riff <[0 ~ 3]>`)', line: ln.line, col: ln.rawCol })
+        i++
+        continue
+      }
+      // The notation is taken from the RAW line, not from tokens: it is
+      // mini-notation, whose characters the lexer deliberately skips (they
+      // belong to the notation sublanguage, not to expressions).
+      // Search past the KEYWORD. `indexOf(name)` alone found the `a` inside
+      // "p-a-tdef" for a one-character name, so `patdef a <[0 1]>` silently
+      // became the notation "tdef a <[0 1]>" — it compiled, and played
+      // nonsense.
+      const kwEnd = ln.raw.indexOf('patdef') + 'patdef'.length
+      const nameAt = ln.raw.indexOf(name, kwEnd)
+      const rest = ln.raw.slice(nameAt + name.length)
+      const after = rest.trim()
+      if (after === '') {
+        errors.push({ message: `patdef '${name}' has no notation`, line: ln.line, col: ln.rawCol })
+        i++
+        continue
+      }
+      const notationFrom = ln.offset + nameAt + name.length + (rest.length - rest.trimStart().length)
+      items.push({ t: 'patdef', name, notation: after, notationFrom, pos: head.pos })
+      i++
+    }
     // `scaledef pelog 0 1.2 2.7 5.4 6.7` → defineScale('pelog', [0, …]):
     // a custom tuning, steps in semitones from the root (floats welcome)
     else if (head.v === 'scaledef') {
@@ -1024,6 +1296,18 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push({ t: 'wavedef', name, frames, pos: head.pos })
       i++
     }
+    // `level -4` → masterGain(-4): the whole output, in dB. NOT spelled
+    // `gain`, which is already a play modifier (`gain: .5`) — one word for two
+    // things reads as one thing, and it silently knocked the modifier out of
+    // the play-body completions.
+    else if (head.v === 'level') {
+      const v = ln.toks[1]
+      if (!v || v.k !== 'num') {
+        errors.push({ message: 'level needs a number of dB (`level -4`)', line: ln.line, col: ln.rawCol })
+      }
+      items.push({ t: 'level', db: v && v.k === 'num' ? v.v : 0, pos: head.pos })
+      i++
+    }
     // `master threshold:-6 ratio:2 …` → masterCompress(opts)
     else if (head.v === 'master') {
       const opts: Record<string, number> = {}
@@ -1038,7 +1322,71 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push({ t: 'master', opts, pos: head.pos })
       i++
     }
+    // `stereo width:1.3 monobelow:120` → mid/side on the master bus
+    else if (head.v === 'stereo') {
+      const opts: Record<string, number> = {}
+      for (let k = 1; k + 2 < ln.toks.length + 1; k += 3) {
+        const nameT = ln.toks[k], colonT = ln.toks[k + 1], valT = ln.toks[k + 2]
+        if (!nameT || nameT.k !== 'ident' || colonT?.k !== 'colon' || valT?.k !== 'num') {
+          if (nameT) errors.push({ message: 'stereo args are `name:number` pairs (width: monobelow:)', line: nameT.pos.line, col: nameT.pos.col })
+          break
+        }
+        opts[nameT.v] = (valT as Tok & { v: number }).v
+      }
+      items.push({ t: 'stereo', opts, pos: head.pos })
+      i++
+    }
     // `bus NAME` block: FX lines fold from `input`; `send SYNTH AMT` routes
+    /* `zonedef piano` + rows of `lo..hi SAMPLE root:N` — a multisample
+     * instrument. Ranges and roots take NOTE NAMES as well as MIDI numbers,
+     * because `c2..b3 piano_low root:c3` is the form a musician can check and
+     * `36..59 piano_low root:48` is the form they have to look up. */
+    else if (head.v === 'zonedef') {
+      const nameTok = ln.toks[1]
+      const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+        errors.push({ message: 'zonedef needs a name (`zonedef piano`)', line: ln.line, col: ln.rawCol })
+      }
+      const { body, next } = bodyLines(lines, i + 1)
+      const zones: ZoneRow[] = []
+      if (body.length === 0) {
+        errors.push({
+          message: 'zonedef needs rows (`c2..b3 piano_low root:c3`), indented under it',
+          line: ln.line,
+          col: ln.rawCol,
+        })
+      }
+      for (const b of body) {
+        const m = /^(\S+)\.\.(\S+)[ \t]+([a-zA-Z_][\w]*(?::\d+)?)(?:[ \t]+root:(\S+))?[ \t]*$/.exec(b.raw.trim())
+        if (m === null) {
+          errors.push({
+            message: 'a zonedef row is `lo..hi SAMPLE root:NOTE` (`c2..b3 piano_low root:c3`)',
+            line: b.line,
+            col: b.rawCol,
+          })
+          continue
+        }
+        const lo = midiOf(m[1]!)
+        const hi = midiOf(m[2]!)
+        const root = m[4] === undefined ? 60 : midiOf(m[4])
+        if (lo === undefined || hi === undefined || root === undefined) {
+          errors.push({
+            message: 'a zonedef range and root are note names or MIDI numbers (`c2..b3 … root:c3`)',
+            line: b.line,
+            col: b.rawCol,
+          })
+          continue
+        }
+        if (hi < lo) {
+          errors.push({ message: `zonedef range is backwards: ${m[1]}..${m[2]}`, line: b.line, col: b.rawCol })
+          continue
+        }
+        zones.push({ lo, hi, name: m[3]!, root })
+      }
+      if (zones.length > 0) items.push({ t: 'zonedef', name, zones, pos: head.pos })
+      i = next
+      continue
+    }
     else if (head.v === 'bus') {
       const nameTok = ln.toks[1]
       const name = nameTok && nameTok.k === 'ident' ? nameTok.v : ''
@@ -1067,6 +1415,23 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       if (!name || !(len > 0)) {
         errors.push({ message: 'section needs a name and a length in cycles (`section drop 8`)', line: ln.line, col: ln.rawCol })
       }
+      // `section main 8 with drums with bass` — play those sections too
+      const withs: string[] = []
+      for (let k = 3; k < ln.toks.length; k++) {
+        const t = ln.toks[k]!
+        if (t.k === 'ident' && t.v === 'with') {
+          const nt = ln.toks[k + 1]
+          if (!nt || nt.k !== 'ident') {
+            errors.push({ message: 'with needs a section name (`section main 8 with drums`)', line: t.pos.line, col: t.pos.col })
+            break
+          }
+          withs.push(nt.v)
+          k += 1
+          continue
+        }
+        errors.push({ message: `unknown section option (only \`with NAME\`)`, line: t.pos.line, col: t.pos.col })
+        break
+      }
       const { body, next } = bodyLines(lines, i + 1)
       const plays: PlayBlock[] = []
       let j = 0
@@ -1085,7 +1450,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
         }
       }
       if (plays.length === 0) errors.push({ message: `section '${name}' has no plays`, line: ln.line, col: ln.rawCol })
-      items.push({ t: 'section', name, len, plays, pos: head.pos })
+      items.push({ t: 'section', name, len, plays, ...(withs.length > 0 ? { with: withs } : {}), pos: head.pos })
       i = next
     }
     else if (head.v === 'song') {

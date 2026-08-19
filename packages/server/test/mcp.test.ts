@@ -13,7 +13,21 @@ import { createMcpServer, NO_SESSION } from '../src/mcp'
  * handler map produces, evalCode's staged Maps JSON-flattened to {} exactly
  * as the wire does. */
 
-const until = async (cond: () => boolean, ms = 2000): Promise<void> => {
+/* WAITING ON A SOCKET, so the budgets here are generous on purpose.
+ *
+ * These tests open a real WebSocket and wait for a real round trip. Vitest's
+ * default test timeout is 5s and the polls below allowed 2s inside it, which
+ * is a claim about how loaded the machine is rather than about the code: under
+ * the full suite, with a worker per core, an event loop can be starved for
+ * longer than that. Three of these flaked that way (twice in mcp.test.ts, once
+ * here) and every one passed alone and on rerun.
+ *
+ * A generous ceiling costs a passing run NOTHING -- the waits resolve on the
+ * event, not on the clock -- and it is the failing path that gets the room. A
+ * tight one only ever encodes the load of the machine that wrote it. */
+const SOCKET_TIMEOUT_MS = 20_000
+
+const until = async (cond: () => boolean, ms = SOCKET_TIMEOUT_MS): Promise<void> => {
   const t0 = Date.now()
   while (!cond()) {
     if (Date.now() - t0 > ms) throw new Error('until: timed out')
@@ -105,7 +119,8 @@ const resourceText = (contents: { uri: string }[]): string => {
   return first !== undefined && 'text' in first ? String(first.text) : ''
 }
 
-describe('mcp server tools', () => {
+
+describe('mcp server tools', { timeout: SOCKET_TIMEOUT_MS }, () => {
   it('lists all tools with descriptions and input schemas', async () => {
     const { client } = await rig()
     const { tools } = await client.listTools()
@@ -258,7 +273,7 @@ describe('mcp server tools', () => {
   })
 })
 
-describe('mcp server resources', () => {
+describe('mcp server resources', { timeout: SOCKET_TIMEOUT_MS }, () => {
   it('lists the three docs resources', async () => {
     const { client } = await rig()
     const { resources } = await client.listResources()

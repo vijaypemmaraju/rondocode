@@ -43,8 +43,10 @@ const globalNames = new Set(docsOfKind('global').map((e) => e.name))
  *  (n/note/chord/stack/mini, `beat` → s/sound, `irand N seg:M`), and the
  *  continuous signals + rise/fall as ctrl values. */
 const FIRST_CLASS_GLOBALS = [
+  // `stereo width:… monobelow:…` — mid/side on the mix bus
+  'stereo',
   'curve', 'curvedef', 'shape',
-  'synth', 'defineSynth', 'defineScale', 'defineWavetable', 'macro', 'p', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'bus',
+  'synth', 'defineSynth', 'defineScale', 'defineWavetable', 'macro', 'p', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'bus',
   'n', 'note', 'chord', 'stack', 'mini', 'arrange',
   'sound', 's', 'irand',
   'sine', 'sine2', 'cosine', 'saw', 'isaw', 'tri', 'square', 'saw2', 'tri2', 'square2', 'rand', 'perlin',

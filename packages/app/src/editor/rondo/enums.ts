@@ -33,7 +33,10 @@ interface EnumArgLists {
    *  never cycles. */
   pos?: (readonly string[] | null)[]
   /** legal values per named enum arg. */
-  named?: Record<string, readonly string[]>
+  /** null = the slot takes a bare word but has NO static value list (a
+   *  RUNTIME set: loaded sample names, connected audio devices). It cannot
+   *  cycle on a tap, and that is honest rather than missing. */
+  named?: Record<string, readonly string[] | null>
 }
 
 /** The value table: builtin → where its enum words live and what they may
@@ -44,6 +47,8 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   noise: { pos: [['white', 'pink', 'brown']] },
   // lfo.ts LfoShape (LfoKernel's shape switch)
   lfo: { pos: [null, ['sine', 'tri', 'square', 'saw', 'rand']] },
+  // follow.ts FollowConfig.mode
+  follow: { named: { mode: ['peak', 'rms'] } },
   // osc.ts LFSR_MODES
   lfsr: { named: { mode: ['white', 'periodic'] } },
   // osc.ts FM_WAVES
@@ -55,7 +60,7 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   // shape.ts ShapeType
   shape: { named: { type: ['soft', 'hard', 'sine', 'tube'] } },
   // physical.ts MODAL_MODELS keys
-  modal: { named: { model: ['bell', 'bar', 'drum', 'glass'] } },
+  modal: { named: { model: ['bell', 'bar', 'drum', 'glass', 'piano'] } },
   // width.ts MODE_DELAY keys (the decorrelation delay: 12 ms vs 3 ms)
   width: { pos: [null], named: { mode: ['wide', 'tight'] } },
   // wavetable.ts WAVETABLE_WARPS; table gets doc wavedefs appended at scan
@@ -64,6 +69,13 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   // mic takes), not an engine constant — declared so the scanner knows the
   // slot is an enum, but with no list, so the word never cycles.
   sample: { pos: [null] },
+  // convolve names its IMPULSE RESPONSE from the same runtime set — `hall`
+  // ships built in, but any loaded WAV is a legal space, so there is no fixed
+  // list to cycle through either
+  convolve: { pos: [null] },
+  // the input device is a RUNTIME set — what is plugged in right now — so it
+  // takes a bare word and cannot cycle through a fixed list
+  mic: { named: { device: null } },
   granular: { pos: [null] },
 }
 
@@ -163,7 +175,8 @@ export function scanEnumSpans(text: string): EnumSpan[] {
           vFrom = restOff + nx.index
         }
         let values = spec.named?.[key]
-        if (values === undefined || !WORD_RE.test(value)) continue
+        // a null list is a runtime set — the word is legal, but it cannot cycle
+        if (values === undefined || values === null || !WORD_RE.test(value)) continue
         if (head === 'wavetable' && key === 'table') values = tableValues
         out.push({ from: vFrom, to: vFrom + value.length, word: value, values })
         continue

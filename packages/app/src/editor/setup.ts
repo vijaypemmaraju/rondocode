@@ -9,12 +9,15 @@ import {
   lineNumbers,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { highlightSelectionMatches, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
+import { highlightSelectionMatches, search, searchKeymap, selectNextOccurrence, selectSelectionMatches } from '@codemirror/search'
 import { autocompletion } from '@codemirror/autocomplete'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { javascript } from '@codemirror/lang-javascript'
 import { synthTheme } from './theme'
 import { flashExtension } from './flash'
+import { foldingExtension } from './folding'
+import { miniNotationHighlight } from './mininotation'
+import { patRefHighlight } from './rondo/patrefs'
 import { rondocodeCompletionSource } from './complete'
 import { wgslHighlight, wgslCompletionSource } from './wgsl'
 import { gotoDefExtension } from './gotodef'
@@ -97,9 +100,21 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     drawSelection(),
     indentOnInput(),
     bracketMatching(),
+    // fold a block away: JS off its syntax tree, rondo off its indentation
+    foldingExtension(gutter),
     ...(gutter ? [highlightActiveLine()] : []),
     highlightSelectionMatches(), // underline other occurrences of the selection
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    // FIND. Without this Cmd-F was the BROWSER's find, which cannot work here:
+    // CodeMirror only renders the lines you can see, so the browser has no
+    // text to match in the rest of the document and nothing to scroll to when
+    // it does match. CodeMirror's own search knows the whole document and
+    // dispatches its jumps with scrollIntoView, which is the actual fix for
+    // "next result doesn't scroll".
+    //
+    // Panel on top: at the bottom it lands under a phone's keyboard, which is
+    // exactly where you cannot see or reach it.
+    search({ top: true }),
+    keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
     // the grammar the HighlightStyle colors. In the main editor this is wrapped
     // in a Compartment so it can be swapped for the rondo grammar at runtime;
     // docs rondo snippets pass `rondo: true` for a static rondo stack (grammar
@@ -121,6 +136,8 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
     EditorView.lineWrapping, // phones: wrap, never horizontal-scroll
     synthTheme,
     flashExtension, // renders .cm-flash decorations (host drives via EventFlasher)
+    miniNotationHighlight, // the ~ and the brackets, inside a JS string
+    patRefHighlight, // a `patdef` name used as a pattern, not as a bare word
     // Widgets-in-code: slider()/toggle()/pick()/xy() calls render as inline
     // controls; any plain number is Alt-drag (long-press on touch) scrubbable.
     // Both rewrite the doc, then re-eval via requestEval. See widgets/*.ts.

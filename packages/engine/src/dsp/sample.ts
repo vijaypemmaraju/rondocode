@@ -1,8 +1,37 @@
 import type { DspContext, Kernel, SampleBankRO } from './types'
+import { parseSampleRef, sampleRefName } from '../samples'
 
 /** Slice/window options for SampleKernel. All optional; omitting every one
  *  plays the whole buffer forward, bit-identical to the pre-slicing kernel. */
+/** One key zone of a multisample instrument: which notes it covers, which
+ *  sample plays them, and the note that sample was recorded at. */
+export interface SampleZone {
+  /** Lowest MIDI note this zone answers (inclusive). */
+  lo: number
+  /** Highest MIDI note this zone answers (inclusive). */
+  hi: number
+  /** Sample name, family and variant like any other (`piano_mid`, `bd:2`). */
+  name: string
+  /** MIDI note the sample plays back at natural rate. Default 60. */
+  root?: number
+}
+
 export interface SampleSliceConfig {
+  /** KEY ZONES: a different recording per range of the keyboard, each pitched
+   *  from its own root.
+   *
+   *  One buffer stretched across a keyboard is the thing that gives a sampler
+   *  away — a piano pitched down two octaves is a different instrument, not a
+   *  lower note. Zones are how a real sampler avoids it, and they compose with
+   *  families: a zone name may be `piano_mid:2`, so round robin still applies
+   *  within the zone.
+   *
+   *  The zone is latched on the gate edge like the slice, so a note never
+   *  changes instrument halfway through. A note outside every zone is silent
+   *  rather than borrowing the nearest one, which is the same choice the
+   *  family gap makes: substituting a sample nobody asked for sounds
+   *  deliberate. */
+  zones?: SampleZone[]
   /** Window start as a fraction of the buffer, 0..1 (def 0). */
   start?: number
   /** Window end as a fraction of the buffer, 0..1 (def 1). */
@@ -75,12 +104,32 @@ export class SampleKernel implements Kernel {
   private readonly slices: number
   private readonly fadeSec: number
 
+  /** The family this voice plays, and the variant its NAME asked for. A
+   *  `variant` input overrides the latter per note. */
+  private readonly base: string
+  private readonly nameVariant: number
+  /** Variant latched on the last gate edge, so a note keeps the sample it
+   *  started on however the input moves afterwards. */
+  private variant: number
+  /** Key zones, sorted, and what the last gate edge picked. `zoneName`
+   *  undefined means "use the plain name"; `zoneRate` is the pitch ratio the
+   *  chosen zone implies. */
+  private readonly zones: readonly SampleZone[]
+  private zoneName: string | undefined
+  private zoneRate = 1
+  private zoneSilent = false
+
   constructor(
     private readonly name: string,
     private readonly loop: boolean,
     private readonly bank: SampleBankRO | undefined,
     cfg?: SampleSliceConfig,
   ) {
+    const ref = parseSampleRef(name)
+    this.base = ref.base
+    this.nameVariant = ref.index ?? 0
+    this.variant = this.nameVariant
+    this.zones = Array.isArray(cfg?.zones) ? cfg.zones.filter((z) => z !== null && typeof z === 'object') : []
     let a = clamp01(finite(cfg?.start, 0))
     let b = clamp01(finite(cfg?.end, 1))
     if (!(b > a)) {
@@ -101,36 +150,82 @@ export class SampleKernel implements Kernel {
     const gate = inputs['gate']!
     const speed = inputs['speed'] // may be absent -> natural rate (1)
     const pitch = inputs['pitch'] // may be absent -> slice 0
-    const s = this.bank?.get(this.name)
-    if (s === undefined || s.data.length === 0) {
-      // Not loaded (yet) — silence, but still track gate edges so a sample that
-      // arrives between blocks starts on the NEXT edge, not retroactively.
-      for (let i = 0; i < n; i++) {
-        this.prevGate = gate[i]!
-      }
-      out.fill(0, 0, n)
-      return
-    }
-    const data = s.data
-    const len = data.length
-    const rate = s.sampleRate / ctx.sampleRate
+    const variant = inputs['variant'] // may be absent -> the name's own index
+    const nfreq = inputs['nfreq'] // note frequency, for picking a key zone
 
-    // The window, in source frames. Recomputed per block because the bank can
-    // hand us a different buffer (a fresh resample-to-loop bounce) at any time.
-    let f0 = this.start * len
-    let f1 = this.end * len
-    // A sub-frame window is unplayable — fall back to the whole buffer.
-    if (!(f1 - f0 >= 1)) {
-      f0 = 0
-      f1 = len
+    /* Resolved from the LATCHED variant, and recomputed below whenever a gate
+     * edge selects a different one. Everything here derives from the buffer,
+     * so a variant change has to move all of it together.
+     *
+     * Still re-resolved every block, which is deliberate: the bank can hand us
+     * a different buffer for the same name at any time (a resample-to-loop
+     * bounce), and a voice mid-note follows it. Latching the BUFFER would have
+     * broken that; latching the variant INDEX does not. */
+    let data: Float32Array | undefined
+    let len = 0
+    let rate = 1
+    let srcRate = 0
+    let region = 0
+    let f0 = 0
+    let f1 = 0
+    let nsl = 0
+    const resolve = (): void => {
+      const s = this.zoneSilent
+        ? undefined
+        : this.bank?.get(this.zoneName ?? sampleRefName(this.base, this.variant))
+      data = s !== undefined && s.data.length > 0 ? s.data : undefined
+      if (s === undefined || data === undefined) return
+      len = data.length
+      srcRate = s.sampleRate
+      rate = s.sampleRate / ctx.sampleRate
+      f0 = this.start * len
+      f1 = this.end * len
+      // A sub-frame window is unplayable — fall back to the whole buffer.
+      if (!(f1 - f0 >= 1)) {
+        f0 = 0
+        f1 = len
+      }
+      region = f1 - f0
+      // Never more slices than frames (a sub-frame slice cannot be read).
+      nsl = this.slices >= 1 ? Math.min(this.slices, Math.max(1, Math.floor(region))) : 0
     }
-    const region = f1 - f0
-    // Never more slices than frames (a sub-frame slice cannot be read).
-    const nsl = this.slices >= 1 ? Math.min(this.slices, Math.max(1, Math.floor(region))) : 0
+    resolve()
 
     for (let i = 0; i < n; i++) {
       const g = gate[i]!
       if (g > 0.5 && this.prevGate <= 0.5) {
+        /* Latch the VARIANT on the edge too, and re-resolve immediately if it
+         * moved, so round-robin is sample-accurate: the note that triggered
+         * plays the sample it asked for, not the one the previous note left
+         * loaded. A block can hold more than one edge. */
+        /* KEY ZONE first: it decides which SAMPLE plays, and the variant then
+         * picks among that zone's family. Latched here so a note never
+         * changes instrument halfway through. */
+        if (this.zones.length > 0) {
+          const f = nfreq !== undefined && Number.isFinite(nfreq[i]!) && nfreq[i]! > 0 ? nfreq[i]! : 440
+          const midi = 69 + 12 * Math.log2(f / 440)
+          const near = Math.round(midi)
+          const zone = this.zones.find((z) => near >= z.lo && near <= z.hi)
+          if (zone === undefined) {
+            // outside every zone: silent, rather than borrowing a neighbour
+            this.zoneSilent = true
+            this.zoneName = undefined
+          } else {
+            this.zoneSilent = false
+            const root = Number.isFinite(zone.root) ? (zone.root as number) : 60
+            this.zoneName = zone.name
+            this.zoneRate = f / (440 * Math.pow(2, (root - 69) / 12))
+          }
+          resolve()
+        }
+        if (variant !== undefined) {
+          const raw = variant[i]!
+          const want = Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : this.nameVariant
+          if (want !== this.variant) {
+            this.variant = want
+            resolve()
+          }
+        }
         // Latch the slice on the EDGE: the note that triggered picks the chop.
         let idx = 0
         if (nsl >= 1) {
@@ -141,13 +236,16 @@ export class SampleKernel implements Kernel {
         const w = nsl >= 1 ? region / nsl : region
         this.w0 = f0 + idx * w
         this.w1 = this.w0 + w
-        this.fadeFrames = Math.min(this.fadeSec * s.sampleRate, w / 2)
+        this.fadeFrames = Math.min(this.fadeSec * srcRate, w / 2)
         this.pos = 0
         this.playing = true
       }
       this.prevGate = g
 
-      if (!this.playing) {
+      if (!this.playing || data === undefined) {
+        /* Silent, but the gate edge above still ran — so a sample that arrives
+         * between blocks, or a variant that exists when the next note asks for
+         * it, starts on the NEXT edge rather than retroactively. */
         out[i] = 0
         continue
       }
@@ -208,7 +306,8 @@ export class SampleKernel implements Kernel {
       // fresh gate edge clears it). Treat non-finite as 0 (freeze) — self-heals.
       const spRaw = speed !== undefined ? speed[i]! : 1
       const sp = Number.isFinite(spRaw) ? spRaw : 0
-      this.pos = p + sp * rate
+      // a zone carries its own root, so the ratio is the kernel's to apply
+      this.pos = p + sp * rate * (this.zones.length > 0 ? this.zoneRate : 1)
     }
   }
 

@@ -95,7 +95,9 @@ describe('a rondo project gets rondo', () => {
   })
 
   it('falls back to decompiling when no twin is written', () => {
-    const js = "const p = synth(({ saw, note }) => saw(note.freq))"
+    // `p` would be a redeclaration of the pattern function, so it is not a
+    // legal synth name and rondo now says so — use one that is
+    const js = "const q = synth(({ saw, note }) => saw(note.freq))"
     const out = presetFor({ code: js }, 'rondo')
     expect(out).not.toBe(js)
     expect(compile(out).ok).toBe(true)
@@ -151,5 +153,94 @@ describe('the preview matches the insert, in both languages', () => {
       expect(highlightFor(lang)('<script>')).not.toContain('<script>')
       expect(highlightFor(lang)('<script>')).toContain('&lt;script&gt;')
     }
+  })
+})
+
+/* A PRESET WITH TWO FORMS MUST BE ONE INSTRUMENT.
+ *
+ * The tests above prove each form compiles and makes sound. They do not prove
+ * the JS and its rondo twin AGREE, and the crash preset did not: measured side
+ * by side it came out mono and near-silent in JS while the rondo twin was wide
+ * and rang for half a second. Nothing failed, because both "made sound".
+ *
+ * Two effects are the reason, and both are easy to get wrong again:
+ *   - `chorus` runs per stereo side only in a POST chain; inside synth() it is
+ *     mono, so all the width silently disappears.
+ *   - `reverb` returns the WET TAIL ONLY. Returning it directly throws the dry
+ *     signal away.
+ *
+ * Both forms run through the SAME demo — the rondo twin is compiled to JS
+ * first — so this compares the instruments and not the patterns. `noise` is
+ * stochastic, so the comparison is statistical rather than sample-for-sample:
+ * loudness and stereo image, which are exactly what the crash bug moved. */
+describe('a preset and its rondo twin are the same instrument', () => {
+  /* Split into ENTRY BLOCKS first, then read the fields out of each. One big
+   * regex cannot do this: a preset with no twin (hat, sub, pluck…) matched its
+   * own name and then ran past its demoTail into a LATER entry to find a
+   * `rondo:`, so the test compared one preset's JS against another's rondo and
+   * blamed the wrong name. */
+  const twins = src
+    .split(/\n  \{\n(?=\s+name: ')/)
+    .map((block) => {
+      const name = /^\s+name: '([a-z_]+)',/m.exec(block)?.[1]
+      const js = /\n\s+code: `([\s\S]*?)`,\n/.exec(block)?.[1]
+      const tail = /\n\s+demoTail: `([\s\S]*?)`,\n/.exec(block)?.[1]
+      const rondo = /\n\s+rondo: `([\s\S]*?)`,\n/.exec(block)?.[1]
+      return name && js && tail && rondo
+        ? { name, js: unescape(js), tail: unescape(tail), rondo: unescape(rondo) }
+        : null
+    })
+    .filter((t): t is { name: string; js: string; tail: string; rondo: string } => t !== null)
+
+  it('found the twinned presets', () => {
+    expect(twins.length).toBeGreaterThanOrEqual(10)
+  })
+
+  const measure = (program: string): { rms: number; corr: number } | null => {
+    const staged = stageCode(program)
+    if (!staged.ok) return null
+    const cps = staged.cps ?? 0.5
+    const sr = 22050
+    const mix = renderMix(staged.synths, runPatterns(staged.patterns, { cycles: 2, cps }), 2 / cps, {
+      cps, sampleRate: sr, samples: demoSamples(sr),
+    })
+    let s = 0, ll = 0, rr = 0, lr = 0
+    for (let i = 0; i < mix.left.length; i++) {
+      const l = mix.left[i]!, r = mix.right[i]!
+      s += l * l; ll += l * l; rr += r * r; lr += l * r
+    }
+    return { rms: Math.sqrt(s / mix.left.length), corr: lr / (Math.sqrt(ll * rr) || 1e-9) }
+  }
+
+  it.each(twins.map((t) => [t.name, t] as const))('%s: both forms sound alike', (_name, t) => {
+    const c = compile(`${t.rondo}\n\nplay ${t.name}\n  c3\n\ncps .5\n`)
+    expect(c.ok, c.ok ? '' : JSON.stringify(c.errors)).toBe(true)
+    if (!c.ok) return
+    const a = measure(`${t.js}\n${t.tail}`)
+    const b = measure(`${c.code}\n${t.tail}`)
+    expect(a, 'the JS form did not stage').not.toBeNull()
+    expect(b, 'the rondo twin did not stage').not.toBeNull()
+    if (a === null || b === null) return
+
+    // NEITHER may be silent while the other sounds — the crash failure exactly
+    expect(a.rms, 'JS form is silent').toBeGreaterThan(1e-4)
+    expect(b.rms, 'rondo twin is silent').toBeGreaterThan(1e-4)
+
+    // Loudness within 8x. Wide on purpose: `noise` is stochastic and the two
+    // forms round differently, and a tripwire that flaps is worse than none.
+    // The crash was ~1e8 apart, so this still catches the failure it exists for.
+    const ratio = Math.max(a.rms, b.rms) / Math.min(a.rms, b.rms)
+    expect(ratio, `loudness differs ${ratio.toFixed(1)}x`).toBeLessThan(5)
+
+    // STEREO IMAGE, which is where the crash actually diverged: one form mono
+    // at 1.000 while the other was 0.687. Nothing else here would notice.
+    /* 0.15, and the number is load-bearing. Measured across the shelf the
+     * honest pairs sit at 0.052 and below; the crash bug moved this by 0.304.
+     * The first version of this test allowed 0.4 — above the failure it was
+     * written to catch — and went green on it. Two presets forced that: `lead`
+     * and `snare` were not translations of their JS at all but different
+     * synths, so no threshold could have separated a defect from the fixture
+     * until they were fixed. */
+    expect(Math.abs(a.corr - b.corr), `stereo image differs (${a.corr.toFixed(3)} vs ${b.corr.toFixed(3)})`).toBeLessThan(0.15)
   })
 })

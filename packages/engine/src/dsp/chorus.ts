@@ -1,5 +1,5 @@
 import type { DspContext, Kernel } from './types'
-import { clamp } from './util'
+import { clamp, ctl } from './util'
 
 export interface ChorusConfig {
   /** LFO rate in Hz (the slowest voice; the other two run at 1.31x and 0.73x).
@@ -22,8 +22,9 @@ const MULT = [1.0, 1.31, 0.73]
 /** Max modulated delay for buffer sizing: BASE + max depth (0.05). */
 const MAX_DELAY = BASE + 0.05
 
-/** Three-voice modulated-delay chorus (an ensemble). Input 'in'; rate/depth/mix
- *  are construction config, NOT per-sample inputs. Three taps each read the
+/** Three-voice modulated-delay chorus (an ensemble). Inputs 'in' plus
+ *  rate/depth/mix, which are PER-SAMPLE signals — an LFO on `rate` or a knob
+ *  on `mix` works. They used to be construction config. Three taps each read the
  *  delay line at a fractional (linear-interpolated) position
  *  `BASE + depth*sin(phase_k)`, where the three LFO phases advance at
  *  rate * {1.0, 1.31, 0.73}. The detuned, non-repeating phase relationship
@@ -78,13 +79,9 @@ export class ChorusKernel implements Kernel {
     const len = buf.length
     const maxDelay = len - 2
     const base = BASE * sr
-    const depth = this.depth * sr
-    const mix = this.mix
-    const dry = 1 - mix
-    // per-sample phase increments for the three voices
-    const inc0 = (TWO_PI * this.rate * MULT[0]!) / sr
-    const inc1 = (TWO_PI * this.rate * MULT[1]!) / sr
-    const inc2 = (TWO_PI * this.rate * MULT[2]!) / sr
+    const rateIn = inputs['rate']
+    const depthIn = inputs['depth']
+    const mixIn = inputs['mix']
     let p0 = this.phase[0]!
     let p1 = this.phase[1]!
     let p2 = this.phase[2]!
@@ -92,6 +89,15 @@ export class ChorusKernel implements Kernel {
 
     for (let i = 0; i < n; i++) {
       const x = input[i]!
+      // read the controls HERE, not above the loop: that is what makes them
+      // automatable rather than merely configurable
+      const rate = ctl(rateIn, i, this.rate, 0.01, 20)
+      const depth = ctl(depthIn, i, this.depth, 0, 0.05) * sr
+      const mix = ctl(mixIn, i, this.mix, 0, 1)
+      const dry = 1 - mix
+      const inc0 = (TWO_PI * rate * MULT[0]!) / sr
+      const inc1 = (TWO_PI * rate * MULT[1]!) / sr
+      const inc2 = (TWO_PI * rate * MULT[2]!) / sr
       const wet =
         (this.tap(buf, len, maxDelay, w, base + depth * Math.sin(p0)) +
           this.tap(buf, len, maxDelay, w, base + depth * Math.sin(p1)) +

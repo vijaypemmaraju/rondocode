@@ -44,14 +44,42 @@ export type SaveOutcome =
   | { kind: 'conflict'; theirs: Project }
   | { kind: 'gone' }
 
-export type StoreName = 'projects' | 'versions'
+/** A sample that belongs to a project: a mic take, a resampled loop, or a file
+ *  the user dropped in. Kept because the alternative is what it used to be —
+ *  takes lived only for the session, so `sample(gate, 'take1')` in a SAVED
+ *  file could not play the next morning. The audio is the same Float32 PCM the
+ *  engine holds; structured clone stores a typed array as-is, so nothing is
+ *  encoded or lost on the way in. */
+export interface StoredSample {
+  id: string
+  projectId: string
+  /** the name programs address it by (`take1`, `mic2`, a file's stem) */
+  name: string
+  data: Float32Array
+  sampleRate: number
+  createdAt: number
+}
+
+/** A saved SNIPPET: any chunk of code, with the synths it needs already in
+ *  it (see editor/snippets.ts). Not scoped to a project — the whole point is
+ *  to move material BETWEEN projects, so a snippet that lived inside one
+ *  would be the copy-paste problem with extra steps. */
+export interface StoredSnippet {
+  id: string
+  name: string
+  lang: 'rondo' | 'rondocode'
+  code: string
+  createdAt: number
+}
+
+export type StoreName = 'projects' | 'versions' | 'samples' | 'snippets'
 
 /** The minimal async storage the store needs — no indexes: version sets per
  *  project are small, so we filter in memory. Both backends implement this. */
 export interface Db {
   all<T>(store: StoreName): Promise<T[]>
   get<T>(store: StoreName, id: string): Promise<T | undefined>
-  put(store: StoreName, value: Project | Version): Promise<void>
+  put(store: StoreName, value: Project | Version | StoredSample | StoredSnippet): Promise<void>
   del(store: StoreName, id: string): Promise<void>
 }
 
@@ -142,7 +170,69 @@ export class ProjectStore {
   async deleteProject(id: string): Promise<void> {
     const versions = await this.listVersions(id)
     for (const v of versions) await this.db.del('versions', v.id)
+    // its samples go with it: an orphaned take is megabytes nobody can reach
+    for (const s of await this.listSamples(id)) await this.db.del('samples', s.id)
     await this.db.del('projects', id)
+  }
+
+  /** The samples belonging to `projectId`, oldest first. */
+  async listSamples(projectId: string): Promise<StoredSample[]> {
+    const all = await this.db.all<StoredSample>('samples')
+    return all.filter((s) => s.projectId === projectId).sort((a, b) => a.createdAt - b.createdAt)
+  }
+
+  /** Store (or replace) one sample for a project. Replacing is by NAME, not
+   *  id: reloading `take1` after re-rendering it has to overwrite the take
+   *  programs already refer to, not leave two rows fighting over the name. */
+  async putSample(
+    projectId: string,
+    name: string,
+    data: Float32Array,
+    sampleRate: number,
+  ): Promise<StoredSample> {
+    const existing = (await this.listSamples(projectId)).find((s) => s.name === name)
+    const rec: StoredSample = {
+      id: existing?.id ?? this.uid(),
+      projectId,
+      name,
+      data,
+      sampleRate,
+      createdAt: existing?.createdAt ?? this.now(),
+    }
+    await this.db.put('samples', rec)
+    return rec
+  }
+
+  /** Every saved snippet, newest first. */
+  async listSnippets(): Promise<StoredSnippet[]> {
+    const all = await this.db.all<StoredSnippet>('snippets')
+    return all.sort((a, b) => b.createdAt - a.createdAt)
+  }
+
+  /** Save a snippet, replacing one of the same NAME and language — saving
+   *  "drums" twice means the second one, not two rows called drums. */
+  async putSnippet(name: string, lang: 'rondo' | 'rondocode', code: string): Promise<StoredSnippet> {
+    const existing = (await this.listSnippets()).find((s) => s.name === name && s.lang === lang)
+    const rec: StoredSnippet = {
+      id: existing?.id ?? this.uid(),
+      name,
+      lang,
+      code,
+      createdAt: existing?.createdAt ?? this.now(),
+    }
+    await this.db.put('snippets', rec)
+    return rec
+  }
+
+  async deleteSnippet(id: string): Promise<void> {
+    await this.db.del('snippets', id)
+  }
+
+  /** Forget one sample of a project, by the name programs address it by. */
+  async deleteSample(projectId: string, name: string): Promise<void> {
+    for (const s of await this.listSamples(projectId)) {
+      if (s.name === name) await this.db.del('samples', s.id)
+    }
   }
 
   /**
@@ -218,9 +308,11 @@ export class ProjectStore {
 /* ---- in-memory backend (tests, and a safe fallback if IDB is unavailable) --- */
 
 export class MemoryDb implements Db {
-  private stores: Record<StoreName, Map<string, Project | Version>> = {
+  private stores: Record<StoreName, Map<string, Project | Version | StoredSample | StoredSnippet>> = {
     projects: new Map(),
     versions: new Map(),
+    samples: new Map(),
+    snippets: new Map(),
   }
 
   async all<T>(store: StoreName): Promise<T[]> {
@@ -232,7 +324,7 @@ export class MemoryDb implements Db {
     return v === undefined ? undefined : (structuredClone(v) as T)
   }
 
-  async put(store: StoreName, value: Project | Version): Promise<void> {
+  async put(store: StoreName, value: Project | Version | StoredSample | StoredSnippet): Promise<void> {
     this.stores[store].set(value.id, structuredClone(value))
   }
 

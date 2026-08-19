@@ -24,7 +24,7 @@ const FULL_CODE = [
   "bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { pad: 0.3 })",
   "p('k', note('c1*4').sound('kick'))",
   "p('p', note('c4').sound('pad'))",
-  "sidechain('kick', { depth: 0.5, release: 0.2, duck: { pad: 0.8 } })",
+  "sidechain('kick', { depth: 0.5, release: 200, duck: { pad: 0.8 } })",
   'masterCompress({ threshold: -12, ratio: 3 })',
   'setCps(2)',
 ].join('\n')
@@ -34,7 +34,7 @@ describe('bounceLoop → renderMix option mapping', () => {
     vi.mocked(renderMix).mockClear()
     const samples = { clip: { data: new Float32Array(16), sampleRate: 48000 } }
     const out = bounceLoop(FULL_CODE, 1, samples)
-    expect(out, JSON.stringify(out)).toBeInstanceOf(Uint8Array) // a real (short) WAV rendered
+    expect(out, JSON.stringify(out)).toHaveProperty('bytes') // a real (short) WAV rendered
     expect(vi.mocked(renderMix)).toHaveBeenCalledTimes(1)
     const [synths, events, durationSec, opts] = vi.mocked(renderMix).mock.calls[0]!
     expect([...synths.keys()].sort()).toEqual(['kick', 'pad'])
@@ -53,7 +53,7 @@ describe('bounceLoop → renderMix option mapping', () => {
   it('omits the optional features when the code stages none (bare render)', () => {
     vi.mocked(renderMix).mockClear()
     const out = bounceLoop(`const a = ${SYNTH}\np('x', note('c4').sound('a'))\nsetCps(2)`, 1)
-    expect(out).toBeInstanceOf(Uint8Array)
+    expect(out).toHaveProperty('bytes')
     const opts = vi.mocked(renderMix).mock.calls[0]![3]!
     expect(opts.sampleRate).toBe(48000)
     for (const key of ['samples', 'sidechain', 'masterComp', 'buses', 'sends', 'stems'] as const) {
@@ -72,8 +72,8 @@ describe('bounceLoop → renderMix option mapping', () => {
     const header = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
     const bounce = (bits?: 16 | 24 | 32): Uint8Array => {
       const out = bits === undefined ? bounceLoop(FULL_CODE, 1) : bounceLoop(FULL_CODE, 1, undefined, bits)
-      if (!(out instanceof Uint8Array)) throw new Error(out.error)
-      return out
+      if ('error' in out) throw new Error(out.error)
+      return out.bytes
     }
     expect(header(bounce()).getUint16(34, true)).toBe(16)
     expect(header(bounce(24)).getUint16(34, true)).toBe(24)
@@ -94,17 +94,17 @@ describe('bounceStems', () => {
   it('names one file per synth plus one per send bus', () => {
     const res = bounceStems(FULL_CODE, 1, undefined, 16, 'my-track')
     if ('error' in res) throw new Error(res.error)
-    expect(res.map((f) => f.name)).toEqual(['my-track-kick.wav', 'my-track-pad.wav', 'my-track-bus-space.wav'])
-    expect(res.map((f) => f.part)).toEqual(['kick', 'pad', 'space'])
+    expect(res.files.map((f) => f.name)).toEqual(['my-track-kick.wav', 'my-track-pad.wav', 'my-track-bus-space.wav'])
+    expect(res.files.map((f) => f.part)).toEqual(['kick', 'pad', 'space'])
   })
 
   it('delivers stems that sum back to the WAV the same code bounces', () => {
     const mix = bounceLoop(FULL_CODE, 1, undefined, 32)
-    if (!(mix instanceof Uint8Array)) throw new Error(mix.error)
+    if ('error' in mix) throw new Error(mix.error)
     const stems = bounceStems(FULL_CODE, 1, undefined, 32, 'sum')
     if ('error' in stems) throw new Error(stems.error)
-    const mixed = decodeWav(mix)
-    const parts = stems.map((f) => decodeWav(f.bytes))
+    const mixed = decodeWav(mix.bytes)
+    const parts = stems.files.map((f) => decodeWav(f.bytes))
     expect(parts.every((p) => p.left.length === mixed.left.length)).toBe(true)
     let worst = 0
     let peak = 0
@@ -127,8 +127,9 @@ describe('bounceStems', () => {
   })
 
   it('zips the stems into one archive under a project folder', () => {
-    const files = bounceStems(FULL_CODE, 1, undefined, 16, 'my-track')
-    if ('error' in files) throw new Error(files.error)
+    const res = bounceStems(FULL_CODE, 1, undefined, 16, 'my-track')
+    if ('error' in res) throw new Error(res.error)
+    const files = res.files
     const zip = zipStems(files, 'my-track')
     expect(zip.name).toBe('my-track-stems.zip')
     // every stem's bytes appear intact inside the archive, under the folder
@@ -144,7 +145,46 @@ describe('measureBounce', () => {
     if ('error' in res) throw new Error(res.error)
     // e.g. "-17.2 LUFS · -6.0 dBTP peak" — the numbers themselves are pinned
     // against known signals in the engine's loudness tests.
-    expect(res.text).toMatch(/^-?\d+\.\d LUFS · -?\d+\.\d dBTP peak$/)
+    expect(res.text).toMatch(/^-?\d+\.\d LUFS · -?\d+\.\d dBTP peak( · normalized -\d+\.\d dB)?$/)
+  })
+
+  /* The readout used to document itself as "nothing is normalized or limited",
+   * which was false: the mix stage pulls anything over 0.89 down to it before
+   * the samples reach measureLoudness. So a hot project read back a tidy -1.0
+   * dBTP and a loudness that had already been dragged down, with nothing
+   * saying so. FULL_CODE is one of those — the assertion below would have
+   * been impossible to write before, because the number did not exist. */
+  it('says how far the mix stage pulled a hot bounce down, and stays quiet when it did not', () => {
+    const at = (amp: number): string =>
+      [`const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(${amp}))`,
+       "p('x', note('c3*4').sound('a'))", 'setCps(2)'].join('\n')
+
+    const hot = measureBounce(at(6), 1)
+    if ('error' in hot) throw new Error(hot.error)
+    expect(hot.text, hot.text).toMatch(/normalized -\d+\.\d dB/)
+
+    const quiet = measureBounce(at(0.2), 1)
+    if ('error' in quiet) throw new Error(quiet.error)
+    expect(quiet.text, quiet.text).not.toContain('normalized')
+  })
+
+  /* The behaviour that makes this worth reporting at all: past the ceiling,
+   * turning a part UP does not make the bounce louder. */
+  it('a gain edit above the ceiling changes the balance, not the level', () => {
+    const two = (loud: number): string =>
+      [`const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(${loud}))`,
+       'const b = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(3))',
+       "p('x', note('c3').sound('a'))", "p('y', note('g4').sound('b'))", 'setCps(2)'].join('\n')
+    const soft = measureBounce(two(3), 1)
+    const loud = measureBounce(two(12), 1)
+    if ('error' in soft || 'error' in loud) throw new Error('render failed')
+    const lufs = (t: string): number => Number(/^(-?\d+\.\d) LUFS/.exec(t)![1])
+    // 3 -> 12 is +12 dB asked for. Almost all of it is swallowed: what is left
+    // is the balance shifting, not the file getting louder.
+    const moved = Math.abs(lufs(loud.text) - lufs(soft.text))
+    expect(moved, `+12 dB of gain moved the bounce ${moved} dB`).toBeLessThan(3)
+    // …and the readout now says why, instead of leaving it a mystery
+    expect(loud.text).toMatch(/normalized -\d+\.\d dB/)
   })
 
   it('passes the staging error through instead of measuring', () => {

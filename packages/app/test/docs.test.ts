@@ -8,6 +8,9 @@ import { STAGING_NAMES } from '../src/session/evalCode'
 import type { PostCtx, Sig, SynthCtx } from '@rondocode/engine'
 import { baseScope } from '../src/session/scope'
 import { DSL_DOCS, docsByName, docsOfKind } from '../src/docs/dsl-docs'
+import { BLOCK_KEYWORDS } from '@rondocode/rondo'
+import { CHORD_QUALITIES } from '@rondocode/pattern'
+import type { TableBlock } from '../src/docs/content'
 
 /* ------------------------------------------------------------------------- *
  * Anti-drift: the docs data is pinned BIDIRECTIONALLY against the live
@@ -109,7 +112,7 @@ describe('docs coverage: synth ctx and Sig', () => {
 })
 
 describe('docs coverage: mini-notation syntax', () => {
-  it('documents exactly the v1 grammar operators', () => {
+  it('documents exactly the grammar operators', () => {
     // Pinned by hand against the grammar in packages/pattern/src/mini.ts
     // (header comment, "Grammar (v1)"). A grammar change updates BOTH the
     // parser and this list + the mini-syntax DocEntries.
@@ -117,7 +120,10 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:seq', // a b c   — sequence
       'mini:~', //   ~       — rest
       'mini:_', //   _       — elongate previous step
-      'mini:[]', //  [a b]   — subgroup (',' stacks)
+      'mini:..', //  a .. b  — inclusive range, as one step
+      'mini:.', //   a . b c — equal-width groups without brackets
+      'mini:[]', //  [a b]   — subgroup
+      'mini:,', //   a, b    — stack (bracketed or not, since #328)
       'mini:<>', //  <a b>   — alternation, one per cycle
       'mini:{}', //  {..}%n  — polymeter
       'mini:*', //   a*n     — faster within the slot
@@ -126,7 +132,11 @@ describe('docs coverage: mini-notation syntax', () => {
       'mini:@', //   a@n     — weight
       'mini:(p,s,r)', // a(3,8) — euclidean rhythm
       'mini:?', //   a?p     — random drop
-      'mini:|', //   a | b   — random choice per cycle
+      'mini:|', //   a | b   — random choice per cycle (weighted with @)
+      "mini:'swing", // [hh*8]'swing:.6 — groove on a group
+      'mini:$', //   $a=[bd sn] $a — name a figure, reuse it
+
+      "mini:'", // 0'2 0'gain:.8 — per-note lanes
     ]
     assertBidirectional(namesOfKind('mini-syntax'), GRAMMAR, 'mini syntax')
   })
@@ -161,6 +171,39 @@ describe('docs style rules', () => {
     }
     for (const e of DSL_DOCS) {
       expect(`${e.summary} ${e.signature}`.includes('—'), `em dash in dsl-docs '${e.name}'`).toBe(false)
+    }
+  })
+
+  it('nor in the RONDO vocabulary, which is docs too', async () => {
+    /* This table is prose the reader sees: it renders in the completion panel
+     * and in every hover card. The rule was written for the docs page and
+     * enforced only there, so 26 of its 129 entries carried one -- the same
+     * copy, held to a different standard depending on which surface showed it. */
+    const { OPTIONS } = await import('../src/editor/rondo')
+    for (const o of OPTIONS) {
+      const copy = `${String(o.detail ?? '')} ${String(o.info ?? '')} ${o.example ?? ''}`
+      expect(copy.includes('—'), `em dash in the rondo entry for '${String(o.label)}'`).toBe(false)
+    }
+  })
+
+  it('nor in the repo markdown a reader arrives at first', async () => {
+    /* README, CONTRIBUTING, NOTICE and docs/ are the docs somebody meets before
+     * the app, and no check had ever looked at them: 50 em dashes across six
+     * files, including 29 in the agent guide. */
+    const { readFileSync, existsSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    const { join } = await import('node:path')
+    const { globSync } = await import('node:fs')
+    const root = fileURLToPath(new URL('../../..', import.meta.url))
+    const files = [
+      'README.md', 'CONTRIBUTING.md', 'NOTICE.md',
+      ...globSync('docs/**/*.md', { cwd: root }),
+    ]
+    expect(files.length, 'the glob must actually find the docs').toBeGreaterThan(3)
+    for (const rel of files) {
+      const abs = join(root, rel)
+      if (!existsSync(abs)) continue
+      expect(readFileSync(abs, 'utf8').includes('—'), `em dash in ${rel}`).toBe(false)
     }
   })
 
@@ -360,5 +403,103 @@ describe('copy accuracy (claims must match the code)', () => {
 
   it('does not claim an export is identical to what you heard', () => {
     expect(text).not.toMatch(/identical to what you (just )?heard/i)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * THE INVENTORIES, pinned to the code that defines them.
+ *
+ * An audit found the rondo cheat sheet promising "every block shape in the
+ * language" while missing six of them (`patdef`, `timesig`, `level`, `macro`,
+ * `switch`, `curvedef`), and the chord blurb listing a subset of the qualities
+ * the parser accepts — including three the very commit that touched it had
+ * just added. Both are the repo's usual bug: a list maintained by hand, with
+ * nothing to notice when the real one grows.
+ *
+ * These do NOT check that the prose is good, only that it NAMES everything.
+ * A row that says nothing useful still passes — but a keyword that exists and
+ * is nowhere on the page cannot.
+ * ------------------------------------------------------------------------- */
+
+describe('the rondo cheat sheet really is every block shape', () => {
+  const cheatSheet = ((): TableBlock => {
+    const t = SECTIONS.flatMap((s) => s.blocks).find(
+      (b): b is TableBlock => b.kind === 'table' && (b.caption ?? '').startsWith('Cheat sheet'),
+    )
+    if (t === undefined) throw new Error('the cheat sheet table is gone — this suite would be vacuous')
+    return t
+  })()
+
+  const cells = cheatSheet.rows.map((r) => r[0] ?? '').join(' ')
+
+  it('names every top-level block keyword the parser dispatches on', () => {
+    // BLOCK_KEYWORDS is the parser's own list, imported rather than retyped:
+    // adding a keyword there and not here is exactly the drift this catches.
+    const missing = BLOCK_KEYWORDS.filter((k) => !new RegExp(`\`[^\`]*\\b${k}\\b`).test(cells))
+    expect(missing, 'block keywords absent from the cheat sheet').toEqual([])
+  })
+
+  it('names the body-level words too, which open nothing at the top level', () => {
+    // `post`/`send`/`sum`/`with` are not BLOCK_KEYWORDS (words.ts adds them for
+    // highlighting), and `sum` — the language's only loop — was undocumented.
+    for (const w of ['post', 'send', 'sum', 'with']) {
+      expect(cells, `\`${w}\` is a keyword with no cheat-sheet row`).toContain(w)
+    }
+  })
+
+  it('the guide explains each block keyword somewhere, not just the table', () => {
+    // a cheat-sheet row on its own is a reminder, not documentation
+    const prose = SECTIONS.flatMap((s) => s.blocks.map(blockText)).join(' ')
+    const unexplained = BLOCK_KEYWORDS.filter(
+      (k) => (prose.match(new RegExp(`\\b${k}\\b`, 'g')) ?? []).length < 2,
+    )
+    expect(unexplained, 'block keywords the guide only lists, never explains').toEqual([])
+  })
+})
+
+describe('the chord blurb names every quality the parser accepts', () => {
+  it('lists all of CHORD_QUALITIES, aliases included', () => {
+    const entry = (docsByName.get('chord') ?? []).find((e) => e.kind === 'global')
+    expect(entry, 'the chord DocEntry is gone').toBeDefined()
+    const blurb = entry!.summary
+    // word boundaries alone are not enough: `m7` appears inside `m7b5`, so a
+    // list naming only the longer one would pass. Each quality must appear
+    // where it is not immediately followed by more quality characters.
+    const missing = CHORD_QUALITIES.filter((q) => {
+      const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return !new RegExp(`(^|[^\\w])${esc}(?![\\w])`).test(blurb)
+    })
+    expect(missing, 'chord qualities the docs never name').toEqual([])
+  })
+})
+
+
+/* ------------------------------------------------------------------------- *
+ * EVERY DSP NODE IS TAUGHT SOMEWHERE, not only listed.
+ *
+ * The reference (dsl-docs) is pinned bidirectionally against the live objects,
+ * so a node cannot exist without an entry. Nothing pinned the GUIDE, and the
+ * difference showed: `noisegate`, `deess` and `limiter` shipped with full
+ * reference entries and no mention in the guide at all. They only stopped
+ * being invisible because a paragraph about the mic strip happened to name
+ * them.
+ *
+ * "Mentioned once" is a low bar on purpose — this cannot judge whether the
+ * prose is any good. What it can do is stop a node from being reference-only,
+ * which is how someone learns a feature exists: by reading the guide, not by
+ * scrolling the API list.
+ * ------------------------------------------------------------------------- */
+describe('the guide teaches every node the reference documents', () => {
+  const guide = SECTIONS.flatMap((s) => s.blocks.map(blockText)).join(' ')
+
+  it('finds the guide text (an empty string would pass everything)', () => {
+    expect(guide.length).toBeGreaterThan(20_000)
+  })
+
+  it('names every synth-ctx node somewhere in the guide', () => {
+    const missing = docsOfKind('synth-ctx')
+      .map((e) => e.name)
+      .filter((n) => !new RegExp(`\\b${n}\\b`).test(guide))
+    expect(missing, 'nodes documented in the reference but never in the guide').toEqual([])
   })
 })

@@ -1,7 +1,7 @@
 import { getCustomWavetables } from '@rondocode/engine'
-import { stageCode, runPatterns, renderMix } from '../../../server/src/render-runner'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../../server/src/render-runner'
 import type { MixStem } from '../../../server/src/render-runner'
-import type { AudioSession } from '../audio/AudioSession'
+import type { RenderEvent } from '@rondocode/engine'
 import { normalize, toMono } from './micrec'
 
 /* RESAMPLE TO LOOP: bounce N cycles of the staged track back into the sample
@@ -35,6 +35,19 @@ export interface StagedMix {
   sampleRate: number
   /** the staged tempo the render ran at (cycles per second) */
   cps: number
+  /** The scheduled events per synth, as they went into the render. Returned
+   *  because a caller that had to re-derive them would be running the
+   *  scheduler twice, and one of the two copies would eventually disagree. */
+  events: Map<string, RenderEvent[]>
+  /** Per-stem event count and pre-normalization RMS (renderMix's perSynth):
+   *  what pinpoints a voice that never sounded. */
+  perSynth: Record<string, { events: number; rms: number }>
+  /** dB the mix stage scaled the whole bounce down by to reach its 0.89 peak
+   *  ceiling; 0 when it stayed under. Carried through because the ONE staged
+   *  mapping used to drop it, which left every caller — the WAV bounce, the
+   *  stems, the loudness readout, resample-to-loop — unable to say that a
+   *  gain edit above the ceiling changes the balance but not the level. */
+  normalizeDb: number
   /** Present iff `stems` was requested: each part's contribution to THIS mix
    *  (see renderMix's MixStem). Summed, they reconstruct left/right. */
   stems?: MixStem[]
@@ -45,6 +58,17 @@ export interface StagedMixOpts {
   stems?: boolean
   /** Render rate in Hz. Default 48000. */
   sampleRate?: number
+  /** Extra seconds rendered past the last cycle, so release and reverb tails
+   *  are captured instead of cut at the loop point. Default 0, which is right
+   *  for a LOOP (a tail would double up on repeat) and wrong for a one-shot
+   *  render an agent is going to listen to. */
+  tailSec?: number
+  /** Render at this tempo instead of the staged one. For callers that let the
+   *  user ask for a speed (the MCP render tools); everything else should take
+   *  the tempo the program states. */
+  cps?: number
+  /** Per-stem polyphony. Default is renderMix's own (12). */
+  maxVoices?: number
 }
 
 /** Stage `code` and render `cycles` of it offline: stageCode → runPatterns →
@@ -65,28 +89,29 @@ export function renderStagedMix(
 ): StagedMix | { error: string } {
   const staged = stageCode(code)
   if (!staged.ok) return { error: staged.diagnostics.find((d) => d.severity === 'error')?.message ?? 'eval failed' }
-  const cps = staged.cps ?? 0.5
-  const durationSec = cycles / cps
+  const cps = opts?.cps ?? staged.cps ?? 0.5
+  const durationSec = cycles / cps + (opts?.tailSec ?? 0)
   const events = runPatterns(staged.patterns, { cycles, cps })
   const tables = getCustomWavetables()
-  const mix = renderMix(staged.synths, events, durationSec, {
+  const mix = renderMix(staged.synths, events, durationSec, mixOptsFor(staged, {
     sampleRate: opts?.sampleRate ?? 48000,
     // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
     // themselves off it, so an omitted cps would bounce at the wrong speed.
     cps,
     ...(samples ? { samples } : {}),
-    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
     // custom wavetables the staged program registered (defineWavetable/wavedef)
     ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
     ...(opts?.stems ? { stems: true } : {}),
-  })
+    ...(opts?.maxVoices !== undefined ? { maxVoices: opts.maxVoices } : {}),
+  }))
   return {
     left: mix.left,
     right: mix.right,
     sampleRate: mix.sampleRate,
     cps,
+    events,
+    perSynth: mix.perSynth,
+    normalizeDb: mix.normalizeDb,
     ...(mix.stems ? { stems: mix.stems } : {}),
   }
 }
@@ -102,7 +127,7 @@ export function renderTakePcm(
   code: string,
   cycles: number,
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,
-): { data: Float32Array; sampleRate: number } | { error: string } {
+): { data: Float32Array; sampleRate: number; normalizeDb: number } | { error: string } {
   const mix = renderStagedMix(code, cycles, samples)
   if ('error' in mix) return mix
   const mono = normalize(
@@ -114,27 +139,41 @@ export function renderTakePcm(
     data = new Float32Array(frames)
     data.set(mono.subarray(0, Math.min(mono.length, frames)))
   }
-  return { data, sampleRate: mix.sampleRate }
+  return { data, sampleRate: mix.sampleRate, normalizeDb: mix.normalizeDb }
+}
+
+/** The slice of AudioSession a resample needs, declared STRUCTURALLY rather
+ *  than as Pick<AudioSession, …>.
+ *
+ *  Not a style choice: this module is now the one staged->renderMix mapping
+ *  for the MCP render tools and the headless scripts too, and importing
+ *  AudioSession dragged `./worklet/processor?worker&url` into a package that
+ *  has no Vite to resolve it. The app's own call site passes a real
+ *  AudioSession, so assignability is still checked where it matters. */
+export interface SampleBankHost {
+  loadedSamples: Record<string, { data: Float32Array; sampleRate: number }>
+  getSamples: () => { name: string }[]
+  loadSamplePcm: (name: string, data: Float32Array, sampleRate: number, builtIn?: boolean) => void
 }
 
 export interface ResampleOpts {
   /** the last successfully evaluated program (post-transpile JS in rondo mode) */
   code: string
   cycles: number
-  audio: Pick<AudioSession, 'loadedSamples' | 'getSamples' | 'loadSamplePcm'>
+  audio: SampleBankHost
 }
 
 /** Bounce `cycles` cycles of the staged track into the sample bank as the
  *  next free takeN. Loads it exactly the way a mic take loads (loadSamplePcm,
  *  not built-in, session-lifetime persistence). Returns the take name or an
  *  error message; never throws. */
-export function resampleTake({ code, cycles, audio }: ResampleOpts): { name: string } | { error: string } {
+export function resampleTake({ code, cycles, audio }: ResampleOpts): { name: string; normalizeDb: number } | { error: string } {
   try {
     const res = renderTakePcm(code, cycles, audio.loadedSamples)
     if ('error' in res) return res
     const name = nextTakeName(audio.getSamples().map((s) => s.name))
     audio.loadSamplePcm(name, res.data, res.sampleRate)
-    return { name }
+    return { name, normalizeDb: res.normalizeDb }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
   }

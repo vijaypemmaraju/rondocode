@@ -21,7 +21,21 @@ const frameLog = (ws: WebSocket): { id: string; method: string; params?: unknown
   return frames
 }
 
-const until = async (cond: () => boolean, ms = 2000): Promise<void> => {
+/* WAITING ON A SOCKET, so the budgets here are generous on purpose.
+ *
+ * These tests open a real WebSocket and wait for a real round trip. Vitest's
+ * default test timeout is 5s and the polls below allowed 2s inside it, which
+ * is a claim about how loaded the machine is rather than about the code: under
+ * the full suite, with a worker per core, an event loop can be starved for
+ * longer than that. Three of these flaked that way (twice in mcp.test.ts, once
+ * here) and every one passed alone and on rerun.
+ *
+ * A generous ceiling costs a passing run NOTHING -- the waits resolve on the
+ * event, not on the clock -- and it is the failing path that gets the room. A
+ * tight one only ever encodes the load of the machine that wrote it. */
+const SOCKET_TIMEOUT_MS = 20_000
+
+const until = async (cond: () => boolean, ms = SOCKET_TIMEOUT_MS): Promise<void> => {
   const t0 = Date.now()
   while (!cond()) {
     if (Date.now() - t0 > ms) throw new Error('until: timed out')
@@ -52,7 +66,64 @@ afterEach(async () => {
   bridges = []
 })
 
-describe('Bridge', () => {
+
+/* ------------------------------------------------------------------------- *
+ * GET /doc — the editor's document, for tooling that writes it back to disk.
+ *
+ * Read over HTTP rather than over a second WebSocket ON PURPOSE: the newest
+ * /session connection wins and closes the previous one, so a tool that dialled
+ * in to ask what the tab was showing would disconnect the tab it was asking
+ * about. The last test here is the one that pins that.
+ * ------------------------------------------------------------------------- */
+describe('GET /doc', () => {
+  /** A fake browser that answers `getDoc` with `doc`. */
+  const speaks = (ws: WebSocket, doc: unknown): void => {
+    ws.on('message', (data) => {
+      const msg = JSON.parse(String(data)) as { id: string; method: string }
+      if (msg.method === 'getDoc') ws.send(JSON.stringify({ id: msg.id, result: doc }))
+    })
+  }
+
+  it('answers with whatever the editor is showing, in its own language', async () => {
+    const { bridge, port } = await rig()
+    const ws = await connect(port)
+    speaks(ws, { text: 'synth pad\n  saw note\n', lang: 'rondo' })
+    await until(() => bridge.connected)
+    const res = await fetch(`http://127.0.0.1:${port}/doc`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ text: 'synth pad\n  saw note\n', lang: 'rondo' })
+  })
+
+  it('says 503 with no browser, which is the one thing only a human can fix', async () => {
+    const { port } = await rig()
+    const res = await fetch(`http://127.0.0.1:${port}/doc`)
+    expect(res.status).toBe(503)
+    expect(((await res.json()) as { error: string }).error).toContain('no browser session connected')
+  })
+
+  it('reading the doc does NOT take the session away from the tab', async () => {
+    // a WebSocket read would have: newest /session connection wins
+    const { bridge, port } = await rig()
+    const ws = await connect(port)
+    speaks(ws, { text: 'x', lang: 'rondocode' })
+    await until(() => bridge.connected)
+    let closed = false
+    ws.on('close', () => { closed = true })
+    await fetch(`http://127.0.0.1:${port}/doc`)
+    await fetch(`http://127.0.0.1:${port}/doc`)
+    expect(closed, 'the browser socket was closed by a read').toBe(false)
+    expect(bridge.connected).toBe(true)
+  })
+
+  it('leaves the other routes alone', async () => {
+    const { port } = await rig()
+    const res = await fetch(`http://127.0.0.1:${port}/nope`)
+    expect(res.status).toBe(404)
+  })
+})
+
+
+describe('Bridge', { timeout: SOCKET_TIMEOUT_MS }, () => {
   it('rejects calls when no session is connected', async () => {
     const { bridge } = await rig()
     await expect(bridge.call('getState')).rejects.toThrow('no session connected')
@@ -224,5 +295,42 @@ describe('Bridge', () => {
     await rejected
     expect(bridge.connected).toBe(false)
     await expect(openClient(port)).rejects.toThrow()
+  })
+})
+
+describe('a port that is already in use', { timeout: SOCKET_TIMEOUT_MS }, () => {
+  /* Found by running the command the docs tell you to run, twice.
+   *
+   * The WebSocketServer wraps the http server and RE-EMITS its errors, and an
+   * 'error' event with no listener is a thrown exception in Node -- so the
+   * process died on the spot, before the promise `listen()` returns could
+   * reject. Its own contract, defeated by the single most likely failure: a
+   * second editor with the MCP server configured, or a stray `pnpm bridge`.
+   * What the operator saw was a page of net internals with EADDRINUSE in the
+   * middle of it. */
+  it('REJECTS rather than killing the process', async () => {
+    const first = new Bridge({ port: 0 })
+    await first.listen()
+    const second = new Bridge({ port: first.port })
+    await expect(second.listen()).rejects.toThrow()
+    await first.close()
+  })
+
+  it('says what to do about it', async () => {
+    const first = new Bridge({ port: 0 })
+    await first.listen()
+    const second = new Bridge({ port: first.port })
+    const err = await second.listen().then(() => null, (e: Error) => e)
+    expect(err?.message, 'the port belongs in the message').toContain(String(first.port))
+    expect(err?.message).toContain('already in use')
+    expect(err?.message, 'and a way out').toMatch(/PORT/)
+    expect(err?.message, 'not a bare errno').not.toBe('listen EADDRINUSE')
+    await first.close()
+  })
+
+  it('still reports other listen errors unchanged', async () => {
+    // only EADDRINUSE is rewritten; anything else must arrive as itself
+    const b = new Bridge({ port: -1 })
+    await expect(b.listen()).rejects.toThrow()
   })
 })

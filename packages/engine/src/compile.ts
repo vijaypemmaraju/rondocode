@@ -31,12 +31,19 @@ import type { BitcrushConfig } from './dsp/bitcrush'
 import { ShapeKernel } from './dsp/shape'
 import type { ShapeType } from './dsp/shape'
 import { SampleKernel } from './dsp/sample'
-import type { SampleSliceConfig } from './dsp/sample'
+import type { SampleSliceConfig, SampleZone } from './dsp/sample'
 import { GranularKernel } from './dsp/granular'
 import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
+import { GateKernel } from './dsp/gate'
+import { DeessKernel } from './dsp/deess'
+import { FollowKernel } from './dsp/follow'
+import { PitchShiftKernel } from './dsp/pitchshift'
+import { ConvolveKernel } from './dsp/convolve'
+import { TapeKernel } from './dsp/tape'
+import { LimiterKernel } from './dsp/limiter'
 import { EqKernel } from './dsp/eq'
 import type { EqBand } from './dsp/eq'
 import { ExciterKernel } from './dsp/exciter'
@@ -50,6 +57,13 @@ import type { TransientConfig } from './dsp/transient'
 import { FlangerKernel } from './dsp/flanger'
 import type { FlangerConfig } from './dsp/flanger'
 import type { CompressConfig } from './dsp/compress'
+import type { GateConfig } from './dsp/gate'
+import type { DeessConfig } from './dsp/deess'
+import type { FollowConfig } from './dsp/follow'
+import type { PitchShiftConfig } from './dsp/pitchshift'
+import type { ConvolveConfig } from './dsp/convolve'
+import type { TapeConfig } from './dsp/tape'
+import type { LimiterConfig } from './dsp/limiter'
 
 /** Samples per processing block. All node buffers are this long; Voice.process
  *  may render any n <= BLOCK. */
@@ -135,7 +149,11 @@ export interface CompiledGraph {
 /** Input port table per node type. `def` present = optional with that
  *  constant default; absent = required (missing -> GraphError). Derived from
  *  the kernel process() contracts in dsp/*.ts. */
-const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
+/* EXPORTED so the rondo registry can be checked against it: a named arg
+ * declared `sig` there must be a signal input here, or the value lands in
+ * construction config and is silently dropped. See
+ * sig-params-are-real.test.ts. */
+export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   sine: [{ name: 'freq' }],
   saw: [{ name: 'freq' }],
   square: [{ name: 'freq' }],
@@ -152,7 +170,9 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   // gate required (retrigger edge); speed optional, 1 = natural pitch; pitch is
   // the note-to-reference RATIO that picks a chop when `slices` is set (1 = the
   // reference note = slice 0), ignored otherwise.
-  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }],
+  sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }, { name: 'variant', def: 0 },
+    // note frequency, so the kernel can pick a KEY ZONE by note
+    { name: 'nfreq', def: 440 }],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],
@@ -186,12 +206,20 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   mix: [{ name: 'a' }, { name: 'b' }, { name: 't', def: 0.5 }],
   delay: [{ name: 'in' }, { name: 'time', def: 0.25 }, { name: 'feedback', def: 0 }, { name: 'mix', def: 0.35 }],
   reverb: [{ name: 'in' }],
-  chorus: [{ name: 'in' }],
+  chorus: [{ name: 'in' }, { name: 'rate', def: 0.6 }, { name: 'depth', def: 0.003 }, { name: 'mix', def: 0.5 }],
   comb: [{ name: 'in' }, { name: 'freq', def: 220 }, { name: 'feedback', def: 0.5 }],
   bitcrush: [{ name: 'in' }],
   shape: [{ name: 'in' }, { name: 'drive', def: 1 }],
-  compress: [{ name: 'in' }],
-  phaser: [{ name: 'in' }],
+  // `key` is the DETECTOR input: absent = the compressor listens to itself
+  compress: [{ name: 'in' }, { name: 'key', def: 0 }],
+  noisegate: [{ name: 'in' }],
+  deess: [{ name: 'in' }],
+  follow: [{ name: 'in' }],
+  pitchshift: [{ name: 'in' }, { name: 'mix', def: 1 }, { name: 'semitones', def: 0 }],
+  convolve: [{ name: 'in' }, { name: 'mix', def: 0.35 }],
+  tape: [{ name: 'in' }],
+  limiter: [{ name: 'in' }],
+  phaser: [{ name: 'in' }, { name: 'rate', def: 0.5 }, { name: 'depth', def: 0.7 }, { name: 'feedback', def: 0.4 }, { name: 'mix', def: 0.5 }],
   formant: [{ name: 'in' }, { name: 'morph', def: 0 }],
   vocoder: [{ name: 'carrier' }, { name: 'modulator' }],
   eq: [{ name: 'in' }],
@@ -201,7 +229,7 @@ const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   // be an exact passthrough — a silent no-op reads as broken)
   width: [{ name: 'in' }, { name: 'amount', def: 0.5 }],
   transient: [{ name: 'in' }],
-  flanger: [{ name: 'in' }],
+  flanger: [{ name: 'in' }, { name: 'rate', def: 0.3 }, { name: 'depth', def: 0.7 }, { name: 'feedback', def: 0.7 }, { name: 'mix', def: 0.5 }],
   pan: [{ name: 'in' }, { name: 'pos', def: 0.5 }],
   const: [],
   param: [],
@@ -272,6 +300,15 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   bitcrush: (c) => new BitcrushKernel(bitcrushCfg(c)),
   shape: (c) => new ShapeKernel((c['type'] as ShapeType | undefined) ?? 'soft'),
   compress: (c) => new CompressKernel(compressCfg(c)),
+  noisegate: (c) => new GateKernel(gateCfg(c)),
+  deess: (c) => new DeessKernel(deessCfg(c)),
+  follow: (c) => new FollowKernel(followCfg(c)),
+  pitchshift: (c) => new PitchShiftKernel(pitchShiftCfg(c)),
+  // ctx carries the same sample bank sample() reads, so the IR can be a
+  // loaded WAV or a generated one
+  convolve: (c, ctx) => new ConvolveKernel(String(c['name'] ?? ''), ctx.samples, convolveCfg(c)),
+  tape: (c) => new TapeKernel(tapeCfg(c)),
+  limiter: (c) => new LimiterKernel(limiterCfg(c)),
   phaser: (c) => new PhaserKernel(c as PhaserConfig),
   formant: () => new FormantKernel(),
   vocoder: (c, ctx) => new VocoderKernel(c as VocoderConfig, ctx),
@@ -327,6 +364,9 @@ const sampleCfg = (c: Record<string, unknown>): SampleSliceConfig => {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   if (typeof c['reverse'] === 'boolean') out.reverse = c['reverse']
+  // `zones` is an ARRAY, so the numeric sweep above would drop it — the same
+  // way compressCfg silently dropped a boolean `key`
+  if (Array.isArray(c['zones'])) out.zones = c['zones'] as SampleZone[]
   return out
 }
 
@@ -342,6 +382,62 @@ const granularCfg = (c: Record<string, unknown>): GranularConfig => {
 const compressCfg = (c: Record<string, unknown>): CompressConfig => {
   const out: CompressConfig = {}
   for (const k of ['threshold', 'ratio', 'attack', 'release', 'knee', 'makeup'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  // `key` is a BOOLEAN, so the numeric sweep above silently dropped it and the
+  // sidechain input read as absent however it was patched
+  if (c['key'] === true) out.key = true
+  return out
+}
+
+const gateCfg = (c: Record<string, unknown>): GateConfig => {
+  const out: GateConfig = {}
+  for (const k of ['threshold', 'range', 'attack', 'hold', 'release', 'hysteresis'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const deessCfg = (c: Record<string, unknown>): DeessConfig => {
+  const out: DeessConfig = {}
+  for (const k of ['freq', 'threshold', 'ratio', 'attack', 'release'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const followCfg = (c: Record<string, unknown>): FollowConfig => {
+  const out: FollowConfig = {}
+  for (const k of ['attack', 'release'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  // the one non-numeric config in this family: an unknown word must fall back
+  // to the default rather than reaching the kernel as garbage
+  if (c['mode'] === 'rms' || c['mode'] === 'peak') out.mode = c['mode']
+  return out
+}
+
+const pitchShiftCfg = (c: Record<string, unknown>): PitchShiftConfig => {
+  const out: PitchShiftConfig = {}
+  for (const k of ['semitones', 'window'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const convolveCfg = (_c: Record<string, unknown>): ConvolveConfig => ({})
+
+const tapeCfg = (c: Record<string, unknown>): TapeConfig => {
+  const out: TapeConfig = {}
+  for (const k of ['wow', 'flutter', 'sat', 'tone'] as const) {
+    if (typeof c[k] === 'number') out[k] = c[k] as number
+  }
+  return out
+}
+
+const limiterCfg = (c: Record<string, unknown>): LimiterConfig => {
+  const out: LimiterConfig = {}
+  for (const k of ['ceiling', 'lookahead', 'release'] as const) {
     if (typeof c[k] === 'number') out[k] = c[k] as number
   }
   return out

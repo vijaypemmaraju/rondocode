@@ -1,6 +1,7 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
+import { BUILT_IN_SAMPLE_NAMES } from '../audio/demo-samples'
 import { snippetCompletion } from '@codemirror/autocomplete'
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import type { DocEntry } from '../docs/dsl-docs'
 import { docsOfKind } from '../docs/dsl-docs'
@@ -45,14 +46,39 @@ const VALUE_GLOBALS = new Set([
 
 export type SyntacticContext = 'string' | 'synth' | 'top'
 
+/** How long to spend parsing up to the cursor when the background parse has
+ *  not reached it. Only paid on the cold path: once the language's own worker
+ *  has caught up, `ensureSyntaxTree` returns immediately. CodeMirror's own
+ *  default for this call. */
+const PARSE_BUDGET_MS = 50
+
+/**
+ * The syntax tree, parsed as far as `pos` if it is not already.
+ *
+ * `syntaxTree` returns only what has been parsed SO FAR, and the initial parse
+ * runs on a time budget: measured, a bare state stops at 3007 characters
+ * whatever the document's length. Past that every position resolves to the
+ * tree's root, so `syntacticContext` answers 'top' for a cursor plainly inside
+ * a string, and the global vocabulary gets offered in the middle of a
+ * mini-notation pattern. Confidently wrong rather than silent.
+ *
+ * IN THE EDITOR this was survivable and, measured in a browser at 20k
+ * characters, did not actually happen: CodeMirror parses the VIEWPORT, and the
+ * cursor is by definition in it. But that is an implicit dependency on
+ * something completion never asked for, and it does not hold for a caller
+ * without a view. It held as a flaky test instead, failing once in a full
+ * suite and passing alone, which is the same bug wearing the cheapest
+ * possible disguise.
+ */
+const treeAt = (state: EditorState, pos: number): ReturnType<typeof syntaxTree> =>
+  ensureSyntaxTree(state, pos, PARSE_BUDGET_MS) ?? syntaxTree(state)
+
 /**
  * Classify a document position: inside a string/template literal, inside a
- * synth(...) call's arguments, or ordinary top-level code. Tree-based; if
- * the parse tree does not reach `pos` (never the case for the small docs a
- * live-coding editor holds, but cheap to guard), everything reads as 'top'.
+ * synth(...) call's arguments, or ordinary top-level code.
  */
 export const syntacticContext = (state: EditorState, pos: number): SyntacticContext => {
-  const tree = syntaxTree(state)
+  const tree = treeAt(state, pos)
   for (let node: ReturnType<typeof tree.resolveInner> | null = tree.resolveInner(pos, -1); node !== null; node = node.parent) {
     if (node.name === 'String' || node.name === 'TemplateString') return 'string'
     if (node.name === 'CallExpression') {
@@ -67,7 +93,7 @@ export const syntacticContext = (state: EditorState, pos: number): SyntacticCont
  *  string is — the bare callee (`chord`, `note`, `s`) or the member method
  *  (`.scale`, `.sound`). null if not inside a call's string argument. */
 export const stringCallName = (state: EditorState, pos: number): string | null => {
-  const tree = syntaxTree(state)
+  const tree = treeAt(state, pos)
   for (
     let node: ReturnType<typeof tree.resolveInner> | null = tree.resolveInner(pos, -1);
     node !== null;
@@ -144,9 +170,20 @@ const build = (kinds: DocEntry['kind'][], boost?: (e: DocEntry) => number | unde
 
 const NOTE_LETTERS = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
 const CHORD_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-const CHORD_SUFFIXES = [
-  '', 'm', '7', 'maj7', 'm7', 'm7b5', 'dim', 'dim7', 'aug',
+/* The suffixes OFFERED, in the order they are worth reaching for. Not every
+ * quality parseChord knows: all of them is 12 roots x 40-odd qualities, and a
+ * popup that long buries the triad you actually wanted under its own aliases
+ * (`maj`/`major`/`M` are one chord spelled three ways).
+ *
+ * A curated list is a second copy of a list, though, and this one had already
+ * drifted — `sus`, `min`, `dom7`, `5` and `7sus4` all parse and were offered
+ * nowhere. So complete.test.ts pins it as a SUBSET of CHORD_QUALITIES, which
+ * catches the failure that matters: completing to a chord that does not parse. */
+export const CHORD_SUFFIXES = [
+  '', 'm', '7', 'maj7', 'm7', 'm7b5', 'dim', 'dim7', 'aug', '5',
   'sus2', 'sus4', '6', 'm6', 'add9', '9', 'maj9', 'm9', '11', '13',
+  // added tones that keep the third — the pop/worship chart spellings
+  '2', 'add2', 'm2', '4', 'add4', 'add11',
 ]
 
 // note names c1..b7 (the register a live-coder actually reaches for)
@@ -156,7 +193,9 @@ for (let oct = 1; oct <= 7; oct++) {
 }
 
 // root × quality. boost the plain triads so they sort above the extensions.
-const CHORD_OPTIONS: Completion[] = CHORD_ROOTS.flatMap((root) =>
+// EXPORTED: rondo's `overchord:` offers the same chords, and a second copy of
+// this table is how one of them ends up offering a quality the other does not.
+export const CHORD_OPTIONS: Completion[] = CHORD_ROOTS.flatMap((root) =>
   CHORD_SUFFIXES.map((suf) => ({
     label: `${root}${suf}`,
     detail: suf === '' ? 'major' : suf === 'm' ? 'minor' : suf,
@@ -173,7 +212,7 @@ const SCALE_OPTIONS: Completion[] = Object.keys(SCALES).map((name) => ({
 /** Synth names defined in the current doc (`const X = synth(...)`) plus the
  *  built-in demo samples — the plausible arguments to .sound()/s(). */
 const soundOptions = (doc: string): Completion[] => {
-  const names = new Set<string>(['vox', 'riser', 'pad'])
+  const names = new Set<string>(BUILT_IN_SAMPLE_NAMES)
   const re = /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*synth\b/g
   for (let m = re.exec(doc); m !== null; m = re.exec(doc)) names.add(m[1]!)
   return [...names].map((label) => ({ label, type: 'variable' }))

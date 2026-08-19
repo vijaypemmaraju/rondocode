@@ -86,13 +86,26 @@ describe('resampleTake', () => {
   it('loads the rendered take under the next free takeN', () => {
     const audio = fakeAudio(['mic1', 'take1'])
     const res = resampleTake({ code: CODE, cycles: 1, audio })
-    expect(res).toEqual({ name: 'take2' })
+    expect(res).toEqual({ name: 'take2', normalizeDb: 0 })
     expect(audio.loadSamplePcm).toHaveBeenCalledTimes(1)
     const [name, data, sampleRate] = audio.loadSamplePcm.mock.calls[0]!
     expect(name).toBe('take2')
     expect(data).toBeInstanceOf(Float32Array)
     expect((data as Float32Array).length).toBe(exactLoopFrames(2, 1, 48000))
     expect(sampleRate).toBe(48000)
+  })
+
+  /* A take is a bounce, so it meets the same 0.89 ceiling as the WAV export —
+   * and resample-to-loop then normalizes AGAIN to 0.9 on the way into the
+   * bank. Two normalizations means the take's level tells you nothing about
+   * the level of what you resampled, so the amount the first one removed is
+   * the only way to know a part was mixed past the top. */
+  it('reports how far the mix stage pulled a hot take down', () => {
+    const hot = ["const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(8))",
+                 "p('x', note('c3*4').sound('a'))", 'setCps(2)'].join('\n')
+    const res = resampleTake({ code: hot, cycles: 1, audio: fakeAudio([]) })
+    if ('error' in res) throw new Error(res.error)
+    expect(res.normalizeDb, 'a mix 8x over the ceiling must report the cut').toBeLessThan(-10)
   })
 
   it('reports render failures as { error } and loads nothing (never throws)', () => {
@@ -115,7 +128,7 @@ describe('shared staged→renderMix mapping (WAV export vs resample)', () => {
     "bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.9 }), { pad: 0.3 })",
     "p('k', note('c1*4').sound('kick'))",
     "p('p', note('c4').sound('pad'))",
-    "sidechain('kick', { depth: 0.5, release: 0.2, duck: { pad: 0.8 } })",
+    "sidechain('kick', { depth: 0.5, release: 200, duck: { pad: 0.8 } })",
     'masterCompress({ threshold: -12, ratio: 3 })',
     'setCps(2)',
   ].join('\n')
@@ -123,7 +136,7 @@ describe('shared staged→renderMix mapping (WAV export vs resample)', () => {
   it('both paths call renderMix with identical synths, events, duration and options', () => {
     vi.mocked(renderMix).mockClear()
     const samples = { clip: { data: new Float32Array(16), sampleRate: 48000 } }
-    expect(bounceLoop(FULL_CODE, 1, samples)).toBeInstanceOf(Uint8Array)
+    expect(bounceLoop(FULL_CODE, 1, samples)).toHaveProperty('bytes')
     expect(renderTakePcm(FULL_CODE, 1, samples)).not.toHaveProperty('error')
     expect(vi.mocked(renderMix)).toHaveBeenCalledTimes(2)
     const [wavCall, takeCall] = vi.mocked(renderMix).mock.calls

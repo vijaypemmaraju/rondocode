@@ -297,7 +297,7 @@ describe('evalCode: sidechain staging', () => {
 
   it('defaults depth 0.6 and release 0.18s (releaseMs 180)', () => {
     expect(runD("sidechain('kick')").sidechain).toEqual({ source: 'kick', depth: 0.6, releaseMs: 180 })
-    expect(runD("sidechain('kick', { release: 0.25 })").sidechain).toEqual({
+    expect(runD("sidechain('kick', { release: 250 })").sidechain).toEqual({
       source: 'kick',
       depth: 0.6,
       releaseMs: 250,
@@ -742,7 +742,114 @@ describe('evalCode: custom-wavetable registry lifecycle (mirrors defineScale)', 
   })
 })
 
+/* ------------------------------------------------------------------------- *
+ * GATE LENGTH. `dur` multiplies the note's own whole; it is not a count of
+ * bars. `slow(16).dur(16)` therefore asks for a 256-BAR gate on a note that
+ * retriggers every 16, and because a same-note retrigger steals its own voice,
+ * the extra 240 bars are inert: identical audio, no error, nothing to hear.
+ * A build-up riser shipped that way and played straight through the drop it
+ * was written for.
+ * ------------------------------------------------------------------------- */
+describe('evalCode: masterGain', () => {
+  const SYNTH = "const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate))\np('x', note('c3').sound('a'))"
+  it('stages the level in dB, last call winning', () => {
+    expect(run(`${SYNTH}\nmasterGain(-6)`).masterGain).toBe(-6)
+    expect(run(`${SYNTH}\nmasterGain(-6)\nmasterGain(-2)`).masterGain).toBe(-2)
+  })
+  it('is absent when the code never sets one, so the default stands', () => {
+    expect(run(SYNTH).masterGain).toBeUndefined()
+  })
+  it('clamps to a sane range instead of letting a typo blow the output up', () => {
+    expect(run(`${SYNTH}\nmasterGain(400)`).masterGain).toBe(12)
+    expect(run(`${SYNTH}\nmasterGain(-999)`).masterGain).toBe(-60)
+  })
+  it('fails the eval on a non-number rather than silently doing nothing', () => {
+    const r = run(`${SYNTH}\nmasterGain('loud')`)
+    expect(r.ok).toBe(false)
+    expect(r.diagnostics[0]!.message).toContain('masterGain()')
+  })
+})
+
+describe('evalCode: gate length', () => {
+  const RISER = "const riser = synth(({ gate, adsr, noise }) => noise().mul(adsr(gate, { a: 5, d: 0.1, s: 1, r: 0.006 })))"
+  const warns = (code: string) =>
+    run(`${RISER}
+${code}`).diagnostics.filter((d) => d.message.includes('MULTIPLIES'))
+
+  it('warns when dur holds a note past its own next trigger', () => {
+    const r = run(`${RISER}
+p('r', note('c3').sound('riser').slow(16).dur(16))`)
+    expect(r.ok, 'it plays, so this must not fail the eval').toBe(true)
+    const [d] = r.diagnostics.filter((x) => x.message.includes('MULTIPLIES'))
+    expect(d, 'a 256-bar gate on a 16-bar loop must be reported').toBeDefined()
+    expect(d!.severity).toBe('warning')
+    expect(d!.message).toContain('256 cycles')
+    expect(d!.message).toContain('retriggers after 16')
+    expect(d!.line, 'positioned on the .dur( call').toBe(2)
+  })
+
+  it('needs the far probes to see it at all', () => {
+    // The retrigger of a 16-bar note lands at cycle 16, one past the end of
+    // the dense [0, 16) window — so the dense scan alone sees ONE onset and
+    // has no next trigger to measure against. This is the same boundary that
+    // let a bad ctrl through in the second section of an arrangement.
+    const r = run(`${RISER}
+p('r', note('c3').sound('riser').slow(16).dur(16))`)
+    expect(r.diagnostics.some((d) => d.message.includes('retriggers after 16'))).toBe(true)
+  })
+
+  it('stays quiet for legato overlap and ordinary durations', () => {
+    expect(warns(`p('r', note('c3*8').sound('riser').dur(1.05))`), 'legato is deliberate').toEqual([])
+    expect(warns(`p('r', note('c3 e3 g3 e3').sound('riser').dur(0.98))`)).toEqual([])
+    expect(warns(`p('r', note('c3').sound('riser').slow(16).dur(1))`), 'the fixed form').toEqual([])
+  })
+
+  it('leaves a gate exactly at the threshold alone', () => {
+    // 2x the gap is the line: a gate twice its retrigger is the most a
+    // deliberate overlap plausibly reaches, so it must not fire.
+    expect(warns(`p('r', note('c3').sound('riser').slow(64).dur(2))`)).toEqual([])
+    expect(warns(`p('r', note('c3').sound('riser').slow(64).dur(2.5))`).length).toBe(1)
+  })
+
+  /* One finding must be ONE diagnostic. It used to emit one per `.dur(` call
+   * site in the whole file, so a real buildup with five dur() calls reported
+   * the same problem five times, at four places it was not. */
+  it('reports one diagnostic per finding, at the dur() that caused it', () => {
+    const code = [
+      RISER,
+      "p('a', note('c3*4').sound('riser').dur(0.9))",
+      "p('b', note('e3*2').sound('riser').dur(0.5))",
+      "p('c', note('g3').sound('riser').slow(16).dur(16))",
+      "p('d', note('a3*8').sound('riser').dur(0.25))",
+    ].join('\n')
+    const found = run(code).diagnostics.filter((d) => d.message.includes('MULTIPLIES'))
+    expect(found).toHaveLength(1)
+    expect(found[0]!.line, 'positioned on the dur(16), not on the other four').toBe(4)
+  })
+
+  it('does not confuse a chord\'s separate notes for a retrigger', () => {
+    // three notes at once on one synth is three voices, not one note held
+    expect(warns(`p('r', chord('<Cmaj7>').sound('riser').slow(8).dur(0.9))`)).toEqual([])
+  })
+})
+
 describe('evalCode: ctrl() param validation', () => {
+  it('sees a ctrl that only appears AFTER a 16-bar first section', () => {
+    /* The reported bug: `section build 16` then `section drop 16` puts every
+     * ctrl of the second half at cycle 16 and later, and the scan window was
+     * [0, 16) — so a bad ctrl in the drop played as an engine warning instead
+     * of failing the eval. 16 missed it; 17 caught it. */
+    const synth = "const r = synth(({ note, gate, param, saw, svf }) => svf(saw(note.freq), param('base', 900)).mul(gate))"
+    const arranged = `${synth}\np('a', arrange([16, note('c3').sound('r')], [16, note('c3').sound('r').ctrl('nope', 1)]))`
+    const bad = run(arranged)
+    expect(bad.ok, 'a ctrl in the second section must fail the eval').toBe(false)
+    expect(bad.diagnostics.some((d) => d.message.includes("declares no param 'nope'"))).toBe(true)
+    // and the same shape with a REAL param still evals
+    const good = `${synth}\np('a', arrange([16, note('c3').sound('r')], [16, note('c3').sound('r').ctrl('base', 1200)]))`
+    expect(run(good).ok, 'a valid ctrl in the second section must still pass').toBe(true)
+  })
+
+
   // A synth with a VOICE param 'cutoff' and a POST param 'wet'.
   const VOICE_POST_SYNTH =
     "const pv = synth(({ note, gate, param, saw, svf }) => svf(saw(note.freq), param('cutoff', 800)).mul(gate), " +

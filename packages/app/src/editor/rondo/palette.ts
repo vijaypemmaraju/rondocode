@@ -14,6 +14,9 @@ import { redo, redoDepth, toggleComment, undo, undoDepth } from '@codemirror/com
 
 import type { EditorView } from '@codemirror/view'
 import { buzz, rollPreviewMidi } from './widgets'
+import { localBindings, macroNames, rondoPositionAt } from './complete'
+import { ENUM_VALUE_TABLE } from './enums'
+import { BUILTINS, VOICE_FLAGS, VOICE_OPTS } from '@rondocode/rondo'
 
 export interface Chip {
   /** what the bar shows. */
@@ -66,8 +69,12 @@ function topChips(doc: string): Chip[] {
     chip('＋ section', `section part 4\n  play ${target}\n    0 3 5 7  scale:a-min\n`, 'kw'),
     chip('＋ bus', `bus space\n  reverb room:.9 damp:.35\n  send ${target} .3\n`, 'kw'),
     chip('＋ wavedef', `wavedef wt 1 .25 / .5 1 .5 / .3 .8 1\n\nsynth ${next}\n  wavetable note scan table:wt\n  * env\n  env = adsr .01 .15 .6 .2\n  scan = env -> .1...9\n`, 'kw'),
-    chip('sidechain', `sidechain kick depth:.7 release:.12\n`, 'kw'),
+    chip('sidechain', `sidechain kick depth:.7 release:120\n`, 'kw'),
     chip('master', `master threshold:-6 ratio:2\n`, 'kw'),
+    chip('level', `level -4\n`, 'kw'),
+    chip('sum', `sum k 1..16\n  sine note * k\n`, 'kw'),
+    chip('patdef', `patdef riff <[0 ~ 3] [5 ~ 7]>\n`, 'kw'),
+    chip('with', ` with drums`, 'kw'),
     chip('bpm', 'bpm 120\n', 'kw'),
     chip('cps', 'cps .5\n', 'kw'),
     chip('timesig', 'timesig 3 4\n', 'kw'),
@@ -114,6 +121,24 @@ const NOTE_CHIPS: Chip[] = [
   { ...chip('scale', ' scale:a-min', 'kw'), action: 'cycle-scale' },
 ]
 
+/** Every synth defined in the document, in source order — a `beat` row's words
+ *  ARE these names, so they are the chips that block needs. */
+function allSynthNames(doc: string): string[] {
+  const out: string[] = []
+  const re = /^synth[ \t]+([a-zA-Z_]\w*)/gm
+  let m: RegExpExecArray | null
+  while ((m = re.exec(doc)) !== null) out.push(m[1]!)
+  return out
+}
+
+/** A melody line is absolute note names — `scale:` does not apply in a vocal. */
+const SING_MELODY_CHIPS: Chip[] = [
+  ...['c4', 'd4', 'e4', 'f4', 'g4', 'a4', 'b4', 'c5'].map((n) => chip(n, `${n} `, 'note')),
+  chip('~', '~ ', 'note'),
+  chip('@2', '@2 ', 'op'),
+  { ...chip('⌫', '', 'op'), action: 'del-token' },
+]
+
 const MOD_CHIPS: Chip[] = [
   chip('gain:', 'gain: .8'),
   chip('dur:', 'dur: .9'),
@@ -157,11 +182,58 @@ function enclosing(lines: string[], lineIdx: number): { block?: string; header?:
 }
 
 /** The legal chips at `pos` in `doc` — the tap palette's whole brain. */
+/* ARGUMENT-AWARE CHIPS.
+ *
+ * The palette used to decide from the BLOCK alone — which is why `svf 900 `
+ * offered you a new pipeline line instead of `res:` and `mode:`, and why
+ * `supersaw voices:` offered top-level block starters.
+ *
+ * The knowledge to do better already existed and was already grounded in the
+ * parser's own BUILTINS table: `rondoPositionAt` (the keyboard completion's
+ * eyes) reports `{args, builtin}` inside a call and `{named, builtin, arg}` in
+ * a value slot, and it gets every one of those cases right. It simply was not
+ * being consulted here, so the KEYBOARD surface understood argument position
+ * and the TAP surface did not — on a phone-first editor, that is the wrong way
+ * round.
+ *
+ * Chips, not completions: a value slot offers the legal values, a call offers
+ * its named args. Where the table knows nothing, fall through to the block
+ * chips rather than showing an empty bar.
+ */
+function argChips(doc: string, pos: number): Chip[] | null {
+  const where = rondoPositionAt(doc, pos)
+  if (where.kind === 'named') {
+    const values = ENUM_VALUE_TABLE[where.builtin]?.named?.[where.arg]
+    if (values !== undefined && values !== null && values.length > 0) return values.map((v) => chip(v, v, 'kw'))
+    /* A value slot whose values are NOT an enum — `res:`, `voices:`, any
+     * number or signal. Falling through to the block chips here is what made
+     * `supersaw voices:` offer to start a new oscillator, so do not: an
+     * argument is an expression, which means a number, a binding in this
+     * block, or a macro. Same three the keyboard offers. */
+    const nums = ['.2', '.5', '1', '2'].map((n) => chip(n, n, 'note'))
+    const refs = [...localBindings(doc, pos), ...macroNames(doc)]
+    return [...nums, ...refs.map((r) => chip(r, r, 'kw'))]
+  }
+  if (where.kind === 'args') {
+    const named = BUILTINS[where.builtin]?.named
+    const entries = Object.entries(named ?? {})
+    if (entries.length === 0) return null
+    // `mode:` lands you in its value slot, where the enum chips take over
+    return entries.map(([name, kind]) => chip(`${name}:`, `${name}:${kind === 'bool' ? '1' : ''}`, 'op'))
+  }
+  return null
+}
+
 export function paletteChips(doc: string, pos: number): Chip[] {
   const before = doc.slice(0, pos)
   const lineIdx = before.split('\n').length - 1
   const lines = doc.split('\n')
   const line = lines[lineIdx] ?? ''
+
+  // inside a call's arguments, or in a named argument's value slot — this is
+  // a finer position than the block, so it wins over everything below
+  const args = argChips(doc, pos)
+  if (args !== null) return args
 
   // top-level position: the cursor line is blank at indent 0, or the doc is empty
   if (line.trim() === '' && !/^[ \t]/.test(line)) {
@@ -174,7 +246,19 @@ export function paletteChips(doc: string, pos: number): Chip[] {
 
   const ctx = enclosing(lines, lineIdx)
   if (ctx.headerIdx === lineIdx) {
-    // ON a header/statement line at indent 0 → top-level starters
+    /* A `synth NAME ` header still accepts VOICE OPTIONS — `mono`, `glide:`,
+     * `unison:`, `voices:` — and offering top-level block starters there was
+     * not merely unhelpful: tapping one inserted a whole nested `synth`. The
+     * list is imported from the parser that validates it, so an option cannot
+     * exist without being offered. */
+    const head = /^synth[ \t]+[a-zA-Z_]\w*[ \t]/.exec(line)
+    if (head !== null && pos - (before.lastIndexOf('\n') + 1) >= head[0].length) {
+      return [
+        ...[...VOICE_FLAGS].map((f) => chip(f, `${f} `, 'kw')),
+        ...[...VOICE_OPTS].map((o) => chip(`${o}:`, `${o}:`, 'op')),
+      ]
+    }
+    // otherwise: ON a header/statement line at indent 0 → top-level starters
     return topChips(doc)
   }
   switch (ctx.block) {
@@ -199,6 +283,35 @@ export function paletteChips(doc: string, pos: number): Chip[] {
         if (b.trim() !== '' && !/^\s*#/.test(b)) { hasNotation = true; break }
       }
       return hasNotation ? MOD_CHIPS : NOTE_CHIPS
+    }
+    /* A beat row's WORDS are synth names, so the useful chips are the kit in
+     * this document plus the mini-notation around them. This block had no case
+     * at all and fell through to the top-level starters, which meant tapping a
+     * chip inside a drum pattern inserted a whole nested `synth` block. */
+    case 'beat': {
+      const kit = allSynthNames(doc)
+      return [
+        ...kit.map((n) => chip(n, `${n} `, 'note')),
+        chip('~', '~ ', 'note'),
+        chip('*2', '*2 ', 'op'),
+        chip('[', '[', 'op'),
+        chip(']', '] ', 'op'),
+        chip(':vel', ':.6 ', 'op'),
+        { ...chip('⌫', '', 'op'), action: 'del-token' },
+      ]
+    }
+    /* A sing block alternates lyric and melody lines. Chips cannot write your
+     * words, but they can write the melody and the modifiers — and either
+     * beats offering to open a new `synth` inside the vocal. */
+    case 'sing': {
+      let bodyLines = 0
+      for (let i = ctx.headerIdx + 1; i < lineIdx; i++) {
+        const b = lines[i]!
+        if (b.trim() !== '' && !/^\s*#/.test(b)) bodyLines++
+      }
+      // lyrics first, then its melody: an even count means the next line is a
+      // lyric line, where the only useful chip is the one that ends the block
+      return bodyLines % 2 === 1 ? SING_MELODY_CHIPS : MOD_CHIPS
     }
     case 'bus':
       return BUS_CHIPS

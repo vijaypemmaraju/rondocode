@@ -2,8 +2,8 @@ import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
-import type { ControlMap, TimeSig } from '@rondocode/pattern'
-import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
+import type { ControlMap, Hap, TimeSig } from '@rondocode/pattern'
+import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, micDeviceIn, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -104,6 +104,18 @@ export function synthsUseMic(synths: ReadonlyMap<string, SynthDef>): boolean {
   return [...synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))
 }
 
+/** The input device the staged program asks for via `mic(device:…)`, if any.
+ *  The app hands this to AudioSession, where resolveDevice decides whether it
+ *  beats the saved setting (it does) and what to do when it is not plugged in
+ *  (fall back, and say so). */
+export function synthsMicDevice(synths: ReadonlyMap<string, SynthDef>): string | undefined {
+  for (const d of synths.values()) {
+    const from = micDeviceIn(d.graph) ?? (d.post !== undefined ? micDeviceIn(d.post) : undefined)
+    if (from !== undefined) return from
+  }
+  return undefined
+}
+
 export interface EvalResult {
   /** True when the source parsed and ran to completion (warnings allowed). */
   ok: boolean
@@ -133,6 +145,15 @@ export interface EvalResult {
    *  compressor config. All fields in the compressor's native units (dB /
    *  ratio / ms); validated + clamped engine-side. */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Present iff the code called masterGain(db): overall output level in dB.
+   *  The one lever that scales EVERYTHING equally. Without it the only way to
+   *  change a project's level was to edit every synth, and a project mixed
+   *  past the render's 0.89 peak ceiling could not be brought back under it at
+   *  all — every per-part gain above the ceiling is inert (see normalizeDb).
+   *  Last call wins. */
+  masterGain?: number
+  /** Present iff the code called stereo(opts): master-bus mid/side. */
+  stereo?: { width?: number; monoBelow?: number }
   /** Present iff the code called visual(wgsl): the WGSL fragment source for
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
@@ -150,11 +171,20 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object.
  *  EXPORTED so the docs-coverage test can check itself against this list
  *  instead of keeping a second copy that drifts (docs.test.ts). */
-export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap'])
+export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap'])
 
-/** DSL sidechain defaults (release in SECONDS, converted to ms downstream). */
-const DEFAULT_SIDECHAIN_DEPTH = 0.6
-const DEFAULT_SIDECHAIN_RELEASE_SEC = 0.18
+/** DSL sidechain defaults. `release` is MILLISECONDS, like every other
+ *  release in the language — it used to be seconds here and only here, so the
+ *  same word meant 0.18 in one place and 180 in the next. Exported so the
+ *  editor's duck-curve widget draws the shape an omitted arg actually makes
+ *  rather than keeping a third copy of these numbers. */
+export const DEFAULT_SIDECHAIN_DEPTH = 0.6
+export const DEFAULT_SIDECHAIN_RELEASE_MS = 180
+
+/** Below this, a `release` was almost certainly written in seconds. A duck
+ *  that recovers in under 5 ms is not a pump, it is a click, so treating the
+ *  old spelling as a valid new one would silently destroy the effect. */
+const SUSPICIOUS_RELEASE_MS = 5
 
 /** Lines added ahead of user code inside the compiled function: V8 renders
  *  `new Function(a, b, body)` as `function anonymous(a,b\n) {\n<body>\n}`
@@ -325,6 +355,51 @@ const NON_PARAM_CTRL_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
  *  are cheap, but this stays bounded). */
 const CTRL_SCAN_CYCLES = 16
 
+/** Extra SINGLE cycles probed after the dense window, at the bar counts real
+ *  arrangements start sections on.
+ *
+ *  The dense window is [0, 16), so a program whose second section begins at
+ *  bar 16 — `section build 16` then `section drop 16`, the most ordinary shape
+ *  in dance music — had every ctrl in its second half unchecked, and the bad
+ *  one surfaced as an engine warning while it played. Probing one cycle at
+ *  each boundary costs a fraction of widening the window (this runs on every
+ *  eval, including a widget drag) and covers arrangements out to 64 bars. */
+const CTRL_PROBE_CYCLES = [16, 24, 32, 48, 64]
+
+/** What every eval-time pattern check reads: the haps a scan of the staged
+ *  patterns turns up, queried ONCE.
+ *
+ *  Four checks want this (ctrl targets, mono chords, orphan sing() requests,
+ *  gate length) and each used to run its own 16-cycle query, so the cost of
+ *  the scan was paid three times over on every keystroke-triggered eval and a
+ *  fourth check would have cost a fourth. `dense` is the contiguous window,
+ *  which is the only part where the GAP between two haps means anything;
+ *  `probes` are the far single cycles, useful for "does this ever happen" and
+ *  useless for "what happens next". */
+interface ScannedHaps {
+  dense: Hap<ControlMap>[]
+  probes: Hap<ControlMap>[]
+}
+
+/** Query every staged pattern over the scan window and the far probes. A
+ *  pattern whose query throws is skipped: a pattern bug must never block an
+ *  eval, it has its own failure path at play time. */
+const scanHaps = (patterns: Map<string, Pattern<ControlMap>>): ScannedHaps => {
+  const dense: Hap<ControlMap>[] = []
+  const probes: Hap<ControlMap>[] = []
+  const denseSpan = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
+  const probeSpans = CTRL_PROBE_CYCLES.map((c) => new TimeSpan(F(c), F(c + 1)))
+  for (const pat of patterns.values()) {
+    try {
+      dense.push(...pat.query(denseSpan))
+      for (const sp of probeSpans) probes.push(...pat.query(sp))
+    } catch {
+      continue
+    }
+  }
+  return { dense, probes }
+}
+
 /**
  * Catch `.ctrl('name', …)` targets that the engine would reject at play time as
  * `unknown param 'name'` — a bug that otherwise only surfaces as a per-cycle
@@ -340,10 +415,10 @@ const CTRL_SCAN_CYCLES = 16
  */
 const validateCtrlParams = (
   synths: Map<string, SynthDef>,
-  patterns: Map<string, Pattern<ControlMap>>,
+  haps: ScannedHaps,
   program: Program,
 ): Diagnostic[] => {
-  if (patterns.size === 0 || synths.size === 0) return []
+  if (synths.size === 0) return []
   // Collect `.ctrl('KEY', …)` call sites for positioning, keyed by KEY.
   const ctrlSites = new Map<string, { line: number; col: number }[]>()
   walkSimple(program, {
@@ -367,33 +442,128 @@ const validateCtrlParams = (
   })
   const diags: Diagnostic[] = []
   const seen = new Set<string>() // dedup by `${sound}|${key}`
-  const span = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
-  for (const pat of patterns.values()) {
-    let haps
-    try {
-      haps = pat.query(span)
-    } catch {
-      continue // a pattern-query bug must never block eval
-    }
-    for (const h of haps) {
-      const c = h.value
-      const sound = c.sound
-      if (typeof sound !== 'string') continue
-      const def = synths.get(sound)
-      if (def === undefined) continue // unknown sound: not this check's concern
-      for (const [key, val] of Object.entries(c)) {
-        if (NON_PARAM_CTRL_KEYS.has(key) || typeof val !== 'number') continue
-        const dedup = `${sound}|${key}`
-        if (seen.has(dedup)) continue
-        seen.add(dedup)
-        if (def.graph.params.some((p) => p.name === key)) continue // valid voice param
-        if (def.post?.params.some((p) => p.name === key) === true) continue // valid POST param (now driveable)
-        const message = `ctrl('${key}'): synth '${sound}' declares no param '${key}'.`
-        const sites = ctrlSites.get(key) ?? [{ line: 1, col: 1 }]
-        for (const s of sites) {
-          diags.push({ line: s.line, col: s.col, message, severity: 'error', source: 'eval' })
-        }
+  for (const h of [...haps.dense, ...haps.probes]) {
+    const c = h.value
+    const sound = c.sound
+    if (typeof sound !== 'string') continue
+    const def = synths.get(sound)
+    if (def === undefined) continue // unknown sound: not this check's concern
+    for (const [key, val] of Object.entries(c)) {
+      if (NON_PARAM_CTRL_KEYS.has(key) || typeof val !== 'number') continue
+      const dedup = `${sound}|${key}`
+      if (seen.has(dedup)) continue
+      seen.add(dedup)
+      if (def.graph.params.some((p) => p.name === key)) continue // valid voice param
+      if (def.post?.params.some((p) => p.name === key) === true) continue // valid POST param (now driveable)
+      const message = `ctrl('${key}'): synth '${sound}' declares no param '${key}'.`
+      const sites = ctrlSites.get(key) ?? [{ line: 1, col: 1 }]
+      for (const s of sites) {
+        diags.push({ line: s.line, col: s.col, message, severity: 'error', source: 'eval' })
       }
+    }
+  }
+  return diags
+}
+
+/** How many times longer than its own next trigger a gate has to run before
+ *  it is worth saying something. Legato wants a little overlap (dur 1.05 on a
+ *  run of eighths is a normal, deliberate thing), so the threshold is not
+ *  "overlaps at all" — it is "so far past the retrigger that the number cannot
+ *  mean what it looks like it means". */
+const GATE_OVERRUN_FACTOR = 2
+
+/**
+ * Catch a `dur` that holds a note's gate long past its own next trigger.
+ *
+ * `dur` MULTIPLIES the note's whole; it is not a length in bars. So
+ * `.slow(16).dur(16)` does not mean "sixteen bars", it means sixteen times a
+ * sixteen-bar note: a 256-bar gate on a riser that retriggers every 16, which
+ * is how a build-up sailed straight through the drop it was built for with
+ * nothing anywhere reporting it.
+ *
+ * Nothing downstream can catch this. The gate is legal, the render is clean,
+ * and because a retrigger of the SAME note steals its own voice, dur 16 and
+ * dur 1.0001 sound identical past the retrigger point: the extra length is
+ * inert, so there is no audible symptom to chase either.
+ *
+ * A warning, not an error: it plays, and the fix is a judgement call.
+ *
+ * The probe cycles count here, as SUCCESSORS only. A 16-bar note has exactly
+ * one onset inside a 16-cycle window, so the dense window alone cannot see it
+ * retrigger and missed the very case this was written for. Since the dense
+ * window is contiguous, any onset before its end is already in it, so the
+ * earliest probe onset after a hap is an UPPER bound on the true gap. An
+ * over-estimated gap can only under-state the overrun, so this can miss a
+ * case but never invent one.
+ */
+const validateGateLength = (
+  synths: Map<string, SynthDef>,
+  haps: ScannedHaps,
+  program: Program,
+): Diagnostic[] => {
+  if (synths.size === 0) return []
+  // Onsets grouped by the voice they land on: same sound AND same note, since
+  // that is what shares (and steals) a voice. A chord's notes are separate.
+  const byVoice = new Map<string, { at: number; gate: number; dur: number }[]>()
+  for (const h of [...haps.dense, ...haps.probes]) {
+    if (!hasOnset(h)) continue
+    const c = h.value
+    if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
+    if (!synths.has(c.sound)) continue
+    const dur = typeof c.dur === 'number' ? c.dur : 1
+    const whole = h.whole!.length.valueOf()
+    const key = `${c.sound}|${c.note}`
+    const arr = byVoice.get(key) ?? []
+    arr.push({ at: h.whole!.begin.valueOf(), gate: whole * dur, dur })
+    byVoice.set(key, arr)
+  }
+  // Position on the `.dur(` call sites, keyed by the LITERAL they were given.
+  // A file with several dur() calls would otherwise get the same warning
+  // repeated once per call site — five copies of one finding, which reads as
+  // five problems. Matching on the value pairs them in the ordinary case.
+  const durSites: { line: number; col: number; value?: number }[] = []
+  walkSimple(program, {
+    CallExpression(node) {
+      const callee = node.callee
+      const arg0 = node.arguments[0] as { type?: string; value?: unknown } | undefined
+      if (
+        callee.type === 'MemberExpression' &&
+        !callee.computed &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'dur' &&
+        callee.property.loc != null
+      ) {
+        const site: { line: number; col: number; value?: number } = {
+          line: callee.property.loc.start.line,
+          col: callee.property.loc.start.column + 1,
+        }
+        if (arg0?.type === 'Literal' && typeof arg0.value === 'number') site.value = arg0.value
+        durSites.push(site)
+      }
+    },
+  })
+  const diags: Diagnostic[] = []
+  const warned = new Set<string>()
+  for (const [key, list] of byVoice) {
+    if (list.length < 2) continue // no next trigger inside the window to run past
+    list.sort((a, b) => a.at - b.at)
+    for (let i = 0; i < list.length - 1; i++) {
+      const cur = list[i]!
+      const gap = list[i + 1]!.at - cur.at
+      if (gap <= 0 || cur.gate <= gap * GATE_OVERRUN_FACTOR) continue
+      const sound = key.slice(0, key.lastIndexOf('|'))
+      if (warned.has(sound)) break
+      warned.add(sound)
+      const round = (n: number): string => String(Math.round(n * 100) / 100)
+      const message =
+        `dur ${round(cur.dur)} on '${sound}' holds the gate ${round(cur.gate)} cycles, but the same note ` +
+        `retriggers after ${round(gap)} — dur MULTIPLIES the note's own length, it is not a count of bars. ` +
+        `The extra length can never sound.`
+      // exactly one diagnostic per finding: the site whose literal matches,
+      // else the first dur() in the file, else the top.
+      const site = durSites.find((d) => d.value === cur.dur) ?? durSites[0] ?? { line: 1, col: 1 }
+      diags.push({ line: site.line, col: site.col, message, severity: 'warning', source: 'eval' })
+      break
     }
   }
   return diags
@@ -457,39 +627,29 @@ const validateStagingTargets = (
  */
 const detectMonoChords = (
   synths: Map<string, SynthDef>,
-  patterns: Map<string, Pattern<ControlMap>>,
+  haps: ScannedHaps,
 ): Diagnostic[] => {
-  if (patterns.size === 0) return []
   const warned = new Set<string>()
   const diags: Diagnostic[] = []
-  const span = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
-  for (const pat of patterns.values()) {
-    let haps
-    try {
-      haps = pat.query(span)
-    } catch {
-      continue
-    }
-    const counts = new Map<string, number>() // `${sound}@${onsetTime}` -> notes
-    for (const h of haps) {
-      if (!hasOnset(h)) continue
-      const c = h.value
-      if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
-      const def = synths.get(c.sound)
-      if (def?.voiceOpts?.mono !== true || warned.has(c.sound)) continue
-      const k = `${c.sound}@${h.whole!.begin.toString()}`
-      const next = (counts.get(k) ?? 0) + 1
-      counts.set(k, next)
-      if (next > 1) {
-        warned.add(c.sound)
-        diags.push({
-          line: 1,
-          col: 1,
-          message: `synth '${c.sound}' is mono, but it's fed simultaneous notes (a chord/stack) — only one sounds. Drop mono (or set voices>1) to hear the harmony.`,
-          severity: 'warning',
-          source: 'eval',
-        })
-      }
+  const counts = new Map<string, number>() // `${sound}@${onsetTime}` -> notes
+  for (const h of haps.dense) {
+    if (!hasOnset(h)) continue
+    const c = h.value
+    if (typeof c.sound !== 'string' || typeof c.note !== 'number') continue
+    const def = synths.get(c.sound)
+    if (def?.voiceOpts?.mono !== true || warned.has(c.sound)) continue
+    const k = `${c.sound}@${h.whole!.begin.toString()}`
+    const next = (counts.get(k) ?? 0) + 1
+    counts.set(k, next)
+    if (next > 1) {
+      warned.add(c.sound)
+      diags.push({
+        line: 1,
+        col: 1,
+        message: `synth '${c.sound}' is mono, but it's fed simultaneous notes (a chord/stack) — only one sounds. Drop mono (or set voices>1) to hear the harmony.`,
+        severity: 'warning',
+        source: 'eval',
+      })
     }
   }
   return diags
@@ -525,6 +685,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let timeSig: TimeSig | undefined
   let sidechainCfg: { source: string; depth: number; releaseMs: number; amounts?: Record<string, number> } | undefined
   let masterCompCfg: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number } | undefined
+  let masterGainDb: number | undefined
+  let stereoCfg: { width?: number; monoBelow?: number } | undefined
   let visualSrc: string | undefined
 
   // Staging is SEALED once the synchronous eval returns: a p() reached from
@@ -538,7 +700,16 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
   }
 
-  /** Register a pattern; same name twice in one eval → last wins. */
+  /** Register a pattern; same name twice in one eval → last wins, and SAYS SO.
+   *
+   *  Silent replacement is the worst possible behaviour here: the earlier
+   *  block is still on screen, still highlighted, still flashing its notes in
+   *  the roll — and completely inaudible. It cost a shipped example, where two
+   *  `play lead` blocks meant the first one never played and nothing said a
+   *  word. Two notation lines inside ONE block are layers; two blocks are not.
+   *
+   *  A warning rather than an error: last-wins is legitimate when a later eval
+   *  deliberately redefines a channel, and refusing to run would break that. */
   const p = (name: unknown, pat: unknown): void => {
     assertOpen('p')
     if (typeof name !== 'string' || name.length === 0) {
@@ -546,6 +717,15 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
     if (!(pat instanceof Pattern)) {
       throw new TypeError(`p('${name}'): second argument must be a Pattern`)
+    }
+    if (patterns.has(name)) {
+      diagnostics.push({
+        line: 1,
+        col: 1,
+        message: `two blocks both play '${name}' — the second REPLACES the first, so the earlier one is silent. Put the extra notation line inside the same block to layer them, or route it to another synth.`,
+        severity: 'warning',
+        source: 'eval',
+      })
     }
     patterns.set(name, pat as Pattern<ControlMap>)
   }
@@ -636,12 +816,19 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       }
       depth = o.depth
     }
-    let releaseSec = DEFAULT_SIDECHAIN_RELEASE_SEC
+    let releaseMs = DEFAULT_SIDECHAIN_RELEASE_MS
     if (o.release !== undefined) {
       if (typeof o.release !== 'number' || !Number.isFinite(o.release)) {
-        throw new TypeError(`sidechain('${source}'): release must be a finite number of seconds`)
+        throw new TypeError(`sidechain('${source}'): release must be a finite number of milliseconds`)
       }
-      releaseSec = o.release
+      if (o.release > 0 && o.release < SUSPICIOUS_RELEASE_MS) {
+        throw new TypeError(
+          `sidechain('${source}'): release is MILLISECONDS, and ${o.release} ms is a click rather `
+          + `than a pump. This used to be seconds — write ${Math.round(o.release * 1000)} for the `
+          + `same sound.`,
+        )
+      }
+      releaseMs = o.release
     }
     let amounts: Record<string, number> | undefined
     if (o.duck !== undefined) {
@@ -656,7 +843,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
         amounts[synth] = amount
       }
     }
-    sidechainCfg = { source, depth, releaseMs: releaseSec * 1000, ...(amounts !== undefined ? { amounts } : {}) }
+    sidechainCfg = { source, depth, releaseMs, ...(amounts !== undefined ? { amounts } : {}) }
   }
 
   /** Arm the master-bus glue compressor (stereo-linked, after master gain,
@@ -681,6 +868,37 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       knee: numField('knee', 6),
       makeup: numField('makeup', 0),
     }
+  }
+
+  /** Set the overall output level in dB (0 = unity, negative = quieter).
+   *  Applied to the summed mix, so it scales every part equally and changes
+   *  nothing about the balance. This is the lever to reach for when the bounce
+   *  reports `normalized -N dB`: per-part gains above that ceiling are inert,
+   *  and only a uniform trim brings the whole mix back under it. Clamped to
+   *  [-60, +12] dB. Last call wins. */
+  /** `stereo({ width, monoBelow })` — master-bus mid/side. Staged like every
+   *  other master-bus call so a failed eval changes nothing. */
+  const stereo = (opts: unknown): void => {
+    assertOpen('stereo')
+    const o = typeof opts === 'object' && opts !== null ? (opts as Record<string, unknown>) : {}
+    const out: { width?: number; monoBelow?: number } = {}
+    for (const k of ['width', 'monoBelow'] as const) {
+      const v = o[k]
+      if (v === undefined) continue
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new TypeError(`stereo(): ${k} must be a finite number, got ${JSON.stringify(v)}`)
+      }
+      out[k] = v
+    }
+    stereoCfg = out
+  }
+
+  const masterGain = (db: unknown): void => {
+    assertOpen('masterGain')
+    if (typeof db !== 'number' || !Number.isFinite(db)) {
+      throw new TypeError(`masterGain(): expected a number of dB, got ${String(db)}`)
+    }
+    masterGainDb = Math.min(12, Math.max(-60, db))
   }
 
   /** Register the WGSL fragment source for the shader visualizer. The string
@@ -843,8 +1061,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'visual', 'bus', 'sing', '__rcTap')
-  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, visual, bus, sing, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, stereo, visual, bus, sing, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to
@@ -905,8 +1123,11 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   // time (unknown/post-only params). Treated as errors: like any failed eval,
   // the broken version is NOT applied (last-good keeps playing) and the editor
   // shows a positioned diagnostic — instead of a silent per-cycle console warn.
+  // ONE query pass, four readers (see ScannedHaps) — it used to be three
+  // passes for three checks, and this adds a fourth for free.
+  const scanned = scanHaps(patterns)
   const stagingErrors = [
-    ...validateCtrlParams(synths, patterns, program),
+    ...validateCtrlParams(synths, scanned, program),
     ...validateStagingTargets(synths, sends, sidechainCfg, program),
   ]
   if (stagingErrors.length > 0) {
@@ -918,7 +1139,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
   }
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).
-  diagnostics.push(...detectMonoChords(synths, patterns))
+  diagnostics.push(...detectMonoChords(synths, scanned))
+  diagnostics.push(...validateGateLength(synths, scanned, program))
 
   // A sing() whose returned pattern was never registered with p(...) still
   // staged a bake request — which triggers the (~GB) model download and blocks
@@ -927,16 +1149,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let keptSings = sings
   if (sings.length > 0) {
     const routed = new Set<string>()
-    const scanSpan = new TimeSpan(F(0), F(CTRL_SCAN_CYCLES))
-    for (const pat of patterns.values()) {
-      try {
-        for (const h of pat.query(scanSpan)) {
-          const s = (h.value as ControlMap).sound
-          if (typeof s === 'string') routed.add(s)
-        }
-      } catch {
-        /* ignore a pattern-query bug here */
-      }
+    for (const h of scanned.dense) {
+      const s = h.value.sound
+      if (typeof s === 'string') routed.add(s)
     }
     keptSings = sings.filter((req) => routed.has(req.synthName))
     for (const req of sings) {
@@ -968,6 +1183,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   result.timeSig = timeSig ?? DEFAULT_TIME_SIG
   if (sidechainCfg !== undefined) result.sidechain = sidechainCfg
   if (masterCompCfg !== undefined) result.masterComp = masterCompCfg
+  if (masterGainDb !== undefined) result.masterGain = masterGainDb
+  if (stereoCfg !== undefined) result.stereo = stereoCfg
   if (visualSrc !== undefined) result.visual = visualSrc
   return result
 }

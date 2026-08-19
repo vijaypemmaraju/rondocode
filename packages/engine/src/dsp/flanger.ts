@@ -1,5 +1,5 @@
 import type { DspContext, Kernel } from './types'
-import { clamp } from './util'
+import { clamp, ctl } from './util'
 
 export interface FlangerConfig {
   /** Sweep rate in Hz. Clamped to [0.001, 20]. Default 0.3. */
@@ -106,11 +106,11 @@ export class FlangerKernel implements Kernel {
     const len = buf.length
     const maxDelay = len - 2
     const base = MIN_DELAY * sr
-    const span = (MAX_DELAY - MIN_DELAY) * this.depth * sr
-    const fb = this.feedback
-    const mix = this.mix
-    const dry = 1 - mix
-    const inc = (TWO_PI * this.rate) / sr
+    // per-sample controls: signals, not construction config
+    const rateIn = inputs['rate']
+    const depthIn = inputs['depth']
+    const fbIn = inputs['feedback']
+    const mixIn = inputs['mix']
     let p = this.phase
     let w = this.writeIdx
     let inPeak = 0
@@ -118,6 +118,11 @@ export class FlangerKernel implements Kernel {
 
     for (let i = 0; i < n; i++) {
       const x = input[i]!
+      const span = (MAX_DELAY - MIN_DELAY) * ctl(depthIn, i, this.depth, 0, 1) * sr
+      const fb = ctl(fbIn, i, this.feedback, -0.95, 0.95)
+      const mix = ctl(mixIn, i, this.mix, 0, 1)
+      const dry = 1 - mix
+      const inc = (TWO_PI * ctl(rateIn, i, this.rate, 0.001, 20)) / sr
       const ax = x < 0 ? -x : x
       if (ax > inPeak) inPeak = ax
       let d = base + span * (0.5 - 0.5 * Math.cos(p))

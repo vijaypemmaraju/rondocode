@@ -1,7 +1,8 @@
 import './docs/docs.css'
 import { applyPalette } from './ui/palette'
-import { HERO, blockText, orderedSections } from './docs/content'
+import { HERO, blockProse, blockText, orderedSections } from './docs/content'
 import { ROUTES, crossRouteHits, routeFor, sectionsFor, viewForPath } from './docs/routes'
+import { highlight, rank, snippet, terms } from './docs/search'
 import { filterGroups, referenceGroups } from './editor/reference'
 import { OPTIONS } from './editor/rondo'
 import type { EditorLang } from './editor/editor'
@@ -17,6 +18,7 @@ import { iconEl } from './ui/icons'
 import { docsMarkdown } from './docs/markdown'
 import { FLASH_MS } from './editor/flash'
 import { encodeShare, sharePayloadFor, shareUrl } from './session/share'
+import { applyEntries, bandTop, topmostVisible } from './docs/spy'
 
 /* A compact, pleasant loop for the hero: the first thing a visitor can play. */
 /* The arp and the chords share one synth, so the four sustained chord voices
@@ -309,6 +311,7 @@ async function renderBlock(b: Block): Promise<HTMLElement> {
 interface RenderedSection {
   el: HTMLElement
   /** lowercased title + prose + code, for the global search */ text: string
+  /** the same without code bodies: what the section is ABOUT, for ranking */ prose: string
   /** the section's first code block, for the nav "open in editor" deep link */ firstCode?: string
   /** and the language it is written in — a rondo snippet must not open as JS */ firstLang?: 'rondo'
 }
@@ -318,18 +321,30 @@ async function renderSection(s: Section): Promise<RenderedSection> {
   sec.id = s.id
   sec.append(el('h2', undefined, s.title))
   const parts: string[] = [s.title]
+  /* PROSE, kept apart from the code. A section is about what it SAYS; the
+   * examples are illustration. Ranking on the combined text put "Patterns &
+   * mini-notation" first for `gate` (every example calls `adsr(gate, …)`) and
+   * "Singing" first for `reverb mix` (its post chain contains both words). */
+  const prose: string[] = [s.title]
   let firstCode: string | undefined
   let firstLang: 'rondo' | undefined
   for (const b of s.blocks) {
     sec.append(await renderBlock(b))
     // blockText knows every kind, so a table/list/note stays findable by search
     parts.push(blockText(b))
+    prose.push(blockProse(b))
     if (b.kind === 'code' && firstCode === undefined) {
       firstCode = b.text
       firstLang = b.lang
     }
   }
-  return { el: sec, text: parts.join(' ').toLowerCase(), firstCode, firstLang }
+  return {
+    el: sec,
+    text: parts.join(' ').toLowerCase(),
+    prose: prose.join(' ').toLowerCase(),
+    firstCode,
+    firstLang,
+  }
 }
 
 const REF_GROUPS: { title: string; kinds: DocEntry['kind'][] }[] = [
@@ -565,10 +580,14 @@ async function build(): Promise<void> {
   // differently at small widths and with a larger system font, so a hard-coded
   // offset would either overlap the tabs or leave a gap on exactly the devices
   // hardest to check. The nav sits below both.
+  // set once the nav exists; the spy band is derived from these offsets
+  let reobserve: (() => void) | undefined
   const syncStickyOffsets = (): void => {
     const r = document.documentElement.style
     r.setProperty('--doc-top-h', `${Math.round(top.getBoundingClientRect().height)}px`)
     r.setProperty('--doc-tabs-h', `${Math.round(tabbar.getBoundingClientRect().height)}px`)
+    // these ARE the scroll offset, so the spy band has to follow them
+    reobserve?.()
   }
   syncStickyOffsets()
   if (typeof ResizeObserver === 'function') {
@@ -629,14 +648,42 @@ async function build(): Promise<void> {
 
   // nav + guide sections (capture text for search + first code for a deep link)
   const navLinks: { id: string; a: HTMLAnchorElement }[] = []
-  const guide: { text: string; el: HTMLElement; row: HTMLElement }[] = []
+  const guide: { id: string; title: string; text: string; prose: string; el: HTMLElement; row: HTMLElement }[] = []
+  /* A CLICK HAS TO WIN OVER THE SPY FOR A MOMENT.
+   *
+   * The reported bug — click a cookbook recipe, the link above it lights up —
+   * is not the spy misreading the page. Measured over CDP, a jump to
+   * `recipe-one-knob` came to rest about 220px SHORT, with the previous
+   * section genuinely filling the band: the code blocks below are rendered
+   * asynchronously, so the document grows while the smooth scroll is
+   * travelling and the position the browser committed to is stale by the time
+   * it arrives. The spy was reporting that honestly. The scroll was wrong.
+   *
+   * So: light the clicked link immediately, hold it while things settle, and
+   * re-aim once layout has stopped moving. The hold is released as soon as the
+   * reader scrolls for themselves, because from then on the spy is right. */
+  let lockedId: string | undefined
+  const setActive = (id: string): void => {
+    for (const l of navLinks) l.a.classList.toggle('on', l.id === id)
+  }
+  const release = (): void => {
+    lockedId = undefined
+  }
+  for (const evName of ['wheel', 'touchmove', 'keydown']) {
+    window.addEventListener(evName, release, { passive: true })
+  }
   // Groups are CONTAINERS, not sibling headings: on a phone the nav collapses
   // to one "contents" button and opens as grouped chips, so the guide starts
   // with the guide instead of a wall of links.
   let navBody: HTMLElement = nav
+  /* `cookbook: rhythm` is one group KEY and two words of heading, and the
+   * first of them is the page you are already on. The prefix exists to keep
+   * the shelves distinct in GROUP_ORDER and on the route; it has no business
+   * in the label. */
+  const shelfLabel = (name: string): string => name.replace(/^cookbook: /, '')
   const startGroup = (name: string): void => {
     const sect = el('div', 'nav-sect')
-    sect.append(el('div', 'nav-group', name))
+    sect.append(el('div', 'nav-group', shelfLabel(name)))
     nav.append(sect)
     navBody = sect
   }
@@ -644,6 +691,24 @@ async function build(): Promise<void> {
     const row = el('div', 'nav-item')
     const a = el('a', undefined, title)
     a.href = `#${id}`
+    a.addEventListener('click', () => {
+      lockedId = id
+      setActive(id)
+      /* Re-aim REPEATEDLY, not once: the document keeps growing for a while
+       * (measured, a single correction at 450ms still landed ~116px short, and
+       * the previous section still reached into the band). Each pass snaps
+       * with `auto` rather than fighting the smooth scroll in flight, and the
+       * hold is released only after the last one. */
+      for (const at of [450, 900, 1400]) {
+        window.setTimeout(() => {
+          if (lockedId !== id) return // the reader took over; leave them alone
+          document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'auto' })
+        }, at)
+      }
+      window.setTimeout(() => {
+        if (lockedId === id) release()
+      }, 1600)
+    })
     row.append(a)
     if (firstCode !== undefined) {
       const open = el('a', 'nav-open')
@@ -670,7 +735,7 @@ async function build(): Promise<void> {
     const r = await renderSection(s)
     main.append(r.el)
     const row = addNav(s.id, s.title, r.firstCode, r.firstLang)
-    guide.push({ text: r.text, el: r.el, row })
+    guide.push({ id: s.id, title: s.title, text: r.text, prose: r.prose, el: r.el, row })
   }
 
   // reference + shortcuts live on their own route now: they are looked up,
@@ -698,16 +763,97 @@ async function build(): Promise<void> {
   const elsewhere = el('div', 'doc-elsewhere')
   elsewhere.style.display = 'none'
   main.append(elsewhere)
+
+  /* THE RESULT LIST. Filtering the page in place answers "which sections
+   * mention this" — with `gate` that was 32 of 44, in document order, with
+   * nothing to say where in each the word appeared. The question is always
+   * "which one is ABOUT it", so: ranked hits, each with a line of context and
+   * the terms marked, above the filtered page rather than instead of it. */
+  const results = el('div', 'doc-results')
+  results.style.display = 'none'
+  hero.append(results)
+  let hits: { id: string; title: string; text: string }[] = []
+  let cursor = -1
+
+  const marked = (text: string, ts: readonly string[], cls: string): HTMLElement => {
+    const wrap = el('span', cls)
+    for (const part of highlight(text, ts)) {
+      if (part.hit) wrap.append(el('mark', undefined, part.text))
+      else wrap.append(document.createTextNode(part.text))
+    }
+    return wrap
+  }
+
+  const paintCursor = (): void => {
+    const rows = Array.from(results.querySelectorAll('.doc-result'))
+    rows.forEach((r, i) => r.classList.toggle('on', i === cursor))
+    if (cursor >= 0) rows[cursor]?.scrollIntoView({ block: 'nearest' })
+  }
+
+  const goTo = (id: string): void => {
+    search.value = ''
+    applySearch()
+    const target = document.getElementById(id)
+    lockedId = id
+    setActive(id)
+    target?.scrollIntoView({ block: 'start', behavior: 'auto' })
+    for (const at of [450, 900]) {
+      window.setTimeout(() => {
+        if (lockedId !== id) return
+        document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'auto' })
+      }, at)
+    }
+    window.setTimeout(() => { if (lockedId === id) release() }, 1100)
+  }
+
+  const renderResults = (ts: readonly string[]): void => {
+    results.replaceChildren()
+    cursor = -1
+    if (hits.length === 0) {
+      results.style.display = 'none'
+      return
+    }
+    const head = el('div', 'doc-results-head')
+    head.textContent = `${hits.length} ${hits.length === 1 ? 'match' : 'matches'} on this page`
+    results.append(head)
+    for (const h of hits) {
+      const row = el('button', 'doc-result') as HTMLButtonElement
+      row.type = 'button'
+      row.append(marked(h.title, ts, 'doc-result-title'))
+      row.append(marked(snippet(h.text, ts), ts, 'doc-result-snip'))
+      row.addEventListener('click', () => goTo(h.id))
+      results.append(row)
+    }
+    results.style.display = ''
+  }
   const applySearch = (): void => {
     const q = search.value.trim().toLowerCase()
-    const searching = q !== ''
+    const ts = terms(q)
+    const searching = ts.length > 0
     let shown = 0
+    /* EVERY TERM, not the query as one substring. `wavetable warp` reported
+     * "no matches on this page" with both words on it, and so did every other
+     * two-word query — the shape a reader reaches for first. */
+    const ranked = searching
+      ? rank(guide, ts, (g) => ({
+          /* The section ID counts as a title. It is an authored slug for the
+           * topic, and the titles here are editorial: the section about
+           * sidechain is called "The pump", so on titles alone every match
+           * tied and fell back to document order. */
+          title: `${g.title} ${g.id}`.toLowerCase(),
+          body: g.prose,
+          weak: g.text,
+        }))
+      : []
+    const matched = new Set(ranked.map((r) => r.item.id))
     for (const g of guide) {
-      const match = !searching || g.text.includes(q)
+      const match = !searching || matched.has(g.id)
       g.el.style.display = match ? '' : 'none'
       g.row.style.display = match ? '' : 'none'
       if (match) shown++
     }
+    hits = ranked.map((r) => ({ id: r.item.id, title: r.item.title, text: r.item.text }))
+    renderResults(ts)
     if (onRef) {
       const refCount = ref.filter(q)
       const refShow = !searching || refCount > 0
@@ -721,6 +867,7 @@ async function build(): Promise<void> {
     if (view === 'guide') demo.style.display = searching ? 'none' : ''
 
     const others = searching ? crossRouteHits(q, view) : []
+    // the demo and the result list are both noise when nothing is typed
     elsewhere.replaceChildren()
     if (others.length > 0) {
       elsewhere.append(el('div', 'doc-elsewhere-head', 'elsewhere in the docs'))
@@ -736,23 +883,82 @@ async function build(): Promise<void> {
   }
   search.addEventListener('input', applySearch)
 
-  // scroll-spy: highlight the nav link for the section in view
-  const byId = new Map(navLinks.map((l) => [l.id, l.a]))
-  const spy = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        if (e.isIntersecting) {
-          navLinks.forEach((l) => l.a.classList.remove('on'))
-          byId.get((e.target as HTMLElement).id)?.classList.add('on')
-        }
-      }
-    },
-    { rootMargin: '-72px 0px -70% 0px' },
-  )
-  for (const { id } of navLinks) {
-    const node = document.getElementById(id)
-    if (node) spy.observe(node)
+  /* KEYBOARD. The box was a filter you could only reach with the mouse: nothing
+   * focused it, arrows did nothing, Enter did nothing, and Escape did not even
+   * clear it. A finder has to be usable without leaving the keys. */
+  search.addEventListener('keydown', (e) => {
+    const ev = e as KeyboardEvent
+    if (ev.key === 'Escape') {
+      // first Escape clears; a second one hands the page back
+      if (search.value !== '') {
+        search.value = ''
+        applySearch()
+      } else search.blur()
+      ev.preventDefault()
+      return
+    }
+    if (hits.length === 0) return
+    if (ev.key === 'ArrowDown') {
+      cursor = Math.min(cursor + 1, hits.length - 1)
+      paintCursor()
+      ev.preventDefault()
+    } else if (ev.key === 'ArrowUp') {
+      cursor = Math.max(cursor - 1, -1)
+      paintCursor()
+      ev.preventDefault()
+    } else if (ev.key === 'Enter') {
+      // Enter with nothing selected takes the top hit, which is the whole
+      // point of ranking it
+      const pick = hits[cursor === -1 ? 0 : cursor]
+      if (pick !== undefined) goTo(pick.id)
+      ev.preventDefault()
+    }
+  })
+
+  /* `/` is the convention every docs site shares, and cmd/ctrl-K is the one
+   * every app does. Both, because a reader arrives with one of them already in
+   * their fingers. Ignored while typing somewhere else, so `/` stays a
+   * character in a code block. */
+  window.addEventListener('keydown', (e) => {
+    const ev = e as KeyboardEvent
+    const inField = ev.target instanceof HTMLElement
+      && (ev.target.isContentEditable || /^(input|textarea)$/i.test(ev.target.tagName))
+    const slash = ev.key === '/' && !inField
+    const cmdK = ev.key.toLowerCase() === 'k' && (ev.metaKey || ev.ctrlKey)
+    if (!slash && !cmdK) return
+    ev.preventDefault()
+    search.focus()
+    search.select()
+  })
+
+  // scroll-spy: highlight the nav link for the section in view. See spy.ts —
+  // the band must start where a CLICK lands, and the topmost section in it
+  // wins, or the link above the one you clicked lights up instead.
+  const order = navLinks.map((l) => l.id)
+  const visible = new Set<string>()
+  let spy: IntersectionObserver | undefined
+  const paint = (): void => {
+    if (lockedId !== undefined) return // a click owns the highlight until it settles
+    const active = topmostVisible(order, visible)
+    if (active === undefined) return // band empty: keep what is lit
+    for (const l of navLinks) l.a.classList.toggle('on', l.id === active)
   }
+  const observe = (): void => {
+    spy?.disconnect()
+    visible.clear()
+    const nodes = order.map((id) => document.getElementById(id))
+    spy = new IntersectionObserver(
+      (entries) => {
+        applyEntries(visible, entries)
+        paint()
+      },
+      { rootMargin: `-${bandTop(document.documentElement)}px 0px -70% 0px` },
+    )
+    for (const node of nodes) if (node) spy.observe(node)
+  }
+  observe()
+  // the sticky bars decide where a click lands, so the band moves with them
+  reobserve = observe
 }
 
 void build()

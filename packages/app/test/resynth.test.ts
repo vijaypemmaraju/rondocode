@@ -124,7 +124,7 @@ describe('serialization', () => {
     expect(line.startsWith('wavedef sawtake_wt ')).toBe(true)
     expect(line.split(' / ').length).toBe(8)
     for (const tok of line.split(/ \/ | /).slice(2)) expect(tok).toMatch(/^-?(0|\.\d{1,3}|\d+(\.\d{1,3})?)$/)
-    const prog = `${line}\n\nsynth s\n  wavetable note 0 table:sawtake_wt\n\nplay s\n  0\n`
+    const prog = `${line}\n\nsynth z\n  wavetable note 0 table:sawtake_wt\n\nplay z\n  0\n`
     const c = compile(prog)
     expect(c.ok, JSON.stringify(!c.ok ? c.errors : '')).toBe(true)
   })

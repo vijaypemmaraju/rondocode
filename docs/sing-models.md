@@ -2,7 +2,7 @@
 
 `sing()` runs a neural voice pipeline entirely in the browser (on-device, WebGPU
 with a WASM fallback). It needs several large ONNX models, fetched over the
-network and cached in the browser's Cache API — a one-time download per
+network and cached in the browser's Cache API -- a one-time download per
 visitor, then offline. The phoneme + voice models come from a Cloudflare R2
 bucket; the Supertonic TTS models come from HuggingFace.
 
@@ -13,17 +13,17 @@ load automatically. You only need to host the phoneme + voice-conversion models:
 
 | file | ~size | what it is |
 |------|-------|------------|
-| `phoneme.onnx` | ~1.2 GB (fp32) | wav2vec2 CTC — forced-aligns lyrics to the TTS audio |
+| `phoneme.onnx` | ~1.2 GB (fp32) | wav2vec2 CTC -- forced-aligns lyrics to the TTS audio |
 | `phoneme-int8.onnx` | ~357 MB | dynamic-int8 build of the same CTC model (lm_head kept fp32); preferred on iOS or via `localStorage['rc.singSmallAligner']='1'`, falls back to fp32 when absent |
 | `tts_vector_estimator-int8.onnx` | ~66 MB | dynamic-int8 build of Supertonic's 256 MB flow-matching estimator (output head kept fp32); preferred on the sequential (phone) path, falls back to the fp32 HuggingFace build when absent |
 | `tts_vocoder-int8.onnx` | ~39 MB | dynamic-int8 build of Supertonic's 101 MB vocoder (only the fat 1x1 pwconvs quantized; depthwise/embed/head convs kept fp32); same selection + fallback |
 | `vec-768.onnx` | ~378 MB | ContentVec encoder (shared by all voices) |
-| `gen_kizuna.onnx` | ~112 MB | RVC generator — voice "kizuna" |
-| `gen_barbara.onnx` | ~112 MB | RVC generator — voice "barbara" |
-| `gen_rise.onnx` | ~112 MB | RVC generator — voice "rise" |
+| `gen_kizuna.onnx` | ~112 MB | RVC generator -- voice "kizuna" |
+| `gen_barbara.onnx` | ~112 MB | RVC generator -- voice "barbara" |
+| `gen_rise.onnx` | ~112 MB | RVC generator -- voice "rise" |
 
 These are served from **`https://models.rondocode.com`** (a public Cloudflare
-R2 bucket on the edge CDN — fast, cached, no egress fees), which is
+R2 bucket on the edge CDN -- fast, cached, no egress fees), which is
 `DEFAULT_BASE` in `src/sing/config.ts`. No local server is involved, so it
 works in prod, dev and over Tailnet alike. A copy also exists at the public
 HuggingFace repo `hi-im-vijay/rondocode-sing`, which is what the upload
@@ -63,7 +63,7 @@ VITE_SING_MODELS_BASE=http://127.0.0.1:8790
 ```
 
 If unset, EVERY build (dev and production alike) uses `DEFAULT_BASE` from
-`config.ts`, which is the R2 bucket above — there is no separate dev default,
+`config.ts`, which is the R2 bucket above -- there is no separate dev default,
 and nothing points at `127.0.0.1:8790` unless you set the env var yourself.
 `VITE_SUPERTONIC_BASE` overrides the Supertonic host the same way.
 

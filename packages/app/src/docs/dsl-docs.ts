@@ -65,7 +65,7 @@ const GLOBALS: DocEntry[] = [
   g(
     'chord',
     'chord(names: string | Pattern<string>)',
-    "Named chords, each expanded to a stack of notes (root octave 3). Qualities: maj min 7 maj7 m7 dim aug sus2 sus4 6 m6 add9 9 m9 maj9 11 13 m7b5, plus slash bass (C/E). Pair with .arp() to arpeggiate.",
+    "Named chords, each expanded to a stack of notes (root octave 3). Triads: maj (also major, M, or a bare root), min (also minor, m), dim, aug, and 5 for the bare fifth. Sevenths: 7 (dom7), maj7 (M7), m7 (min7), m7b5, dim7. Sixths: 6, m6 (min6). Extensions: 9, maj9, m9, 11, m11, 13, m13. Suspended: sus2, sus4 (sus), 7sus4. Added tones, which keep the third: 2/add2, 4/add4, add9, add11, each with a minor form (m2/madd2, m4/madd4, madd9, madd11). Plus slash bass (C/E). Pair with .arp() to arpeggiate.",
     "chord('<Cmaj7 Am7 Dm7 G7>').sound('keys')",
   ),
   g(
@@ -162,7 +162,7 @@ const GLOBALS: DocEntry[] = [
   g(
     'slider',
     'slider(value: number, min?: number, max?: number, step?: number)',
-    'A live-tweakable number: the editor renders it as a draggable slider, the code just sees the value.',
+    'A live-tweakable number. At EVAL it is just the value -- slider(0.6, 0, 1) is 0.6 and nothing else -- so a program full of sliders renders identically headless. min, max and step exist only for the WIDGET: they set the drag range and how far each nudge moves, and changing them cannot change what the code computes. Reach for it to find a number by ear; once you know it, type the number. Unlike param/macro it is per-occurrence and not addressable by name, so a pattern cannot drive it.',
     ".gain(slider(0.8, 0, 1))",
   ),
   g('xy', 'xy(x: number, y: number)', 'A 2D pad widget: evaluates to [x, y]; drag in the editor to steer two values at once.', 'xy(0.3, 0.7)'),
@@ -214,7 +214,7 @@ const GLOBALS: DocEntry[] = [
   g(
     'shape',
     'shape(name: string, length: number)',
-    "A curvedef scaled to `length` -- seconds for env(), cycles for curve() -- returned as an ordinary points array, so neither of them needs to know a registry exists. An unknown name throws and lists what is registered, rather than returning an empty envelope: a silent [] is a synth that makes no sound with nothing to look at.",
+    "Look up a `curvedef` by name and scale it to `length`, returning an ordinary points array -- so env() and curve() consume it without either knowing a registry exists. The UNIT of `length` follows the consumer: seconds for env(), cycles for curve(), so the same named shape is a 200 ms envelope in one place and a four-bar automation ramp in another. That reuse is the point: define the shape once, scale it wherever. An unknown name THROWS and lists what is registered rather than returning an empty array, because a silent [] is a synth that makes no sound and shows nothing to look at.",
     "env(gate, shape('swell', 0.8))",
   ),
   g(
@@ -233,7 +233,7 @@ const GLOBALS: DocEntry[] = [
     'macroNum',
     'macroNum(name: string)',
     "A project-wide macro or switch as a plain NUMBER, read once at eval. For the places that capture a value rather than reading a signal per sample -- sidechain()'s duck depth is the one that matters, since the pump was the only project control a macro could not reach. It resolves the DECLARED value, so it follows a switch tap (which rewrites the source and re-evals) but not a knob mid-drag. Use macroval where a signal will do: that one is live. In rondo, write the control's name where a number goes: sidechain kick depth:drums.",
-    "sidechain('kick', { depth: macroNum('drums'), release: 0.5 })",
+    "sidechain('kick', { depth: macroNum('drums'), release: 500 })",
   ),
   g(
     'setCps',
@@ -256,14 +256,27 @@ const GLOBALS: DocEntry[] = [
   g(
     'sidechain',
     'sidechain(source: string, opts?: { depth?: number; release?: number; duck?: Record<string, number> })',
-    "The classic house pump: every note of the source synth ducks all the other channels' level and lets it swell back, depth 0..1 (default 0.6), release in seconds (default 0.18). Optional duck map sets per-synth response 0..1 (1 = full, 0 = ignore); unlisted synths duck fully.",
-    "sidechain('kick', { depth: 0.7, release: 0.18, duck: { arp: 1, pad: 0.4 } })",
+    "The classic house pump: every note of the source synth ducks all the other channels' level and lets it swell back, depth 0..1 (default 0.6), release in MILLISECONDS (default 180), the same unit every other release in the language uses. Optional duck map sets per-synth response 0..1 (1 = full, 0 = ignore); unlisted synths duck fully.",
+    "sidechain('kick', { depth: 0.7, release: 180, duck: { arp: 1, pad: 0.4 } })",
   ),
   g(
     'masterCompress',
     'masterCompress(opts?: { threshold?; ratio?; attack?; release?; knee?; makeup? })',
     'A glue compressor on the whole master bus (stereo-linked, after master gain, before the limiter). threshold dB (def -18), ratio (def 4), attack/release ms (def 10/120), knee dB (def 6), makeup dB (def 0). Call again to change it; omit to remove.',
     'masterCompress({ threshold: -14, ratio: 3, attack: 10, release: 100, makeup: 2 })',
+  ),
+  g(
+    'stereo',
+    'stereo(opts?: { width, monoBelow })',
+    'MID/SIDE on the master bus. width scales the SIDE against the mid: 0 collapses the mix to mono, 1 leaves it alone, above 1 widens. monoBelow collapses everything under that frequency in Hz to mono -- the standard mastering move, and the one that matters on a system with a single sub, where stereo bass either cancels or wanders. Both are MONO-SAFE by construction: scaling the side never touches the mid, and the mid IS the mono sum, so a mix folded to mono is bit-identical whatever the width. That is what a Haas or Lauridsen widener cannot offer, and why this exists as well as width(). It lives on the master bus rather than in a post chain because every kernel in the engine is mono -- a post chain gets its stereo by running the same graph once per side, so no node can see both channels at once.',
+    "stereo({ width: 1.3, monoBelow: 120 })",
+  ),
+  entry(
+    'global',
+    'masterGain',
+    'masterGain(db: number)',
+    "Overall output level in dB (0 = unity, negative = quieter), clamped to -60..+12. The one control that scales EVERY part equally, so it changes the level without touching the balance. Reach for it when a bounce reports 'normalized -N dB': above that ceiling the render scales the whole mix back down, which makes per-part gains inert, and only a uniform trim brings it back under. Call again to change it.",
+    'masterGain(-4)',
   ),
   g(
     'bus',
@@ -333,13 +346,13 @@ const PATTERN_METHODS: DocEntry[] = [
   pm(
     'euclid',
     'euclid(pulses: number, steps: number, rotation?: number)',
-    'Euclidean rhythm: spread `pulses` hits as evenly as possible over `steps` slots, euclid(3,8) is the classic tresillo.',
+    'Euclidean rhythm: spread `pulses` hits as evenly as possible over `steps` slots. There is exactly one such spacing for any pair, which is why so many traditional rhythms turn out to be Euclidean -- (3,8) is the tresillo, (5,8) the cinquillo, (7,16) a West African bell. `rotation` shifts the pattern LEFT by that many steps (Tidal rotL direction), so the same hits start elsewhere in the bar: (3,8,2) is the tresillo displaced, which grooves completely differently while being the same rhythm. It sets STRUCTURE, deciding where events happen rather than what they are.',
     ".euclid(5, 8)",
   ),
   pm(
     'euclidInv',
     'euclidInv(pulses: number, steps: number, rotation?: number)',
-    'The offbeats of a Euclidean rhythm: hits exactly where euclid rests.',
+    'The complement of a Euclidean rhythm: hits exactly where `euclid` with the same arguments rests, and rests where it hits. Same pulses/steps/rotation meanings. The pair is how one idea becomes an interlocking two-part groove -- put the kick on euclid(3,8) and the shaker on euclidInv(3,8) and every slot is covered exactly once, with neither line having to know where the other sits.',
     '.euclidInv(3, 8)',
   ),
   // randomness
@@ -363,7 +376,7 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('always', 'always(f: (p) => p)', 'Apply f to everything, the p=1 end of the sometimes family, handy when patterning the choice.', '.always(x => x.rev())'),
   pm('never', 'never(f: (p) => p)', 'Apply f to nothing, keep the code in place, switched off.', '.never(x => x.rev())'),
   // layering
-  pm('superimpose', 'superimpose(f: (p) => p)', 'Layer f(pattern) on top of the original, ghost echoes, octave doublings.', '.superimpose(x => x.late(0.25).gain(0.3))'),
+  pm('superimpose', 'superimpose(f: (p) => p)', 'Layer f(pattern) on top of the original: ghost echoes, octave doublings, and -- with `add` on a scaled pattern -- DIATONIC harmony, since `add` counts scale degrees, so `superimpose(x => x.add(2))` is a third that is minor or major depending on where in the key it lands.', '.superimpose(x => x.late(0.25).gain(0.3))'),
   pm('palindrome', 'palindrome()', 'Alternate forward and reversed cycles: there, and back again.', "n('0 3 5 7').palindrome()"),
   pm('ply', 'ply(n: number)', 'Ratchet: repeat each event n times within its own slot.', "note('c5*4').ply(3)"),
   pm(
@@ -437,26 +450,26 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('sound', "sound(name: string | Pattern<string>)", 'Route the events to a named synth.', ".scale('a minor').sound('acid')"),
   pm('gain', 'gain(x: number | string | Pattern)', 'Event loudness 0..1 (missing means full volume).', '.gain(0.7)'),
   pm('pan', 'pan(x: number | string | Pattern)', 'Stereo position 0..1, 0 left, 0.5 center, 1 right.', ".pan('0 1')"),
-  pm('dur', 'dur(x: number | string | Pattern)', 'Note length as a share of the step: under 1 is staccato, near 1 legato.', '.dur(0.8)'),
-  pm('slide', 'slide(x: number | string | Pattern)', '303-style per-note slide: a note with slide > 0 ties into the NEXT note so it glides in; others retrigger cleanly, snapping to pitch. Needs `mono` AND a `glide` time on the synth -- glide supplies the bend and slide decides which steps get it, so neither does anything alone.', ".slide('0 1 0 1')"),
+  pm('dur', 'dur(x: number | string | Pattern)', "Note length as a share of the step: under 1 is staccato, near 1 legato. It MULTIPLIES the note's own length, so it is not a count of bars -- .slow(16).dur(16) is not sixteen bars, it is sixteen times a sixteen-bar note. Past its own next trigger the extra length cannot sound (the retrigger takes the voice back), and the editor warns.", '.dur(0.8)'),
+  pm('slide', 'slide(x: number | string | Pattern)', '303-style per-note slide: a note with slide > 0 ties into the NEXT note so it glides in; others retrigger cleanly, snapping to pitch. Needs `mono` AND a `glide` time on the synth -- glide supplies the bend and slide decides which steps get it, so neither does anything alone. A tie only reaches the ADJACENT step: a sliding note followed by a rest releases at the end of its own step rather than holding across the gap, because a rest is not a note to glide into.', ".slide('0 1 0 1')"),
   pm('cutoff', 'cutoff(x: number | string | Pattern)', "Set the synth's 'cutoff' parameter per event, shorthand for .ctrl('cutoff', x).", '.cutoff(sine.range(200, 2400))'),
   pm('res', 'res(x: number | string | Pattern)', "Set the synth's 'res' (resonance) parameter per event, shorthand for .ctrl('res', x).", '.res(0.85)'),
   pm(
     'scale',
-    "scale(name: string)",
-    "Turn scale degrees (from n()) into actual notes in a scale like 'a minor' or 'f# mixolydian', degrees past the top wrap up an octave.",
+    "scale(name: string | Pattern<string>)",
+    "Turn scale degrees (from n()) into actual notes in a scale like `a minor` or `f# mixolydian`; degrees past the top wrap up an octave. The name can also be a PATTERN, which modulates the key: `<c-maj f-min>` plays the same degrees in C major one cycle and F minor the next, so a line written once changes colour instead of being rewritten. Inside mini notation the two words are hyphen-joined, because atoms are space-delimited -- `c-maj`, `f#-min`, `c-19edo`, and the long spellings too. The scale that applied is STAMPED on each event, which is what lets `add` transpose in degrees of whichever key is sounding at that moment rather than the first one. A bad name still throws when the pattern is built, not when it plays.",
     "n('0 0 3 5').scale('a minor')",
   ),
   pm(
     'echo',
     'echo(count: number, time: number, feedback?: number)',
-    'Tempo-synced delay: layer count copies, each time cycles later and feedback (default 0.5) quieter, a musical echo, since time is in cycles.',
+    'A delay made of PATTERN rather than audio: it lays down `count` copies of the events, each `time` later than the last and `feedback` (def 0.5) times as loud. `count` INCLUDES the dry one, so echo(3, 0.125) is the original plus two repeats. `time` is in CYCLES, not seconds, so the repeats stay locked to the tempo when you change it -- which is the whole reason to do it here instead of with the `delay` node. The gain multiplies whatever gain is already set rather than replacing it. Because the taps are real events they retrigger the envelope and can be transposed or filtered per repeat, which an audio delay cannot do; what you give up is a feedback tail that smears, since nothing is fed back through a filter.',
     ".sound('pluck').echo(3, 0.125, 0.5)",
   ),
   pm(
     'ping',
     'ping(count: number, time: number, feedback?: number)',
-    'Like echo, but the taps alternate right/left for a ping-pong stereo delay.',
+    '`echo` with the taps alternating right and left: repeat one hard right, repeat two hard left, and so on -- the classic ping-pong delay. Same arguments and meanings: `count` includes the dry copy, `time` is in cycles so it follows the tempo, `feedback` (def 0.5) is the gain each tap loses. Because it pans the EVENTS, a mono synth ping-pongs with no stereo processing in the voice at all, and the dry hit stays centred.',
     ".sound('pluck').ping(4, 0.1875, 0.6)",
   ),
   pm('jux', 'jux(f: (p) => p)', 'Stereo split: the original hard left, f(copy) hard right.', '.jux(x => x.rev())'),
@@ -481,7 +494,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'param',
     "param(name: string, def?: number, opts?: { min, max, curve })",
-    "Declare a live-controllable knob with a default and range; patterns drive it via .ctrl(name, ...). Omit the default to reference a project-wide macro() of that name instead, which shares one control across every synth that names it.",
+    "Declare a named control the outside world can move: the editor gives it a knob, and a pattern drives it per note with .ctrl(name, ...), which is how one synth plays differently on every hit. `min`/`max` bound the knob and `curve` is `lin` or `log` -- use `log` for anything in Hz, because a linear cutoff knob spends most of its travel in the top octave where you can barely hear it move. `values` makes it a SWITCH instead: two fixed settings you tap between rather than a range, and it is mutually exclusive with min/max/curve. OMIT THE DEFAULT and it stops being this synth's own knob and becomes a reference to a project-wide macro() of the same name, so several synths share one control -- the difference between a knob per voice and a knob for the track.",
     "const cutoff = param('cutoff', 800, { min: 80, max: 8000, curve: 'log' })",
   ),
   sc('sine', 'sine(freq: Sig | number)', 'A pure sine oscillator, smooth and round, the building block of FM and subs.', 'sine(note.freq)'),
@@ -517,14 +530,14 @@ const SYNTH_CTX: DocEntry[] = [
   sc('supersaw', 'supersaw(freq, opts?: { detune?, mix? })', 'The fat trance/EDM lead: 7 detuned sawtooths in one oscillator. detune (0..1, def 0.2) spreads them apart; mix (0..1, def 0.7) is how loud the 6 side saws are versus the centre. Anti-aliased, so it stays clean up high.', "supersaw(note.freq, { detune: 0.3, mix: 0.8 })"),
   sc(
     'sample',
-    'sample(gate, name, opts?: { root, speed, loop, start, end, reverse, slices, fade })',
-    'Play a loaded audio sample (drums, vocal chops, risers, your own bounced takes). A rising gate edge retriggers from the start; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. SLICING: start and end (fractions 0..1 of the buffer) play only that window, and a loop wraps inside it; reverse:true plays it backwards; slices:N divides the window into N chops and the NOTE picks one at natural speed (root selects chop 0, root+1 the next, wrapping), so a note pattern sequences the chops; fade (seconds, def 0.003 once sliced) ramps the chop edges so they do not click. Mono out, shape it with an ADSR like an oscillator. Unknown name → silence.',
+    'sample(gate, name, opts?: { root, speed, loop, variant, zones, start, end, reverse, slices, fade })',
+    'Play a loaded audio sample (drums, vocal chops, risers, your own bounced takes). A rising gate edge retriggers from the start; one-shot by default, loop:true to loop. Pitch: root plays natural at that MIDI note and tracks otherwise, or set speed directly. SLICING: start and end (fractions 0..1 of the buffer) play only that window, and a loop wraps inside it; reverse:true plays it backwards; slices:N divides the window into N chops and the NOTE picks one at natural speed (root selects chop 0, root+1 the next, wrapping), so a note pattern sequences the chops; fade (seconds, def 0.003 once sliced) ramps the chop edges so they do not click. FAMILIES: `bd`, `bd:1` and `bd:2` are one family with three slots. Name a slot directly (`bd:2`), or set variant to pick one PER NOTE, which is round robin: the index wraps, so a pattern counting past the last loaded sample starts over rather than falling silent. KEY ZONES: `zones: [{ lo, hi, name, root }]` gives each range of the keyboard its own recording, pitched from its own root, so a piano is not one buffer stretched four octaves. The zone is latched on the gate edge like a slice, a note outside every zone is silent rather than borrowing a neighbour, and a zone name may itself be a family member (`piano_mid:2`) so round robin still applies inside it. JavaScript only for now: rondo has no syntax for a list of zones yet. Mono out, shape it with an ADSR like an oscillator. An unloaded name is silent, and the editor now warns which one.',
     "sample(gate, 'break', { slices: 8 }).mul(adsr(gate, { r: 0.02 }))",
   ),
   sc(
     'granular',
     'granular(gate, name, opts?: { pos, root, rate, size, density, spray, loop })',
-    'Granular synthesis over a loaded sample: sprays short windowed grains from a scannable position, pitched independently. Grains spawn while gate is high. pos (0..1) is the read centre, freeze for a drone, sweep to scrub. Pitch via root (tracks the note) or rate. size (grain seconds, def 0.08), density (grains/s, def 25), spray (jitter s, def 0.01). Shape with an ADSR.',
+    'Granular synthesis over a loaded sample: short Hann-windowed grains, sprayed from a scannable read position. THE POINT IS THAT POSITION AND PITCH COME APART. `pos` (0..1 through the buffer) says WHERE you are reading and the note says at what pitch, so a slow LFO on pos walks through a sample while the notes stay in tune, and holding pos on a number freezes one moment open indefinitely. `sample speed:` cannot do that -- it ties them together like a record at the wrong rpm. Pitch comes from `root` (the MIDI note the sample plays naturally at, so the pattern transposes it) or from `rate` directly (1 = natural). DENSITY TIMES SIZE IS THE OVERLAP, and it is the number that decides what you hear: `density` 25 grains/s (1..400) at `size` 0.08 s (0.002..0.5) is about two grains sounding at once, which is a stream you can hear the individual grains in; push the product past ~4 and it fuses into continuous tone. Output is loudness-normalised by about 1/sqrt(overlap), so turning density up thickens the texture without blowing up the level. `spray` (seconds of per-grain position jitter, def 0.01, max 0.5) stops every grain starting at the same point and combing against its neighbours -- at 0 a dense cloud sounds metallic. Grains spawn while the gate is above 0.5, so a held note is a sustained cloud. `loop` is ON by default here, unlike `sample`: a grain whose start falls past the end WRAPS to the beginning, so a scan near the edge stays dense; `loop: false` clamps instead, and the cloud thins out as pos approaches 1. A name that is not loaded is silence, and it resolves each block, so a sample that arrives later just starts working. Shape the whole thing with an ADSR.',
     "granular(gate, 'pad', { root: 60, pos: lfo(0.05).range(0, 1), size: 0.1, density: 40 })",
   ),
   sc(
@@ -535,9 +548,9 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'modal',
-    "modal(gate, freq, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass', decay?, damp? })",
-    'A struck modal resonator bank: a rising gate edge strikes a bank of tuned resonators at freq, ringing like a physical object. model picks the material (bell default, bar for marimba, drum, glass); decay (s, def 1.2) is the ring time; damp (0..1) mellows the strike by taming the higher modes. Self-enveloping like pluck.',
-    "modal(gate, note.freq, { model: 'bell', decay: 3 })",
+    "modal(gate, freq, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass' | 'piano', decay?, damp?, stretch?, keyScale? })",
+    "A struck modal resonator bank: a rising gate edge strikes a bank of tuned resonators at freq, ringing like a physical object. model picks the material (bell default, bar for marimba, drum, glass, piano); decay (s, def 1.2) is the ring time, measured at middle C when the model scales with pitch; damp (0..1) mellows the strike by taming the higher modes. Self-enveloping like pluck. stretch is INHARMONICITY -- partials pushed sharp of the harmonic series, which is what makes a struck string rather than an organ, and the whole of why 'piano' sounds like one (it brings 0.0004; the top octave of a real piano is nearer 0.001). keyScale is how fast the ring shortens with pitch, so a bass note can hold while the top of the keyboard is gone in a breath.",
+    "modal(gate, note.freq, { model: 'piano', decay: 6 })",
   ),
   sc(
     'svf',
@@ -554,14 +567,14 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'ladder',
     'ladder(input, cutoff, opts?: { res })',
-    'A Moog-style ladder low-pass, warmer and growlier than svf, the acid filter.',
+    'A Moog-style four-pole ladder low-pass: 24 dB/octave, warmer and growlier than `svf` and the reason an acid line sounds like one. `cutoff` is a signal (Hz, per sample, clamped to 1..just under half the sample rate), so this is the filter you sweep with an envelope. `res` 0..1 (def 0.5) is the resonance peak at the cutoff, clamped internally to 0.98 because 1 would be zero damping; high settings emphasise the cutoff so strongly that the sweep becomes the melody, which is the whole 303 trick. Pair it with an envelope on the cutoff and a short decay: `ladder(saw(note.freq), env.pow(2).range(300, 4000), { res: 0.7 })`.',
     'ladder(osc, cutoff.mul(env.pow(2)), { res: 0.85 })',
   ),
   sc('onepole', 'onepole(input, cutoff)', 'A gentle one-pole low-pass, just softens the top end, no resonance.', 'onepole(square(note.freq), 900)'),
   sc(
     'adsr',
     'adsr(gate, opts?: { a, d, s, r })',
-    'An attack/decay/sustain/release envelope 0..1 driven by the gate, shape loudness, brightness, pitch. Every stage takes a signal as well as a number, so a knob or an LFO can move the envelope itself while it runs.',
+    'An attack/decay/sustain/release envelope, 0..1, driven by the gate -- the workhorse for loudness, brightness and pitch. a/d/r are SECONDS and s is a level 0..1; defaults are a 0.01, d 0.1, s 0.7, r 0.2. THE SURPRISING PART: decay and release are one-pole exponentials, so `d` and `r` are TIME CONSTANTS rather than durations. After `d` seconds the level is 63% of the way from the peak to sustain, not at it, and it keeps converging -- which is why a decay that measures right on paper can still sound long, and why the editor draws the handle on the curve rather than where the curve lands. Gate-off releases from the CURRENT level whatever stage it was in, so a note cut during its attack fades from where it got to instead of clicking, and a retrigger resumes upward from the current level for the same reason. Every stage takes a signal as well as a number, read per sample, so a knob or an LFO can move the envelope while it is running -- including the sustain, which glides at the decay rate rather than jumping.',
     "adsr(gate, { a: 0.003, d: 0.2, s: 0.3, r: param('rel', 0.2, { min: 0.02, max: 2 }) })",
   ),
   sc(
@@ -578,8 +591,8 @@ const SYNTH_CTX: DocEntry[] = [
   ),
   sc(
     'mic',
-    'mic()',
-    'The device microphone as a LIVE signal: run your voice through the synth graph in real time. Feed it to vocoder() as the modulator (a talkbox), filter it, granular-freeze it. It reads silence until the code using it runs (the mic connects lazily, with a permission prompt) and in offline renders/exports. Use headphones: a speaker feeding the mic loops into howling feedback.',
+    'mic(opts?: { device })',
+    'The device microphone as a LIVE signal: run your voice through the synth graph in real time. device names which input to open -- an id, or any part of the device label (device:scarlett matches a Scarlett 2i2 USB) -- and beats the input chosen in options; if that device is not connected the app falls back and says so rather than silently opening the wrong one. Feed it to vocoder() as the modulator (a talkbox), filter it, granular-freeze it. It reads silence until the code using it runs (the mic connects lazily, with a permission prompt) and in offline renders/exports. Use headphones: a speaker feeding the mic loops into howling feedback.',
     "vocoder(supersaw(note.freq), mic(), { bands: 24 })",
   ),
   sc(
@@ -591,43 +604,85 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'reverb',
     'reverb(input, opts?: { roomSize, damp })',
-    'Freeverb-style algorithmic reverb. Returns the WET tail only, mix it back with the dry signal. roomSize (0..1) sets the tail length, damp (0..1) darkens it.',
+    'Freeverb-style algorithmic reverb: a network of comb and allpass delays tuned to sound like a room. It returns the WET TAIL ONLY, which is the thing to know -- put it in a chain unmixed and the dry signal disappears. In rondo `mix` blends it back for you; in JS use `x.mix(reverb(x), 0.3)`. roomSize 0..1 (def 0.7) is the tail length, damp 0..1 (def 0.5) rolls the top off the tail so it sits behind the source instead of hissing over it. It is cheap and it is tweakable while it runs, which is what it has over `convolve`; what it cannot do is BE a particular room, because it is a model rather than a measurement.',
     'tone.mix(reverb(tone, { roomSize: 0.85, damp: 0.4 }), 0.35)',
   ),
   sc(
     'chorus',
     'chorus(input, opts?: { rate, depth, mix })',
-    'A three-voice ensemble that thickens and widens: slow detuned pitch-wobbles blur one voice into many, lush pads, shimmering keys. In a post-chain it runs per stereo side, so it also spreads the sound wide.',
+    'A three-voice ensemble that thickens and widens: slow detuned pitch-wobbles blur one voice into many, lush pads, shimmering keys. In a post-chain it runs per stereo side, so it also spreads the sound wide. rate, depth and mix are SIGNALS, so an LFO or a knob can ride them.',
     'input.mix(chorus(input, { rate: 0.6, depth: 0.004 }), 1)',
+  ),
+  sc(
+    'limiter',
+    'limiter(input, opts?: { ceiling, lookahead, release })',
+    'A LOOK-AHEAD BRICKWALL LIMITER: it holds a ceiling by turning DOWN, not by distorting. It delays the audio by lookahead ms (def 5) so the gain reduction is already in place when the peak arrives -- that delay is the latency it adds, which is why it is short. ceiling in dBFS (def -0.3, a hair under 0 so inter-sample peaks have somewhere to go), release ms (def 60). There is no attack control on purpose: the attack IS the lookahead, and exposing both invites a setting where the gain has not finished moving when the transient lands. The ceiling is a guarantee rather than a target -- no sample leaves above it -- which is what makes it safe on a PA feed. Below the ceiling it is a pure delay and changes nothing.',
+    "limiter(input, { ceiling: -1, lookahead: 5 })",
+  ),
+  sc(
+    'deess',
+    'deess(input, opts?: { freq, threshold, ratio, attack, release })',
+    'A DE-ESSER: a compressor that only hears the sibilance. "s", "sh" and "t" carry far more energy than the vowels around them, and a close mic plus a compressor turns them into blades -- but a broadband compressor cannot fix it, because ducking enough to tame the "s" ducks the whole word with it. This splits the signal at freq (Hz, def 6000; 4000-6000 for a low voice, 6000-9000 for a bright one) and compresses the HIGH band alone, so the vowels are not merely un-ducked, they never enter the detector path. threshold dB (def -30), ratio (def 4), attack ms (def 1, because sibilance is a transient), release ms (def 60). The two bands sum back to the input exactly, so below the threshold it is a bit-for-bit passthrough.',
+    "deess(mic(), { freq: 6500, threshold: -28, ratio: 5 })",
+  ),
+  sc(
+    'tape',
+    'tape(input, opts?: { wow, flutter, sat, tone })',
+    'TAPE, which is four things and not one -- shipping only the saturator is why most attempts at this sound like distortion instead of like tape. wow 0..1 (def 0.35) is slow pitch drift, well under 2 Hz, from a capstan that is not quite round: it is what stops a held chord sounding like a synthesiser, because an oscillator holds a pitch perfectly and nothing physical ever does. flutter 0..1 (def 0.3) is the same thing about ten times faster, too quick to hear as pitch, so it reads as texture. sat 0..1 (def 0.3) is soft saturation -- normalised to unity at full scale, so it LIFTS quiet material toward the peak rather than turning anything down (a 0.6 peak comes back near 0.71). tone Hz (def 11000) takes the top off, and it is the part everyone forgets: it is most of why a saturator alone sounds harsh where tape sounds warm. Each of wow and flutter is TWO oscillators at unrelated rates, because a single one is a vibrato and sounds like one. All four have an off.',
+    'tape(bus, { wow: 0.4, flutter: 0.25, sat: 0.4, tone: 9000 })',
+  ),
+  sc(
+    'convolve',
+    "convolve(input, irName, opts?: { mix })",
+    "Play a signal THROUGH a recorded space. `reverb` is algorithmic -- a network of delays tuned to sound like a room, cheap and tweakable while it runs. Convolution is the other kind: you hand it the IMPULSE RESPONSE of an actual space (or a plate, or a cabinet, or a snare drum) and it reproduces that thing exactly, because the impulse response IS the space, completely. What you give up is the knob: you cannot make the room bigger, you would need a different measurement. The IR is a SAMPLE, resolved from the same bank `sample()` reads, so a loaded WAV works and so does a generated one -- `hall` ships built in. mix 0..1 (def 0.35) and it is a SIGNAL, so an LFO or a knob can ride it. The IR is normalised to unit energy, so mix means the same thing whatever you point it at. Costs one block of latency (2.67 ms at 48k) and scales with IR length; IRs are truncated at 4 seconds.",
+    "convolve(voice, 'hall', { mix: 0.4 })",
+  ),
+  sc(
+    'pitchshift',
+    'pitchshift(input, opts?: { semitones, window, mix })',
+    'Move a signal in SEMITONES without changing how long it lasts. The engine could already change pitch two ways and neither is this: `sample speed:` is varispeed, so pitch and time move together like a record at the wrong rpm, and `granular rate:` decouples them but is a texture generator rather than something you can put a microphone through. This takes a signal that already exists -- a mic, a bus, a voice -- and hands back the same thing a fifth higher. semitones -24..24 (def 0, which is a BIT-EXACT passthrough, not an approximation). window ms (def 50) is the artefact control and it cannot be switched off: the read head wraps around a window, and short windows warble while long ones smear transients and add an echo of up to that length. mix 0..1 (def 1, fully shifted) and it is a SIGNAL, so an LFO or a knob can ride it; use 0.5 for a harmoniser that keeps the original underneath. `semitones` is a SIGNAL too, so the interval can move: a knob to ride it by hand, or a per-note lane to write the harmony line out, one interval per note. What it cannot do is work the interval out for itself, because it hears AUDIO and the note and the scale are already gone by then. So a harmony that follows the key is one you write, note for note, rather than one it infers.',
+    'pitchshift(voice, { semitones: 7, window: 40, mix: 0.5 })',
+  ),
+  sc(
+    'follow',
+    "follow(input, opts?: { attack, release, mode: 'peak'|'rms' })",
+    'AN ENVELOPE FOLLOWER: audio in, a control signal out. It reports how LOUD its input is, as an ordinary signal you can multiply by, subtract from 1, or map through a range -- so any sound can drive any parameter. This is the half sidechain does not cover: `sidechain` ducks on note ONSETS, so it keeps working even if you mute the source, and nothing in the engine reacted to actual level until this. attack ms (def 5) is how fast it rises, release ms (def 100) how fast it falls, and the asymmetry is the whole craft -- a fast attack catches transients, a slow release stops the control signal chattering between them. mode `peak` (def) tracks the waveform crest and is what you want for catching hits; `rms` averages power over a 25 ms window, reads about 3 dB lower on a sine, and is far steadier, which is what you want driving a filter. Output is linear amplitude (0..1 for signals inside +-1), not dB, because every consumer wants a multiplier or a range.',
+    "follow(mic(), { attack: 5, release: 120, mode: 'rms' }).range(400, 5000)",
+  ),
+  sc(
+    'noisegate',
+    'noisegate(input, opts?: { threshold, range, attack, hold, release, hysteresis })',
+    'A NOISE GATE: turns QUIET things down, which is the opposite of a compressor and the problem a live stage has -- kit bleed into a vocal mic, amp hiss, room tone that becomes feedback the moment you add gain. threshold is the level it opens at in dB (def -40); range is how far it pushes the signal down when closed, in dB (def -60, but -20 to -40 is usually better on a voice: a fully muted gate is audible as a hole, a partial one just removes the bleed). attack ms (def 1, because a slow one eats the front of a consonant), release ms (def 100). Two settings stop it misbehaving: hold is the minimum time it stays open after the level drops (def 50 ms), which keeps a sung word from being chopped at every momentary dip, and hysteresis is how far BELOW threshold the level must fall before it starts closing (def 3 dB), which stops a signal parked at the threshold from stuttering open and shut.',
+    "noisegate(mic(), { threshold: -38, hold: 60, range: -30 })",
   ),
   sc(
     'comb',
     'comb(input, freq, feedback?, opts?: { damp })',
-    'A tuned resonator that rings at freq (Hz) like a plucked string or a metal bar, feedback (0..0.98) sets how long it sings, damp softens the highs. Great for physical, metallic, Karplus-Strong tones.',
+    'A tuned resonator: a delay line one period long, fed back on itself, so it rings at `freq` (Hz, a signal, clamped 20..Nyquist) like a plucked string or a struck bar. `feedback` 0..0.98 is how long it sings -- 0.9 is a short pluck, 0.98 rings for seconds -- and `damp` 0..0.99 (def 0.2) rolls off the highs each time round the loop, which is what makes it sound like gut rather than steel. Excite it with a BURST rather than a held tone: a few milliseconds of noise through a comb is Karplus-Strong, and the reason it sounds plucked is that the burst is short and the ringing is all decay. For a ready-made version see `pluck`, which is this with the excitation built in.',
     'comb(noise().mul(env), note.freq, 0.95)',
   ),
   sc(
     'bitcrush',
     'bitcrush(input, opts?: { bits, downsample })',
-    'Lo-fi crush: bits (1..16) coarsens the resolution into gritty steps, downsample (1..64) drops the sample rate for aliased, retro-digital edge.',
+    'Lo-fi crush, and the two knobs do different damage. `bits` 1..16 (def 8) quantises the LEVEL into steps, which adds harmonic grit that grows as the signal gets quieter -- a fade-out through a bitcrusher gets dirtier as it goes, which is the giveaway. `downsample` 1..64 (def 1 = off) holds each sample N times, dropping the effective rate: everything above the new Nyquist folds back down as ALIASING, so high content returns as inharmonic tones that do not follow the pitch. That is why a downsampled lead sounds broken in a way a bit-reduced one does not. Both are integers and both are free of any anti-aliasing on purpose.',
     'bitcrush(tone, { bits: 6, downsample: 4 })',
   ),
   sc(
     'shape',
     'shape(input, drive?, opts?: { type })',
-    "A drive/distortion stage: push the level with drive (>= 1) through a curve, 'soft' warm, 'hard' harsh, 'sine' bright folding, 'tube' asymmetric with even harmonics.",
+    "A drive/distortion stage: push the level up with `drive` (>= 1) and run it through a fixed curve, so the harmonics you get depend on WHICH curve, not just how hard. `soft` is a tanh knee -- it rounds peaks and adds mostly odd harmonics, the warm one you can leave on. `hard` clips flat and adds a lot of high odd harmonics, which reads as harsh and aliases if the source is already bright. `sine` folds the waveform back on itself once it passes the peak, so pushing harder keeps CHANGING the timbre instead of just adding grit -- the wild one. `tube` is asymmetric, treating the two halves of the wave differently, which produces EVEN harmonics as well and is why it sounds fuller rather than merely dirtier. Drive multiplies before the curve, so it sets how much of the signal is in the bending part: raise it and lower the gain after, or the stage just gets louder.",
     "shape(saw(note.freq), 6, { type: 'tube' })",
   ),
   sc(
     'compress',
-    'compress(input, opts?: { threshold, ratio, attack, release, knee, makeup })',
-    'A compressor: tames peaks and glues a signal together. threshold (dB, def -18), ratio (def 4), attack/release (ms, def 10/120), knee (dB, def 6), makeup (dB, def 0). For PARALLEL (New York) compression, blend the dry back: input.mix(compress(input, { ratio: 10 }), 0.5).',
+    'compress(input, opts?: { threshold, ratio, attack, release, knee, makeup, key })',
+    'A compressor: turns down whatever crosses the threshold, taming peaks and gluing a part together. `threshold` dB (def -18) is where it starts and `ratio` (def 4) is how hard -- 4:1 means 4 dB over becomes 1 dB over. `attack`/`release` are MILLISECONDS (def 10/120) and they are the difference between a compressor you hear and one you do not: a fast attack catches the transient and flattens the punch with it, a slow one lets the hit through and clamps the body behind it. `knee` dB (def 6) is how wide a band around the threshold it eases in over -- 0 is a hard corner, and a wide knee is what makes bus compression sound like glue rather than gating. `makeup` dB (def 0) puts back what the reduction took so you hear the shaping and not just the drop. For PARALLEL (New York) compression, crush a copy and blend the dry back: input.mix(compress(input, { ratio: 10 }), 0.5) keeps the transients and lifts everything under them. `key` is an EXTERNAL SIDECHAIN: the detector listens to that signal instead of the input, so what gets turned down and what decides when are separate. That is the half `sidechain(source)` does not cover -- it fires on note ONSETS, which is why a house pump keeps working with the kick muted, but it cannot duck under a live vocal or a band-split that has no note events to read.',
     'compress(drumBus, { threshold: -20, ratio: 4, attack: 5, makeup: 4 })',
   ),
   sc(
     'phaser',
     'phaser(input, opts?: { rate?, depth?, feedback?, stages?, mix? })',
-    'A swept-allpass phaser: a cascade of allpass stages moves notches through the signal for that classic sweeping, whooshing motion. rate Hz (def 0.5), depth 0..1 (def 0.7), feedback 0..0.9 (def 0.4) sharpens the notches, stages 2..12 (def 4), mix 0..1 (def 0.5).',
+    'A swept-allpass phaser: a cascade of allpass stages moves notches through the signal for that classic sweeping, whooshing motion. rate Hz (def 0.5), depth 0..1 (def 0.7), feedback 0..0.9 (def 0.4) sharpens the notches, stages 2..12 (def 4), mix 0..1 (def 0.5). rate, depth, feedback and mix are SIGNALS, so an LFO or a knob can ride them; `stages` is not, because it sizes the allpass chain and changing it is a rebuild rather than a control.',
     'phaser(pad, { rate: 0.3, feedback: 0.6 })',
   ),
   sc(
@@ -645,7 +700,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'eq',
     'eq(input, bands?: { type, freq, gain, q }[])',
-    "A parametric EQ: a cascade of bands run in series. Each band has a type, 'peak' (a bell that boosts/cuts around freq), 'lowshelf'/'highshelf' (tilt everything below/above freq), or 'lp'/'hp' (12 dB/oct cut), plus freq (Hz), gain (dB, for shelf/peak), and q (sharpness, higher = narrower). Carve out mud, add air with a high shelf, or notch a resonance.",
+    "A parametric EQ: a cascade of bands in series, each shaping one region. `type` is `peak` (a bell that boosts or cuts around `freq`), `lowshelf`/`highshelf` (tilt everything below or above `freq`, which is how you add air or weight without picking a spot), or `lp`/`hp` (a 12 dB/oct cut, for removing rather than shaping). `freq` is Hz, `gain` is dB and applies to peaks and shelves only, and `q` is sharpness -- higher is narrower, so a high-Q cut is a surgical notch for one ringing resonance while a low-Q one is a tonal tilt you feel rather than hear. CUTTING IS USUALLY THE MOVE: a narrow cut where two parts collide makes room without adding level, where a boost just makes the collision louder. A high-pass on everything that is not the bass is the single most useful band here.",
     "eq(pad, [{ type: 'hp', freq: 120 }, { type: 'highshelf', freq: 8000, gain: 4 }])",
   ),
   sc(
@@ -675,7 +730,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'flanger',
     'flanger(input, opts?: { rate, depth, feedback, mix })',
-    'The jet-plane whoosh: one very short delay (0.3 to 8 ms) swept by an LFO and fed back into itself, so a comb of notches slides up and down the spectrum with resonant peaks between them. rate Hz (def 0.3), depth 0..1 (def 0.7), feedback -0.95..0.95 (def 0.7, negative shifts the notches for a hollower colour), mix 0..1 (def 0.5). Chorus thickens with three unfed taps around 11 ms; this one resonates, and that is the difference you hear.',
+    'The jet-plane whoosh: one very short delay (0.3 to 8 ms) swept by an LFO and fed back into itself, so a comb of notches slides up and down the spectrum with resonant peaks between them. rate Hz (def 0.3), depth 0..1 (def 0.7), feedback -0.95..0.95 (def 0.7, negative shifts the notches for a hollower colour), mix 0..1 (def 0.5). Chorus thickens with three unfed taps around 11 ms; this one resonates, and that is the difference you hear. rate, depth, feedback and mix are SIGNALS, so an LFO or a knob can ride them.',
     'flanger(pad, { rate: 0.15, feedback: 0.8 })',
   ),
   sc('pan', 'pan(input, pos)', 'Place the signal in the stereo field: 0 left, 0.5 center, 1 right.', 'pan(osc, 0.3)'),
@@ -722,17 +777,23 @@ const ms = (name: string, signature: string, summary: string, example?: string):
 const MINI_SYNTAX: DocEntry[] = [
   ms('mini:seq', 'a b c', 'Space-separated steps share the cycle equally, four words means four quarter-notes.', "n('0 0 3 5')"),
   ms('mini:~', '~', 'A rest: this step is silent.', "note('~ c4 ~ c4')"),
+  ms('mini:..', 'a .. b', 'Range: expand an inclusive run of numbers into steps, so "0 .. 3" is "0 1 2 3" and "3 .. 0" counts back down. Handy for a scale walk or a sample sweep you would otherwise type out. It is ONE step, not a row of siblings, so "0 .. 3 5" is "[0 1 2 3] 5" and lengthening the range never re-times the notes around it. The step is 1 from the start value, so "0.5 .. 2" gives 0.5 and 1.5.', "n('0 .. 7')"),
+  ms('mini:.', 'a . b c', 'Group without brackets: "." splits a sequence into EQUAL-width groups, so "0 . 1 2 . 3" is three thirds of a cycle rather than four quarters, exactly like writing "[0] [1 2] [3]". Useful when a line is mostly groups and the brackets start outnumbering the notes. It binds tighter than "," and "|", which split whole sequences.', "n('0 . 1 2 . 3')"),
   ms('mini:_', 'a _', 'Elongate: the previous step holds for one more slot ("a _ b" gives a twice the length of b).', "n('0 _ 3 5')"),
-  ms('mini:[]', '[a b]', 'A subgroup: everything inside fits into one step, subdividing it; a comma inside stacks voices.', "note('c2 [e2 g2] c2 [e2, g2]')"),
+  ms('mini:[]', '[a b]', 'A subgroup: everything inside fits into ONE step, subdividing it, so `[0 1] 2` is two notes in the time of one followed by another. It is also how you scope an operator to part of a line -- `[0|1] 2 3` chooses only for the first step, where `0|1 2 3` would choose between the whole sequences.', "note('c2 [e2 g2] c2 [e2, g2]')"),
   ms('mini:<>', '<a b c>', 'Alternation: one entry per cycle, cycling through them, slow harmonic movement in one step. `@n` HOLDS an entry for n cycles, so `<0@3 4>` is three bars of 0 then one of 4 (inside a sequence the same `@` divides a single cycle instead).', "note('<e2 e2 d2 g2>')"),
   ms('mini:{}', '{a b c, d e}%n', 'Polymeter: voices of different lengths run at n steps per cycle, drifting against each other.', "note('{c2 e2 g2, c4 g4}%4')"),
-  ms('mini:*', 'a*n', 'Repeat the step n times faster within its slot, "c5*8" is eight hits in the step.', "note('c5*8').sound('hat')"),
-  ms('mini:/', 'a/n', 'Slow the step down by n: it takes n cycles to play once.', "note('c2/2')"),
-  ms('mini:!', 'a!n', 'Duplicate the step n times as separate steps ("a!3 b" = "a a a b"); bare ! repeats once more.', "n('0!3 5')"),
+  ms('mini:*', 'a*n', 'Repeat the step n times faster within its slot, "c5*8" is eight hits in the step. The factor can be a PATTERN rather than a fixed number: "0*<2 3>" doubles on one cycle and triples on the next, and "0*[2 3]" changes speed halfway through the cycle. That is the usual way to make a static part breathe without writing out every bar.', "note('c5*8').sound('hat')"),
+  ms('mini:/', 'a/n', 'Slow the step down by n: it takes n cycles to play once. Like "*", the divisor can be a pattern ("0/<1 2>"), so a line can stretch and contract across cycles.', "note('c2/2')"),
+  ms('mini:!', 'a!n', 'Duplicate the step n times as separate steps ("a!3 b" = "a a a b"); bare ! repeats once more. Repeats ACCUMULATE, so "0 ! !" is three copies and "a!2!3" is four: each ! adds its own extras rather than replacing the count before it.', "n('0!3 5')"),
   ms('mini:@', 'a@n', 'Weight: give this step n slots’ worth of time ("a@3 b" makes a three times as long as b).', "n('0@3 5')"),
-  ms('mini:(p,s,r)', 'a(pulses,steps,rotation?)', 'Euclidean rhythm inline: spread hits evenly, e.g. bd(3,8) is the tresillo kick.', "sound('bd(3,8)')"),
+  ms('mini:(p,s,r)', 'a(pulses,steps,rotation?)', 'Euclidean rhythm written inline on the atom it applies to: bd(3,8) spreads three kicks as evenly as possible over eight slots -- the tresillo. A third number ROTATES the pattern left by that many steps (bd(3,8,2)), starting the same rhythm elsewhere in the bar, which grooves quite differently. Because it attaches to ONE atom, different words on the same line can carry different Euclidean figures, which is how an interlocking groove is written as a single line rather than three stacked patterns. Every argument accepts a pattern, so "bd(<3 5>,8)" walks between two figures cycle by cycle. A NEGATIVE pulse count is the complement: "hh(-3,8)" plays the five slots "bd(3,8)" leaves empty, so the interlocking counter-rhythm is written without restating the figure.', "sound('bd(3,8)')"),
   ms('mini:?', 'a?p', 'Maybe: drop this step at random (probability p, default 0.5), deterministic per cycle.', "note('c5*8 ?0.3')"),
-  ms('mini:|', 'a | b', 'Choice: each cycle picks one alternative at random (deterministic per cycle number).', "n('0 3 5 | 7 5 3')"),
+  ms('mini:,', 'a, b', 'Stack: play them TOGETHER, as one chord or as parallel lines. `0,2,4` is a triad; `0 1, 2` is the two-note line against a held 2. Brackets are NOT required -- the comma used to be legal only inside `[…]`, which made a bare `0,2,4` a syntax error for no reason. Each side is a whole sequence, so the parts can carry different rhythms and the stack lasts as long as its longest member. It stacks inside an alternation too, where each side is its own rotation: `<0 1, 2 3>` plays 0 with 2, then 1 with 3. Bracket instead to alternate BETWEEN stacks: `<[0,2] [4,6]>`.', "n('0,2,4')"),
+  ms('mini:$', '$a=[bd sn] $a ~ $a', 'Name a figure and reuse it in the same pattern: `$a=[bd sn] $a ~ $a $a` plays that pair three times without writing it three times, so changing it changes every use. Definitions come first and take ONE figure each, which is why a multi-step one is bracketed. The `$` is on the reference as well as the definition on purpose: a bare word is already an atom (the sample called `a`), so an unsigilled reference would turn a typo in the definition into a sample that plays instead of an error. An undefined name says so and lists what IS defined on the line.', "sound('$a=[bd sn] $a ~ $a $a')"),
+  ms('mini:\'swing', "[hh*8]'swing:.6", 'GROOVE on a group: delays the second half of every subdivision, which is the shuffle. `[hh*8]\'swing:.6` leaves the on-beats where they are and pushes the off-beats late, so a hat can swing while the kick beside it stays straight -- one line instead of two patterns. `\'grid:` sets the subdivision and defaults to 4, which is shuffled eighths in four-four: `\'grid:2` swings quarters, `\'grid:8` sixteenths. It cannot be inferred, because `[hh*8]` is one term that makes eight events and `[a b c d]` is four terms that make four. Timing lanes go on a GROUP; on a bare word the `\'` suffix is a control lane instead.', "sound(\"[hh*8]'swing:.6\")"),
+  ms('mini:|', 'a | b', 'Choice: each cycle picks one alternative at random, deterministically per cycle number, so a render repeats exactly. THE ALTERNATIVES ARE WHOLE SEQUENCES, which is the thing that surprises people: `5|1 4 3` chooses between the single note `5` and the three-note run `1 4 3`, not between `5` and `1` at the first step. Bracket it to choose one STEP: `[5|1] 4 3`. It does not mix with `,` at the same level -- `0|1, 2` is an error, because a stack of choices and a choice of stacks are both plausible readings and neither should be assumed. Say which: `[0|1], 2`. WEIGHT an alternative with `@` to make it more likely: `a@3 | b` picks a three times as often, and `[a b]@3 | c` weights the whole group. Without any `@` the split is even.', "n('0 3 5 | 7 5 3')"),
+  ms('mini:\'', "a'n  a'name:n", 'PER-NOTE LANES: values written ON the note, so they cannot drift when the notation grows a rest or a subgroup the way a parallel control line does. A bare number is the `expr` lane, read by the synth as param(\'expr\'). A named lane rides alongside it and they chain in any order. Three names are STRUCTURAL: `gain` is that note\u2019s level, `dur` a multiplier on its length, and `chance` the probability it sounds at all (reproducible, drawn from the same time-locked stream as degradeBy). Any other name is an ordinary param for that note alone. A lane OVERRIDES the block modifier for the same control, so a block-wide `cutoff:` sets the baseline and a per-note `\'cutoff:` is the exception. WRITE IT DIRECTLY AFTER THE NOTE, before any modifier: `0\'gain:.8@2` is right and `0@2\'gain:.8` is refused, because there the suffix attaches to the weight instead of the note.', "n(\"0'2 3'gain:.8 5'chance:.5\")"),
 ]
 
 // ----------------------------------------------------------------- export

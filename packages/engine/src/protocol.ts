@@ -67,8 +67,16 @@ export type EngineMessage = (
   | { kind: 'silenceAll' }
   /** Set a declared synth param. rampMs (default 0 = instant, clamped to
    *  [0, 10000]) ramps the value linearly, applied at block granularity
-   *  (~2.7ms at 48kHz) — params are block-rate in the voice pool. */
-  | { kind: 'setParam'; synth: string; name: string; value: number; rampMs?: number }
+   *  (~2.7ms at 48kHz) — params are block-rate in the voice pool.
+   *
+   *  `atFrame` schedules the set on the SAME timeline noteOn uses, and at the
+   *  same frame it fires BEFORE the note (noteOff < setParam < noteOn), so a
+   *  patterned param is in place when the gate opens. Omit it and the set
+   *  applies on arrival, which for a scheduled pattern is up to one lookahead
+   *  (~100ms) early — the value then lands on whatever voices are still
+   *  ringing, because a param is synth-wide. Live-coding writes (a knob drag,
+   *  MIDI) legitimately omit it: they mean "now". */
+  | { kind: 'setParam'; synth: string; name: string; value: number; rampMs?: number; atFrame?: number }
   /** Channel strip: per-synth gain (default 0.8) and pan (default 0.5,
    *  equal-power balance). Changes ramp over one block to avoid zipper.
    *  `sidechain` (0..1, default 1) is how much THIS channel responds to the
@@ -78,6 +86,9 @@ export type EngineMessage = (
   | { kind: 'setChannel'; synth: string; gain?: number; pan?: number; sidechain?: number }
   /** Master gain (default 0.8), ramped over one block. */
   | { kind: 'setMaster'; gain: number }
+  /** Master-bus stereo stage: side scale, and a mono-below crossover. The one
+   *  place mid/side is expressible — every kernel is mono (see dsp/midside). */
+  | { kind: 'setStereo'; width?: number; monoBelow?: number }
   /** TRANSPORT TEMPO in cycles per second (default 0.5 = 120 bpm at four beats
    *  to the cycle), clamped to [0.001, 100]. This is the ONE number every
    *  tempo-synced kernel reads: a `sync` lfo takes its rate in cycles, a
@@ -150,6 +161,11 @@ export type EngineEvent =
       frame: number
       master: number
       channels: Record<string, number>
+      /** Per-synth SCOPE TRACE: SCOPE_POINTS signed peaks, one per processed
+       *  block, oldest first. An envelope with polarity rather than raw audio
+       *  — at this size that is what a scope can show, and raw samples would
+       *  cost ~60x the bandwidth to draw the same picture. */
+      scopes?: Record<string, Float32Array>
       buses?: Record<string, number>
       /** The sidechain envelope right now: 1 open, dipping toward 1-depth on
        *  each source hit. Absent when nothing is ducking. Reported because a

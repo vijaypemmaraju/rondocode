@@ -16,6 +16,7 @@ export interface ParamOpts {
 }
 import type { Math2Op, MathOp } from './dsp/math'
 import type { EnvPoint } from './dsp/env'
+import type { SampleZone } from './dsp/sample'
 
 /* ------------------------------------------------------------------------- *
  * Synth builder DSL: the user-facing API for defining synths. A build
@@ -178,7 +179,9 @@ export interface SynthCtx {
    *  'white' (default) is hiss; 'periodic' is a buzzy, metallic pitched tone.
    *  1-bit output — shape it with an ADSR for chip drums and zaps. */
   lfsr(freq: SigIn, opts?: { mode?: 'white' | 'periodic' }): Sig
-  /** Play a loaded audio sample. `name` is a sample loaded via loadSample. A
+  /** Play a loaded audio sample. `name` is a sample loaded via loadSample, and
+   *  may name a VARIANT of a family (`bd:2`); `{ variant }` picks one per note
+   *  instead, which is how a round-robin drum kit is written. A
    *  rising edge on `gate` retriggers from the start (one-shot); pass
    *  `{ loop: true }` to loop. Pitch: `{ root }` plays at natural pitch when the
    *  note equals that MIDI root and tracks the note otherwise; `{ speed }` sets
@@ -205,6 +208,15 @@ export interface SynthCtx {
       reverse?: boolean
       slices?: number
       fade?: number
+      /** Which VARIANT of the sample family to play, latched per note. `bd`,
+       *  `bd:1` and `bd:2` are one family, and this picks among them, wrapping
+       *  past the end so a pattern can drive it without falling silent. */
+      variant?: SigIn
+      /** KEY ZONES: a different recording per range of the keyboard, each
+       *  pitched from its own root. One buffer stretched across a keyboard is
+       *  what gives a sampler away. Zones compose with families, so a zone
+       *  name may itself be `piano_mid:2`. */
+      zones?: SampleZone[]
     },
   ): Sig
   /** GRANULAR synthesis over a loaded sample: sprays short windowed grains from
@@ -225,7 +237,22 @@ export interface SynthCtx {
    *  ('bell' default, 'bar' marimba, 'drum', 'glass'); `decay` (s, def 1.2) is
    *  the ring time; `damp` (0..1) mellows the strike by taming higher modes.
    *  Self-enveloping like pluck. */
-  modal(gate: SigIn, freq: SigIn, opts?: { model?: 'bell' | 'bar' | 'drum' | 'glass'; decay?: number; damp?: number }): Sig
+  modal(
+    gate: SigIn,
+    freq: SigIn,
+    opts?: {
+      model?: 'bell' | 'bar' | 'drum' | 'glass' | 'piano'
+      decay?: number
+      damp?: number
+      /** Inharmonicity: partials sit sharp of the harmonic series, which is
+       *  what makes a struck STRING rather than an organ. The piano model
+       *  brings its own (0.0004); raise toward 0.001 for the top octave. */
+      stretch?: number
+      /** How strongly ring time falls with pitch. The piano model brings its
+       *  own (0.62); 0 means every pitch rings the same length. */
+      keyScale?: number
+    },
+  ): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -264,7 +291,7 @@ export interface SynthCtx {
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
   /** Three-voice modulated-delay ensemble — thickens and widens. Runs mono per
    *  call; stereo width comes from the post-chain running it twice (L/R). */
-  chorus(inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig
+  chorus(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig
   /** Tuned feedback comb: resonates at `freq` (Hz) with a metallic ring;
    *  feedback 0..0.98 (default 0.5) sets the ring length, opts.damp darkens it. */
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
@@ -276,12 +303,44 @@ export interface SynthCtx {
    *  -18), ratio (def 4), attack/release (ms, def 10/120), knee (dB, def 6),
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
-  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number; key?: SigIn }): Sig
+  /** NOISE GATE / downward expander — turns QUIET things down, which is the
+   *  opposite of a compressor and the problem a stage has: kit bleed into a
+   *  vocal mic, amp hiss, room tone that becomes feedback once you add gain.
+   *  `threshold` dB to open (def -40), `range` dB of attenuation when closed
+   *  (def -60; -20..-40 removes bleed without leaving an audible hole),
+   *  `attack` ms (def 1), `hold` ms it stays open after the level drops (def
+   *  50), `release` ms (def 100), `hysteresis` dB below threshold before it
+   *  closes (def 3). Hold and hysteresis are what stop it chattering on a
+   *  signal sitting at the threshold, or chopping up a sung word. */
+  noisegate(inp: SigIn, opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number }): Sig
+  /** DE-ESSER — a compressor that only hears the sibilance. Splits at `freq`
+   *  (Hz, def 6000) and compresses the HIGH band alone, so the vowels are not
+   *  merely un-ducked, they never enter the detector's path. `threshold` dB
+   *  (def -30), `ratio` (def 4), `attack` ms (def 1 — sibilance is a
+   *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
+   *  6000-9000 for a bright one. */
+  deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
+  /** Envelope follower: audio in, a 0..1 control signal out. */
+  follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
+  /** Shift a signal in semitones without changing its length. */
+  pitchshift(inp: SigIn, opts?: { semitones?: SigIn; window?: number; mix?: SigIn }): Sig
+  /** Convolve a signal with an impulse response held as a sample. */
+  convolve(inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig
+  /** Tape character: wow, flutter, saturation and the top coming off. */
+  tape(inp: SigIn, opts?: { wow?: number; flutter?: number; sat?: number; tone?: number }): Sig
+  /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
+   *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
+   *  already reduced when the peak arrives; that delay is the latency it adds.
+   *  `ceiling` dBFS (def -0.3), `release` ms (def 60). There is no attack
+   *  control on purpose: the attack IS the lookahead. The ceiling is a
+   *  guarantee, not a target — no sample leaves above it. */
+  limiter(inp: SigIn, opts?: { ceiling?: number; lookahead?: number; release?: number }): Sig
   pan(inp: SigIn, pos: SigIn): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
-  phaser(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig
+  phaser(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; stages?: number; mix?: SigIn }): Sig
   /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
    *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
   formant(inp: SigIn, morph?: SigIn): Sig
@@ -322,11 +381,15 @@ export interface SynthCtx {
    *  `feedback` −0.95..0.95 (def 0.7, negative moves the notches), `mix` 0..1
    *  (def 0.5). Unlike chorus (three unfed taps around 11 ms, a thickener) the
    *  feedback builds resonant PEAKS between the notches. */
-  flanger(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig
+  flanger(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
-  mic(): Sig
+  /** The live microphone. `device` names which input to open — an id or any
+   *  part of the device's label ('scarlett'), matched by the host. It is
+   *  config the GRAPH never reads: the capture is opened on the main thread,
+   *  so this is how the program tells it what to open. */
+  mic(opts?: { device?: string }): Sig
 }
 
 /** The post graph's build context: a SEPARATE build (its own node-id space)
@@ -351,7 +414,7 @@ export interface PostCtx {
   lfo(freq: SigIn, shape?: LfoShapeName | LfoOpts, opts?: LfoOpts): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
-  chorus(inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig
+  chorus(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
   bitcrush(inp: SigIn, opts?: { bits?: number; downsample?: number }): Sig
   shape(inp: SigIn, drive?: SigIn, opts?: { type?: 'soft' | 'hard' | 'sine' | 'tube' }): Sig
@@ -359,11 +422,43 @@ export interface PostCtx {
    *  -18), ratio (def 4), attack/release (ms, def 10/120), knee (dB, def 6),
    *  makeup (dB, def 0). For PARALLEL compression mix the dry back:
    *  `input.mix(compress(input, { ratio: 10 }), 0.5)`. */
-  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }): Sig
+  compress(inp: SigIn, opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number; key?: SigIn }): Sig
+  /** NOISE GATE / downward expander — turns QUIET things down, which is the
+   *  opposite of a compressor and the problem a stage has: kit bleed into a
+   *  vocal mic, amp hiss, room tone that becomes feedback once you add gain.
+   *  `threshold` dB to open (def -40), `range` dB of attenuation when closed
+   *  (def -60; -20..-40 removes bleed without leaving an audible hole),
+   *  `attack` ms (def 1), `hold` ms it stays open after the level drops (def
+   *  50), `release` ms (def 100), `hysteresis` dB below threshold before it
+   *  closes (def 3). Hold and hysteresis are what stop it chattering on a
+   *  signal sitting at the threshold, or chopping up a sung word. */
+  noisegate(inp: SigIn, opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number }): Sig
+  /** DE-ESSER — a compressor that only hears the sibilance. Splits at `freq`
+   *  (Hz, def 6000) and compresses the HIGH band alone, so the vowels are not
+   *  merely un-ducked, they never enter the detector's path. `threshold` dB
+   *  (def -30), `ratio` (def 4), `attack` ms (def 1 — sibilance is a
+   *  transient), `release` ms (def 60). Use 4000-6000 for a low voice,
+   *  6000-9000 for a bright one. */
+  deess(inp: SigIn, opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number }): Sig
+  /** Envelope follower: audio in, a 0..1 control signal out. */
+  follow(inp: SigIn, opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' }): Sig
+  /** Shift a signal in semitones without changing its length. */
+  pitchshift(inp: SigIn, opts?: { semitones?: SigIn; window?: number; mix?: SigIn }): Sig
+  /** Convolve a signal with an impulse response held as a sample. */
+  convolve(inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig
+  /** Tape character: wow, flutter, saturation and the top coming off. */
+  tape(inp: SigIn, opts?: { wow?: number; flutter?: number; sat?: number; tone?: number }): Sig
+  /** LOOK-AHEAD BRICKWALL LIMITER — holds a ceiling by turning DOWN, not by
+   *  distorting. It delays the audio by `lookahead` ms (def 5) so the gain is
+   *  already reduced when the peak arrives; that delay is the latency it adds.
+   *  `ceiling` dBFS (def -0.3), `release` ms (def 60). There is no attack
+   *  control on purpose: the attack IS the lookahead. The ceiling is a
+   *  guarantee, not a target — no sample leaves above it. */
+  limiter(inp: SigIn, opts?: { ceiling?: number; lookahead?: number; release?: number }): Sig
   /** Swept-allpass PHASER: moving notches. `rate` Hz (def 0.5), `depth` 0..1
    *  (def 0.7), `feedback` 0..0.9 (def 0.4), `stages` 2..12 (def 4), `mix` 0..1
    *  (def 0.5). */
-  phaser(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig
+  phaser(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; stages?: number; mix?: SigIn }): Sig
   /** Vowel/FORMANT filter: three band-passes at a vowel's formants, so a buzzy
    *  source sings. `morph` 0..1 scans a→e→i→o→u (sweepable). */
   formant(inp: SigIn, morph?: SigIn): Sig
@@ -404,11 +499,15 @@ export interface PostCtx {
    *  `feedback` −0.95..0.95 (def 0.7, negative moves the notches), `mix` 0..1
    *  (def 0.5). Unlike chorus (three unfed taps around 11 ms, a thickener) the
    *  feedback builds resonant PEAKS between the notches. */
-  flanger(inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig
+  flanger(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
   /** The device microphone as a LIVE signal (see the mic docs). Silence when
    *  no mic is connected and in offline renders. Headphones advised. */
-  mic(): Sig
+  /** The live microphone. `device` names which input to open — an id or any
+   *  part of the device's label ('scarlett'), matched by the host. It is
+   *  config the GRAPH never reads: the capture is opened on the main thread,
+   *  so this is how the program tells it what to open. */
+  mic(opts?: { device?: string }): Sig
 }
 
 /** User-facing voice options passed to synth() — every field optional. See
@@ -773,12 +872,14 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'reverb in') },
         definedConfig({ roomSize: opts?.roomSize, damp: opts?.damp }),
       ),
-    chorus: (inp: SigIn, opts?: { rate?: number; depth?: number; mix?: number }): Sig =>
-      b.node(
-        'chorus',
-        { in: src(inp, 'chorus in') },
-        definedConfig({ rate: opts?.rate, depth: opts?.depth, mix: opts?.mix }),
-      ),
+    chorus: (inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig => {
+      // rate/depth/mix are per-sample INPUTS, so an LFO or knob can ride them
+      const inputs: Record<string, InputSource> = { in: src(inp, 'chorus in') }
+      if (opts?.rate !== undefined) inputs['rate'] = src(opts.rate, 'chorus rate')
+      if (opts?.depth !== undefined) inputs['depth'] = src(opts.depth, 'chorus depth')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'chorus mix')
+      return b.node('chorus', inputs)
+    },
     comb: (inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig => {
       const inputs: Record<string, InputSource> = {
         in: src(inp, 'comb in'),
@@ -800,12 +901,18 @@ const makeShared = (b: Builder) => {
     },
     compress: (
       inp: SigIn,
-      opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number },
+      opts?: { threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number; key?: SigIn },
     ): Sig =>
       b.node(
         'compress',
-        { in: src(inp, 'compress in') },
+        opts?.key === undefined
+          ? { in: src(inp, 'compress in') }
+          : { in: src(inp, 'compress in'), key: src(opts.key, 'compress key') },
         definedConfig({
+          /* CONFIG, not input presence: an unwired input arrives as a
+           * constant-zero buffer, and "no key" must not read the same as "a
+           * key that is currently silent" — they mean opposite things. */
+          key: opts?.key === undefined ? undefined : true,
           threshold: opts?.threshold,
           ratio: opts?.ratio,
           attack: opts?.attack,
@@ -814,12 +921,95 @@ const makeShared = (b: Builder) => {
           makeup: opts?.makeup,
         }),
       ),
-    phaser: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; stages?: number; mix?: number }): Sig =>
+    noisegate: (
+      inp: SigIn,
+      opts?: { threshold?: number; range?: number; attack?: number; hold?: number; release?: number; hysteresis?: number },
+    ): Sig =>
       b.node(
-        'phaser',
-        { in: src(inp, 'phaser in') },
-        definedConfig({ rate: opts?.rate, depth: opts?.depth, feedback: opts?.feedback, stages: opts?.stages, mix: opts?.mix }),
+        'noisegate',
+        { in: src(inp, 'noisegate in') },
+        definedConfig({
+          threshold: opts?.threshold,
+          range: opts?.range,
+          attack: opts?.attack,
+          hold: opts?.hold,
+          release: opts?.release,
+          hysteresis: opts?.hysteresis,
+        }),
       ),
+    tape: (
+      inp: SigIn,
+      opts?: { wow?: number; flutter?: number; sat?: number; tone?: number },
+    ): Sig =>
+      b.node(
+        'tape',
+        { in: src(inp, 'tape in') },
+        definedConfig({ wow: opts?.wow, flutter: opts?.flutter, sat: opts?.sat, tone: opts?.tone }),
+      ),
+    convolve: (inp: SigIn, name: string, opts?: { mix?: SigIn }): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'convolve in') }
+      // mix is a SIGNAL, not construction config: it was declared `sig` in the
+      // rondo registry while the kernel read it as a number, so an LFO there
+      // was silently dropped back to the default
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'convolve mix')
+      return b.node('convolve', inputs, definedConfig({ name }))
+    },
+    pitchshift: (
+      inp: SigIn,
+      opts?: { semitones?: SigIn; window?: number; mix?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'pitchshift in') }
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'pitchshift mix')
+      /* An INPUT, not config. As config a knob or a `.ctrl` arrived as a
+       * signal, failed the mapper's `typeof === 'number'` test, and vanished:
+       * the node saw 0 and passed the dry signal through. A harmoniser whose
+       * interval cannot move is a transposer. */
+      if (opts?.semitones !== undefined) inputs['semitones'] = src(opts.semitones, 'pitchshift semitones')
+      return b.node('pitchshift', inputs, definedConfig({ window: opts?.window }))
+    },
+    follow: (
+      inp: SigIn,
+      opts?: { attack?: number; release?: number; mode?: 'peak' | 'rms' },
+    ): Sig =>
+      b.node(
+        'follow',
+        { in: src(inp, 'follow in') },
+        definedConfig({ attack: opts?.attack, release: opts?.release, mode: opts?.mode }),
+      ),
+    deess: (
+      inp: SigIn,
+      opts?: { freq?: number; threshold?: number; ratio?: number; attack?: number; release?: number },
+    ): Sig =>
+      b.node(
+        'deess',
+        { in: src(inp, 'deess in') },
+        definedConfig({
+          freq: opts?.freq,
+          threshold: opts?.threshold,
+          ratio: opts?.ratio,
+          attack: opts?.attack,
+          release: opts?.release,
+        }),
+      ),
+    limiter: (inp: SigIn, opts?: { ceiling?: number; lookahead?: number; release?: number }): Sig =>
+      b.node(
+        'limiter',
+        { in: src(inp, 'limiter in') },
+        definedConfig({ ceiling: opts?.ceiling, lookahead: opts?.lookahead, release: opts?.release }),
+      ),
+    phaser: (
+      inp: SigIn,
+      opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; stages?: number; mix?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'phaser in') }
+      if (opts?.rate !== undefined) inputs['rate'] = src(opts.rate, 'phaser rate')
+      if (opts?.depth !== undefined) inputs['depth'] = src(opts.depth, 'phaser depth')
+      if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'phaser feedback')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'phaser mix')
+      // `stages` sizes the allpass array: a per-sample count is a rebuild, not
+      // a control, so it stays construction config
+      return b.node('phaser', inputs, definedConfig({ stages: opts?.stages }))
+    },
     formant: (inp: SigIn, morph?: SigIn): Sig => {
       const inputs: Record<string, InputSource> = { in: src(inp, 'formant in') }
       if (morph !== undefined) inputs['morph'] = src(morph, 'formant morph')
@@ -860,17 +1050,22 @@ const makeShared = (b: Builder) => {
         { in: src(inp, 'transient in') },
         definedConfig({ attack: opts?.attack, sustain: opts?.sustain }),
       ),
-    flanger: (inp: SigIn, opts?: { rate?: number; depth?: number; feedback?: number; mix?: number }): Sig =>
-      b.node(
-        'flanger',
-        { in: src(inp, 'flanger in') },
-        definedConfig({ rate: opts?.rate, depth: opts?.depth, feedback: opts?.feedback, mix: opts?.mix }),
-      ),
+    flanger: (
+      inp: SigIn,
+      opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn },
+    ): Sig => {
+      const inputs: Record<string, InputSource> = { in: src(inp, 'flanger in') }
+      if (opts?.rate !== undefined) inputs['rate'] = src(opts.rate, 'flanger rate')
+      if (opts?.depth !== undefined) inputs['depth'] = src(opts.depth, 'flanger depth')
+      if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'flanger feedback')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'flanger mix')
+      return b.node('flanger', inputs)
+    },
     mix: (a: SigIn, bb: SigIn, t: SigIn): Sig =>
       b.node('mix', { a: src(a, 'mix a'), b: src(bb, 'mix b'), t: src(t, 'mix t') }),
     // LIVE MIC: the device microphone as a signal (silence offline / when no
     // mic is connected). Use headphones — a speaker feeding the mic howls.
-    mic: (): Sig => b.node('mic', {}),
+    mic: (opts?: { device?: string }): Sig => b.node('mic', {}, definedConfig({ device: opts?.device })),
   }
 }
 
@@ -901,6 +1096,13 @@ const makeCtx = (b: Builder): SynthCtx => {
     bitcrush: shared.bitcrush,
     shape: shared.shape,
     compress: shared.compress,
+    noisegate: shared.noisegate,
+    deess: shared.deess,
+    follow: shared.follow,
+    pitchshift: shared.pitchshift,
+    convolve: shared.convolve,
+    tape: shared.tape,
+    limiter: shared.limiter,
     phaser: shared.phaser,
     formant: shared.formant,
     vocoder: shared.vocoder,
@@ -979,6 +1181,11 @@ const makeCtx = (b: Builder): SynthCtx => {
       }
       if (speed !== undefined) inputs['speed'] = src(speed, 'sample speed')
       if (opts?.slices !== undefined) inputs['pitch'] = src(noteFreq.div(rootFreq), 'sample pitch')
+      if (opts?.variant !== undefined) inputs['variant'] = src(opts.variant, 'sample variant')
+      // KEY ZONES need the note itself: the kernel picks the zone, and each
+      // zone carries its own root, so the pitch ratio is the kernel's to work
+      // out rather than something the graph can precompute.
+      if (opts?.zones !== undefined) inputs['nfreq'] = src(noteFreq, 'sample note')
       return b.node(
         'sample',
         inputs,
@@ -990,6 +1197,7 @@ const makeCtx = (b: Builder): SynthCtx => {
           reverse: opts?.reverse,
           slices: opts?.slices,
           fade: opts?.fade,
+          zones: opts?.zones,
         }),
       )
     },
@@ -1021,7 +1229,13 @@ const makeCtx = (b: Builder): SynthCtx => {
       b.node(
         'modal',
         { gate: src(gate, 'modal gate'), freq: src(freq, 'modal freq') },
-        definedConfig({ model: opts?.model, decay: opts?.decay, damp: opts?.damp }),
+        definedConfig({
+          model: opts?.model,
+          decay: opts?.decay,
+          damp: opts?.damp,
+          stretch: opts?.stretch,
+          keyScale: opts?.keyScale,
+        }),
       ),
 
     adsr: (gate, opts) =>

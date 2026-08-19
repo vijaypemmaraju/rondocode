@@ -31,10 +31,19 @@
  * fallback when one exists — a knob binding's DEF — with NO handle for that
  * arg (the text stays the only write surface for signals). When no static
  * value exists at all the line gets no curve: drawing a made-up cutoff would
- * lie. Live overlay of the playing response is deliberately out of scope for
- * v1 — the curve is static at the written values. */
+ * lie.
+ *
+ * The SHAPE is still static at the written values — that has not changed, and
+ * the honesty rules above are why. What moves is drawn from measurements the
+ * engine already makes: a dot at the cutoff, but only when the cutoff is
+ * knob-bound and therefore arrives in NoteEv.controls (a signal binding is
+ * computed in the audio graph and reaches no event, so it gets none); and a
+ * fill under the curve in proportion to that channel's metered level, which is
+ * what actually moves in a filter whose cutoff is a literal. Neither invents a
+ * number. */
 
 import { EditorView, WidgetType } from '@codemirror/view'
+import { activate } from './activation'
 import { formatNumber } from '../widgets/rewrite'
 import { LiveWriter, attachGesture } from './gesture'
 import type { Drag } from './gesture'
@@ -208,6 +217,13 @@ export const magToDb = (mag: number): number => 20 * Math.log10(Math.max(mag, 1e
 export interface StaticArg {
   value: number
   range?: { from: number; to: number }
+  /** The KNOB this arg is bound to, when it is bound to one. The scanner
+   *  resolves such an arg to the knob's DEF so the curve can be drawn at all;
+   *  keeping the name as well is what lets the cutoff DOT follow the value
+   *  live, since a pattern-driven param arrives in NoteEv.controls under it.
+   *  Absent for a literal (nothing to follow) and for a signal binding (which
+   *  reaches no event — see the honesty rules above). */
+  knob?: string
 }
 
 export interface FilterScan {
@@ -260,7 +276,7 @@ const staticArg = (tok: Token | undefined, knobs: ReadonlyMap<string, number>): 
     return { value: Number(tok.text), range: { from: tok.from, to: tok.from + tok.text.length } }
   }
   const def = knobs.get(tok.text)
-  return def !== undefined ? { value: def } : null
+  return def !== undefined ? { value: def, knob: tok.text.split(' ').pop()! } : null
 }
 
 /** Find every svf/ladder/dualsvf/eq line with enough static values to draw an
@@ -268,10 +284,10 @@ const staticArg = (tok: Token | undefined, knobs: ReadonlyMap<string, number>): 
  *  the signal-driven-cutoff fallback. Pure — unit tested. */
 export function scanFilters(text: string, knobs: readonly KnobMatch[] = []): FilterScan[] {
   const out: FilterScan[] = []
-  // knob DEF lookup: synth-scoped names ("synth name"); bus knobs don't exist
+  // knob DEF lookup: synth-scoped names ("synth\u0000name"); bus knobs don't exist
   const knobDefs = new Map<string, number>()
   for (const k of knobs) {
-    if (k.name !== undefined && k.synth !== undefined) knobDefs.set(`${k.synth} ${k.name}`, k.value)
+    if (k.name !== undefined && k.synth !== undefined) knobDefs.set(`${k.synth}\u0000${k.name}`, k.value)
   }
   let off = 0
   let block: string | undefined
@@ -293,7 +309,7 @@ export function scanFilters(text: string, knobs: readonly KnobMatch[] = []): Fil
     const scoped = new Map<string, number>()
     if (synth !== undefined) {
       for (const [key, v] of knobDefs) {
-        if (key.startsWith(`${synth} `)) scoped.set(key.slice(synth.length + 1), v)
+        if (key.startsWith(`${synth}\u0000`)) scoped.set(key.slice(synth.length + 1), v)
       }
     }
     const scan: FilterScan = {
@@ -434,6 +450,10 @@ export function scanHandles(scan: FilterScan): Handle[] {
 }
 
 export class FilterCurveWidget extends WidgetType {
+  private unsub: (() => void) | null = null
+  private unsubLive: (() => void) | null = null
+  private levelRaf = 0
+
   constructor(
     readonly scan: FilterScan,
     /** identity of everything drawn — a cheap eq() key. */
@@ -462,6 +482,8 @@ export class FilterCurveWidget extends WidgetType {
 
     // a live copy of the scan the gesture mutates + redraws from
     const live: FilterScan = JSON.parse(JSON.stringify(scan)) as FilterScan
+    /** current loudness of this line's synth, 0..1 — see the fill in draw(). */
+    let lvl = 0
     const handles = scanHandles(scan)
 
     const draw = (): void => {
@@ -493,6 +515,29 @@ export class FilterCurveWidget extends WidgetType {
         else g.lineTo((i / CURVE.samples) * W, y)
       }
       g.stroke()
+      /* HOW MUCH IS GOING THROUGH IT. The curve is the SHAPE the filter makes
+       * and it is the same shape whether the transport is running or stopped —
+       * so for `ladder 500`, where the cutoff is a literal and never moves,
+       * there was nothing on this widget that ever changed. The signal is the
+       * thing that moves, and the engine already measures it per channel for
+       * the visualizer, so this costs no new analysis.
+       *
+       * Drawn UNDER the response, so the curve stays the brightest thing:
+       * the shape is what you are reading, the fill is how hard it is working. */
+      if (lvl > 0.004) {
+        g.globalAlpha = Math.min(0.42, lvl * 0.75)
+        g.fillStyle = color
+        g.beginPath()
+        g.moveTo(0, H)
+        for (let i = 0; i <= CURVE.samples; i++) {
+          const f = xToFreq((i / CURVE.samples) * W, W)
+          g.lineTo((i / CURVE.samples) * W, dbToY(scanResponseDb(live, f, DISPLAY_SR), H))
+        }
+        g.lineTo(W, H)
+        g.closePath()
+        g.fill()
+        g.globalAlpha = 1
+      }
       // handles ride the curve at their frequency
       const liveHandles = scanHandles(live)
       for (const h of liveHandles) {
@@ -509,6 +554,69 @@ export class FilterCurveWidget extends WidgetType {
     // toDOM runs BEFORE CodeMirror inserts this node, and a detached element
     // computes to black — see paint.ts
     paintOnAttach(draw)
+
+    /* LIVE ON THE PLAYHEAD. The curve itself does not move — it is drawn at
+     * the WRITTEN values, and a signal-driven cutoff never reaches the UI at
+     * all (`cut = amp -> 1300..3000` is computed in the audio graph and
+     * appears in no note event), so animating the shape would mean inventing
+     * one — exactly what the honesty rules above forbid.
+     *
+     * What IS knowable is whether this filter is processing anything right
+     * now, and that was the question a dead curve left open while the roll
+     * above it lit up. So the whole surface lifts on each note of its synth.
+     * Redrawing on fire and again on idle is what recolours the ink: the
+     * canvas samples `color` through inkOf(), and the class is already on by
+     * the time onFire runs. Twice per note, not per frame — the curve has no
+     * animation loop and does not want one. */
+    /* THE CUTOFF DOT. Lighting the whole curve says the filter is processing
+     * something; it does not say WHERE the filter is, which for a swept filter
+     * is the only thing moving. A dot at the live cutoff, riding the curve, is
+     * the honest version of that — and the x axis here is FREQUENCY, so a
+     * playhead sweeping across it would draw a relationship that does not
+     * exist.
+     *
+     * Only where the value is genuinely knowable. A knob-bound cutoff arrives
+     * in NoteEv.controls under its name; a signal binding reaches no event at
+     * all, and inventing a position for it is exactly what the honesty rules
+     * at the top of this file forbid. So those keep the plain lift. */
+    const liveKnob = scan.kind === 'eq' ? undefined : scan.cutoffs[0]?.knob
+    if (liveKnob !== undefined && this.hooks.onNoteEvents !== undefined) {
+      const dot = document.createElement('span')
+      dot.className = 'rondo-fcurve-dot'
+      wrap.appendChild(dot)
+      this.unsubLive = this.hooks.onNoteEvents((evs) => {
+        for (const ev of evs) {
+          if (scan.synth !== undefined && ev.sound !== scan.synth) continue
+          const v = ev.controls?.[liveKnob]
+          if (typeof v !== 'number' || !Number.isFinite(v)) continue
+          const x = freqToX(clamp(v, F_LO, F_HI), W)
+          const y = clamp(dbToY(scanResponseDb(live, v, DISPLAY_SR), H), 3, H - 3)
+          dot.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
+          dot.style.opacity = '1'
+          break
+        }
+      })
+    }
+
+    /* Follow the level while the synth sounds. Redraw only when it MOVES
+     * enough to see: this is a canvas repaint, and one per frame regardless of
+     * change is the roll-cell regression over again. */
+    const readLevel = this.hooks.level
+    if (readLevel !== undefined && scan.synth !== undefined) {
+      const synthName = scan.synth
+      const follow = (): void => {
+        const next = readLevel(synthName)
+        if (Math.abs(next - lvl) > 0.02) { lvl = next; draw() }
+        this.levelRaf = requestAnimationFrame(follow)
+      }
+      this.levelRaf = requestAnimationFrame(follow)
+    }
+
+    this.unsub = activate(wrap, this.hooks, {
+      ...(scan.synth !== undefined ? { synth: scan.synth } : {}),
+      onFire: draw,
+      onIdle: draw,
+    })
 
     // any writable literal makes the surface a control
     const writable = handles.some((h) => h.fRange !== undefined || h.vRange !== undefined)
@@ -598,4 +706,13 @@ export class FilterCurveWidget extends WidgetType {
   }
 
   override ignoreEvent(): boolean { return true }
+
+  /** Widgets die on every rebuild — drop the subscriptions with the DOM. */
+  override destroy(): void {
+    this.unsub?.()
+    this.unsub = null
+    this.unsubLive?.()
+    this.unsubLive = null
+    cancelAnimationFrame(this.levelRaf)
+  }
 }

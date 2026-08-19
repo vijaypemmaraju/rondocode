@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chord, parseChord } from '../src/index'
+import { CHORD_QUALITIES, chord, parseChord } from '../src/index'
 import type { ControlMap, Pattern } from '../src/index'
 import { q, qw } from './helpers'
 
@@ -27,6 +27,74 @@ describe('parseChord', () => {
   it('returns undefined for non-chords', () => {
     expect(parseChord('xyz')).toBeUndefined()
     expect(parseChord('Cwhat')).toBeUndefined()
+  })
+
+  /* `<D2 Bm9 Gadd9 Asus>` — an ordinary pop progression, and `D2` was the one
+   * atom of it that parsed as nothing at all. */
+  describe('added tones that KEEP the third', () => {
+    it('reads the chart spelling `D2`', () => {
+      expect(parseChord('D2')).toEqual([50, 52, 54, 57]) // D E F# A
+    })
+
+    it('is NOT sus2 — a sus REPLACES the third, a 2 adds to it', () => {
+      // the whole reason this is its own quality: same name in casual use,
+      // different chord, and the third is what tells them apart
+      expect(parseChord('Dsus2')).toEqual([50, 52, 57]) // D E A — no third
+      expect(parseChord('D2')).toContain(54) // F#
+      expect(parseChord('Dsus2')).not.toContain(54)
+    })
+
+    it('is NOT add9 either — the 9th sits an octave up and does not rub', () => {
+      expect(parseChord('Dadd9')).toEqual([50, 54, 57, 64])
+      // both hold the same pitch classes; the VOICING is the point
+      expect(parseChord('D2')!.map((n) => n % 12).sort()).toEqual(
+        parseChord('Dadd9')!.map((n) => n % 12).sort(),
+      )
+      expect(parseChord('D2')).not.toEqual(parseChord('Dadd9'))
+    })
+
+    it('covers the rest of the family, major and minor', () => {
+      expect(parseChord('Cadd2')).toEqual(parseChord('C2'))
+      expect(parseChord('Cm2')).toEqual([48, 50, 51, 55]) // minor third
+      expect(parseChord('Cadd4')).toEqual([48, 52, 53, 55])
+      expect(parseChord('Cadd11')).toEqual([48, 52, 55, 65]) // the 4th, octave up
+    })
+
+    it('takes a slash bass like any other quality', () => {
+      expect(parseChord('C2/E')!.slice(1)).toEqual(parseChord('C2'))
+    })
+
+    it('the whole progression that reported this parses', () => {
+      for (const name of ['D2', 'Bm9', 'Gadd9', 'Asus']) {
+        expect(parseChord(name), name).toBeDefined()
+      }
+    })
+
+    it('and PLAYS: <D2 Bm9 Gadd9 Asus> gives four chords, one per cycle', () => {
+      // end to end through chord(), because parsing is only half the claim —
+      // `chord()` THROWS on an atom it cannot read, so before this the whole
+      // progression was an error, not three good chords and one bad one
+      const p = chord('<D2 Bm9 Gadd9 Asus>')
+      const cycle = (c: number): number[] => notesOf(q(p, c, c + 1)).sort((a, b) => a - b)
+      expect(cycle(0)).toEqual([50, 52, 54, 57]) // D2   D E F# A
+      expect(cycle(1)).toEqual([59, 62, 66, 69, 73]) // Bm9
+      expect(cycle(2)).toEqual([55, 59, 62, 69]) // Gadd9
+      expect(cycle(3)).toEqual([57, 62, 64]) // Asus
+    })
+  })
+})
+
+describe('CHORD_QUALITIES', () => {
+  it('lists every quality the parser accepts, and only those', () => {
+    for (const q of CHORD_QUALITIES) {
+      expect(parseChord(`C${q}`), `C${q}`).toBeDefined()
+    }
+    expect(CHORD_QUALITIES).toContain('2')
+    expect(CHORD_QUALITIES, 'the bare-root major is not a suffix').not.toContain('')
+  })
+
+  it('is longest-first, so a listing shows maj7 before maj', () => {
+    expect(CHORD_QUALITIES.indexOf('maj7')).toBeLessThan(CHORD_QUALITIES.indexOf('maj'))
   })
 })
 
@@ -223,5 +291,93 @@ describe('voiceLead', () => {
     const ns = cycleNotes(chord('Cmaj7').slow(8).voiceLead(72), 0)
     const mean = ns.reduce((s, n) => s + n, 0) / ns.length
     expect(Math.abs(mean - 72)).toBeLessThan(8)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * WHAT EVERY QUALITY ACTUALLY SPELLS.
+ *
+ * The suite checked the table with `expect(parseChord(`C${q}`)).toBeDefined()`
+ * — which passes for ANY intervals. A mutation audit changed `dim7` from
+ * [0,3,6,9] to a plain [0,3,6] and the whole suite stayed green; 29 of the 43
+ * qualities had no assertion about the notes they produce at all.
+ *
+ * This is data where a mistake is silent: nothing crashes when a chord is
+ * spelled wrong, it just sounds wrong, in a project, later. So every quality
+ * is pinned to its semitones from the root.
+ * ------------------------------------------------------------------------- */
+const SPELLINGS: [string, number[]][] = [
+  // triads and the power chord
+  ['maj', [0, 4, 7]],
+  ['major', [0, 4, 7]],
+  ['M', [0, 4, 7]],
+  ['min', [0, 3, 7]],
+  ['minor', [0, 3, 7]],
+  ['m', [0, 3, 7]],
+  ['dim', [0, 3, 6]],
+  ['aug', [0, 4, 8]],
+  ['5', [0, 7]],
+  // sevenths
+  ['7', [0, 4, 7, 10]],
+  ['dom7', [0, 4, 7, 10]],
+  ['maj7', [0, 4, 7, 11]],
+  ['M7', [0, 4, 7, 11]],
+  ['m7', [0, 3, 7, 10]],
+  ['min7', [0, 3, 7, 10]],
+  ['m7b5', [0, 3, 6, 10]],
+  ['dim7', [0, 3, 6, 9]],
+  // sixths
+  ['6', [0, 4, 7, 9]],
+  ['m6', [0, 3, 7, 9]],
+  ['min6', [0, 3, 7, 9]],
+  // extensions
+  ['9', [0, 4, 7, 10, 14]],
+  ['maj9', [0, 4, 7, 11, 14]],
+  ['m9', [0, 3, 7, 10, 14]],
+  ['11', [0, 4, 7, 10, 14, 17]],
+  ['m11', [0, 3, 7, 10, 14, 17]],
+  ['13', [0, 4, 7, 10, 14, 21]],
+  ['m13', [0, 3, 7, 10, 14, 21]],
+  // suspensions
+  ['sus2', [0, 2, 7]],
+  ['sus4', [0, 5, 7]],
+  ['sus', [0, 5, 7]],
+  ['7sus4', [0, 5, 7, 10]],
+  // added tones (the third stays)
+  ['2', [0, 2, 4, 7]],
+  ['add2', [0, 2, 4, 7]],
+  ['4', [0, 4, 5, 7]],
+  ['add4', [0, 4, 5, 7]],
+  ['add9', [0, 4, 7, 14]],
+  ['add11', [0, 4, 7, 17]],
+  // added tones over a minor third
+  ['m2', [0, 2, 3, 7]],
+  ['madd2', [0, 2, 3, 7]],
+  ['m4', [0, 3, 5, 7]],
+  ['madd4', [0, 3, 5, 7]],
+  ['madd9', [0, 3, 7, 14]],
+  ['madd11', [0, 3, 7, 17]],
+]
+
+describe('every chord quality spells the chord it names', () => {
+  it('covers the whole table (a short list here would hide a new quality)', () => {
+    expect(SPELLINGS.map(([q]) => q).sort()).toEqual([...CHORD_QUALITIES].sort())
+  })
+
+  it.each(SPELLINGS)('C%s is %j semitones from the root', (quality, intervals) => {
+    const notes = parseChord(`C${quality}`)
+    expect(notes, `C${quality} did not parse`).toBeDefined()
+    expect(notes!.map((n) => n - notes![0])).toEqual(intervals)
+  })
+
+  it('the aliases really are aliases, not near-misses', () => {
+    // maj/major/M and min/minor/m are three spellings of one chord each; a
+    // table this long is exactly where one of them drifts a semitone
+    for (const group of [['maj', 'major', 'M'], ['min', 'minor', 'm'], ['7', 'dom7'],
+                         ['maj7', 'M7'], ['m7', 'min7'], ['m6', 'min6'], ['sus4', 'sus'],
+                         ['2', 'add2'], ['4', 'add4'], ['m2', 'madd2'], ['m4', 'madd4']]) {
+      const spellings = group.map((q) => JSON.stringify(parseChord(`C${q}`)))
+      expect(new Set(spellings).size, `${group.join(' / ')} disagree`).toBe(1)
+    }
   })
 })

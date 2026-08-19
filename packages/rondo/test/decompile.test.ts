@@ -213,7 +213,7 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('visual blocks survive the round trip (WGSL verbatim)', () => {
     const { rondo2 } = fixedPoint(
-      'synth s\n  saw\n\nplay s\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n',
+      'synth z\n  saw\n\nplay z\n  0\n\nvisual\n  fn render(uv: vec2f) -> vec4f {\n    return vec4f(uv, 0.0, 1.0);\n  }\n',
     )
     expect(rondo2).toContain('visual\n')
     expect(rondo2).toContain('  fn render(uv: vec2f) -> vec4f {')
@@ -222,7 +222,7 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('fast: ctrl values and pan: method modifiers round-trip', () => {
     const { rondo2 } = fixedPoint(
-      'synth s\n  saw\n\nplay s\n  0 2\n  cutoff: sine 200..2400 fast:2\n  pan: sine slow:4\n',
+      'synth z\n  saw\n\nplay z\n  0 2\n  cutoff: sine 200..2400 fast:2\n  pan: sine slow:4\n',
     )
     expect(rondo2).toContain('cutoff: sine 200..2400 fast:2')
     expect(rondo2).toContain('pan: sine slow:4')
@@ -237,9 +237,9 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('unison-shaping header opts + dualsvf lines round-trip', () => {
     const { rondo2 } = fixedPoint(
-      'synth stack unison:5 curve:2 blend:.6 octaves:2\n  saw\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n\nplay stack\n  0 2\n',
+      'synth stakk unison:5 curve:2 blend:.6 octaves:2\n  saw\n  dualsvf 400 4000 mode:parallel a:lp b:hp res:.3\n\nplay stakk\n  0 2\n',
     )
-    expect(rondo2).toContain('synth stack unison:5 curve:2 blend:0.6 octaves:2')
+    expect(rondo2).toContain('synth stakk unison:5 curve:2 blend:0.6 octaves:2')
     expect(rondo2).toContain('dualsvf 400 4000 res:0.3 mode:parallel a:lp b:hp')
   })
 
@@ -267,28 +267,28 @@ describe('decompile round-trips (audit additions)', () => {
   it('a bare `width` fills its amount default rather than sliding opts into it', () => {
     // `width mode:tight` with no positional must NOT emit
     // `width(input, { mode })` — the opts object would land in the amount slot.
-    const { code, rondo2 } = fixedPoint('synth s\n  saw\n  post\n    width mode:tight\n\nplay s\n  0\n')
+    const { code, rondo2 } = fixedPoint('synth z\n  saw\n  post\n    width mode:tight\n\nplay z\n  0\n')
     expect(code).toContain("width(input, 0.5, { mode: 'tight' })")
     expect(rondo2).toContain('width 0.5 mode:tight')
   })
 
   it('a bare `master` line round-trips through masterCompress()', () => {
-    const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0\n\nmaster\n')
+    const { rondo2 } = fixedPoint('synth z\n  saw\n\nplay z\n  0\n\nmaster\n')
     expect(rondo2).toContain('\nmaster\n')
   })
 
   it('scaledef lines round-trip (floats, negatives, custom scale references)', () => {
     const { rondo2 } = fixedPoint(
-      'scaledef pelog 0 1.2 2.7 5.4 6.7\n\nsynth s\n  saw\n\nplay s\n  0 1 2  scale:c-pelog\n',
+      'scaledef pelog 0 1.2 2.7 5.4 6.7\n\nsynth z\n  saw\n\nplay z\n  0 1 2  scale:c-pelog\n',
     )
     expect(rondo2).toContain('scaledef pelog 0 1.2 2.7 5.4 6.7')
     expect(rondo2).toContain('scale: c-pelog')
-    fixedPoint('scaledef odd -1.5 0 2.25\n\nsynth s\n  saw\n\nplay s\n  0\n')
+    fixedPoint('scaledef odd -1.5 0 2.25\n\nsynth z\n  saw\n\nplay z\n  0\n')
   })
 
   it('wavedef lines round-trip (frames, floats, negatives, table references)', () => {
     const { rondo2 } = fixedPoint(
-      'wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1\n\nsynth s\n  wavetable note 0.3 table:vox\n\nplay s\n  0 1 2\n',
+      'wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1\n\nsynth z\n  wavetable note 0.3 table:vox\n\nplay z\n  0 1 2\n',
     )
     expect(rondo2).toContain('wavedef vox 1 0.3 / 0.5 1 0.6 / -0.5 1')
     expect(rondo2).toContain('table:vox')
@@ -296,11 +296,11 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('wavetable warp args round-trip (warp enum, warpAmt aliased back to warpamt)', () => {
     const { rondo2 } = fixedPoint(
-      'synth s\n  wavetable note 0.3 warp:sync warpamt:0.8\n  e = adsr .01 .2 .5 .1\n\nplay s\n  0 1\n',
+      'synth z\n  wavetable note 0.3 warp:sync warpamt:0.8\n  e = adsr .01 .2 .5 .1\n\nplay z\n  0 1\n',
     )
     expect(rondo2).toContain('warp:sync warpamt:0.8')
     // a signal-valued warpamt survives too
-    const r2 = fixedPoint('synth s\n  wavetable note 0 warp:mirror warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay s\n  0\n')
+    const r2 = fixedPoint('synth z\n  wavetable note 0 warp:mirror warpamt:e\n  e = adsr .01 .2 .5 .1\n\nplay z\n  0\n')
     expect(r2.rondo2).toContain('warp:mirror warpamt:e')
   })
 
@@ -324,9 +324,9 @@ describe('decompile round-trips (audit additions)', () => {
   })
 
   it('edo and long-mode scale names round-trip', () => {
-    const { rondo2 } = fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5  scale:c-19edo\n')
+    const { rondo2 } = fixedPoint('synth z\n  saw\n\nplay z\n  0 3 5  scale:c-19edo\n')
     expect(rondo2).toContain('scale: c-19edo')
-    fixedPoint('synth s\n  saw\n\nplay s\n  0 3 5\n  scale: e-minorPentatonic\n')
+    fixedPoint('synth z\n  saw\n\nplay z\n  0 3 5\n  scale: e-minorPentatonic\n')
   })
 
   it('a cents or ratios spec is a unit word, not a js block', () => {
@@ -368,9 +368,9 @@ describe('decompile round-trips (audit additions)', () => {
 
   it('a .scale() whose name cannot re-lex as `scale:root-mode` bails to a js block', () => {
     for (const js of [
-      "p('s', n('0').scale('h weird').sound('s'))\n", // root outside a..g
-      "p('s', n('0').scale('c bad-name').sound('s'))\n", // '-' inside the mode
-      "p('s', n('0').scale('c one two').sound('s'))\n", // three words
+      "p('z', n('0').scale('h weird').sound('z'))\n", // root outside a..g
+      "p('z', n('0').scale('c bad-name').sound('z'))\n", // '-' inside the mode
+      "p('z', n('0').scale('c one two').sound('z'))\n", // three words
     ]) {
       const r = decompile(js)
       expect(r, js).toContain('js\n')
@@ -542,9 +542,9 @@ setCps(0.5)
   })
 
   it('decompiles a play chain with ctrls, fn combinators, and struct', () => {
-    const js = `const s = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.5, r: 0.1 })))
+    const js = `const z = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: 0.01, d: 0.1, s: 0.5, r: 0.1 })))
 
-p('s', n('0 2 4').scale('a minor').sound('s').ctrl('cutoff', sine.range(200, 2400).slow(4)).gain(0.8).every(4, x => x.rev()).struct(mini('~ t ~ t')))
+p('z', n('0 2 4').scale('a minor').sound('z').ctrl('cutoff', sine.range(200, 2400).slow(4)).gain(0.8).every(4, x => x.rev()).struct(mini('~ t ~ t')))
 `
     const r = decompile(js)
     expect(r).toContain('cutoff: sine 200..2400 slow:4')
@@ -642,7 +642,7 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     // a post spine starts at `input` implicitly and cannot start anywhere
     // else, so a single-use `const` in the middle folds into its one use
     const r = roundTrip(
-      `const s = synth(({ note, saw }) => saw(note.freq), ({ input, delay, reverb }) => {\n` +
+      `const z = synth(({ note, saw }) => saw(note.freq), ({ input, delay, reverb }) => {\n` +
         `  const echo = input.add(delay(input, 0.375, 0.4))\n` +
         `  return echo.mix(reverb(echo, { roomSize: 0.85, damp: 0.4 }), 0.35)\n` +
         `})\n`,
@@ -678,14 +678,14 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     // reaching it lets the wet/dry recognizer see this for what it is
     expect(
       roundTrip(
-        `const s = synth(({ note, saw }) => saw(note.freq), ({ input, reverb, mix }) =>\n` +
+        `const z = synth(({ note, saw }) => saw(note.freq), ({ input, reverb, mix }) =>\n` +
           `  mix(input, reverb(input), 0.22))\n`,
       ),
     ).toContain('reverb mix:0.22')
     // a mix that is NOT wet/dry stays the sig-op line it is
     expect(
       roundTrip(
-        `const s = synth(({ note, saw, square, mix }) => mix(saw(note.freq), square(note.freq), 0.3))\n`,
+        `const z = synth(({ note, saw, square, mix }) => mix(saw(note.freq), square(note.freq), 0.3))\n`,
       ),
     ).toContain('mix square note 0.3')
   })
@@ -754,5 +754,237 @@ describe('decompile: hand-written JS that has no inline rondo spelling', () => {
     // hoisting rescues an operand rondo cannot PLACE, never one it cannot SAY
     expect(decompile(`const k = synth(({ note, saw }) => saw(note.freq).mul(Math.random()))\n`))
       .toContain('js{')
+  })
+})
+
+describe('zonedef comes back OUT of the synth it was folded into', () => {
+  /* A multisample is written as a top-level `zonedef` block and compiled by
+   * INLINING its rows into every `sample NAME` that refers to it. Coming back
+   * the other way is therefore not a rename but a lift: the zones have to be
+   * pulled out of the synth and given their block above it. Until this landed,
+   * a zoned sample was the one shape that always fell out to a `js{ }` blob. */
+  const rt = (src: string): { rondo: string; js: string; again: string } => {
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) throw new Error('compile failed')
+    const rondo = decompile(first.code)
+    const second = compile(rondo)
+    expect(second.ok, `re-compile:\n${rondo}\n${JSON.stringify(second.ok ? [] : second.errors)}`).toBe(true)
+    if (!second.ok) throw new Error('recompile failed')
+    return { rondo, js: first.code, again: second.code }
+  }
+
+  it('round-trips the block, the ranges and the roots', () => {
+    const { rondo, js, again } = rt([
+      'zonedef piano',
+      '  c2..b3 piano_low root:c3',
+      '  c4..b5 piano_hi root:c5',
+      '',
+      'synth pno',
+      '  sample piano',
+      '',
+    ].join('\n'))
+    expect(rondo).toContain('zonedef piano')
+    expect(rondo).toContain('  c2..b3 piano_low root:c3')
+    expect(rondo).toContain('  sample piano')
+    expect(rondo, 'the escape hatch should not be needed').not.toContain('js{')
+    expect(again).toBe(js)
+  })
+
+  it('writes ranges as NOTE NAMES, which is the form a musician can check', () => {
+    // and the only form that covers the line: the row grammar takes `\d+`, so
+    // a zone below MIDI 0 (`c-2` is legal in the source) has no numeric spelling
+    const { rondo } = rt('zonedef z\n  36..59 low root:48\n\nsynth sy\n  sample z\n')
+    expect(rondo).toContain('  c2..b3 low root:c3')
+  })
+
+  it('keeps the sample\'s OWN named args, which are not part of the zonedef', () => {
+    const { rondo, js, again } = rt('zonedef z\n  c2..b3 low\n\nsynth sy\n  sample z loop:1 speed:2\n')
+    // the pair comes back in the emitter's order, not the source's
+    expect(rondo).toContain('  sample z speed:2 loop:1')
+    expect(again).toBe(js)
+  })
+
+  it('omits a root of 60, which both the parser and the sampler default to', () => {
+    const { rondo, js, again } = rt('zonedef z\n  c2..b3 low root:c4\n\nsynth sy\n  sample z\n')
+    expect(rondo).toContain('  c2..b3 low\n')
+    expect(again, 'the default must survive being left unwritten').toBe(js)
+  })
+
+  it('emits the block ONCE when two synths share it', () => {
+    const { rondo, js, again } = rt(
+      'zonedef z\n  c2..b3 low\n\nsynth a\n  sample z\n\nsynth b\n  sample z\n',
+    )
+    expect(rondo.match(/zonedef z/g), 'one definition, two references').toHaveLength(1)
+    expect(again).toBe(js)
+  })
+
+  it('puts the block ABOVE the synth that needs it', () => {
+    const { rondo } = rt('zonedef z\n  c2..b3 low\n\nsynth sy\n  sample z\n')
+    expect(rondo.indexOf('zonedef z')).toBeLessThan(rondo.indexOf("synth sy"))
+  })
+})
+
+describe('zonedef: the cases that must NOT become one', () => {
+  /* A zonedef is a global table keyed by name, so it captures every `sample`
+   * of that name in the file. Both refusals here are that one fact: writing a
+   * second block, or writing a bare reference, quietly re-points a synth at
+   * someone else's samples. Neither errors — the wrong instrument just plays. */
+  const Z = "{ lo: 36, hi: 59, name: 'low', root: 48 }"
+  const zoned = (name: string, z = Z): string =>
+    `const ${name} = synth(({ gate, sample }) => {\n  return sample(gate, 'pno', { zones: [${z}] })\n})`
+  const round = (js: string): void => {
+    const back = compile(decompile(js))
+    expect(back.ok, JSON.stringify(back.ok ? [] : back.errors)).toBe(true)
+    if (back.ok) expect(back.code.trim()).toBe(js.trim())
+  }
+
+  it('a PLAIN sample of a zoned name stays JavaScript', () => {
+    /* The silent one. `sample(gate, 'pno')` has no zones, but `sample pno`
+     * next to a `zonedef pno` picks them up — so the plain synth came back
+     * playing the multisample. */
+    const js = `${zoned('a')}\n\nconst b = synth(({ gate, sample }) => {\n  return sample(gate, 'pno')\n})`
+    const rondo = decompile(js)
+    expect(rondo).toContain('zonedef pno')
+    expect(rondo, 'the plain sample must not read as a zonedef reference').toContain("js{ sample(gate, 'pno') }")
+    round(js)
+  })
+
+  it('catches it when the plain sample is written FIRST', () => {
+    // the reason the names are scanned up front: one pass has not met the
+    // zonedef yet when it renders the synth above it
+    const js = `const b = synth(({ gate, sample }) => {\n  return sample(gate, 'pno')\n})\n\n${zoned('a')}`
+    expect(decompile(js)).toContain("js{ sample(gate, 'pno') }")
+    round(js)
+  })
+
+  it('a SECOND, different list under the same name stays JavaScript', () => {
+    const js = `${zoned('a')}\n\n${zoned('b', "{ lo: 60, hi: 83, name: 'hi', root: 72 }")}`
+    const rondo = decompile(js)
+    expect(rondo.match(/zonedef pno/g), 'only the first can have the name').toHaveLength(1)
+    expect(rondo).toContain('js{ sample(gate')
+    round(js)
+  })
+
+  it('zones it cannot read stay JavaScript rather than being dropped', () => {
+    for (const z of ['someVar', "[{ lo: 0, hi: 12, name: 'x', extra: 1 }]", '[]', "[{ lo: 12, hi: 0, name: 'x' }]"]) {
+      const js = `const a = synth(({ gate, sample }) => {\n  return sample(gate, 'pno', { zones: ${z} })\n})`
+      const rondo = decompile(js)
+      expect(rondo, z).toContain('js{ sample(gate')
+      expect(rondo, `${z} must not emit a block it could not read`).not.toContain('zonedef')
+      round(js)
+    }
+  })
+
+  it('never emits a block nothing refers to', () => {
+    // rendering is speculative in places, so a zones array can be READ by an
+    // attempt whose line ends up a js blob anyway
+    for (const js of [
+      "const a = synth(({ gate, sample }) => sample(gate, 'pno', { zones: [" + Z + "], nope: 1 }))",
+      "const a = synth(({ gate, sample }) => sample(gate, 'pno', { zones: [" + Z + "] }).weird())",
+    ]) {
+      const rondo = decompile(js)
+      const declared = rondo.includes('zonedef pno')
+      expect(declared && !/(^|\s)sample pno(\s|$)/m.test(rondo), `dead block:\n${rondo}`).toBe(false)
+    }
+  })
+})
+
+describe('a binding can stand where a number does', () => {
+  /* `adsr .002 dec2 0 0` and `lfo .2 -> lo..hi` are both things rondo says,
+   * and both came back as `js{ }`: those sites asked for a literal and read
+   * "not a number" as "cannot be written". A binding name is the common case
+   * and rather the point, since the numbers in a patch are usually knobs.
+   *
+   * Found by auditing whether every shipped program survives rondo -> JS ->
+   * rondo without an escape hatch. Two local examples needed one purely for
+   * this. */
+  const rt = (rondo: string): { back: string; sameJs: boolean } => {
+    const a = compile(rondo)
+    expect(a.ok, a.ok ? '' : JSON.stringify(a.errors)).toBe(true)
+    if (!a.ok) throw new Error('compile')
+    const back = decompile(a.code)
+    const b = compile(back)
+    expect(b.ok, b.ok ? '' : `${back}\n${JSON.stringify(b.errors)}`).toBe(true)
+    return { back, sameJs: b.ok && b.code.replace(/\s+/g, ' ').trim() === a.code.replace(/\s+/g, ' ').trim() }
+  }
+
+  it('adsr takes a binding for one of its four numbers', () => {
+    const { back, sameJs } = rt('synth a\n  saw note\n  * adsr .002 dec2 0 0\n  dec2 = knob .2 .05..1\n\nplay a\n  0\n\ncps .5')
+    expect(back).toContain('adsr 0.002 dec2 0 0')
+    expect(back).not.toContain('js{')
+    expect(sameJs).toBe(true)
+  })
+
+  it('a range takes bindings for both ends', () => {
+    const { back, sameJs } = rt('synth a\n  saw note\n  ladder cut\n  lo = knob 200 100..900\n  hi = knob 4000 1000..9000\n  cut = lfo .2 -> lo..hi\n\nplay a\n  0\n\ncps .5')
+    expect(back).toContain('-> lo..hi')
+    expect(back).not.toContain('js{')
+    expect(sameJs).toBe(true)
+  })
+
+  it('and one end of a range may still be a literal', () => {
+    const { back } = rt('synth a\n  saw note\n  ladder cut\n  hi = knob 4000 1000..9000\n  cut = lfo .2 -> 200..hi\n\nplay a\n  0\n\ncps .5')
+    expect(back).toContain('-> 200..hi')
+  })
+
+  it('all-literal forms are unchanged', () => {
+    expect(rt('synth a\n  saw note\n  * adsr .002 .2 0 0\n\nplay a\n  0\n\ncps .5').back).toContain('adsr 0.002 0.2 0 0')
+    expect(rt('synth a\n  saw note\n  ladder cut\n  cut = lfo .2 -> 200..4000\n\nplay a\n  0\n\ncps .5').back).toContain('-> 200..4000')
+  })
+
+  it('a LOOSE operand still bails rather than mis-associating', () => {
+    /* The slots are juxtaposed with what follows: `adsr` reads exactly four
+     * positionals and `..` reads two, so an operand that rendered loosely
+     * would swallow the next one. Better a blob than a wrong rhythm. */
+    const back = decompile("const a = synth(({ gate, adsr, saw, note, lfo }) => saw(note.freq).mul(adsr(gate, { a: 0.002, d: lfo(0.2).range(1, 2), s: 0, r: 0 })))\n")
+    expect(back.includes('js{') || /^\s*\w+ = /m.test(back), 'either a blob or a hoisted binding, never an inline mis-parse').toBe(true)
+  })
+})
+
+describe('sections that layer, and sections the song never plays', () => {
+  /* Two more shapes that used to take a whole arrangement out to JavaScript,
+   * both found by auditing the round trip on real programs rather than by
+   * reading the decompiler. */
+  const back = (rondo: string): string => {
+    const a = compile(rondo)
+    expect(a.ok, a.ok ? '' : JSON.stringify(a.errors)).toBe(true)
+    if (!a.ok) throw new Error('compile')
+    return decompile(a.code)
+  }
+  const S = 'synth a\n  saw note\n\nsynth b\n  sine note\n\n'
+
+  it('`with` comes back as `with`, not as a blob', () => {
+    /* A with is emitted as a REFERENCE to the other section's const, so that
+     * the shared part stays shared. Coming back, that identifier is the one
+     * member of the stack that is not a play, and it used to take the section
+     * with it. */
+    const out = back(`${S}section base 4\n  play a\n    0 3\n\nsection main 4 with base\n  play b\n    5 7\n\nsong base main\n\ncps .5`)
+    expect(out).toContain('section main 4 with base')
+    expect(out).not.toContain('js')
+  })
+
+  it('and several withs keep their order', () => {
+    const out = back(`${S}section one 4\n  play a\n    0\n\nsection two 4\n  play b\n    3\n\nsection all 4 with one with two\n  play a\n    5\n\nsong one two all\n\ncps .5`)
+    expect(out).toContain('section all 4 with one with two')
+  })
+
+  it('a section the song never plays does not take the others down', () => {
+    /* Its LENGTH is genuinely unrecoverable: codegen writes the length only
+     * into `arrange([8, __sec_x])`, so a section nobody arranges carries none.
+     * That is real -- a `with` base, or one parked while writing. It used to
+     * bail the whole matcher, so ONE such section sent every other section out
+     * to JavaScript with it. */
+    const out = back(`${S}section base 4\n  play a\n    0 3\n\nsection used 4\n  play b\n    5 7\n\nsong used\n\ncps .5`)
+    expect(out, 'the arranged one is recovered').toContain('section used 4')
+    expect(out, 'and the unarranged one keeps its raw form, rather than an invented length').toContain('js')
+    expect(out).toContain('song used')
+  })
+
+  it('all-arranged programs stay completely clean', () => {
+    const out = back(`${S}section one 4\n  play a\n    0\n\nsection two 4\n  play b\n    3\n\nsong one two\n\ncps .5`)
+    expect(out).not.toContain('js')
+    expect(out).toContain('section one 4')
+    expect(out).toContain('section two 4')
   })
 })

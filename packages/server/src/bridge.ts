@@ -60,6 +60,7 @@ export class Bridge {
   private readonly wss: WebSocketServer
   private readonly pending = new Map<string, Pending>()
   private session: WebSocket | undefined
+  private listening = false
 
   /** Browser-initiated notifications land here (assign before/after listen). */
   onNotify: ((kind: NotifyKind, payload: unknown) => void) | undefined
@@ -70,12 +71,51 @@ export class Bridge {
     // Non-upgrade HTTP requests: give the optional handler (the /complete
     // routes) first look, else a plain 404.
     this.server = createServer((req, res) => {
+      // `GET /doc` — the EDITOR's document, for tooling that has to write what
+      // the human is actually looking at back to disk (scripts/pull-local.ts).
+      //
+      // HTTP rather than a second WebSocket ON PURPOSE. The newest /session
+      // connection wins and closes the previous one, so a tool that connected
+      // to ask what the tab was showing would disconnect the very tab it was
+      // asking about. A read cannot be allowed to do that.
+      if (req.method === 'GET' && (req.url === '/doc' || (req.url ?? '').startsWith('/doc?'))) {
+        this.serveDoc(res)
+        return
+      }
       if (httpHandler?.(req, res)) return
       res.writeHead(404, { 'content-type': 'text/plain' })
       res.end('rondocode bridge: WebSocket endpoint at /session\n')
     })
     this.wss = new WebSocketServer({ server: this.server, path: '/session' })
     this.wss.on('connection', (ws) => this.adopt(ws))
+    /* The WebSocketServer wraps the http server and RE-EMITS its errors. An
+     * 'error' event with no listener is a thrown exception in Node, so a port
+     * that is already in use killed the process on the spot -- before the
+     * promise `listen()` returns could reject, defeating its own contract and
+     * burying `EADDRINUSE` in a page of internals. Handled here so the failure
+     * arrives where the caller is already looking. */
+    this.wss.on('error', (err) => {
+      if (!this.listening) return // the bind failure: server's own handler rejects
+      console.warn('[bridge] websocket server error:', err.message)
+    })
+  }
+
+  /** Answer `GET /doc` from the connected browser, as JSON. */
+  private serveDoc(res: ServerResponse): void {
+    const send = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(body))
+    }
+    if (!this.connected) {
+      // the same wording the MCP tools use, because it is the same fix: only
+      // a human can open or refresh the app
+      send(503, { error: 'no browser session connected' })
+      return
+    }
+    this.call('getDoc').then(
+      (doc) => send(200, doc),
+      (err: unknown) => send(502, { error: err instanceof Error ? err.message : String(err) }),
+    )
   }
 
   /** True while a browser session socket is open. */
@@ -95,9 +135,18 @@ export class Bridge {
 
   listen(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.server.once('error', reject)
+      this.server.once('error', (err: NodeJS.ErrnoException) => {
+        // the message a person can act on, in place of a stack of net internals
+        reject(err.code === 'EADDRINUSE'
+          ? new Error(
+            `port ${this.requestedPort} is already in use -- another rondocode bridge is `
+            + 'probably running (a second editor with the MCP server configured, or a stray '
+            + '`pnpm bridge`). Stop it, or set PORT to another port.')
+          : err)
+      })
       this.server.listen(this.requestedPort, () => {
-        this.server.removeListener('error', reject)
+        this.listening = true
+        this.server.removeAllListeners('error')
         resolve()
       })
     })

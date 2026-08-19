@@ -5,6 +5,8 @@ import { highlightFor } from '../docs/highlight'
 import { icon, iconEl } from '../ui/icons'
 import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
+import { collectSnippet, insertableSnippet, referencedSynths } from './snippets'
+import type { ProjectStore, StoredSnippet } from '../session/projects'
 
 /* ------------------------------------------------------------------------- *
  * Synth library: a shelf of ready-made instruments. Each entry auditions a
@@ -83,12 +85,12 @@ export const SYNTHS: LibrarySynth[] = [
   { unison: 7, detune: 18, spread: 0.8 },
 )`,
     demoTail: `p('demo', n('0 2 4 7 4 2').scale('a minor').sound('lead'))`,
-    rondo: `synth lead
-  saw + square note*2 * 0.3
-  svf cut res:.3
+    rondo: `synth lead unison:7 detune:18 spread:.8
+  saw
   * env
-  env = adsr .01 .15 .6 .2
-  cut = knob 3000 400..9000 log`,
+  env = adsr .02 .2 .6 .2
+  post
+    reverb room:.7 mix:.25`,
   },
   {
     name: 'sync',
@@ -187,11 +189,15 @@ export const SYNTHS: LibrarySynth[] = [
 })`,
     demoTail: `setCps(0.5)\np('demo', note('~ c3 ~ c3').sound('snare'))`,
     rondo: `synth snare
-  noise
-  svf 2200 mode:bp
-  * env
-  * .6
-  env = adsr .001 .12 0 .08`,
+  body
+  + rattle
+  * .7
+  tanh
+  nz = noise
+  body = sine 190 * benv
+  rattle = svf nz 3000 mode:hp * renv
+  benv = adsr .001 .12 0 .05
+  renv = adsr .001 .18 0 .08`,
   },
   {
     name: 'hat',
@@ -203,12 +209,69 @@ export const SYNTHS: LibrarySynth[] = [
     .mul(0.5))`,
     demoTail: `setCps(0.5)\np('demo', note('c5*8').sound('hat'))`,
   },
-
-  /* ---- the newer engine, which the library had nothing for ------------- *
-   * Wavetables, unison supersaws, formant and physical modelling all shipped
-   * without a preset to start from, so the only way to find them was reading
-   * the reference. These are the shapes the hand-tuned examples converged on. */
-
+  {
+    name: 'crash',
+    title: 'Crash cymbal',
+    tags: 'drum · metal · inharmonic · wide',
+    code: `// A cymbal is a dense INHARMONIC cluster, and every obvious shortcut is
+// wrong in a way you can measure:
+//   noise through a highpass  -> centroid 14.6 kHz. A long hi-hat, no metal.
+//   six partials              -> the tones are individually audible. Twelve
+//                                dropped the top-20-bin share 6.2% -> 4.9%.
+//   one global filter         -> full-band noise drags the centroid into the
+//                                sizzle, so the noise gets its OWN lowpass.
+// The chorus is not decoration: measured mono, this was 0.996 L/R correlated —
+// a point source. It decorrelates to 0.602 for under 1 dB summed to mono,
+// where the width effect swings straight to -0.003 and costs 3 dB.
+const crash = synth(({ gate, adsr, noise, square, svf }) => {
+  const ring = adsr(gate, { a: 0.0008, d: 0.3, s: 0, r: 0.2 })
+  const wash = adsr(gate, { a: 0.001, d: 0.12, s: 0.06, r: 0.25 })
+  const metal = [316, 428, 587, 703, 941, 1207, 1523, 1811, 2237, 2683, 3121, 3677]
+    .map((f) => square(f))
+    .reduce((a, b) => a.add(b))
+    .mul(0.045)
+  const hiss = svf(noise(), 15000, { res: 0.08 }).mul(wash).mul(1.1)
+  const body = svf(metal, 1800, { mode: 'hp' }).add(hiss)
+  return svf(body, 14000, { res: 0.12 }).mul(ring).mul(2.6)
+}, ({ input, eq, chorus, reverb }) => {
+  // THE POST CHAIN IS WHERE THE WIDTH IS. A chorus inside the voice runs mono
+  // and measures 1.000 L/R correlated; per stereo side out here it lands at
+  // 0.687. And reverb returns the WET TAIL ONLY, so it is mixed back rather
+  // than returned — returning it directly is a near-silent preset.
+  const toned = eq(input, [{ type: 'hp', freq: 900 }, { type: 'peak', freq: 5200, gain: 2, q: 0.8 }])
+  const wide = chorus(toned, { rate: 0.28, depth: 0.012, mix: 0.6 })
+  return wide.mix(reverb(wide, { roomSize: 0.28, damp: 0.4 }), 0.12)
+})`,
+    demoTail: `setCps(0.5)\np('demo', note('c3 ~ ~ ~').sound('crash').dur(1))`,
+    rondo: `synth crash
+  square 316
+  + square 428
+  + square 587
+  + square 703
+  + square 941
+  + square 1207
+  + square 1523
+  + square 1811
+  + square 2237
+  + square 2683
+  + square 3121
+  + square 3677
+  * 0.045
+  svf 1800 mode:hp
+  + hiss
+  svf 14000 res:.12
+  * env
+  * 2.6
+  nz = noise
+  nzl = svf nz 15000 res:.08
+  hiss = nzl * hs * 1.10
+  hs = adsr .001 .12 .06 .25
+  env = adsr .0008 .3 0 .2
+  post
+    eq hp 900 peak 5200 2 0.8
+    chorus rate:.28 depth:.012 mix:.6
+    reverb room:.28 damp:.4 mix:.12`,
+  },
   {
     name: 'stab',
     title: 'Supersaw stab',
@@ -365,7 +428,10 @@ function insertSynth(editor: EditorHandle, code: string): void {
   view.focus()
 }
 
-export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
+/** `getStore` supplies the project store once the library has opened it, so
+ *  the shelf can hold snippets. Absent (docs pages, tests) it shows presets
+ *  only rather than failing to mount. */
+export function mountSynthLib(editor: EditorHandle, getStore?: () => ProjectStore | null): SynthLibHandle {
   const player = new PreviewPlayer()
   let current: { btn: HTMLButtonElement; reset: () => void } | null = null
   player.onStop = () => {
@@ -398,7 +464,11 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
   }
   const open = (): void => {
     overlayOpened(close) // close any other open sheet
+    saveMsg.textContent = ''
     render(search.value) // pick up a language change made since it last opened
+    // re-read on OPEN: a snippet saved in another tab should be here, and the
+    // list is small enough that a read costs nothing worth caching for
+    void refreshSnippets().then(() => render(search.value))
     backdrop.classList.remove('hidden')
     btn.setAttribute('aria-expanded', 'true')
     search.focus()
@@ -418,7 +488,65 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
   search.setAttribute('aria-label', 'search synths')
 
   const list = el('div', 'synthlib-list')
-  sheet.append(head, el('p', 'sheet-hint', 'audition a synth, then insert its code at your cursor'), search, list)
+  /* SAVE THE SELECTION. The shelf was 19 fixed presets you could not add to,
+   * so anything you wrote yourself — a drum line, a bus, a section — could
+   * only be reused by copy-pasting between files and then owning two of it.
+   * A saved snippet carries the synths it plays (see snippets.ts), which is
+   * what makes a drum line paste into a document that has never heard of
+   * `kick` and still work. */
+  const saveRow = el('div', 'synthlib-save')
+  const saveName = el('input', 'synthlib-savename') as HTMLInputElement
+  saveName.placeholder = 'name this selection…'
+  saveName.setAttribute('aria-label', 'snippet name')
+  const saveBtn = el('button', 'btn', 'save selection')
+  saveBtn.type = 'button'
+  const saveMsg = el('span', 'synthlib-savemsg')
+  saveRow.append(saveName, saveBtn, saveMsg)
+  sheet.append(head, el('p', 'sheet-hint', 'audition a synth, then insert its code at your cursor'), search, saveRow, list)
+
+  /** Snippets the user saved, newest first. Re-read on open. */
+  let snippets: StoredSnippet[] = []
+  const store = getStore?.() ?? null
+
+  const refreshSnippets = async (): Promise<void> => {
+    if (store === null) return
+    try {
+      snippets = await store.listSnippets()
+    } catch (e) {
+      console.warn('[synthlib] could not read snippets', e)
+      snippets = []
+    }
+  }
+
+  const selectionText = (): string => {
+    const st = editor.view.state
+    const r = st.selection.main
+    return r.empty ? '' : st.sliceDoc(r.from, r.to)
+  }
+
+  saveBtn.addEventListener('click', () => {
+    void (async () => {
+      const sel = selectionText()
+      if (sel.trim() === '') { saveMsg.textContent = 'select some code first'; return }
+      const name = saveName.value.trim()
+      if (name === '') { saveMsg.textContent = 'give it a name'; return }
+      if (store === null) { saveMsg.textContent = 'storage unavailable'; return }
+      const lang = editor.getLang()
+      const code = collectSnippet(editor.getDoc(), sel, lang)
+      try {
+        await store.putSnippet(name, lang, code)
+      } catch (e) {
+        saveMsg.textContent = `could not save: ${e instanceof Error ? e.message : String(e)}`
+        return
+      }
+      // say what came ALONG, so a snippet that quietly grew is not a surprise
+      const extra = referencedSynths(sel, lang).filter((n) => !sel.includes(`synth ${n}`) && code.includes(n))
+      saveMsg.textContent = extra.length > 0 ? `saved with ${extra.join(', ')}` : 'saved'
+      saveName.value = ''
+      await refreshSnippets()
+      render(search.value)
+    })()
+  })
 
   const render = (query = ''): void => {
     list.replaceChildren()
@@ -430,10 +558,53 @@ export function mountSynthLib(editor: EditorHandle): SynthLibHandle {
     const matches = SYNTHS.filter(
       (sy) => q === '' || `${sy.name} ${sy.title} ${sy.tags}`.toLowerCase().includes(q),
     )
-    if (matches.length === 0) {
+    if (matches.length === 0 && snippets.length === 0) {
       list.append(el('div', 'lib-empty', 'no matches'))
       return
     }
+    // YOURS FIRST. The presets are a starting point; what you saved is what
+    // you are actually looking for.
+    const mine = snippets.filter(
+      (sn) => sn.lang === lang && (q === '' || sn.name.toLowerCase().includes(q)),
+    )
+    for (const sn of mine) {
+      const row = el('div', 'synthlib-row')
+      const top = el('div', 'synthlib-top')
+      const meta = el('div', 'synthlib-meta')
+      meta.append(el('span', 'synthlib-name', sn.name))
+      meta.append(el('span', 'synthlib-tags', 'yours'))
+      top.append(meta)
+      const actions = el('div', 'synthlib-actions')
+      const ins = el('button', 'btn synthlib-insert', 'insert')
+      ins.type = 'button'
+      ins.addEventListener('click', () => {
+        const { text, skipped } = insertableSnippet(editor.getDoc(), sn.code, lang)
+        insertSynth(editor, text)
+        if (skipped.length > 0) {
+          // it delivered LESS than it holds; that is worth a word rather than
+          // a silent partial paste
+          saveMsg.textContent = `kept your own ${skipped.join(', ')}`
+        }
+        close()
+      })
+      const del = el('button', 'btn synthlib-del', '\u00d7')
+      del.type = 'button'
+      del.setAttribute('aria-label', `delete ${sn.name}`)
+      del.addEventListener('click', () => {
+        void (async () => {
+          if (store === null) return
+          await store.deleteSnippet(sn.id)
+          await refreshSnippets()
+          render(search.value)
+        })()
+      })
+      actions.append(ins, del)
+      top.append(actions)
+      row.append(top)
+      list.append(row)
+    }
+    if (matches.length === 0 && mine.length > 0) return
+
     for (const sy of matches) {
       const row = el('div', 'synthlib-row')
 

@@ -2,12 +2,16 @@ import './style.css'
 import { AudioSession } from './audio/AudioSession'
 import { mountEditor } from './editor/editor'
 import type { EditorHandle } from './editor/editor'
+import { rondoMode } from './editor/langflag'
 import { mountLibrary } from './editor/library'
+import type { ProjectStore } from './session/projects'
 import { mountDocs } from './editor/docspanel'
 import { mountSynthLib } from './editor/synthlib'
 import { mountShaderViz } from './shaderviz/shaderviz'
 import { mountProbes } from './editor/probes'
 import { mountOptions } from './ui/options'
+import { getSetting } from './ui/settings'
+import { looksMobile } from './audio/devices'
 import { mountTour } from './ui/tour'
 import { mountMidi } from './editor/midi'
 import { mountHeaderOverflow } from './ui/header-overflow'
@@ -37,6 +41,14 @@ const startBridge = (editor: EditorHandle): void => {
     handlers: {
       evalCode: (p) => session.evalCode(str(obj(p).source, 'source')),
       getCode: () => ({ code: session.code, lastAttempted: session.lastAttempted }),
+      /* The EDITOR's text, which is NOT `getCode`: that answers with the
+       * session's evaluated JavaScript, and the human may be writing rondo.
+       * Tooling that writes a file back to disk needs the source they are
+       * editing, in the language they are editing it in. */
+      getDoc: () => ({
+        text: editor.view.state.doc.toString(),
+        lang: editor.view.state.facet(rondoMode) ? 'rondo' : 'rondocode',
+      }),
       setParam: (p) => {
         const q = obj(p)
         session.setParam(
@@ -86,10 +98,15 @@ AudioSession.start().then(
   (audio) => {
     const editor = mountEditor(app, audio)
     // mixer + scopes panel removed for now (mountViz) — see viz/viz.ts to restore
+    // The library opens the store (IndexedDB, or an in-memory fallback) and
+    // it does so asynchronously. The shelf needs the SAME store to hold
+    // snippets — a second opener would be a second answer to which backend
+    // is in use — so it reads through a getter that is null until this lands.
+    let projectStore: ProjectStore | null = null
     const library = mountLibrary(editor)
-    void library.catch((e) => console.warn('[library] failed to mount', e))
+    void library.then((h) => { projectStore = h.store }).catch((e) => console.warn('[library] failed to mount', e))
     mountDocs(editor)
-    mountSynthLib(editor)
+    mountSynthLib(editor, () => projectStore)
     const shaderviz = mountShaderViz(app, editor, audio)
     mountProbes(editor) // inline live-value readouts on modulation expressions
     // First-run onboarding: a one-question survey sets the default language,
@@ -98,7 +115,26 @@ AudioSession.start().then(
     // anchors (docs button, chip bar) exist; auto-shows for first-time
     // visitors only (never over a share link).
     const tour = mountTour(editor, { library })
-    mountOptions(editor, { showTour: () => tour.start() }) // user settings popover (gear)
+    /* The saved rig, applied before anything listens. Output routing takes
+     * effect immediately; the input choice is held until mic() actually opens
+     * a capture, so this never triggers a permission prompt on its own. */
+    void audio.setPreferredDevices(getSetting('inputDevice'), getSetting('outputDevice'))
+      .catch((e) => console.warn('[audio] preferred devices', e))
+    // on a phone the speaker is next to the mic: 'auto' turns on echo
+    // cancellation there, so a live mic chain does not simply howl
+    void audio.setMicProcessing(getSetting('micProcessing'), looksMobile())
+      .catch((e) => console.warn('[audio] mic processing', e))
+    mountOptions(editor, {
+      showTour: () => tour.start(),
+      audio: {
+        listDevices: () => audio.listDevices(),
+        setPreferredDevices: (i, o) => audio.setPreferredDevices(i, o),
+        latency: () => audio.latency(),
+        deviceWarnings: () => audio.deviceWarnings(),
+        setMicProcessing: (m, mob) => audio.setMicProcessing(m, mob),
+        micProcessingActive: () => audio.micProcessingActive(),
+      },
+    }) // user settings popover (gear)
     mountMidi(editor, audio)
     mountHeaderOverflow(editor.topbar) // after every module has added its button
     startBridge(editor)

@@ -49,6 +49,31 @@ export interface Gotcha {
 
 export const GOTCHAS: Gotcha[] = [
   {
+    id: 'range-is-one-step',
+    symptom: 'My `..` range crams itself into part of the bar instead of spreading out',
+    tags: ['range', 'notation', 'mini', 'timing', 'steps'],
+    fails: 'wrong',
+    broken: `synth pluck
+  tri note
+  * adsr .005 .12 0 .1
+
+play pluck
+  0 .. 6 7
+  scale:c-maj
+
+cps .5`,
+    fixed: `synth pluck
+  tri note
+  * adsr .005 .12 0 .1
+
+play pluck
+  0 1 2 3 4 5 6 7
+  scale:c-maj
+
+cps .5`,
+    why: 'A range is ONE step, not a row of steps. `0 .. 6 7` is `[0 1 2 3 4 5 6] 7`, so seven notes are squeezed into the first half of the bar and the 7 gets the whole second half. That is deliberate: as siblings, extending a range would silently re-time every other note in the line, so a range you lengthened while writing would keep shifting the rest of the bar under you. When you want the run to be the whole bar, either let the range stand alone (`0 .. 7`) or write the steps out.',
+  },
+  {
     id: 'stacked-lines',
     symptom: 'My four bars all play at once instead of one after another',
     tags: ['pattern', 'sequence', 'bars', 'stack', 'form'],
@@ -145,7 +170,7 @@ play pad
   <c3 a2>
   dur: 4
 
-sidechain kick depth:.9 release:.4
+sidechain kick depth:.9 release:400
 
 cps .5`,
     fixed: `switch drums 1 0
@@ -166,7 +191,7 @@ play pad
   <c3 a2>
   dur: 4
 
-sidechain kick depth:drums release:.4
+sidechain kick depth:drums release:400
 
 cps .5`,
     why: 'The duck is triggered by the source synth\'s note ONSETS, not by how loud it is. A kick at gain 0 still emits notes, so it still ducks, and you get the hole without the hit. Put both on one control so they cannot disagree: a switch reaches the pattern gain and the sidechain depth alike.',
@@ -288,5 +313,36 @@ play pad
 
 cps .5`,
     why: 'A synth is a per VOICE graph: it runs once per note, so nine unison voices on a chord are nine separate instances and there is no single output for another synth to read. A bus is the level where a synth\'s output exists as one signal, which is why routing lives there. Send into a bus and process `input`.',
+  },
+  {
+    id: 'lane-persists',
+    symptom: 'I put a value on ONE note and every note after it got it too',
+    tags: ['lane', 'per-note', 'param', 'ctrl', 'accent', 'expression', 'knob'],
+    fails: 'wrong',
+    broken: `synth lead
+  saw note
+  ladder cut res:.2
+  * adsr .004 .18 .35 .08
+  * .5
+  cut = knob 700 300..6000 log
+
+play lead
+  c4'cut:6000 c4 c4 c4
+  dur: .22
+
+cps .5`,
+    fixed: `synth lead
+  saw note
+  ladder cut res:.2
+  * adsr .004 .18 .35 .08
+  * .5
+  cut = knob 700 300..6000 log
+
+play lead
+  c4'cut:6000 c4'cut:700 c4 c4
+  dur: .22
+
+cps .5`,
+    why: 'Only THREE lane names belong to the note: `gain`, `dur` and `chance`. Every other name is forwarded to the synth as a param, and a param is a control setting rather than a property of a note, so it keeps the value it was last given. The marked note turns the knob up and walks away leaving it there. Measured on the pair above, brightness per note goes 12 12 12 12 when one note is accented and 12 4 4 4 once it is set back. The fix is to say what you mean on the note where it changes, in both directions; the same rule makes a lane useful for a SECTION of a line, since one value can cover every note until the next one.',
   },
 ]

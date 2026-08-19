@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { scanKnobs, scanEnvs, scanPlays, scanBeats, scanRichPlays, richRollCells, euclidGroup, euclidText, stepStarts, toNorm, fromNorm, rollPreviewMidi, nextVelocity, beatTokens, scrubVelocity } from '../src/editor/rondo/widgets'
 import { scanNumbersText } from '../src/editor/widgets/detect'
+import { effectiveExpr } from '../src/editor/rondo/bendlane'
+import type { BendNote } from '../src/editor/rondo/bendlane'
 
 /* The pure parts of the inline rondo knob widget: finding knob bindings in the
  * source (and pinpointing the DEF value's range so a drag rewrites the right
@@ -85,11 +87,11 @@ describe('scanPlays (piano-roll)', () => {
     expect(p!.steps).toEqual([0, 0, 3, 5, 0, 0, 7, 5])
   })
   it('represents rests as null', () => {
-    expect(scanPlays('play s\n  0 ~ 3 ~\n')[0]!.steps).toEqual([0, null, 3, null])
+    expect(scanPlays('play z\n  0 ~ 3 ~\n')[0]!.steps).toEqual([0, null, 3, null])
   })
   it('leaves richer notation as plain text (note names, brackets, alternation)', () => {
-    expect(scanPlays('play s\n  c4 e4 g4\n')).toHaveLength(0)
-    expect(scanPlays('play s\n  <0 3> [5 7]\n')).toHaveLength(0)
+    expect(scanPlays('play z\n  c4 e4 g4\n')).toHaveLength(0)
+    expect(scanPlays('play z\n  <0 3> [5 7]\n')).toHaveLength(0)
   })
 })
 
@@ -260,7 +262,7 @@ describe('live-widget wiring (pure parts)', () => {
     expect(scanEnvs(src)[0]).toMatchObject({ synth: 'acid' })
   })
   it('scanPlays carries the notation content (matches events by loc.src)', () => {
-    expect(scanPlays('play s\n  0 0 3 5\n')[0]!.content).toBe('0 0 3 5')
+    expect(scanPlays('play z\n  0 0 3 5\n')[0]!.content).toBe('0 0 3 5')
   })
   it('stepStarts maps a note event loc.start to its grid column', () => {
     const starts = stepStarts('0 0 3 5 ~ 7')
@@ -330,5 +332,36 @@ describe('the roll handles degrees below zero', () => {
   it('still refuses what is not a degree, so note names keep the rich roll', () => {
     expect(scanPlays('play a\n  c4 e4 g4\n')).toEqual([])
     expect(scanPlays('play a\n  0 -x 5\n')).toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * The bend lane shows the value IN EFFECT, not the value each note carries.
+ *
+ * A lane whose name the engine does not know sets a param, and a param keeps
+ * what it was last given: `c4'0.9 c4 c4 c4` emits ONE param event and holds
+ * all four notes at 0.9. The lane drew the last three flat, at rest, which
+ * showed them undisplaced while the engine was still holding them.
+ * ------------------------------------------------------------------------- */
+describe('effectiveExpr', () => {
+  const N = (expr: number | undefined, step: number | null = 0): BendNote =>
+    ({ i: 0, step, acc: undefined, expr, lanes: undefined })
+
+  it('carries a value forward to notes that set none', () => {
+    expect(effectiveExpr([N(0.9), N(undefined), N(undefined)])).toEqual([0.9, 0.9, 0.9])
+  })
+
+  it('a later value replaces the one being held', () => {
+    expect(effectiveExpr([N(0.9), N(undefined), N(0), N(undefined)])).toEqual([0.9, 0.9, 0, 0])
+  })
+
+  it('leaves notes before the first value alone', () => {
+    expect(effectiveExpr([N(undefined), N(0.5), N(undefined)])).toEqual([undefined, 0.5, 0.5])
+  })
+
+  it('draws nothing on a rest, but the value crosses it', () => {
+    // the param does not reset at a rest; only the drawing stops, because a
+    // rest sounds nothing
+    expect(effectiveExpr([N(0.7), N(undefined, null), N(undefined)])).toEqual([0.7, undefined, 0.7])
   })
 })

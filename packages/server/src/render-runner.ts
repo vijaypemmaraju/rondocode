@@ -31,11 +31,13 @@ import { evalCode } from '../../app/src/session/evalCode'
 import type { BusDef, Diagnostic, SendSpec, SingRequest } from '../../app/src/session/evalCode'
 import { baseScope } from '../../app/src/session/scope'
 import { RESERVED_PARAM_NAMES } from '../../engine/src/macro'
+import { builtInSamples } from '../../engine/src/demo-samples'
 import { Scheduler } from '../../pattern/src/index'
 import type { TimeSig } from '../../pattern/src/index'
 import type { ControlMap, ExportNote, Pattern } from '../../pattern/src/index'
 import { BLOCK, DEFAULT_CPS, duckReleaseCoeff, gainReductionDb, smoothCoeff, PostChain, renderOffline } from '../../engine/src/index'
 import type { RenderEvent, SynthDef } from '../../engine/src/index'
+import { StereoStage } from '../../engine/src/dsp/midside'
 
 /** Control keys that are NOT synth params (mirrors Session.ts / demo-render). */
 /** Structural keys, DERIVED not restated — the fourth copy of this list, and
@@ -76,6 +78,10 @@ export type StageResult =
       /** Present iff the code called masterCompress() — master-bus glue
        *  compressor config (dB / ratio / ms). */
       masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+      /** Present iff the code called masterGain(db) — overall output level. */
+      masterGain?: number
+      /** Master-bus mid/side from stereo(opts). */
+      stereo?: { width?: number; monoBelow?: number }
       /** Staged sing() requests: the neural vocals a headless render must
        *  bake before mixing (the browser bakes them into the sample bank; see
        *  sing-headless.ts for the node path). */
@@ -104,6 +110,8 @@ export function stageCode(source: string): StageResult {
   if (r.timeSig !== undefined) out.timeSig = r.timeSig
   if (r.sidechain !== undefined) out.sidechain = r.sidechain
   if (r.masterComp !== undefined) out.masterComp = r.masterComp
+  if (r.masterGain !== undefined) out.masterGain = r.masterGain
+  if (r.stereo !== undefined) out.stereo = r.stereo
   return out
 }
 
@@ -277,6 +285,16 @@ export interface MixOpts {
    *  the summed mix before normalization — mirrors the live engine's master
    *  compressor (which runs after master gain, before the limiter). */
   masterComp?: { threshold: number; ratio: number; attack: number; release: number; knee: number; makeup: number }
+  /** Master-bus mid/side from stereo(opts). Applied here as well as live, or a
+   *  bounce would come out at a different width than the thing you heard —
+   *  which is the whole reason staged-fields.test.ts asks about every field. */
+  stereo?: { width?: number; monoBelow?: number }
+  /** Overall output level in dB from masterGain(db), applied to the summed mix
+   *  BEFORE the compressor (the live engine's order). Absent is unity. This is
+   *  the only lever that scales everything equally, which is what a project
+   *  mixed past the 0.89 peak ceiling needs: per-part gains up there are
+   *  inert, so nothing smaller can bring the whole mix back under it. */
+  masterGain?: number
   /** Shared send buses (name → compiled FX graph + gain). Fed by `sends` and
    *  summed into the mix before the master compressor — mirrors the live
    *  engine's bus stage. */
@@ -307,6 +325,13 @@ export interface MixResult {
   perSynth: Record<string, { events: number; rms: number }>
   /** True when the summed mix peaked above 0.89 and was scaled down. */
   normalized: boolean
+  /** How much that scaling cost, in dB (0 when it did not happen, negative
+   *  otherwise). This is the number that makes normalization visible: above
+   *  the clamp, turning a part UP does not make the bounce louder, it makes
+   *  everything ELSE quieter by this much — so a gain edit reads as "nothing
+   *  happened", or as backwards. The mix stage always knew it; until now the
+   *  only place it surfaced was one CLI log line. */
+  normalizeDb: number
   /** Present iff `stems` was requested. Each synth's CONTRIBUTION TO THE
    *  FINAL MIX: its own post-chain, its sidechain ducking, and the master
    *  compressor's gain curve and any normalization scaling, applied exactly
@@ -367,6 +392,51 @@ const stemRms = (l: Float32Array, r: Float32Array): number => {
  * carried through the master stage with the SAME per-sample gain the mix got
  * so they still sum to it. The mix itself is unaffected by the option.
  */
+/* ------------------------------------------------------------------------- *
+ * A StageResult and MixOpts describe the SAME project. Eight of MixOpts'
+ * fields are answered by the staged result and nothing else, so every caller
+ * that wants a faithful bounce has to copy the same eight lines across — and
+ * the copies are where bounces quietly stop matching what you heard.
+ *
+ * That is not hypothetical. `cps` was optional here and eight of ten callers
+ * omitted it, so every tempo-synced delay and LFO bounced at the wrong rate
+ * (#239); making it required fixed that ONE field and left the rest. Measured
+ * again while auditing: no test caller passed `buses`/`sends`, so the three
+ * doc programs built around send buses — including the guide section whose
+ * whole subject IS buses — were rendered with their buses silently absent and
+ * still passed "makes sound".
+ *
+ * So: derive them once. `extra` overrides anything and carries the fields the
+ * staged result cannot know (sample rate, samples, stems).
+ * ------------------------------------------------------------------------- */
+/* The built-in bank, generated once per sample rate. Synthesising five
+ * buffers (2.2 s of hall alone) on every render would be absurd, and they are
+ * pure functions of the rate, so one cache is correct. */
+const builtInCache = new Map<number, Record<string, { data: Float32Array; sampleRate: number }>>()
+function builtInBank(sampleRate: number): Record<string, { data: Float32Array; sampleRate: number }> {
+  let b = builtInCache.get(sampleRate)
+  if (b === undefined) {
+    b = builtInSamples(sampleRate)
+    builtInCache.set(sampleRate, b)
+  }
+  return b
+}
+
+export function mixOptsFor(
+  staged: Extract<StageResult, { ok: true }>,
+  extra: Partial<MixOpts> = {},
+): MixOpts {
+  return {
+    cps: staged.cps ?? 0.5,
+    ...(staged.sidechain ? { sidechain: staged.sidechain } : {}),
+    ...(staged.masterComp ? { masterComp: staged.masterComp } : {}),
+    ...(staged.masterGain !== undefined ? { masterGain: staged.masterGain } : {}),
+    ...(staged.stereo !== undefined ? { stereo: staged.stereo } : {}),
+    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
+    ...extra,
+  }
+}
+
 export function renderMix(
   synths: Map<string, SynthDef>,
   events: Map<string, RenderEvent[]>,
@@ -375,6 +445,17 @@ export function renderMix(
 ): MixResult {
   const sampleRate = opts?.sampleRate ?? 48000
   const maxVoices = opts?.maxVoices ?? 12
+  /* THE BUILT-IN SAMPLES ARE ALWAYS AVAILABLE, exactly as they are live.
+   *
+   * They used to be the caller's job, and precisely two callers in the repo
+   * did it — so `sample`, `granular` and `convolve` resolved built-in names
+   * against an empty bank in every other render. Measured across the docs: ten
+   * programs name a built-in and FOUR rendered completely silent, while the
+   * rest lost the sampled part and still passed "makes sound".
+   *
+   * Caller-supplied samples win, so a project that loads its own `vox` still
+   * shadows the demo one, which is what the live bank does too. */
+  const samples = { ...builtInBank(sampleRate), ...(opts?.samples ?? {}) }
   const { cps } = opts
   const total = Math.round(durationSec * sampleRate)
   const left = new Float32Array(total)
@@ -420,7 +501,7 @@ export function renderMix(
       sampleRate,
       cps,
       maxVoices: def.maxVoices ?? maxVoices,
-      samples: opts?.samples,
+      samples,
       wavetables: opts?.wavetables,
     })
     // Send tap: pre-duck (raw post-FX), so a reverb send does not pump.
@@ -489,6 +570,17 @@ export function renderMix(
     }
   }
 
+  // Overall output level, BEFORE the compressor — the live engine's order, so
+  // a project that sets both gets the same compression here as it does there.
+  // A plain scalar, so the stem replay below only has to repeat the multiply.
+  const masterLevel = opts?.masterGain !== undefined ? Math.pow(10, opts.masterGain / 20) : 1
+  if (masterLevel !== 1) {
+    for (let i = 0; i < total; i++) {
+      left[i]! *= masterLevel
+      right[i]! *= masterLevel
+    }
+  }
+
   // Master glue compressor (stereo-linked), mirroring the live engine's master
   // stage: detect on max(|L|,|R|), one gain from the same soft-knee curve.
   // Its per-sample gain is a scalar, so recording it (for stems) and replaying
@@ -514,6 +606,21 @@ export function renderMix(
     }
   }
 
+  /* Master mid/side, after the glue compressor and before the peak scan —
+   * the same position it holds in the live master stage, so a bounce and the
+   * thing you heard are the same signal. */
+  if (opts?.stereo !== undefined) {
+    const st = new StereoStage()
+    st.set(opts.stereo, sampleRate)
+    if (!st.idle) {
+      for (let i = 0; i < total; i++) {
+        const [l, r] = st.step(left[i]!, right[i]!)
+        left[i] = l
+        right[i] = r
+      }
+    }
+  }
+
   let peak = 0
   for (let i = 0; i < total; i++) {
     const amp = Math.max(Math.abs(left[i]!), Math.abs(right[i]!))
@@ -521,18 +628,25 @@ export function renderMix(
   }
   const normalized = peak > 0.89
   const scale = normalized ? 0.89 / peak : 1
+  const normalizeDb = normalized ? 20 * Math.log10(scale) : 0
   if (normalized) {
     for (let i = 0; i < total; i++) {
       left[i]! *= scale
       right[i]! *= scale
     }
   }
-  if (!wantStems) return { left, right, sampleRate, perSynth, normalized }
+  if (!wantStems) return { left, right, sampleRate, perSynth, normalized, normalizeDb }
 
   // Replay the master stage on every stem, in the same two passes and the
   // same order the mix ran them, so the only difference from the mix is the
   // float32 rounding of one multiply per stem.
   for (const part of [...stemAudio.values(), ...busStems.values()]) {
+    if (masterLevel !== 1) {
+      for (let i = 0; i < total; i++) {
+        part.left[i]! *= masterLevel
+        part.right[i]! *= masterLevel
+      }
+    }
     if (masterGain !== undefined) {
       for (let i = 0; i < total; i++) {
         part.left[i]! *= masterGain[i]!
@@ -554,5 +668,5 @@ export function renderMix(
   for (const [busName, part] of busStems) {
     stems.push({ name: busName, kind: 'bus', left: part.left, right: part.right })
   }
-  return { left, right, sampleRate, perSynth, normalized, stems }
+  return { left, right, sampleRate, perSynth, normalized, normalizeDb, stems }
 }

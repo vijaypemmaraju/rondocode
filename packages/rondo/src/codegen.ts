@@ -5,26 +5,45 @@
  * `p('NAME', n('…')…)`, tempo as `setCps(x)`. We collect which synth-ctx
  * members each synth uses and emit exactly that destructure. */
 
-import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue } from './ast'
-import { BUILTINS } from './builtins'
+import type { Binding, Comb, CtrlValue, Expr, Mod, PlayBlock, Pos, Program, RondoError, SynthBlock, TopItem, ScValue, ZoneRow } from './ast'
+import { BUILTINS, RESERVED_TOP_LEVEL } from './builtins'
+
+/** May a patdef name be expanded INSIDE another figure?
+ *
+ *  No, when it reads as a note: notation is exactly where note names live, so
+ *  expanding `patdef e <…>` would rewrite every `e` in every figure. Such a
+ *  name still works on its own line — all it could do before composition — so
+ *  the restriction costs nothing that used to work.
+ *
+ *  Exported because the EDITOR needs the same answer to decide what to
+ *  highlight, and a second copy of this rule would drift from this one. */
+export const isComposablePatDefName = (name: string): boolean =>
+  !/^[a-gA-G](?:[#b]|s)?-?\d*$/.test(name)
 
 const BIN_METHOD: Record<string, string> = { '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '^': 'pow' }
 
-export const SCALE_MODE: Record<string, string> = {
-  min: 'minor', maj: 'major', dor: 'dorian', phr: 'phrygian', lyd: 'lydian',
-  mix: 'mixolydian', loc: 'locrian', minor: 'minor', major: 'major',
-}
+/* From the pattern engine so the language and the engine cannot disagree
+ * about what `maj` means. It used to be a second copy here. */
+import { SCALE_MODE } from '@rondocode/pattern'
+export { SCALE_MODE }
 
 const num = (v: number): string => String(v)
 
 /** Synth/post ctx members — when a `js{ … }` escape hatch inside a synth body
- *  references one, we must destructure it so the raw JS can see it. */
-const KNOWN_CTX = [
+ *  references one, we must destructure it so the raw JS can see it.
+ *
+ *  EXPORTED because it is a second copy of the builtin list, and it broke the
+ *  decompile fixed point when `noisegate` was added here last: the escape
+ *  hatch under-destructured, the round trip stopped matching, and the fuzzer
+ *  reported it 200 seeds away from the cause. one-structural-list.test.ts now
+ *  pins every non-sigop BUILTIN as present here (sigops are Sig METHODS, not
+ *  ctx functions, which is why `tanh` and `clip` are correctly absent). */
+export const KNOWN_CTX = [
   'note', 'gate', 'velocity', 'param', 'input',
   'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr', 'noise',
   'sample', 'granular', 'pluck', 'modal', 'pan',
   'svf', 'dualsvf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
-  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'phaser', 'formant', 'vocoder',
+  'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'noisegate', 'deess', 'follow', 'pitchshift', 'convolve', 'tape', 'limiter', 'phaser', 'formant', 'vocoder',
   'width', 'transient', 'flanger',
   'eq', 'exciter', 'ott', 'bitcrush', 'mix',
 ]
@@ -81,6 +100,18 @@ export function maskJsLiterals(src: string): string {
   return out.join('')
 }
 
+/** What `.scale()` is handed: a single name, or a mini PATTERN of them.
+ *
+ *  A pattern is passed through with its `-` separators rewritten to `_`, which
+ *  the mini lexer accepts inside a word where `-` is a syntax error. The
+ *  rewrite is length-preserving ON PURPOSE: note-flash maps a loc inside this
+ *  string back to the buffer by offset, so expanding `maj` to `major` here
+ *  would silently shift every highlight. parseScaleName does the expanding
+ *  instead, from the same table this module re-exports. */
+export function scaleArg(short: string): string {
+  return /[<>[\]{}*!@?|,]/.test(short) ? short.replace(/-/g, '_') : expandScale(short)
+}
+
 /** Expand a short scale name (`a-min`) to what .scale() expects (`a minor`). */
 export function expandScale(short: string): string {
   const dash = short.indexOf('-')
@@ -106,7 +137,23 @@ class SynthGen {
     /** Names a `js{ }` block brings into scope. Unknown-name checking has to
      *  know about these or the escape hatch stops working. */
     readonly jsNames: ReadonlySet<string> = new Set(),
+    /** `zonedef NAME` blocks, by name. A `sample NAME` that matches one is a
+     *  MULTISAMPLE: the zones are inlined into that node rather than kept in a
+     *  registry, so they travel with the node they configure. */
+    readonly zoneDefs: ReadonlyMap<string, ZoneRow[]> = new Map(),
   ) {}
+
+  /** True when `e` is a number by the time the voice is built: a literal, a
+   *  folded arithmetic of literals, or a macro (which resolves at eval). */
+  private isNumeric(e: Expr): boolean {
+    if (e.t === 'num') return true
+    if (e.t === 'ident') return !this.bound.has(e.name) && this.declaredMacros.has(e.name)
+    /* Arithmetic of numerics is still a number: `room:(0.4 * 2)` is 0.8 by the
+     * time the voice is built, and refusing it would be refusing a literal
+     * written the long way. Recursive because `(2 * 3) + 1` is too. */
+    if (e.t === 'bin') return this.isNumeric(e.l) && this.isNumeric(e.r)
+    return false
+  }
 
   expr(e: Expr): string {
     switch (e.t) {
@@ -180,6 +227,31 @@ class SynthGen {
           return '0'
         }
         return `${this.expr(e.l)}.${method}(${this.expr(e.r)})`
+      }
+      case 'sum': {
+        /* UNROLLED, not emitted as a JS loop.
+         *
+         * The graph a synth builds is unrolled anyway — sixteen partials are
+         * sixteen oscillator nodes however the source spelled them — so a loop
+         * in the generated JS would buy nothing at runtime and cost the
+         * evaluator a scope. Substituting the index and emitting the sum keeps
+         * every existing rule (binding order, macro collection, unknown-name
+         * checks) working on ordinary expressions, with no special case
+         * anywhere downstream of here. */
+        const parts: string[] = []
+        for (let k = e.lo; k <= e.hi; k++) {
+          const idx: Expr = { t: 'num', v: k, pos: e.pos }
+          // each step gets its OWN copy of the bindings, with k substituted:
+          // `ratio` is a different number on every step, and inlining is what
+          // lets a binding depend on the index at all.
+          const env = new Map<string, Expr>([[e.index, idx]])
+          for (const b of orderBindings(e.bindings, this.errors)) {
+            env.set(b.name, substitute(b.expr, env))
+          }
+          parts.push(this.expr(substitute(e.body, env)))
+        }
+        if (parts.length === 0) return '0'
+        return parts.reduce((acc, x) => `${acc}.add(${x})`)
       }
       case 'map':
         if (e.x.t === 'num') {
@@ -283,6 +355,32 @@ class SynthGen {
       const v = e.named[key]
       if (v === undefined) continue
       const out = spec.alias?.[key] ?? key
+      /* A `num` ARGUMENT IS NOT A SIGNAL, and it used to accept one silently.
+       *
+       * These reach the kernel as construction config, so a knob or an `lfo`
+       * arrives as a node, fails the config mapper's `typeof === 'number'`
+       * test, and is dropped: the argument falls back to its default and
+       * nothing says a word. Swept across the language, 47 of the 66 `num`
+       * arguments behaved that way -- `reverb room:`, `compress threshold:`,
+       * `tape wow:` and the rest.
+       *
+       * Most of them cannot be signals at all: `phaser stages:` sizes an
+       * allpass chain, `delay maxtime:` allocates a buffer, `pluck seed:` is a
+       * construction seed. So the fix is to REFUSE the syntax rather than
+       * honour it, and an argument that could reasonably move gets promoted to
+       * `sig` one at a time, the way `pitchshift semitones:` was.
+       *
+       * A macro is allowed: it resolves to a number at eval, which is what
+       * this slot wants. */
+      if (kind === 'num' && !this.isNumeric(v)) {
+        this.errors.push({
+          message: `\`${name} ${key}:\` takes a NUMBER, not a signal. `
+            + `It is read once when the voice is built, so a knob or an lfo here would be ignored. `
+            + `Use a literal (or a macro), or move the movement somewhere that takes a signal.`,
+          line: v.pos.line,
+          col: v.pos.col,
+        })
+      }
       parts.push(`${out}: ${kind === 'bool' ? (v.t === 'num' && v.v !== 0 ? 'true' : 'false') : this.expr(v)}`)
     }
     for (const [key, dflt] of Object.entries(spec.defaults ?? {})) {
@@ -295,7 +393,12 @@ class SynthGen {
         this.errors.push({ message: `\`${name}\` has no \`${key}:\` argument`, line: e.pos.line, col: e.pos.col })
       }
     }
-    const opts = parts.length > 0 ? `, { ${parts.join(', ')} }` : ''
+    /* The leading comma belongs to the POSITIONALS, not to the options. A
+     * builtin with named args and NO positionals (`mic device:…` is the only
+     * one) emitted `mic(, { device: … })` while every other call happened to
+     * have something in front of the comma. */
+    const optBody = parts.length > 0 ? `{ ${parts.join(', ')} }` : ''
+    const opts = parts.length > 0 ? `, ${optBody}` : ''
 
     if (spec.kind === 'sigop') {
       // a Sig method on the input: input.tanh() / input.clip(-1, 1) / input.mix(other, t)
@@ -313,6 +416,20 @@ class SynthGen {
     }
     if (spec.kind === 'gated') {
       this.uses.add('gate')
+      /* A `sample NAME` whose NAME is a zonedef becomes a multisample. The
+       * zones ride in the node's options, so nothing has to resolve a registry
+       * at graph-construction time — and the emitted JS is the same call a
+       * reader would write by hand. */
+      if (name === 'sample' && e.args[0]?.t === 'enum') {
+        const zs = this.zoneDefs.get(e.args[0].name)
+        if (zs !== undefined) {
+          const rows = zs.map((z) => `{ lo: ${z.lo}, hi: ${z.hi}, name: ${q(z.name)}, root: ${z.root} }`)
+          const withZones = parts.length > 0
+            ? `, { ${parts.join(', ')}, zones: [${rows.join(', ')}] }`
+            : `, { zones: [${rows.join(', ')}] }`
+          return `${name}(gate${a.length > 0 ? ', ' + a.join(', ') : ''}${withZones})`
+        }
+      }
       return `${name}(gate${a.length > 0 ? ', ' + a.join(', ') : ''}${opts})`
     }
     if (name === 'reverb' && e.named.mix !== undefined) {
@@ -321,7 +438,7 @@ class SynthGen {
       // emitted twice — duplicated nodes waste the graph.
       return `((x) => x.mix(reverb(x${opts}), ${this.expr(e.named.mix)}))(${a[0]})`
     }
-    return `${name}(${a.join(', ')}${opts})`
+    return a.length > 0 ? `${name}(${a.join(', ')}${opts})` : `${name}(${optBody})`
   }
 
   /** eq: regroup the parser's flat [input, enum, num…] args into band objects.
@@ -409,6 +526,7 @@ function cgChain(
     noMacros?: { why: string; pos: Pos }
     synths?: ReadonlySet<string>
     jsNames?: ReadonlySet<string>
+    zoneDefs?: ReadonlyMap<string, ZoneRow[]>
   } = {},
 ): string {
   const g = new SynthGen(
@@ -417,6 +535,7 @@ function cgChain(
     opts.macros,
     opts.synths,
     opts.jsNames,
+    opts.zoneDefs,
   )
   const ordered = orderBindings(bindings, errors)
   const bindingLines = ordered.map((b) => `  const ${b.name} = ${g.bindingRHS(b)}`)
@@ -443,12 +562,78 @@ function cgChain(
   return `({ ${destructure} }) => {\n${body}\n}`
 }
 
+/** Arithmetic on two constants, or null when the result is not a number worth
+ *  substituting (a divide by zero stays in the graph and errors there). */
+function fold(op: '+' | '-' | '*' | '/' | '^', a: number, b: number): number | null {
+  const v = op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : op === '/' ? a / b : Math.pow(a, b)
+  return Number.isFinite(v) ? v : null
+}
+
+/**
+ * Replace every identifier that `env` names with the expression bound to it.
+ *
+ * This is how `sum` gets its index in: the body and the bindings are ordinary
+ * expressions mentioning `k`, and each step substitutes the number. Bindings
+ * are substituted into each other first (in dependency order), so a binding
+ * may be built from another one exactly as it can outside a sum.
+ */
+function substitute(e: Expr, env: ReadonlyMap<string, Expr>): Expr {
+  switch (e.t) {
+    case 'ident': {
+      const hit = env.get(e.name)
+      return hit === undefined ? e : hit
+    }
+    case 'bin': {
+      const l = substitute(e.l, env)
+      const r = substitute(e.r, env)
+      // FOLD once the index is a number. `dk = 7.5 / k^.66` is arithmetic on a
+      // loop counter, not a signal graph, and leaving it unfolded would both
+      // build pointless nodes and fail outright — `number / signal` has no
+      // spelling, and after substitution the right side is a number.
+      if (l.t === 'num' && r.t === 'num') {
+        const v = fold(e.op, l.v, r.v)
+        if (v !== null) return { t: 'num', v, pos: e.pos }
+      }
+      return { ...e, l, r }
+    }
+    case 'map':
+      return { ...e, x: substitute(e.x, env), lo: substitute(e.lo, env), hi: substitute(e.hi, env) }
+    case 'call':
+      return {
+        ...e,
+        args: e.args.map((a) => substitute(a, env)),
+        named: Object.fromEntries(Object.entries(e.named).map(([k, v]) => [k, substitute(v, env)])),
+      }
+    case 'sum':
+      // a nested sum shadows the outer index if it reuses the name
+      return {
+        ...e,
+        bindings: e.bindings.map((b) => ({ ...b, expr: substitute(b.expr, env) })),
+        body: substitute(e.body, env),
+      }
+    default:
+      return e
+  }
+}
+
 function cgSynth(
   block: SynthBlock,
   errors: RondoError[],
   macros: ReadonlySet<string>,
-  scope: { synths: ReadonlySet<string>; jsNames: ReadonlySet<string> },
+  scope: { synths: ReadonlySet<string>; jsNames: ReadonlySet<string>; zoneDefs?: ReadonlyMap<string, ZoneRow[]> },
 ): string {
+  /* A synth becomes `const NAME = synth(…)` beside the pattern functions, so
+   * a name they already use is a JS redeclaration — which surfaces as
+   * `Identifier 'note' has already been declared`, with no line and no hint
+   * about the word that caused it. Say it here, where the line is known. */
+  if (RESERVED_TOP_LEVEL.has(block.name)) {
+    errors.push({
+      message: `\`${block.name}\` is already a built-in name, so a synth cannot be called that `
+        + `(it would clash with the \`${block.name}\` you write patterns with). Pick another name.`,
+      line: block.pos.line,
+      col: block.pos.col,
+    })
+  }
   const voice = cgChain(block.bindings, block.spine, ['note', 'gate', 'param'], errors, { macros, ...scope })
   // header voice options: `synth acid mono glide:.08` → the synth() opts arg
   const opts = block.voiceOpts !== undefined
@@ -623,12 +808,19 @@ function cgMod(m: Mod, errors: RondoError[], macros: ReadonlySet<string>): strin
  *  chord names (`<Am F C G>`, `Dm7`); lowercase letters mean note names
  *  (`c4 e4`); bare digits/rests mean scale degrees. */
 function entryFor(notation: string): 'chord' | 'note' | 'n' {
-  if (/(^|[\s<[(])[A-G][#b]?[A-Za-z0-9]*/.test(notation)) return 'chord'
+  /* PER-NOTE LANES ARE NOT PITCHES. `0'vel:.5` carries the letters v, e, l,
+   * and `'chance:` carries a, c, e — every one of which reads as a note name
+   * to the test below. That flipped a whole degree line to note(), which then
+   * read `0` as MIDI 0 and dropped the scale silently: exactly the failure the
+   * accidental rule underneath was already written to prevent. Strip the
+   * suffix run first and both tests see only the pitches. */
+  const bare = notation.replace(/'(?:[a-zA-Z]+:)?-?\d*\.?\d+/g, '')
+  if (/(^|[\s<[(])[A-G][#b]?[A-Za-z0-9]*/.test(bare)) return 'chord'
   // A `b` glued to DIGITS is an accidental on a scale degree (`3b`), not the
   // note B. Without this, one flattened degree flipped the whole line to
   // note(), which then read `0` as a note name and dropped the scale on the
   // floor — silently, since note() accepts a `.scale()` call and ignores it.
-  if (/[a-g]/.test(notation.replace(/(?<=\d)[#b]+/g, ''))) return 'note'
+  if (/[a-g]/.test(bare.replace(/(?<=\d)[#b]+/g, ''))) return 'note'
   return 'n'
 }
 
@@ -639,10 +831,27 @@ function entryFor(notation: string): 'chord' | 'note' | 'n' {
  *  the editor's step sequencer (its playhead matches the STRIPPED text). */
 export function splitBeatVelocities(notation: string): { notes: string; gains: string; has: boolean } {
   let has = false
-  const notes = notation.replace(/([a-zA-Z_]\w*):(\d*\.?\d+)/g, (_, w: string) => { has = true; return w })
-  const gains = notation.replace(/([a-zA-Z_]\w*)(?::(\d*\.?\d+))?/g, (_, __, v: string | undefined) =>
-    // normalize spellings (`.6` → `0.6`) so decompile → recompile is stable
-    v !== undefined ? String(Number(v)) : '1')
+  /* A `'…` LANE SUFFIX is matched first and passed through untouched.
+   * `[hat*8]'swing:.55` reads as `word:number` to a velocity splitter, which
+   * tore it in two: the sound string kept `[hat*8]'swing` and the gain string
+   * got `[1*8]'0.55`, neither of which parses. It compiled and then failed at
+   * stage time with a mini error about a stray quote, which is a long way from
+   * the line that caused it.
+   *
+   * The lane goes into BOTH strings, because `.gain()` aligns by TIME: a swung
+   * note lands where an unswung gain step is not. */
+  const LANE_OR_VEL = /('(?:[a-zA-Z]+:)?-?\d*\.?\d+)|([a-zA-Z_]\w*):(\d*\.?\d+)/g
+  const notes = notation.replace(LANE_OR_VEL, (_, lane: string | undefined, w: string) => {
+    if (lane !== undefined) return lane
+    has = true
+    return w
+  })
+  const gains = notation.replace(
+    /('(?:[a-zA-Z]+:)?-?\d*\.?\d+)|([a-zA-Z_]\w*)(?::(\d*\.?\d+))?/g,
+    (_, lane: string | undefined, __: string, v: string | undefined) =>
+      // normalize spellings (`.6` → `0.6`) so decompile → recompile is stable
+      lane !== undefined ? lane : v !== undefined ? String(Number(v)) : '1',
+  )
   return { notes, gains, has }
 }
 
@@ -690,7 +899,7 @@ function cgPlayPat(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<s
         ].join(', ')})`
       : `stack(${[block.notation, ...block.voices.map((v) => v.notation)].map(lineExpr).join(', ')})`
   } else pat = lineExpr(block.notation)
-  if (block.scale) pat += `.scale('${expandScale(block.scale)}')`
+  if (block.scale) pat += `.scale('${scaleArg(block.scale)}')`
   // `overchord: <Am7 F>` re-reads the degrees as CHORD degrees. It applies
   // BEFORE .sound(), like the JS twin: it rewrites the notes themselves, and
   // every later modifier (a .ctrl sweep, a gain) decorates the result.
@@ -746,8 +955,42 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], ma
   return `p(${q(block.name)}, ${pat})`
 }
 
-function cgSection(item: Extract<TopItem, { t: 'section' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
+/**
+ * A section is a stack of its plays — and now, of the sections it plays WITH.
+ *
+ * `with` is emitted as a reference to the other section's own const rather
+ * than by copying its plays, so editing the shared part changes every section
+ * that layers it. That is the whole point: the alternative is what the source
+ * already did, which is write it out again.
+ *
+ * Sections are emitted in source order, so a `with` must name one defined
+ * ABOVE it. That is a real constraint and it is stated in the error rather
+ * than worked around by hoisting: reading top to bottom, a layer should exist
+ * before the thing that layers it.
+ */
+function cgSection(
+  item: Extract<TopItem, { t: 'section' }>,
+  errors: RondoError[],
+  macros: ReadonlySet<string>,
+  defined: ReadonlySet<string>,
+): string {
   const pats = item.plays.map((pb) => cgPlayPat(pb, errors, macros))
+  for (const w of item.with ?? []) {
+    if (w === item.name) {
+      errors.push({ message: `section '${item.name}' cannot play with itself`, line: item.pos.line, col: item.pos.col })
+      continue
+    }
+    if (!defined.has(w)) {
+      errors.push({
+        message: `no section '${w}' defined above '${item.name}' — a section can only play with one written before it`,
+        line: item.pos.line,
+        col: item.pos.col,
+      })
+      continue
+    }
+    pats.push(`__sec_${w}`)
+  }
+  if (pats.length === 0) return `const __sec_${item.name} = silence`
   const body = pats.length === 1 ? pats[0]! : `stack(${pats.join(', ')})`
   return `const __sec_${item.name} = ${body}`
 }
@@ -788,6 +1031,15 @@ function cgSidechain(
 function cgMaster(item: Extract<TopItem, { t: 'master' }>): string {
   const parts = Object.entries(item.opts).map(([k, v]) => `${k}: ${num(v)}`)
   return `masterCompress(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
+}
+
+/** `stereo width:1.3 monobelow:120` → stereo(opts). `monobelow` is written
+ *  lowercase in rondo (the language has no camelCase anywhere) and mapped to
+ *  the JS name here, which is the one place that spelling difference lives. */
+function cgStereo(item: Extract<TopItem, { t: 'stereo' }>): string {
+  const key = (k: string): string => (k === 'monobelow' ? 'monoBelow' : k)
+  const parts = Object.entries(item.opts).map(([k, v]) => `${key(k)}: ${num(v)}`)
+  return `stereo(${parts.length > 0 ? `{ ${parts.join(', ')} }` : ''})`
 }
 
 /** `scaledef pelog 0 1.2 2.7 …` → defineScale('pelog', [0, 1.2, 2.7, …]),
@@ -845,7 +1097,221 @@ function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
   return `visual(\`\n${body}\n\`)`
 }
 
-export function codegen(program: Program, errors: RondoError[]): string {
+/**
+ * Substitute every `patdef` name used as a notation line with its notation.
+ *
+ * Textual and at COMPILE TIME, which is the same thing `macro` does for a
+ * number: nothing downstream — the scheduler, the roll widget, the offline
+ * render — ever learns that a name was involved, so a named pattern cannot
+ * behave differently from the notation written out by hand.
+ *
+ * A name is spliced wherever it stands — on its own as a whole line, or inline
+ * in a figure (`0 ~ ghost 3`) exactly as inside a patdef body. It used to be
+ * whole-line only on the grounds that every duplicated line measured in a real
+ * arrangement WAS a whole line; that stopped being true once lanes gave a
+ * single NOTE something worth naming (`2'dur:.1'gain:.1'cutoff:500`, five
+ * times in a bar), and the docs had promised inline all along.
+ *
+ * The two rules composition already had carry over: a name that reads as a
+ * note is never spliced (see `inlinable`), and every chunk keeps its origin so
+ * note-flash lights the reference rather than the text it expands to.
+ */
+function applyPatDefs(program: Program, errors: RondoError[]): void {
+  const defs = new Map<string, { notation: string; from: number }>()
+  for (const it of program.items) {
+    if (it.t !== 'patdef') continue
+    if (defs.has(it.name)) {
+      errors.push({ message: `patdef '${it.name}' is defined twice`, line: it.pos.line, col: it.pos.col })
+      continue
+    }
+    defs.set(it.name, { notation: it.notation, from: it.notationFrom })
+  }
+  if (defs.size === 0) return
+  // A name that is ALSO a synth would be ambiguous in a beat block, where a
+  // bare word already means a synth. Refuse rather than pick.
+  for (const it of program.items) {
+    if (it.t === 'synth' && defs.has(it.name)) {
+      errors.push({
+        message: `'${it.name}' is both a synth and a patdef — a beat line cannot mean both, rename one`,
+        line: it.pos.line,
+        col: it.pos.col,
+      })
+    }
+  }
+  /* A NAME THAT IS ALSO A NOTE is not expanded INSIDE a figure, because that
+   * is exactly where note names live: expanding `patdef e <…>` would rewrite
+   * every `e` in every figure in the document. Such a name still works on its
+   * own line, which is all it could do before composition existed — so this
+   * costs nothing that used to work. */
+  const inlinable = new Set([...defs.keys()].filter(isComposablePatDefName))
+
+  /* PATDEFS COMPOSE. A figure is usually a variation on another one — three
+   * riffs in a real arrangement shared the same three-bar tail and differed
+   * only in the opening bar — and without this the shared part is written out
+   * once per figure, which is the duplication patdef exists to remove.
+   *
+   * Expansion is TEXTUAL and whole-word, matching how a reference on its own
+   * line already works: `<[-3 -7!7] tail>` becomes the four cells it stands
+   * for. Iterated to a fixed point so a definition may build on one that
+   * itself builds on another; a cycle is an error, not a hang. */
+  type Piece = { assembledStart: number; sourceStart: number; length: number }
+  type Ref = { from: number; to: number; assembledStart: number; assembledEnd: number }
+  const MAX_DEPTH = 16
+
+  /* Expand every reference in `text`, and REMEMBER WHERE EACH CHUNK CAME FROM.
+   *
+   * The map is not optional bookkeeping. An assembled figure exists nowhere in
+   * the buffer as one run — `<openA tail>` is twelve characters standing for
+   * forty-six — so note-flash, which highlights the text at the offset it is
+   * handed, would light the reference with the expansion. That is the exact
+   * bug composition would otherwise reintroduce, so each chunk carries its own
+   * origin: literal text points into this line, an expanded reference points
+   * into the patdef it came from, recursively. */
+  const expandPieces = (
+    text: string,
+    from: number,
+    self: string,
+    pos: Pos,
+    seen: ReadonlySet<string>,
+    depth: number,
+  ): { text: string; pieces: Piece[]; refs: Ref[] } => {
+    if (depth > MAX_DEPTH) {
+      errors.push({
+        message: `patdef '${self}' expands forever — it refers to itself, directly or through another patdef`,
+        line: pos.line,
+        col: pos.col,
+      })
+      return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }], refs: [] }
+    }
+    let out = ''
+    const pieces: Piece[] = []
+    const refs: Ref[] = []
+    const keep = (chunk: string, src: number): void => {
+      if (chunk === '') return
+      pieces.push({ assembledStart: out.length, sourceStart: src, length: chunk.length })
+      out += chunk
+    }
+    const re = /[A-Za-z][A-Za-z0-9_]*/g
+    let at = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      const word = m[0]
+      if (inlinable.has(word) && seen.has(word)) {
+        // `seen` stops the recursion; without this it would stop it SILENTLY
+        // and leave the name in the figure, where it reads as a note
+        errors.push({
+          message: `patdef '${word}' expands forever — it refers to itself, directly or through another patdef`,
+          line: pos.line,
+          col: pos.col,
+        })
+        return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }], refs: [] }
+      }
+      const d = inlinable.has(word) ? defs.get(word) : undefined
+      if (d === undefined) continue
+      keep(text.slice(at, m.index), from + at)
+      const sub = expandPieces(d.notation, d.from, word, pos, new Set([...seen, self]), depth + 1)
+      for (const q of sub.pieces) {
+        pieces.push({ assembledStart: out.length + q.assembledStart, sourceStart: q.sourceStart, length: q.length })
+      }
+      // THE REFERENCE ITSELF is a span worth lighting: a note inside `tail`
+      // should light the word `tail` where it stands, not only the definition
+      // it expands to. Nested references shift with the text around them.
+      for (const r of sub.refs) {
+        refs.push({ from: r.from, to: r.to, assembledStart: out.length + r.assembledStart, assembledEnd: out.length + r.assembledEnd })
+      }
+      refs.push({
+        from: from + m.index,
+        to: from + m.index + word.length,
+        assembledStart: out.length,
+        assembledEnd: out.length + sub.text.length,
+      })
+      out += sub.text
+      at = m.index + word.length
+    }
+    if (at === 0) return { text, pieces: [{ assembledStart: 0, sourceStart: from, length: text.length }], refs: [] }
+    keep(text.slice(at), from + at)
+    return { text: out, pieces, refs }
+  }
+
+  const grown = new Map<string, { notation: string; from: number; pieces: Piece[]; refs: Ref[] }>()
+  for (const it of program.items) {
+    if (it.t !== 'patdef') continue
+    const e = expandPieces(it.notation, it.notationFrom, it.name, it.pos, new Set([it.name]), 0)
+    grown.set(it.name, { notation: e.text, from: it.notationFrom, pieces: e.pieces, refs: e.refs })
+  }
+  for (const [name, g] of grown) defs.set(name, { notation: g.notation, from: g.from })
+
+  // The notation moves AND so does where it came from: a substituted play
+  // line's text now lives on the patdef line, and note-flash lights whatever
+  // offset it is handed (see compile.ts's NoteSpan).
+  const sub = <T extends { notation: string; notationFrom: number; notationPieces?: Piece[]; notationRefs?: Ref[] }>(
+    t: T,
+    pos: Pos,
+  ): void => {
+    const key = t.notation.trim()
+    const d = defs.get(key)
+    if (d === undefined) {
+      /* INLINE, the same as inside a patdef body. `2 ~ ghost 2` on a play line
+       * expands `ghost` where it stands; it used to pass straight through and
+       * fail later as "not a note name", which made the documented promise
+       * ("write the name anywhere notation goes") false exactly where a
+       * reader would first try it.
+       *
+       * Same machinery as composition, so it inherits the same two rules: a
+       * name that reads as a note is not expanded (see `inlinable`), and every
+       * chunk keeps its origin so note-flash lights the reference rather than
+       * the expansion. */
+      const e = expandPieces(t.notation, t.notationFrom, '', pos, new Set(), 0)
+      if (e.text === t.notation) return
+      t.notation = e.text
+      if (e.pieces.length > 1) t.notationPieces = e.pieces
+      t.notationRefs = e.refs
+      return
+    }
+    const wasFrom = t.notationFrom
+    const wasLen = t.notation.trim().length
+    t.notation = d.notation
+    t.notationFrom = d.from
+    const g = grown.get(key)
+    // only when the figure was ASSEMBLED — a plain one still matches the buffer
+    if (g !== undefined && g.pieces.length > 1) t.notationPieces = g.pieces
+    // The play line's OWN reference: `riffB` there stands for the whole figure,
+    // so any note in it should light that word too. Listed first so the
+    // outermost reference is the one a reader sees light up.
+    t.notationRefs = [
+      { from: wasFrom, to: wasFrom + wasLen, assembledStart: 0, assembledEnd: d.notation.length },
+      ...(g?.refs ?? []),
+    ]
+  }
+  const walk = (items: TopItem[]): void => {
+    for (const it of items) {
+      if (it.t === 'section') { walk(it.plays); continue }
+      if (it.t !== 'play') continue
+      sub(it, it.pos)
+      if (it.voices !== undefined) for (const v of it.voices) sub(v, it.pos)
+    }
+  }
+  walk(program.items)
+}
+
+/**
+ * Generated JavaScript, plus which rondo line each of its lines came from.
+ *
+ * `lineMap[i]` is the 1-based rondo source line behind 0-based JS line `i`, or
+ * 0 for a line that stands for nothing (the blank between statements). BLOCK
+ * granularity: every line a `synth lead` emits maps to the `synth lead` header,
+ * because that is the relationship codegen actually knows — a synth's stages
+ * are rearranged, folded and sometimes emitted more than once, so a per-line
+ * claim would be a guess, and a squiggle under the wrong stage is worse than
+ * one under the block.
+ */
+export interface CodegenOut {
+  code: string
+  lineMap: number[]
+}
+
+export function codegen(program: Program, errors: RondoError[]): CodegenOut {
+  applyPatDefs(program, errors)
   const sections = program.items.filter((it): it is Extract<TopItem, { t: 'section' }> => it.t === 'section')
   const song = program.items.find((it): it is Extract<TopItem, { t: 'song' }> => it.t === 'song')
   // scaledef lines HOIST to the top: .scale('c pelog') parses eagerly at
@@ -872,7 +1338,14 @@ export function codegen(program: Program, errors: RondoError[]): string {
       jsNames.add(m[1]!)
     }
   }
-  const scope = { synths: synthNames, jsNames }
+  /* Zonedefs, by name, so a `sample piano` inside any synth can be recognised
+   * as a multisample. Collected up front because a zonedef may be written
+   * after the synth that uses it, exactly like a macro or a wavetable. */
+  const zoneDefs = new Map<string, ZoneRow[]>()
+  for (const it of program.items) if (it.t === 'zonedef') zoneDefs.set(it.name, it.zones)
+  const scope = { synths: synthNames, jsNames, zoneDefs }
+  /** Sections emitted so far — what a `with` may name (see cgSection). */
+  const sectionsSoFar = new Set<string>()
   for (const it of program.items) {
     if (it.t !== 'macro') continue
     if (BUILTINS[it.name] !== undefined) {
@@ -882,6 +1355,10 @@ export function codegen(program: Program, errors: RondoError[]): string {
   const isDef = (it: TopItem): boolean =>
     it.t === 'scaledef' || it.t === 'wavedef' || it.t === 'macro' || it.t === 'curvedef'
   const items = [...program.items.filter(isDef), ...program.items.filter((it) => !isDef(it))]
+  /* The rondo line behind each part, collected alongside `parts` rather than
+   * derived from it: hoisting has already reordered `items`, so by the time
+   * the text exists there is nothing left in it that says where it came from. */
+  const partLines: number[] = items.map((it) => ('pos' in it ? it.pos.line : 0))
   const parts = items.map((item: TopItem) => {
     if (item.t === 'synth') return cgSynth(item, errors, macroNames, scope)
     if (item.t === 'play') return cgPlay(item, errors, macroNames)
@@ -889,14 +1366,27 @@ export function codegen(program: Program, errors: RondoError[]): string {
     if (item.t === 'raw') return item.code // escape hatch, verbatim
     if (item.t === 'sidechain') return cgSidechain(item, errors, macroNames)
     if (item.t === 'master') return cgMaster(item)
+    if (item.t === 'stereo') return cgStereo(item)
+    if (item.t === 'level') return `masterGain(${num(item.db)})`
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)
     if (item.t === 'curvedef') return cgCurveDef(item)
     if (item.t === 'bus') return cgBus(item, errors, macroNames)
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
-    if (item.t === 'section') return cgSection(item, errors, macroNames)
+    if (item.t === 'section') {
+      const out = cgSection(item, errors, macroNames, sectionsSoFar)
+      sectionsSoFar.add(item.name)
+      return out
+    }
     if (item.t === 'song') return '' // assembled below, after all sections exist
+    // a patdef emits NOTHING: it was substituted into its use sites above,
+    // so by here it is a definition with no runtime existence at all
+    if (item.t === 'patdef') return ''
+    /* nor does a zonedef: it is INLINED into the `sample` nodes that name it,
+     * so the zones travel with the node they configure rather than living in a
+     * registry the graph has to resolve at construction. */
+    if (item.t === 'zonedef') return ''
     // `timesig 3 4` → setTimeSig(3, 4). The evaluator resolves `bpm` against
     // it at the END of the eval, so the two lines commute.
     if (item.t === 'timesig') return `setTimeSig(${item.num}, ${item.den})`
@@ -920,8 +1410,17 @@ export function codegen(program: Program, errors: RondoError[]): string {
       entries.push(`[${num(sec.len)}, __sec_${name}]`)
     }
     parts.push(`p('song', arrange(${entries.join(', ')}))`)
+    partLines.push(song?.pos.line ?? 0)
   } else if (song !== undefined) {
     errors.push({ message: 'song needs section blocks to sequence', line: song.pos.line, col: song.pos.col })
   }
-  return parts.filter((s) => s !== '').join('\n\n') + '\n'
+  const kept = parts
+    .map((text, i) => ({ text, line: partLines[i] ?? 0 }))
+    .filter((p) => p.text !== '')
+  const lineMap: number[] = []
+  for (const p of kept) {
+    if (lineMap.length > 0) lineMap.push(0) // the blank line `join` puts between parts
+    for (let i = 0; i < p.text.split('\n').length; i++) lineMap.push(p.line)
+  }
+  return { code: kept.map((p) => p.text).join('\n\n') + '\n', lineMap }
 }

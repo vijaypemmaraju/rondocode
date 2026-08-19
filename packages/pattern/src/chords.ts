@@ -28,10 +28,35 @@ const QUALITIES: Record<string, number[]> = {
   dim7: [0, 3, 6, 9],
   sus2: [0, 2, 7], sus4: [0, 5, 7], sus: [0, 5, 7], '7sus4': [0, 5, 7, 10],
   add9: [0, 4, 7, 14], madd9: [0, 3, 7, 14],
+  /* ADDED TONES, KEEPING THE THIRD. `D2` is the pop/worship chart spelling and
+   * it is NOT sus2: a sus chord REPLACES the third, while `D2` keeps it and
+   * adds the 2nd beside it — D E F# A. Written out, the difference is the one
+   * that matters here:
+   *
+   *   Dsus2  [0,2,7]      D  E  A      no third: open, unresolved
+   *   D2     [0,2,4,7]    D  E  F# A   major, with the 2nd rubbing against it
+   *   Dadd9  [0,4,7,14]   D  F# A  E   the same tone an octave up: no rub
+   *
+   * add9 already existed and put the 9th on top, which is a different voicing
+   * of the same idea and does not sound like the chart. So these are their own
+   * entries rather than aliases of anything. */
+  '2': [0, 2, 4, 7], add2: [0, 2, 4, 7],
+  m2: [0, 2, 3, 7], madd2: [0, 2, 3, 7],
+  '4': [0, 4, 5, 7], add4: [0, 4, 5, 7],
+  m4: [0, 3, 5, 7], madd4: [0, 3, 5, 7],
+  add11: [0, 4, 7, 17], madd11: [0, 3, 7, 17],
   '9': [0, 4, 7, 10, 14], maj9: [0, 4, 7, 11, 14], m9: [0, 3, 7, 10, 14],
   '11': [0, 4, 7, 10, 14, 17], m11: [0, 3, 7, 10, 14, 17],
   '13': [0, 4, 7, 10, 14, 21], m13: [0, 3, 7, 10, 14, 21],
 }
+
+/** Every quality name this understands, longest first so a caller listing them
+ *  shows `maj7` before `maj`. The completion list and the docs blurb both used
+ *  to spell their own copy of this and had already drifted — `sus`, `min`,
+ *  `dom7` and `5` all parse but were offered by neither. */
+export const CHORD_QUALITIES: readonly string[] = Object.keys(QUALITIES)
+  .filter((q) => q !== '')
+  .sort((a, b) => b.length - a.length || a.localeCompare(b))
 
 // A trailing number after the root is the QUALITY (C7 = dom7), never an octave —
 // chords sit in a fixed register (root octave 3); transpose with .add() if needed.
@@ -64,36 +89,60 @@ export function parseChord(name: string): number[] | undefined {
  *  of note events. Also accepts a Pattern/array of chord-name strings. */
 export function chord(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
-    // Slash-bass chords ('C/E', 'Cmaj7/E') can't go through the mini-parser: it
-    // reads '/' as the slow combinator. When the WHOLE string is one chord name,
-    // bypass mini and emit it directly (still works for sequences without '/').
+    /* '/' is ambiguous here: a slash-bass chord ('C/E', 'Cmaj7/E') spells it,
+     * and the mini parser reads it as the slow combinator. Both are legal and
+     * both are wanted.
+     *
+     * TRY THE CHORD READING FIRST, THEN FALL THROUGH. Committing to the chord
+     * reading on the mere PRESENCE of a '/' — which is what this did — meant
+     * `chord('<Cmaj7 Am7>/2')` was handed whole to parseChord and rejected, so
+     * a chord pattern could not be slowed at all. That is not a small corner:
+     * `<...>/n` is the way to hold a voicing for several cycles, and without
+     * it the only reachable spelling is `dur:`, which does something else
+     * entirely and stacks voices (see voice-stacking.test.ts).
+     *
+     * Slash-bass INSIDE a sequence ('<C/E Am>') stays unreachable — it is
+     * genuinely ambiguous and it did not work before either. */
     const trimmed = x.trim()
     if (trimmed.includes('/')) {
       const notes = parseChord(trimmed)
-      if (notes === undefined) {
+      if (notes !== undefined) {
+        const loc: Loc = { start: x.indexOf(trimmed), end: x.indexOf(trimmed) + trimmed.length, src: x }
+        return Pattern.stack(...notes.map((nt) => Pattern.pure<ControlMap>({ note: nt, loc })))
+      }
+      // not one chord name: it is mini notation that happens to contain '/'.
+      // If mini cannot read it either, the user almost certainly meant a
+      // slash-bass chord and deserves to be told that rather than shown a
+      // complaint about the slow combinator's argument.
+      try {
+        return chordPattern(x)
+      } catch {
         throw new MiniError(`'${trimmed}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, 0, x)
       }
-      const loc: Loc = { start: x.indexOf(trimmed), end: x.indexOf(trimmed) + trimmed.length, src: x }
-      return Pattern.stack(...notes.map((nt) => Pattern.pure<ControlMap>({ note: nt, loc })))
     }
-    const { pattern, atoms } = miniParse(x)
-    for (const a of atoms) {
-      if (typeof a.value === 'number' || parseChord(a.value) === undefined) {
-        throw new MiniError(`'${a.value}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, a.loc.start, x)
-      }
-    }
-    return new Pattern<ControlMap>((span) =>
-      pattern.query(span).flatMap((h) => {
-        const notes = parseChord(String(h.value.value))!
-        return notes.map((nt) => hap(h.whole, h.part, { note: nt, loc: h.value.loc }))
-      }),
-    )
+    return chordPattern(x)
   }
   return reify(x).outerBind((name: string) => {
     const notes = parseChord(name)
     if (notes === undefined) throw new TypeError(`chord(): '${name}' is not a chord name`)
     return Pattern.stack(...notes.map((nt) => reify<ControlMap>({ note: nt })))
   })
+}
+
+/** Mini notation whose atoms are all chord names, each expanded to a stack. */
+function chordPattern(x: string): Pattern<ControlMap> {
+  const { pattern, atoms } = miniParse(x)
+  for (const a of atoms) {
+    if (typeof a.value === 'number' || parseChord(a.value) === undefined) {
+      throw new MiniError(`'${a.value}' is not a chord (e.g. Cmaj7, Am, F#m7, Gsus4, C/E)`, a.loc.start, x)
+    }
+  }
+  return new Pattern<ControlMap>((span) =>
+    pattern.query(span).flatMap((h) => {
+      const notes = parseChord(String(h.value.value))!
+      return notes.map((nt) => hap(h.whole, h.part, { note: nt, loc: h.value.loc }))
+    }),
+  )
 }
 
 /** Arp note-index orders for N chord notes (indices into the low→high stack). */

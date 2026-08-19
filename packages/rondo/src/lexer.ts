@@ -15,6 +15,8 @@ export type Tok =
   | { k: 'num'; v: number; text: string; pos: Pos; sp: boolean }
   | { k: 'ident'; v: string; pos: Pos; sp: boolean }
   | { k: 'op'; v: '+' | '-' | '*' | '/' | '^'; pos: Pos; sp: boolean }
+  | { k: 'lparen'; pos: Pos; sp: boolean }
+  | { k: 'rparen'; pos: Pos; sp: boolean }
   | { k: 'range'; pos: Pos; sp: boolean } // ..
   | { k: 'arrow'; pos: Pos; sp: boolean } // ->
   | { k: 'colon'; pos: Pos; sp: boolean } // :
@@ -133,6 +135,13 @@ function tokenizeLine(text: string, lineNo: number, base: number, off: number, e
     if (ch === ':') { toks.push({ k: 'colon', pos, sp }); i++; continue }
     if (ch === '=') { toks.push({ k: 'eq', pos, sp }); i++; continue }
     if (OPS.has(ch)) { toks.push({ k: 'op', v: ch as '+', pos, sp }); i++; continue }
+    // Parens GROUP arithmetic. They used to fall into the skip below with
+    // every other unknown character, which did not reject them — it dropped
+    // them: `gate * (1 + gate)` lexed as `gate * 1 + gate` and computed the
+    // wrong thing with no error anywhere. A notation line reads `(` from raw
+    // text as euclid (`rim(7,16)`) and never sees these tokens.
+    if (ch === '(') { toks.push({ k: 'lparen', pos, sp }); i++; continue }
+    if (ch === ')') { toks.push({ k: 'rparen', pos, sp }); i++; continue }
     // Any other character (`~ < > [ ] * @ ! , …`) belongs to the notation /
     // mini sublanguage, which play blocks read from raw text — so we skip it
     // here rather than error. Synth-expression validity is enforced by the

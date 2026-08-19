@@ -38,7 +38,9 @@ export const RESERVED_PARAM_NAMES: ReadonlySet<string> = new Set([
   // `nAcc` rides along with `n`: the accidental on a scale degree, consumed by
   // .scale() alongside the degree itself. Structural like the rest of these —
   // it never reaches a synth, and a synth could never usefully declare it.
-  'note', 'n', 'nAcc', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc',
+  'note', 'n', 'nAcc', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc', 'locs',
+  // provenance for per-note lanes (see ControlMap.laneKeys) — never a param
+  'laneKeys',
 ])
 
 /** What a macro declares: the same four numbers a param() takes, held in one

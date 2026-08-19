@@ -61,15 +61,23 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   // per cycle, .25 = a quarter note) instead of Hz — it follows the tempo
   lfo: { kind: 'osc', pos: ['sig', 'enum'], named: { sync: 'bool' } },
   // the LIVE microphone as a source (silence offline / when unconnected)
-  mic: { kind: 'osc', pos: [] },
+  // `device` names which input to open — an id, or any part of the label.
+  // Config the GRAPH never reads: the capture is opened on the main thread,
+  // so this is how a program tells the host what to open. This once broke
+  // `vocoder mic bands:24` (mic swallowed `bands:`); named args now bind to
+  // the nearest call that ACCEPTS them, so a nested builtin declaring one
+  // no longer changes how a following one binds.
+  mic: { kind: 'osc', pos: [], named: { device: 'enum' } },
 
   // ---- gated sources (samplers, physical models) ----
   // start/end window the buffer (fractions 0..1), slices chops that window and
-  // the NOTE picks a chop, reverse plays it backwards, fade softens the edges
+  // the NOTE picks a chop, reverse plays it backwards, fade softens the edges.
+  // variant picks among a sample FAMILY (`bd`, `bd:1`, `bd:2`) per note, and
+  // is a signal so a pattern can drive it: that is a round-robin kit.
   sample: {
     kind: 'gated', pos: ['enum'],
     named: {
-      root: 'num', speed: 'sig', loop: 'bool',
+      root: 'num', speed: 'sig', loop: 'bool', variant: 'sig',
       start: 'num', end: 'num', reverse: 'bool', slices: 'num', fade: 'num',
     },
   },
@@ -78,7 +86,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     named: { pos: 'sig', root: 'num', rate: 'sig', size: 'num', density: 'num', spray: 'num', loop: 'bool' },
   },
   pluck: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { decay: 'num', damp: 'num', seed: 'num' } },
-  modal: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { model: 'enum', decay: 'num', damp: 'num' } },
+  modal: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { model: 'enum', decay: 'num', damp: 'num', stretch: 'num', keyScale: 'num' } },
   // breakpoint envelope — flat time/level pairs, special-parsed (variadic):
   // `e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1`
   env: { kind: 'gated', pos: [], named: { release: 'num', curve: 'num', loop: 'bool' } },
@@ -98,17 +106,43 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   formant: { kind: 'proc', pos: ['sig'] },
   pan: { kind: 'proc', pos: ['sig'] },
   bitcrush: { kind: 'proc', pos: [], named: { bits: 'num', downsample: 'num' } },
+  // `key` is an EXTERNAL SIDECHAIN: the detector listens to that signal rather
+  // than to the input, so what gets turned down and what decides when are
+  // separate. A signal, so it can be any node or binding in the synth.
   compress: {
     kind: 'proc', pos: [],
-    named: { threshold: 'num', ratio: 'num', attack: 'num', release: 'num', knee: 'num', makeup: 'num' },
+    named: { threshold: 'num', ratio: 'num', attack: 'num', release: 'num', knee: 'num', makeup: 'num', key: 'sig' },
   },
-  phaser: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', stages: 'num', mix: 'num' } },
+  // rate/depth/feedback/mix are SIGNALS (per-sample inputs); `stages` sizes
+  // the allpass array, so it stays a construction number
+  phaser: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', feedback: 'sig', stages: 'num', mix: 'sig' } },
   reverb: { kind: 'proc', pos: [], named: { room: 'num', damp: 'num', mix: 'sig' }, alias: { room: 'roomSize' } },
-  chorus: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', mix: 'num' } },
+  chorus: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', mix: 'sig' } },
   // pseudo-stereo widener — the positional is `amount` 0..1 (`width .8 mode:tight`)
   width: { kind: 'proc', pos: ['sig'], posDefault: ['0.5'], named: { mode: 'enum' } },
   transient: { kind: 'proc', pos: [], named: { attack: 'num', sustain: 'num' } },
-  flanger: { kind: 'proc', pos: [], named: { rate: 'num', depth: 'num', feedback: 'num', mix: 'num' } },
+  // the live-mic node: turns QUIET things down (bleed, hiss), the opposite
+  // problem to compress. hold + hysteresis are what stop it chattering.
+  limiter: {
+    kind: 'proc',
+    pos: [],
+    named: { ceiling: 'num', lookahead: 'num', release: 'num' },
+  },
+  deess: {
+    kind: 'proc',
+    pos: [],
+    named: { freq: 'num', threshold: 'num', ratio: 'num', attack: 'num', release: 'num' },
+  },
+  tape: { kind: 'proc', pos: [], named: { wow: 'num', flutter: 'num', sat: 'num', tone: 'num' } },
+  convolve: { kind: 'proc', pos: ['enum'], named: { mix: 'sig' } },
+  pitchshift: { kind: 'proc', pos: [], named: { semitones: 'sig', window: 'num', mix: 'sig' } },
+  follow: { kind: 'proc', pos: [], named: { attack: 'num', release: 'num', mode: 'enum' } },
+  noisegate: {
+    kind: 'proc',
+    pos: [],
+    named: { threshold: 'num', range: 'num', attack: 'num', hold: 'num', release: 'num', hysteresis: 'num' },
+  },
+  flanger: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', feedback: 'sig', mix: 'sig' } },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },
   ott: { kind: 'proc', pos: [], named: { depth: 'num', low: 'num', high: 'num', makeup: 'num' } },
   // parametric EQ — bands are special-parsed word-then-numbers groups:
@@ -152,4 +186,37 @@ export const isTransform = (name: string): boolean => {
  *  the synth to a js block instead). */
 export const isReservedBinding = (name: string): boolean =>
   name === 'note' || name === 'gate' || name === 'input' || name === 'velocity' ||
-  name === 'adsr' || name === 'knob' || name === 'switch'
+  name === 'adsr' || name === 'knob' || name === 'switch' ||
+  // `sum k 1..16` opens a block, so a binding of that name would make the
+  // line ambiguous to a reader even where the parser can tell them apart.
+  // The decompiler reads this list when it invents names, so it stops
+  // generating `sum` the moment the word means something.
+  name === 'sum'
+
+/* ------------------------------------------------------------------------- *
+ * NAMES A SYNTH CANNOT TAKE.
+ *
+ * `synth lead` compiles to `const lead = synth(…)` in a scope where the
+ * pattern functions already live. So `synth note` compiles to
+ * `const note = …` next to the existing `note`, and the program dies with a
+ * raw `Identifier 'note' has already been declared` — no line, no column, no
+ * mention of the word that caused it. Measured: `p`, `n`, `note`, `sound`,
+ * `chord`, `synth`, `bus`, `stack` and `sine` all did this, and `synth note`
+ * is a thing anyone would type.
+ *
+ * DUPLICATED ON PURPOSE, AND PROVEN. The authority is `baseScope` +
+ * `STAGING_NAMES` in packages/app, which rondo cannot import — app depends on
+ * rondo, not the reverse. So this is a copy, and reserved-names.test.ts fails
+ * the moment app adds a scope name that is not here. A copy that is checked is
+ * a cache; a copy that is not is the bug this repo keeps finding.
+ * ------------------------------------------------------------------------- */
+export const RESERVED_TOP_LEVEL: ReadonlySet<string> = new Set([
+  'arrange', 'bus', 'cat', 'chord', 'cosine', 'curve', 'curvedef',
+  'defineScale', 'defineSynth', 'defineWavetable', 'fall', 'fastcat',
+  'irand', 'isaw', 'm', 'macro', 'macroNum', 'macroval', 'masterCompress',
+  'masterGain', 'mini', 'n', 'note', 'p', 'perlin', 'pick', 'rand', 'reify',
+  'rise', 's', 'saw', 'saw2', 'setBpm', 'setCps', 'setTimeSig', 'shape',
+  'sidechain', 'silence', 'sine', 'sine2', 'sing', 'slider', 'sound',
+  'square', 'square2', 'stack', 'stereo', 'synth', 'timecat', 'toggle',
+  'tri', 'tri2', 'visual', 'xy',
+])

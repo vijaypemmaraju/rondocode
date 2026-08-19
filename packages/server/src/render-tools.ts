@@ -13,7 +13,7 @@
  *                     deltas: "did my change do what I intended".
  *
  * WAV output goes to `dirs.rendersDir` (repo-root renders/, gitignored) and
- * is mirrored fail-open into `dirs.mirrorDir` (a Dropbox folder the human
+ * is mirrored fail-open into `dirs.mirrorDir` (a synced folder the human
  * watches). Both are injectable so tests write to temp dirs instead.
  * ------------------------------------------------------------------------- */
 
@@ -24,8 +24,10 @@ import { fileURLToPath } from 'node:url'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
-import { renderMix, runPatterns, stageCode } from './render-runner'
-import type { MixResult, StageResult } from './render-runner'
+import { stageCode } from './render-runner'
+import { renderStagedMix } from '../../app/src/editor/resample'
+import type { StageResult } from './render-runner'
+import type { StagedMix } from '../../app/src/editor/resample'
 // Deep read-only imports from sibling package source (see mcp.ts header).
 import { analyze, encodeWav16, getCustomWavetables, renderOffline } from '../../engine/src/index'
 import type { Analysis } from '../../engine/src/index'
@@ -38,9 +40,13 @@ export interface RenderDirs {
   mirrorDir: string | null
 }
 
+/* The mirror is OPT-IN via the environment, and used to be one developer's
+ * Dropbox path hardcoded here. That is not a secret, but it is a real
+ * username in a public repo, and for everyone else it was a path that simply
+ * does not exist — a fail-open copy that always failed. */
 const DEFAULT_DIRS: RenderDirs = {
   rendersDir: fileURLToPath(new URL('../../../renders', import.meta.url)),
-  mirrorDir: '/Users/vijaypemmaraju/Dropbox/rondocode-renders',
+  mirrorDir: process.env['RONDOCODE_RENDER_MIRROR'] ?? null,
 }
 
 /** Release tail appended after the last cycle so envelopes ring out. */
@@ -95,7 +101,7 @@ const writeWav = (wav: Uint8Array, prefix: string, code: string, dirs: RenderDir
 
 interface ProgramRender {
   staged: Extract<StageResult, { ok: true }>
-  mix: MixResult
+  mix: StagedMix
   analysis: Analysis
   cycles: number
   cps: number
@@ -126,25 +132,17 @@ const renderProgram = (
     )
   }
   const durationSec = musicSec + TAIL_SEC
-  const events = runPatterns(staged.patterns, { cycles, cps })
-  const tables = getCustomWavetables()
-  const mix = renderMix(staged.synths, events, durationSec, {
-    maxVoices: 12,
-    // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
-    // themselves off it, so an omitted cps would bounce at the wrong speed.
-    cps,
-    // Forward buses/sends/masterComp too, so the offline render an agent "hears"
-    // matches the live signal path (renderMix supports all three; omitting them
-    // silently dropped bus FX and the glue compressor from the render).
-    ...(staged.buses.size > 0 ? { buses: staged.buses, sends: staged.sends } : {}),
-    ...(staged.sidechain !== undefined ? { sidechain: staged.sidechain } : {}),
-    ...(staged.masterComp !== undefined ? { masterComp: staged.masterComp } : {}),
-    // Custom wavetables the program just registered (defineWavetable/wavedef):
-    // explicit, though the kernels would also find this realm's registry.
-    ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
-  })
+  // Through renderStagedMix, the ONE staged->renderMix option mapping. This
+  // function used to build the option object itself and the comment here used
+  // to explain that the copy had silently dropped bus FX and the glue
+  // compressor; it would have dropped masterGain next. What an agent "hears"
+  // now cannot diverge from what the app plays without the shared mapping
+  // being wrong for everyone at once.
+  const mixed = renderStagedMix(code, cycles, undefined, { cps, tailSec: TAIL_SEC, maxVoices: 12 })
+  if ('error' in mixed) return fail(mixed.error)
+  const mix = mixed
   const analysis = analyze({ left: mix.left, right: mix.right, sampleRate: mix.sampleRate })
-  const unknownSounds = [...events.keys()].filter((s) => !staged.synths.has(s))
+  const unknownSounds = [...mix.events.keys()].filter((s) => !staged.synths.has(s))
   return { staged, mix, analysis, cycles, cps, durationSec, unknownSounds }
 }
 
@@ -164,7 +162,7 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
     'render_code',
     {
       description:
-        `Render a COMPLETE rondocode program offline and LISTEN via analysis — no browser needed (works even when the live tools report no session; fully server-side and deterministic: same code + cycles + cps → identical analysis). Evals the source (see rondocode://docs/dsl-reference), drives the real pattern scheduler for N cycles, renders each synth's events, mixes the stems (peak-normalized to 0.89 when hot) with a ${TAIL_SEC}s release tail. Returns { analysis, perSynth: {name: {events, rms}}, durationSec, wavPath? } — perSynth with events 0 or rms ~0 pinpoints a synth that never sounds; unknownSounds lists .sound() targets no synth defines. ${READING} The WAV also lands in the human's Dropbox rondocode-renders folder so they can actually hear it — mention the filename when you want them to listen. This renders a COPY of the code you pass; it does not touch the live browser session.`,
+        `Render a COMPLETE rondocode program offline and LISTEN via analysis — no browser needed (works even when the live tools report no session; fully server-side and deterministic: same code + cycles + cps → identical analysis). Evals the source (see rondocode://docs/dsl-reference), drives the real pattern scheduler for N cycles, renders each synth's events, mixes the stems (peak-normalized to 0.89 when hot) with a ${TAIL_SEC}s release tail. Returns { analysis, perSynth: {name: {events, rms}}, durationSec, wavPath? } — perSynth with events 0 or rms ~0 pinpoints a synth that never sounds; unknownSounds lists .sound() targets no synth defines. ${READING} Mention the wavPath filename when you want the human to listen; it is a path on their machine, not bytes you can read. This renders a COPY of the code you pass; it does not touch the live browser session.`,
       inputSchema: {
         code: z.string().describe('Full rondocode program source (synths + p() patterns + optional setCps)'),
         cycles: z.number().optional().describe('Whole cycles to render (default 4, clamped 1..64)'),
@@ -200,7 +198,7 @@ export function registerRenderTools(server: McpServer, dirs?: Partial<RenderDirs
     'render_synth',
     {
       description:
-        `Quick single-synth audition, offline and deterministic (no browser needed): eval the code, play ONE note on one synth (noteOn at 0.05s, noteOff at 60% of durationSec, +1s release tail) and return its analysis + a WAV on disk (also mirrored to the human's Dropbox rondocode-renders folder). The fastest way to iterate on a patch's timbre before patterning it. ${READING}`,
+        `Quick single-synth audition, offline and deterministic (no browser needed): eval the code, play ONE note on one synth (noteOn at 0.05s, noteOff at 60% of durationSec, +1s release tail) and return its analysis + a WAV on disk. The fastest way to iterate on a patch's timbre before patterning it. ${READING}`,
       inputSchema: {
         code: z.string().describe('Rondocode source defining at least one synth (patterns are ignored here)'),
         synthName: z.string().optional().describe('Which synth to audition (default: the first one the code defines)'),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compile, decompile } from '../src/index'
+import { compile, decompile, splitBeatVelocities } from '../src/index'
 
 /* ------------------------------------------------------------------------- *
  * The Switch: a knob with two fixed values instead of a range.
@@ -125,13 +125,13 @@ describe('sidechain follows a project control', () => {
   })
 
   it('still takes plain numbers, unchanged', () => {
-    expect(drums('sidechain kick depth:.99 release:.5 lead:.6'))
-      .toContain("sidechain('kick', { depth: 0.99, release: 0.5, duck: { lead: 0.6 } })")
+    expect(drums('sidechain kick depth:.99 release:500 lead:.6'))
+      .toContain("sidechain('kick', { depth: 0.99, release: 500, duck: { lead: 0.6 } })")
   })
 
   it('round-trips back to the bare name, not to macroNum(…)', () => {
-    expect(decompile(drums('sidechain kick depth:drums release:.5')))
-      .toContain('sidechain kick depth:drums release:0.5')
+    expect(decompile(drums('sidechain kick depth:drums release:500')))
+      .toContain('sidechain kick depth:drums release:500')
   })
 
   it('keeps a hand-written JS sidechain as JS when rondo cannot say it', () => {
@@ -312,5 +312,105 @@ describe('a token after an osc round-trips (the last docs gap)', () => {
     const once = rt('  tri note\n  mix saw note .3\n  svf 2200 res:.2\n')
     const twice = decompile((compile(once) as { ok: true; code: string }).code)
     expect(twice).toBe(once)
+  })
+})
+
+describe('a beat line with a groove lane', () => {
+  /* `[hat*8]'swing:.55` reads as `word:number` to the velocity splitter, which
+   * tore it in two: the sound string kept `[hat*8]'swing` and the gain string
+   * got `[1*8]'0.55`, neither of which parses. It COMPILED and then failed at
+   * stage time with a mini error about a stray quote, a long way from the line
+   * that caused it.
+   *
+   * Found while writing the recipe for the feature, which is the first time
+   * anyone had put a groove on a drum grid -- the most obvious place for one. */
+  it('keeps the lane out of the velocity split', () => {
+    const r = splitBeatVelocities("[hat*8]'swing:.55")
+    expect(r.has, 'a timing lane is not a velocity').toBe(false)
+    expect(r.notes).toBe("[hat*8]'swing:.55")
+  })
+
+  it('and puts it on the GAIN pattern too, so the two stay aligned', () => {
+    /* `.gain()` aligns by TIME. A swung note lands where an unswung gain step
+     * is not, so the gains have to be swung the same way. */
+    const r = splitBeatVelocities("[hat:.5*8]'swing:.5")
+    expect(r.has).toBe(true)
+    expect(r.notes).toBe("[hat*8]'swing:.5")
+    expect(r.gains).toBe("[0.5*8]'swing:.5")
+  })
+
+  it('handles a groove beside ordinary velocity suffixes', () => {
+    const r = splitBeatVelocities("hat:.5 [hat*4]'swing:.6 hat")
+    expect(r.notes).toBe('hat [hat*4]\'swing:.6 hat')
+    expect(r.gains).toBe('0.5 [1*4]\'swing:.6 1')
+  })
+
+  it('takes every lane the group carries', () => {
+    expect(splitBeatVelocities("[hat*8]'swing:.5'grid:8").notes).toBe("[hat*8]'swing:.5'grid:8")
+  })
+
+  it('leaves an ordinary beat line exactly as it was', () => {
+    const r = splitBeatVelocities('hat:.5 hat hat:.4 hat')
+    expect(r.notes).toBe('hat hat hat hat')
+    expect(r.gains).toBe('0.5 1 0.4 1')
+    expect(splitBeatVelocities('kick ~ snare ~').has).toBe(false)
+  })
+})
+
+describe('a `num` argument refuses a signal instead of dropping it', () => {
+  /* SWEPT, not guessed. Every `num` named argument in the language was driven
+   * two ways -- a literal, and a knob defaulting to the same value -- and the
+   * renders compared. 47 of the 66 came back identical to the DEFAULT: the
+   * signal reached the node as a graph node, failed the config mapper's
+   * `typeof === 'number'` test, and vanished. `reverb room:`, `compress
+   * threshold:`, `tape wow:`, and the rest.
+   *
+   * Most cannot be signals at all: `phaser stages:` sizes an allpass chain,
+   * `delay maxtime:` allocates a buffer, `pluck seed:` is a construction seed.
+   * So the syntax is refused rather than honoured, and an argument that could
+   * reasonably move gets promoted to `sig` one at a time, the way
+   * `pitchshift semitones:` was in #371.
+   *
+   * The sweep's control was the 28 arguments already declared `sig`: none of
+   * them came back identical, which is what says the harness could tell the
+   * difference. */
+  const src = (arg: string, extra = ''): string =>
+    `synth a\n  saw note\n  reverb room:${arg}${extra}\n\nplay a\n  0\n\ncps .5`
+
+  it('refuses a knob, and says why', () => {
+    const c = compile(src('rm', '\n  rm = knob .7 0..1'))
+    expect(c.ok).toBe(false)
+    if (c.ok) return
+    expect(c.errors[0]?.message).toMatch(/takes a NUMBER, not a signal/)
+    expect(c.errors[0]?.message, 'it should say what to do').toMatch(/literal|macro/)
+  })
+
+  it('refuses an lfo', () => {
+    expect(compile(src('mv', '\n  mv = lfo .2 -> 0..1')).ok).toBe(false)
+  })
+
+  it('points at the ARGUMENT, not the top of the block', () => {
+    const c = compile(src('rm', '\n  rm = knob .7 0..1'))
+    expect(c.ok).toBe(false)
+    if (c.ok) return
+    expect(c.errors[0]?.line, 'the reverb line').toBe(3)
+  })
+
+  it('still takes a literal, negative or otherwise', () => {
+    expect(compile(src('.8')).ok).toBe(true)
+    expect(compile('synth a\n  saw note\n  compress threshold:-20\n\nplay a\n  0\n\ncps .5').ok).toBe(true)
+  })
+
+  it('and arithmetic of literals, which is a literal written the long way', () => {
+    expect(compile(src('(0.4 * 2)')).ok).toBe(true)
+  })
+
+  it('and a MACRO, which resolves to a number at eval', () => {
+    expect(compile(`macro rm .7\n\n${src('rm')}`).ok).toBe(true)
+  })
+
+  it('a `sig` argument is unaffected', () => {
+    // `mix` next door takes a signal and always did
+    expect(compile('synth a\n  saw note\n  reverb room:.8 mix:mv\n  mv = lfo .2 -> 0..1\n\nplay a\n  0\n\ncps .5').ok).toBe(true)
   })
 })

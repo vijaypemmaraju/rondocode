@@ -158,12 +158,19 @@ describe('mini: modifiers', () => {
     expect(qw(mini('a*0.5 b'), 0, 2)).toEqual(qw(mini('a/2 b'), 0, 2))
   })
 
-  it('repeated "!" mods: last count wins ("a!2!3 b" is four slots)', () => {
+  it('repeated "!" mods ACCUMULATE ("a!2!3 b" is five slots)', () => {
+    /* This used to assert "last count wins", which was a description of what
+     * the parser did rather than a decision: `reps` was assigned per `!`, so
+     * every `!` but the last was read and discarded. The visible cost was on
+     * the common form, not this one — `a ! !` asks for three copies and got
+     * two, silently losing a note. Each `!n` contributes n-1 EXTRA copies on
+     * top of the term itself, so `a!2!3` is 1 + 1 + 2 = 4 a's. */
     expect(q(mini('a!2!3 b'), 0, 1)).toEqual([
-      [0, 1 / 4, 'a'],
-      [1 / 4, 1 / 2, 'a'],
-      [1 / 2, 3 / 4, 'a'],
-      [3 / 4, 1, 'b'],
+      [0, 1 / 5, 'a'],
+      [1 / 5, 2 / 5, 'a'],
+      [2 / 5, 3 / 5, 'a'],
+      [3 / 5, 4 / 5, 'a'],
+      [4 / 5, 1, 'b'],
     ])
   })
 
@@ -602,7 +609,9 @@ describe('MiniError', () => {
     ['*2 a', 0, /unexpected '\*'/],
     ['_ a', 0, /'_'/],
     ['! a', 0, /unexpected '!'/],
-    ['a $ b', 2, /character/],
+    // `$` used to be an unknown CHARACTER; it names a figure now, so a lone
+    // one is a reference with no name rather than a stray symbol
+    ['a $ b', 2, /needs a name/],
     ['a %2', 2, /unexpected '%'/],
     ['a |', 3, /end of input/],
     // A run-together decimal must ERROR, not silently split into two atoms

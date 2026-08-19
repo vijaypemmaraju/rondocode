@@ -1,7 +1,7 @@
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
-import type { Extension } from '@codemirror/state'
+import type { EditorState, Extension } from '@codemirror/state'
 import { detect, scanNumbersText } from './detect'
 import type { ScrubLit } from './detect'
 import { formatNumber, niceStep } from './rewrite'
@@ -98,6 +98,11 @@ export function scrubText(start: number, dxPx: number, isInt: boolean): string {
 
 const scrubMark = Decoration.mark({ class: 'cm-scrub' })
 
+/** Budget for parsing up to the pointer when the background parse has not got
+ *  there. Only paid on the cold path; once the parser has caught up
+ *  `ensureSyntaxTree` returns immediately. */
+const PARSE_BUDGET_MS = 50
+
 interface ActiveScrub {
   pointerId: number
   x0: number
@@ -162,21 +167,47 @@ export const scrubLens = (() => {
   }
 })()
 
+/**
+ * The scrubbable number at `pos`, or null.
+ *
+ * Exported and state-based rather than living inside the pointer handler,
+ * because "is this number draggable" is the whole contract and it should be
+ * answerable without a mouse.
+ *
+ * PARSED UP TO `pos`, not taking whatever the background parse has reached.
+ * `syntaxTree` returns only what is done so far, and a bare state stops at
+ * 3007 characters: past that `detect` finds no numbers at all, so nothing is
+ * scrubbable. Measured in a browser that does not bite today, because
+ * CodeMirror parses the VIEWPORT and you can only point at what you can see.
+ * This does not depend on that -- a number under the pointer is one the parse
+ * has to have reached -- and saying so costs a fraction of a millisecond once.
+ */
+export const scrubLitAt = (
+  state: EditorState,
+  pos: number,
+  /* The parse budget, overridable ONLY so a test can be independent of the
+   * machine it runs on. 50ms is generous in the editor (a 200k document parses
+   * cold in 7ms), but a test suite runs a worker per core, and a budget
+   * measured in wall-clock then measures the load rather than the code. This
+   * one flaked exactly that way. */
+  budgetMs = PARSE_BUDGET_MS,
+): ScrubLit | null => {
+  const doc = state.doc.toString()
+  const tree = ensureSyntaxTree(state, pos, budgetMs) ?? syntaxTree(state)
+  let numbers = detect(doc, tree).numbers
+  /* The tree walk is JS-grammar-specific; in rondo mode (a StreamLanguage
+   * tree, top node "Document" not "Script") it finds nothing, so fall back to
+   * a plain-text scan -- every number stays scrubbable in rondo. Gated on the
+   * GRAMMAR, not on numbers.length: a JS doc whose only digits sit inside
+   * mini-notation strings must keep them non-scrubbable as before. */
+  if (numbers.length === 0 && tree.type.name !== 'Script') numbers = scanNumbersText(doc)
+  return numbers.find((n) => pos >= n.from && pos <= n.to) ?? null
+}
+
 export function scrubExtension(hooks: { requestEval: (immediate: boolean) => void }): Extension {
-  /** The literal under the pointer, from a FRESH detect (cheap: <10 KB docs). */
   const litAt = (view: EditorView, x: number, y: number): ScrubLit | null => {
     const pos = view.posAtCoords({ x, y })
-    if (pos === null) return null
-    const doc = view.state.doc.toString()
-    const tree = syntaxTree(view.state)
-    let numbers = detect(doc, tree).numbers
-    // The tree walk is JS-grammar-specific; in rondo mode (a StreamLanguage
-    // tree, top node "Document" not "Script") it finds nothing, so fall back to
-    // a plain-text scan — every number stays scrubbable in rondo. Gated on the
-    // grammar, NOT on numbers.length: a JS doc whose only digits sit inside
-    // mini-notation strings must keep them non-scrubbable as before.
-    if (numbers.length === 0 && tree.type.name !== 'Script') numbers = scanNumbersText(doc)
-    return numbers.find((n) => pos >= n.from && pos <= n.to) ?? null
+    return pos === null ? null : scrubLitAt(view.state, pos)
   }
 
   let active: ActiveScrub | null = null
@@ -344,6 +375,13 @@ export function scrubExtension(hooks: { requestEval: (immediate: boolean) => voi
         }
       }
 
+      /* Takes the tree AS IT IS, deliberately, where `scrubLitAt` forces one.
+       * Decorations are drawn for the whole document but only ever seen in the
+       * viewport, and CodeMirror parses the viewport first: measured in a
+       * browser, a number 3392 characters in was underlined within 400ms of
+       * load, past the 3007 a bare state stops at. Forcing a full parse on
+       * every rebuild would buy underlines nobody can look at, on every
+       * keystroke. */
       private build(view: EditorView): DecorationSet {
         const doc = view.state.doc.toString()
         const tree = syntaxTree(view.state)

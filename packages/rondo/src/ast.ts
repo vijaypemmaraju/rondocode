@@ -25,6 +25,15 @@ export type Expr =
   | { t: 'enum'; name: string; pos: Pos }
   /** `x -> lo..hi` — map a unipolar signal into a range (codegen → .range). */
   | { t: 'map'; x: Expr; lo: Expr; hi: Expr; pos: Pos }
+  /** `sum k 1..16` — the body summed once per value of `k`.
+   *
+   *  An additive voice is N copies of one line with the numbers moving: a
+   *  piano's partials, a drawbar organ, a tap chain. Writing them out is the
+   *  only way rondo had, and sixteen near-identical lines is not a language
+   *  being terse. The body is an ordinary spine with ordinary bindings, and
+   *  `k` is in scope for both — which matters because bindings are how rondo
+   *  writes what other languages need parentheses for. */
+  | { t: 'sum'; index: string; lo: number; hi: number; bindings: Binding[]; body: Expr; pos: Pos }
   /** a live control declared on a binding: `knob DEF lo..hi curve`. */
   | { t: 'knob'; def: Expr; lo: Expr; hi: Expr; curve?: string; pos: Pos }
   /** A SWITCH: a knob with two fixed values instead of a range. `a` is the
@@ -64,7 +73,14 @@ export interface SynthBlock {
 export type CtrlValue =
   | { kind: 'num'; v: number }
   | { kind: 'sig'; sig: string; lo?: number; hi?: number; slow?: number; fast?: number }
-  | { kind: 'mini'; text: string }
+  | {
+      kind: 'mini'
+      text: string
+      /** Absolute offset of `text` in the source. Present so a modifier line
+       *  can FLASH: the rule is that anywhere mini-notation is supported it
+       *  lights up, and without an offset the editor has no span to light. */
+      from?: number
+    }
 
 /** A combinator applied to a pattern (a bare line, or the body of `every N:`). */
 export interface Comb {
@@ -94,14 +110,26 @@ export interface PlayBlock {
   notation: string
   /** absolute char offset of `notation` in the source (for note-play flash). */
   notationFrom: number
+  /** Set when the notation was ASSEMBLED from patdefs rather than written
+   *  here: the text exists nowhere in the buffer as one run, so each chunk
+   *  maps back to wherever it came from. Note-flash needs this or it
+   *  highlights the reference with the expansion (see compile.ts NoteSpan). */
+  notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]
+  /** Reference spans: a stretch of the assembled notation, and the WORD in the
+   *  buffer that stands for it. A note inside `tail` lights the word `tail`
+   *  where it is written, not only the definition it expands to. */
+  notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[]
   /** additional stacked voice lines (multi-line play block → stack(...)).
    *  A voice may name its OWN synth with a trailing `synth:NAME`, which is
    *  what makes a layered drum pattern sayable: layers otherwise share the
    *  block's synth, which is right for a hand-built chord and wrong when
    *  each layer is a different instrument. */
-  voices?: { notation: string; notationFrom: number; synthName?: string }[]
-  /** short scale name from `scale:a-min`, if present (e.g. "a-min"). */
+  voices?: { notation: string; notationFrom: number; synthName?: string; notationPieces?: { assembledStart: number; sourceStart: number; length: number }[]; notationRefs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[] }[]
+  /** short scale name from `scale:a-min`, if present (e.g. "a-min"), or a
+   *  mini PATTERN of them (`<c-maj f-min>`) when the key modulates. */
   scale?: string
+  /** absolute offset of the scale VALUE, so a patterned one can flash. */
+  scaleFrom?: number
   /** modifier lines under the notation, applied in order. */
   mods: Mod[]
   pos: Pos
@@ -116,6 +144,18 @@ export interface CpsItem {
   /** the number as written, in `unit` (NOT normalized to cps). */
   value: number
   unit: 'cps' | 'bpm'
+  pos: Pos
+}
+
+/** `level -4` — the project's overall output level in dB. The one line that
+ *  scales every part equally, so it moves the level without touching the
+ *  balance. Reach for it when a bounce says it was normalized: above the
+ *  render's peak ceiling the whole mix gets scaled back down, which makes
+ *  per-part gains inert, and only a uniform trim brings it back under. */
+export interface LevelItem {
+  t: 'level'
+  /** decibels as written; 0 is unity, negative is quieter. */
+  db: number
   pos: Pos
 }
 
@@ -137,7 +177,7 @@ export interface RawItem {
   pos: Pos
 }
 
-/** `sidechain kick depth:.7 release:.09 lead:.5 …` — named args other than
+/** `sidechain kick depth:.7 release:90 lead:.5 …` — named args other than
  *  depth/release are per-channel duck amounts. */
 export interface SidechainItem {
   t: 'sidechain'
@@ -153,6 +193,14 @@ export interface SidechainItem {
  *  made "one knob, everything" untrue for the most obvious thing to want to
  *  switch off. */
 export type ScValue = number | { macro: string }
+
+/** `stereo width:1.3 monobelow:120` → stereo(opts). Mid/side on the master
+ *  bus: the one place it is expressible, since every kernel is mono. */
+export interface StereoItem {
+  t: 'stereo'
+  opts: Record<string, number>
+  pos: Pos
+}
 
 /** `master threshold:-6 ratio:2 …` → masterCompress(opts). */
 export interface MasterItem {
@@ -181,6 +229,29 @@ export interface ScaleDefItem {
   pos: Pos
 }
 
+/** `patdef NAME <notation>` — name a pattern so it is written once.
+ *
+ *  The gap this fills, measured on a real 472-line arrangement: 16% of the
+ *  file was a repeat of a line already in it, one 333-character riff four
+ *  times over. Editing that riff meant finding every copy, and missing one
+ *  let two sections drift apart with nothing to say so.
+ *
+ *  Deliberately the same shape as `macro` / `curvedef` / `scaledef` /
+ *  `wavedef`: the language already names numbers, curves, scales and
+ *  wavetables, and a pattern was the one thing it could not name. */
+export interface PatDefItem {
+  t: 'patdef'
+  name: string
+  /** the notation, verbatim — substituted where the name is used. */
+  notation: string
+  /** buffer offset of the NOTATION (not the line). Substitution moves a
+   *  play block's notation here, and note-flash highlights the text at the
+   *  offset it is told — so without this it lit the reference, which is five
+   *  characters long, with a figure that is ninety. */
+  notationFrom: number
+  pos: Pos
+}
+
 /** `wavedef NAME p1 p2 / p1 p2 p3 …` — register a custom wavetable:
  *  '/'-separated FRAMES of harmonic partial amplitudes (frames[f][i] =
  *  harmonic i+1) → defineWavetable(NAME, [[…], […]]). */
@@ -188,6 +259,28 @@ export interface WaveDefItem {
   t: 'wavedef'
   name: string
   frames: number[][]
+  pos: Pos
+}
+
+/** One row of a `zonedef`: a key range, the sample that answers it, and the
+ *  note that sample was recorded at. */
+export interface ZoneRow {
+  lo: number
+  hi: number
+  name: string
+  root: number
+}
+
+/** `zonedef NAME` + indented `lo..hi SAMPLE root:N` rows — a multisample
+ *  instrument. `sample NAME` in a synth then plays the zones.
+ *
+ *  A BLOCK rather than a `/`-separated line like `wavedef`: a wavedef row is
+ *  bare numbers, while a zone row carries a range, a name and a root, and four
+ *  of those on one line is unreadable on the phone this language is for. */
+export interface ZoneDefItem {
+  t: 'zonedef'
+  name: string
+  zones: ZoneRow[]
   pos: Pos
 }
 
@@ -216,6 +309,18 @@ export interface SectionBlock {
   name: string
   len: number
   plays: PlayBlock[]
+  /** Sections this one plays ON TOP OF (`section main 8 with drums`).
+   *
+   *  Measured on a real arrangement: `intro2` repeated 4 of its 8 parts
+   *  verbatim from `intro`, and `main` repeated 2 of 4 from `build`. A
+   *  section that is "that one plus these" had to be written out in full,
+   *  because `song` can only put sections in a ROW — nothing could put one
+   *  on top of another.
+   *
+   *  This is both of the things that were missing at once: layering (a
+   *  section that is only drums, stacked under several others) and variation
+   *  (a section that is another plus two more parts). */
+  with?: string[]
   pos: Pos
 }
 
@@ -276,8 +381,9 @@ export interface CurveDefItem {
 
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
-  | SidechainItem | MasterItem | BusBlock | VisualItem
-  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | MacroItem | CurveDefItem
+  | SidechainItem | MasterItem
+  | StereoItem | LevelItem | PatDefItem | BusBlock | VisualItem
+  | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | ZoneDefItem | MacroItem | CurveDefItem
 
 export interface Program {
   items: TopItem[]

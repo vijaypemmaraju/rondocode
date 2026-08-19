@@ -191,6 +191,7 @@ p('bassline',
 )
 
 setCps(0.5)
+masterGain(-1.4)
 `
 
 const edm = `// EDM, progressive house. A classic emotional chord progression
@@ -323,9 +324,9 @@ p('stab',
 
 // THE PUMP: every kick ducks all the other channels ~70% and lets them swell
 // back over 180ms, the smooth sidechain that defines progressive house.
-sidechain('kick', { depth: 0.7, release: 0.18 })
+sidechain('kick', { depth: 0.7, release: 180 })
 // glue the whole mix with a gentle master compressor (the last thing in chain)
-masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 0.4 })
 
 setCps(0.52) // ~125 bpm
 `
@@ -422,7 +423,7 @@ p('kick', note('c1*4').sound('kick').gain(slider(0.75, 0, 1)))
 // strong pump, the arp and pad breathe hard on every kick (drag the depth)
 // per-channel duck: the arp pumps HARD (1.0), the pad only breathes (0.4),
 // the bass sits between, a real mix move, not one global depth
-sidechain('kick', { depth: slider(0.85, 0, 1), release: 0.22, duck: { arp: 1, pad: 0.4, bass: 0.7 } })
+sidechain('kick', { depth: slider(0.85, 0, 1), release: 220, duck: { arp: 1, pad: 0.4, bass: 0.7 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 }) // master glue
 
 setCps(0.5)
@@ -513,7 +514,7 @@ const drop = stack(
 )
 
 p('track', arrange([4, intro], [4, build], [8, drop]))
-sidechain('kick', { depth: 0.6, release: 0.18 })
+sidechain('kick', { depth: 0.6, release: 180 })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 }) // master glue
 setCps(0.52)
 `
@@ -526,10 +527,13 @@ const sampler = `// SAMPLER, play loaded audio samples, not just oscillators.
 
 // A pitched vocal chop. root:57 = A3 (the sample's natural pitch), so the
 // pattern's notes transpose it melodically. Shape + space it like any synth.
-const vox = synth(({ note, gate, adsr, sample, svf, reverb }) => {
+const vox = synth(({ note, gate, adsr, sample, svf }) => {
   const env = adsr(gate, { a: 0.01, d: 0.3, s: 0.7, r: 0.35 })
-  const v = svf(sample(gate, 'vox', { root: 57 }), 4200).mul(env).mul(0.9)
-  return v.mix(reverb(v, { roomSize: 0.88, damp: 0.4 }), 0.32)
+  return svf(sample(gate, 'vox', { root: 57 }), 4200).mul(env).mul(0.9)
+}, ({ input, reverb }) => {
+  // the space is SHARED: a reverb in the voice would be rebuilt per note, and
+  // its tail cut off whenever that voice was stolen. Same sound, less work.
+  return input.mix(reverb(input, { roomSize: 0.88, damp: 0.4 }), 0.32)
 })
 // A one-shot noise riser for the build (plays through, gated by its long env).
 const riser = synth(({ gate, adsr, sample }) =>
@@ -554,16 +558,20 @@ setCps(0.5)
 // Granular, an ambient grain cloud over the built-in 'pad' sample.
 const granular = `// GRANULAR done DREAMY, smooth harmonic source, big overlapping grains, almost
 // no spray, a consonant chord = an ambient wash instead of a horror choir.
-const cloud = synth(({ note, gate, adsr, granular, lfo, reverb, chorus }) => {
+const cloud = synth(({ note, gate, adsr, granular, lfo, chorus }) => {
   const env = adsr(gate, { a: 1.2, d: 1, s: 0.9, r: 2.2 })
   const g = granular(gate, 'pad', {
     root: 57,                          // pad tone is A3
     pos: lfo(0.03).range(0.2, 0.6),    // gentle drift
     size: 0.22, density: 70, spray: 0.004,   // big + dense + tight = smooth
   })
-  const w = chorus(g.mul(env).mul(1.25), { rate: 0.3, depth: 0.005, mix: 0.4 })
-  return w.mix(reverb(w, { roomSize: 0.94, damp: 0.35 }), 0.5)
-}, undefined, { voices: 12 })
+  return chorus(g.mul(env).mul(1.25), { rate: 0.3, depth: 0.005, mix: 0.4 })
+}, ({ input, reverb }) => {
+  // ONE shared space. In the voice this was twelve reverbs (voices: 12), for
+  // an identical result -- reverb is linear, so reverbing the sum is the same
+  // as summing the reverbs.
+  return input.mix(reverb(input, { roomSize: 0.94, damp: 0.35 }), 0.5)
+}, { voices: 12 })
 
 // a lush progression: A - E - F#m - D (chord() voices these in octave 3,
 // exactly the notes hand-stacked before)
@@ -607,12 +615,14 @@ p('pad', prog.sound('pad').dur(0.95))
 p('bass', n('0 ~ 0 ~').overChord(prog).sub(12).sound('bass').dur(0.7))
 
 setCps(0.46)
+masterGain(-2.2)
 `
 
 const chordsArp = `// chords & arps, name chords instead of hand-stacking notes.
 // chord('<...>') expands each name to a STACK of notes (root octave 3);
 // .arp() spreads a chord's notes across its step. Qualities: maj m 7 maj7 m7
-// dim aug sus2 sus4 6 m6 add9 9 maj9 m9 11 13 m7b5, plus slash bass (C/E).
+// dim aug sus2 sus4 sus 6 m6 add9 9 maj9 m9 11 13 m7b5, added tones that keep
+// the third (2/add2, 4/add4, add11), plus slash bass (C/E).
 
 const keys = synth(({ note, gate, adsr, saw, svf, lfo }) => {
   const env = adsr(gate, { a: 0.008, d: 0.3, s: 0.5, r: 0.5 })
@@ -631,16 +641,21 @@ p('pad',
     .gain(0.4),
 )
 
-// the SAME chords, arpeggiated up-and-down (try 'up' 'down' 'converge')
+// the SAME chords, arpeggiated up-and-down (try 'up' 'down' 'converge').
+// .add(12) puts the arp an octave above the pad, and that is not decoration:
+// one synth playing the same PITCH twice reuses the same voice, so an arp
+// sharing the pad's notes cuts the pad short every time it comes round.
 p('arp',
   chord('<Dm7 G7 Cmaj7 Am7>')
     .arp('updown')
+    .add(12)
     .sound('keys')
     .dur(0.12)
     .gain(0.55),
 )
 
 setCps(0.42)
+masterGain(-0.9)
 `
 
 const visuals = `// VISUALS: write a WGSL fragment shader with visual(\`…\`) and it renders
@@ -687,6 +702,7 @@ fn render(uv: vec2f) -> vec4f {
   return vec4f(min(col, vec3f(1.0)), 1.0);
 }
 \`)
+masterGain(-7.3)
 `
 
 const techno = `// TECHNO: dark, hypnotic, driving. Punchy saturated kick, a deep sustained
@@ -740,7 +756,7 @@ const intro = stack(dKick, dHat, bSub)
 const full = stack(dKick, dClap, dHat, dOhat, bSub, mStab)
 const brk = stack(dHat, bSub, mStab)
 p('song', arrange([8, full], [4, brk], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.9, release: 0.2, duck: { sub: 0.95, stab: 0.6 } })
+sidechain('kick', { depth: 0.9, release: 200, duck: { sub: 0.95, stab: 0.6 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
 
 visual(\`
@@ -819,8 +835,8 @@ const intro = stack(mPad, bSub)
 const full = stack(dKick, dSnare, dHat, mPad, bSub, bWob)
 const half = stack(dKick, dSnare, mPad, bSub)
 p('song', arrange([8, full], [4, half], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.75, release: 0.16, duck: { sub: 1, wob: 0.55, pad: 0.8 } })
-masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
+sidechain('kick', { depth: 0.75, release: 160, duck: { sub: 1, wob: 0.55, pad: 0.8 } })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: -3.4 })
 
 visual(\`
 fn render(uv: vec2f) -> vec4f {
@@ -913,8 +929,8 @@ const intro = stack(mPad, bSub)
 const build = stack(dKick, dHat, bSub, bBass, mPad)
 const full = stack(dKick, dClap, dHat, bSub, bBass, mPad, mLead)
 p('song', arrange([8, full], [4, build], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.9, release: 0.16, duck: { sub: 0.95, pad: 1, bass: 0.55, lead: 0.45 } })
-masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
+sidechain('kick', { depth: 0.9, release: 160, duck: { sub: 0.95, pad: 1, bass: 0.55, lead: 0.45 } })
+masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 0.3 })
 
 visual(\`
 fn render(uv: vec2f) -> vec4f {
@@ -986,7 +1002,7 @@ const mChords = chord('<Amaj9 E A6 F#m>').sound('chords')
 const intro = stack(mChords, bSub)
 const full = stack(dKick, dSnare, dHat, bSub, mChords)
 p('song', arrange([8, full], [4, intro], [8, full], [4, intro]))
-sidechain('kick', { depth: 0.92, release: 0.24, duck: { chords: 1, sub: 1 } })
+sidechain('kick', { depth: 0.92, release: 240, duck: { chords: 1, sub: 1 } })
 masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })
 
 visual(\`
@@ -1043,6 +1059,7 @@ p('bass', note('<c2 a1 f2 g2>').sound('bass'))
 p('keys', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('ep').dur(0.9).gain(0.9))
 p('brass', chord('<Cmaj7 Am7 Fmaj7 G7>').sound('brass').dur(0.9).gain(0.5))
 p('bells', note('<c6 e6 g6 b6>').sound('bell').gain(0.4))
+masterGain(-7.9)
 `
 
 const chiptune = `// CHIPTUNE: NES-style. Two pulse voices, a bitcrushed 4-bit triangle bass,
@@ -1073,6 +1090,7 @@ p('harm', note('<g4 e4 c4 d4>').sound('harm').gain(0.8))
 p('bass', note('<c2 a1 f1 g1>').sound('bass'))
 p('hats', note('c5*8').sound('hat'))
 p('snare', note('~ c4 ~ c4').sound('snare'))
+masterGain(-4.3)
 `
 
 const singing = `// SINGING — a neural voice sings your lyrics over drums, bass and keys.
@@ -1128,6 +1146,7 @@ p('vox', sing('barbara',
    c4 c4 g4 g4 a4 a4 g4@2 f4 f4 e4 e4 d4 d4 c4@2\`,
   { name: 'vox', post: ({ input, reverb, mix }) => mix(input, reverb(input), 0.25) })
   .gain(0.95)) // (.late()/.early() are free for feel — timing is on-beat already)
+masterGain(-1.7)
 `
 
 /** Locally-added examples from the gitignored `./local/` directory — each file
@@ -1258,7 +1277,7 @@ bus space
   reverb room:.9 damp:.35
   send stab .3
 
-sidechain kick depth:.8 release:.15 sub:.95 stab:.6
+sidechain kick depth:.8 release:150 sub:.95 stab:.6
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -1328,9 +1347,9 @@ play bass
   dur: .6
   gain: .75
 
-sidechain kick depth:.6 release:.12 bass:.9
+sidechain kick depth:.6 release:120 bass:.9
 
-master threshold:-7 ratio:2 makeup:1
+master threshold:-7 ratio:2 makeup:-4.2
 
 cps .58
 `
@@ -1421,6 +1440,7 @@ sing vox voice:barbara
   gain: .95
   post
     reverb mix:.25
+level -1.7
 `
 
 /** Polyrhythm showcase: euclidean rhythms + polymeter, pure rondo. */
@@ -1496,9 +1516,9 @@ play arp
   dur: .5
   gain: .7
 
-sidechain kick depth:.5 release:.12 bass:.9 arp:.7
+sidechain kick depth:.5 release:120 bass:.9 arp:.7
 
-master threshold:-7 ratio:2 makeup:1
+master threshold:-7 ratio:2 makeup:0
 
 cps .5
 `
@@ -1540,9 +1560,10 @@ synth cloud voices:12
   * env
   * 1.25
   chorus rate:.3 depth:.005 mix:.4
-  reverb room:.94 damp:.35 mix:.5
   drift = lfo .03 -> .2..0.6
   env = adsr 1.2 1 .9 2.2
+  post
+    reverb room:.94 damp:.35 mix:.5
 
 play cloud
   <A E F#m D>
@@ -1603,13 +1624,17 @@ play pad synth:keys
   dur: .95
   gain: .4
 
+# +12 keeps the arp off the pad's own pitches: same pitch on one synth means
+# the same voice, so an arp in unison would cut the pad short
 play arp synth:keys
   <Dm7 G7 Cmaj7 Am7>
   arp updown
+  add 12
   dur: .12
   gain: .55
 
 cps .42
+level -0.9
 `
 
 
@@ -1711,6 +1736,7 @@ play snare
   ~ c4 ~ c4
 
 cps .5
+level -4.3
 `
 
 const samplerRondo = `# sampler. play loaded audio, not just
@@ -1723,8 +1749,9 @@ synth vox
   svf 4200
   * env
   * .9
-  reverb room:.88 damp:.4 mix:.32
   env = adsr .01 .3 .7 .35
+  post
+    reverb room:.88 damp:.4 mix:.32
 
 synth riser
   sample riser
@@ -1793,6 +1820,7 @@ play bassline synth:bass
   dur: .6
 
 cps .5
+level -1.4
 `
 
 
@@ -1857,6 +1885,7 @@ play bells synth:bell
   gain: .4
 
 cps .44
+level -7.9
 `
 
 const visualsRondo = `# visuals. a WGSL shader renders live
@@ -1911,6 +1940,7 @@ visual
   }
 
 cps .5
+level -7.3
 `
 
 const technoRondo = `# techno. dark and driving: saturated
@@ -2038,7 +2068,7 @@ section brk 4
 
 song full brk full intro
 
-sidechain kick depth:.9 release:.2 sub:.95 stab:.6
+sidechain kick depth:.9 release:200 sub:.95 stab:.6
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2198,9 +2228,9 @@ section half 4
 
 song full half full intro
 
-sidechain kick depth:.75 release:.16 sub:1 wob:.55 pad:.8
+sidechain kick depth:.75 release:160 sub:1 wob:.55 pad:.8
 
-master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+master threshold:-6 ratio:2 attack:25 release:150 makeup:-3.4
 
 visual
   fn render(uv: vec2f) -> vec4f {
@@ -2379,9 +2409,9 @@ section full 8
 
 song full build full intro
 
-sidechain kick depth:.9 release:.16 sub:.95 pad:1 bass:.55 lead:.45
+sidechain kick depth:.9 release:160 sub:.95 pad:1 bass:.55 lead:.45
 
-master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+master threshold:-6 ratio:2 attack:25 release:150 makeup:0.3
 
 visual
   fn render(uv: vec2f) -> vec4f {
@@ -2508,7 +2538,7 @@ section full 8
 
 song full intro full intro
 
-sidechain kick depth:.92 release:.24 chords:1 sub:1
+sidechain kick depth:.92 release:240 chords:1 sub:1
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2671,9 +2701,9 @@ play stab synth:pluck
   gain: .85
   dur: .16
 
-sidechain kick depth:.7 release:.18
+sidechain kick depth:.7 release:180
 
-master threshold:-6 ratio:2 attack:25 release:150 makeup:1
+master threshold:-6 ratio:2 attack:25 release:150 makeup:0.4
 
 cps .52
 `
@@ -2779,7 +2809,7 @@ play kick
   c1*4
   gain: .75
 
-sidechain kick depth:.85 release:.22 arp:1 pad:.4 bass:.7
+sidechain kick depth:.85 release:220 arp:1 pad:.4 bass:.7
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2955,7 +2985,7 @@ section drop 8
 
 song intro build drop
 
-sidechain kick depth:.6 release:.18
+sidechain kick depth:.6 release:180
 
 master threshold:-6 ratio:2 attack:25 release:150 makeup:1
 
@@ -2998,6 +3028,418 @@ play breath
   dur: 1
 
 cps .45
+`
+
+
+/** MOVING MODULATION: the three sweep effects with their own controls swept.
+ *  Only possible since chorus/phaser/flanger read rate/depth/feedback/mix per
+ *  sample — they were construction numbers, so an LFO on them did nothing. */
+const movingModRondo = `# MOVING MODULATION. the three sweep
+# effects, with the SWEEPS themselves
+# being swept.
+#
+# rate, depth, feedback and mix are
+# SIGNALS on chorus, phaser and flanger.
+# they used to be plain numbers read once
+# when the voice was built, so the three
+# effects most worth automating were the
+# three you could not automate at all.
+#
+# the RATE is the interesting one. a
+# flanger already sweeps - that is what it
+# is - so moving its depth only makes the
+# sweep deeper, while moving its rate
+# changes the CHARACTER of the sweep, from
+# a slow jet arc to a shimmer and back.
+#
+# keep the LFOs very slow. .05 hz is a
+# twenty-second cycle; much faster stops
+# reading as motion and starts reading as
+# a fault.
+#
+# the phaser's \`stages\` is deliberately
+# still a number - it sizes the allpass
+# chain, so changing it is a rebuild.
+
+synth pad
+  supersaw note detune:.22
+  svf 3200 res:.15
+  * adsr .4 .3 .8 .6
+  * .26
+  post
+    flanger rate:sweep depth:.8 feedback:.72 mix:.4
+    reverb room:.7 damp:.4 mix:.22
+    sweep = lfo .05 -> .06..1.4
+
+synth keys
+  (saw note) * .3
+  * adsr .01 .2 .6 .3
+  post
+    chorus rate:wobble depth:.004 mix:.5
+    wobble = lfo .07 -> .15..2.6
+
+synth stab
+  supersaw note detune:.3
+  * adsr .002 .18 0 .12
+  * .3
+  post
+    phaser rate:.4 depth:swell feedback:.55 stages:6 mix:.5
+    swell = lfo .09 -> .2..1
+
+play pad
+  <Cmaj9 Am9>/2
+  dur: .95
+
+play keys
+  0 ~ 4 ~ 7 ~ 4 ~
+  scale:c-maj
+  dur: .4
+
+play stab
+  ~ ~ <Cmaj9 Am9> ~
+  dur: .3
+
+cps .4
+`
+
+/** TAPE: the four things a machine does, with each one on its own control so
+ *  the difference between them is audible rather than asserted. */
+const tapeRondo = `# TAPE. four things, not one. shipping
+# only the saturator is why most attempts
+# at this sound like distortion instead of
+# like tape.
+#
+#   wow      slow pitch drift, under 2 Hz,
+#            from a capstan that is not
+#            quite round. THIS is the one
+#            that matters: an oscillator
+#            holds a pitch perfectly and
+#            nothing physical ever has
+#   flutter  the same thing ~10x faster.
+#            too quick to hear as pitch,
+#            so it reads as texture
+#   sat      rounds the peaks. it lifts
+#            quiet material toward the top
+#            rather than turning anything
+#            down, so a tape stage can
+#            make a bus LOUDER
+#   tone     takes the top off, and this
+#            is most of why a saturator
+#            alone sounds harsh where tape
+#            sounds warm
+#
+# each of wow and flutter is TWO
+# oscillators at unrelated rates - a single
+# one is a vibrato and sounds like one.
+#
+# set wow and flutter to 0 and the machine
+# turns into a wire. that is the A/B.
+
+synth keys
+  (saw note) * .4
+  svf cut res:.2
+  * env
+  env = adsr .02 .25 .6 .3
+  cut = env ^ 2 -> 700..3200
+  tape wow:.5 flutter:.3 sat:.35 tone:8500
+  post
+    width .6
+    reverb room:.6 damp:.45 mix:.24
+
+synth bass
+  (sine note) * .55
+  * adsr .005 .14 .7 .16
+  tape wow:.2 flutter:.15 sat:.45 tone:6000
+
+play keys
+  <Cmaj7 Am7 Dm7 G7>
+  dur: .95
+
+play bass
+  <c2 a1 d2 g1>
+  dur: .9
+
+cps .4
+`
+
+/** CONVOLUTION: the same voice through an algorithmic room and a measured one,
+ *  so the difference is the point rather than a claim. */
+const realRoomRondo = `# CONVOLUTION. an impulse response is what
+# a room does to a single click - and that
+# turns out to BE the room. convolving
+# with it reproduces the space completely
+# instead of approximating it.
+#
+# \`reverb\` is the other kind: a network of
+# delays tuned to sound like a room. it is
+# cheap and you can move \`room\` and \`damp\`
+# while it plays. a convolution can only
+# ever be the measurement you gave it.
+#
+# the IR is a SAMPLE, so anything you load
+# is a space. \`hall\` ships built in. try
+# convolving with \`break\` or \`vox\` - they
+# are not rooms at all, which is exactly
+# why it sounds like nothing else.
+#
+# A and B play the same chords. swap the
+# comment to compare.
+
+synth keys
+  (saw note) * .45
+  svf 2400 res:.15
+  * adsr .01 .25 .5 .35
+  post
+    convolve hall mix:.5
+
+synth keysB
+  (saw note) * .45
+  svf 2400 res:.15
+  * adsr .01 .25 .5 .35
+  post
+    reverb room:.85 damp:.35 mix:.5
+
+synth bass
+  (sine note) * .5
+  * adsr .005 .15 .7 .18
+
+play keys
+  <Cmaj7 Am7 Fmaj7 G>
+  dur: .95
+
+# play keysB
+#   <Cmaj7 Am7 Fmaj7 G>
+#   dur: .95
+
+play bass
+  <c2 a1 f1 g1>
+  dur: .95
+
+cps .4
+`
+
+/** HARMONISER: the shifted copy alongside the original. Only possible with
+ *  `pitchshift` — varispeed moves time with pitch, and granular is a cloud. */
+const harmoniserRondo = `# HARMONISER. a fixed interval above every
+# note, the way a hardware harmoniser
+# works - not a diatonic one. the fifth
+# stays in key here because the line is
+# built from scale degrees a fifth apart.
+#
+#   semitones  the interval. 7 = a fifth,
+#              4 = a major third, -12 = an
+#              octave down
+#   mix        .45 keeps the ORIGINAL
+#              underneath. at 1 you have
+#              just transposed the part
+#   window     the artefact, and it cannot
+#              be switched off: the read
+#              head has to wrap somewhere.
+#              short warbles, long smears
+#
+# at 0 semitones it returns the input
+# untouched, so it is safe to leave in a
+# chain while you audition it.
+
+synth lead
+  saw note
+  ladder cut res:.35
+  * env
+  * .3
+  pitchshift semitones:7 window:40 mix:.45
+  env = adsr .01 .12 .7 .2
+  cut = env ^ 2 -> 600..4200
+  post
+    width .7
+    reverb room:.55 damp:.4 mix:.22
+
+synth bass
+  (saw note) * .5
+  ladder 900 res:.2
+  * adsr .005 .12 .6 .12
+
+play lead
+  0 3 5 7 5 3 2 0
+  scale:a-min
+  dur: .85
+
+play bass
+  <a1 a1 f1 g1>
+  dur: .95
+
+cps .5
+`
+
+/** AUTO WAH: the microphone's LEVEL drives a filter. The example that only
+ *  became possible with `follow` — every other way of reacting to sound in
+ *  this engine reacts to note onsets, not to how loud anything actually is. */
+const autoWahRondo = `# AUTO WAH. run this and SING, CLAP or
+# PLAY into the mic. your LEVEL opens the
+# filter - the synth answers how loud you
+# are, not what note you make.
+#
+# this is the half \`sidechain\` cannot do.
+# sidechain ducks on note ONSETS, which is
+# why the pump survives muting the kick.
+# nothing in the engine reacted to actual
+# LEVEL until \`follow\`.
+#
+#   attack   how fast it opens (8 ms -
+#            fast enough to catch a clap)
+#   release  how fast it closes (160 ms -
+#            slow enough not to chatter
+#            between syllables)
+#   mode     rms averages POWER, which is
+#            steady; peak tracks crests,
+#            which is twitchy. a filter
+#            wants rms.
+#
+# HEADPHONES - or switch echo cancelling
+# on in options, which is already on if
+# you are on a phone.
+#
+# the mic asks permission on first run,
+# and renders SILENT in an offline export.
+
+synth wah
+  supersaw note detune:.25
+  ladder cut res:.55
+  * adsr .01 .12 .85 .25
+  * .35
+  amp = follow mic attack:8 release:160 mode:rms
+  cut = amp ^ .6 -> 350..6500
+  post
+    width .8
+    reverb room:.6 damp:.4 mix:.2
+
+play wah
+  <a1 f1 c2 g1>/2
+  dur: .95
+
+cps .5
+`
+
+/** MIC CHANNEL STRIP: the chain a stage puts in front of a voice, in order.
+ *  Distinct from 'live mic', which is a talkbox EFFECT — this one is the
+ *  boring, load-bearing thing that makes a microphone usable. Each node fixes
+ *  a problem the one above it cannot, which is why the order is the lesson. */
+const micStripRondo = `# MIC CHANNEL STRIP. run this and TALK
+# or SING. this is the chain a stage puts
+# in front of a voice, in the order it
+# goes - each line fixes one problem the
+# line above it cannot:
+#
+#   noisegate  the room, the bleed, the
+#              hiss between phrases
+#   eq         hp cuts rumble and plosive
+#              thump; the peak adds
+#              presence where words live
+#   deess      the "s" that the peak just
+#              made sharper
+#   compress   evens out how far you are
+#              from the mic
+#   limiter    a ceiling nothing crosses
+#
+# HEADPHONES - or switch echo cancelling
+# on in options, which is already on if
+# you are on a phone.
+#
+# the mic asks permission on first run,
+# and renders SILENT in an offline
+# export: record the session instead to
+# capture your voice.
+
+synth voice
+  mic
+  noisegate threshold:-42 range:-35 hold:60 release:120
+  eq hp 90 peak 3000 2 1.2
+  deess freq:6200 threshold:-28 ratio:5
+  compress threshold:-20 ratio:3 attack:8 release:120 makeup:6
+  post
+    reverb room:.5 damp:.4 mix:.14
+    limiter ceiling:-1 lookahead:5
+
+# ONE held note holds the channel open.
+# dur: .99 retriggers every cycle with no
+# gap and no click - there is no envelope
+# on the spine, so nothing re-attacks.
+play voice
+  c3
+  dur: .99
+
+cps .5
+`
+
+
+/** NOTE BENDS: per-note expression. The `'value` suffix belongs to the note it
+ *  is written on, so every note in one line can bend its own way through one
+ *  synth. The sign does the work: one shape, mirrored by a negative. */
+const noteBendsRondo = `# NOTE BENDS. every note carries its
+# OWN values, written on the note. a
+# bare number is the 'expr' lane and
+# the synth decides what it means -
+# here, a pitch bend:
+#
+#   '1   scoops UP into the note
+#   '0   plays it straight
+#   '-1  falls INTO it from above
+#   '.5  half a scoop (it morphs,
+#        it does not switch)
+#
+# NAMED lanes ride alongside it:
+#
+#   'gain:.8     that note's velocity
+#   'dur:.5     that note's length
+#   'chance:.6  the odds it plays
+#
+# a BLOCK modifier still wins over a
+# lane: this block sets dur: .9, so a
+# per-note 'len would be overridden.
+#
+# chance is reproducible, not random:
+# a note that fires on cycle 3 fires
+# on cycle 3 every time round.
+#
+# drag any of those numbers to hear it.
+
+synth lead
+  saw note*bend
+  ladder cut res:.35
+  * amp
+  amp = adsr .01 .12 .7 .18
+  cut = amp ^ 2 -> 500..4200
+
+  # the note's own value, and ONE shape
+  # it signs: negative mirrors the curve
+  expr = knob 0 -1..1
+  shape = env .07 .06 .2 0 .3 0
+  bend = shape * expr + 1
+
+# two notation lines in ONE block are
+# LAYERS. two play-lead blocks would
+# not be: both register under the same
+# name and the second would replace the
+# first.
+#
+# the second line is the argument for
+# the syntax: two opposite values inside
+# ONE subgroup step, which is exactly
+# where a parallel control lane loses
+# track of which note it means.
+play lead
+  0'1 3'0 5'-1 7'0 9'1 7'-.5 5'0 3'1
+  ~ ~ ~ ~ [12'1 11'-1] ~ ~ ~
+# velocity, length and probability, on
+# the notes that carry them. the two
+# 'chance notes come and go; the rest
+# are always there. (another LINE, not
+# another block - two play-lead blocks
+# would replace each other.)
+  ~ 0'gain:.5 ~ 7'gain:.3'chance:.5
+  scale: a-min
+  dur: .9
+
+cps .5
 `
 
 
@@ -3159,9 +3601,9 @@ play pad
   dur: 1.9
   gain: .22
 
-sidechain kick depth:.7 release:.14 sub:.9 pad:.5
+sidechain kick depth:.7 release:140 sub:.9 pad:.5
 
-master threshold:-7 ratio:2 attack:25 release:150 makeup:1
+master threshold:-7 ratio:2 attack:25 release:150 makeup:-0.4
 
 bpm 126
 `
@@ -3220,6 +3662,7 @@ play bass
   dur: .7
 
 cps .46
+level -2.2
 `
 
 const waltzRondo = `# A WALTZ, IN 3/4. A cycle is one BAR, and timesig is how long a bar is:
@@ -3284,7 +3727,7 @@ play lead
   dur: .5
   gain: .6
 
-master threshold:-8 ratio:2 attack:25 release:150 makeup:1
+master threshold:-8 ratio:2 attack:25 release:150 makeup:-2.3
 `
 
 /** Compile a rondo example to its rondocode twin at module load — ONE source
@@ -3296,6 +3739,168 @@ const fromRondo = (src: string): string => {
 }
 
 /** The shipped examples (stable, committed). */
+
+const reverseCymbalRondo = `# REVERSE CYMBAL. Three ways to make a sound run backwards into a hit.
+#
+# There is no reverse operator on a synth voice, and none is needed. What
+# reads as "reversed" is two things at once: amplitude and brightness RISING
+# across bars, and then an instant CUT on the landing instead of a fade. In an
+# envelope that is a long ATTACK and a near-zero RELEASE.
+#
+# The release is the whole trick. r 1.5 fades past the downbeat and reads as
+# nothing; r .006 slams shut on it and reads as reverse.
+#
+# And dur MULTIPLIES the note's whole, it is not a bar count. slow 4 already
+# makes a 4-bar note, so dur: 1 is what ends the gate on the landing. dur: 4
+# there would hold the gate for SIXTEEN bars and the riser would never cut.
+
+# 1. THE CLASSIC. Noise, with the filter climbing faster than the level (^2),
+# so it gets bright before it gets loud.
+synth revnoise
+  noise
+  svf cut res:.55
+  * env
+  * .45
+  cut = curve -> 300..13000
+  curve = adsr 6.4 .1 1 .006 ^ 2
+  env = adsr 6.4 .1 1 .006
+  post
+    reverb room:.8 damp:.35 mix:.28
+
+# 2. TONAL. Saws bending up a fourth over the four bars. The pitch rise is
+# what makes this one feel like tape running backwards rather than a swoosh.
+synth revtone
+  saw pitch
+  + saw pitch * 1.007
+  + saw pitch * .5
+  svf cut res:.35
+  * env
+  * .23
+  pitch = bend -> 150..200
+  bend = adsr 6.4 .1 1 .006 ^ 1.3
+  cut = env -> 500..7000
+  env = adsr 6.4 .1 1 .006
+  post
+    reverb room:.85 damp:.3 mix:.34
+
+# 3. NOT AN ENVELOPE AT ALL. A roll that doubles in density every bar reads as
+# reverse for a completely different reason: the ACCELERATION is the ramp.
+# Stack it with either of the above and it does most of the work.
+synth roll
+  noise
+  svf 3800 res:.35
+  * env
+  * .3
+  tanh
+  env = adsr .001 .05 0 .03
+
+# The landing. A crash whose tail runs on into the next section, a kick, and a
+# stab so the arrival is a chord and not just a thump.
+synth crash
+  noise
+  svf 7800 res:.12 mode:hp
+  * shimmer
+  + noise * splash * .5
+  tanh
+  * .36
+  shimmer = adsr .002 2.6 0 2.2
+  splash = adsr .001 .06 0 .04
+
+synth kick
+  sine drop
+  * amp
+  tanh
+  * .7
+  drop = adsr .001 .09 0 .04 ^ 2 -> 46..185
+  amp = adsr .001 .2 0 .06
+
+synth snare
+  noise
+  svf 2400 res:.3
+  + sine 185 * body
+  * amp
+  tanh
+  * .39
+  body = adsr .001 .07 0 .03
+  amp = adsr .001 .14 0 .06
+
+synth sub
+  sine note
+  * env
+  tanh
+  * .62
+  env = adsr .005 .18 .85 .07
+
+synth stab
+  saw note
+  + saw note * 1.006
+  + saw note/2 * .6
+  svf cut res:.3
+  * env
+  * .2
+  cut = env -> 700..5200 ^ 1.5
+  env = adsr .004 .5 .25 .35
+  post
+    reverb room:.7 damp:.4 mix:.2
+
+section rise 4
+
+  play revnoise
+    c3
+    slow 4
+    dur: 1
+    gain: .9
+
+  play revtone
+    c3
+    slow 4
+    dur: 1
+    gain: .75
+
+  # doubling every bar: 2, 4, 8, 16 in the last
+  beat rolls
+    <roll*2 roll*4 roll*8 roll*16>
+
+  # on the LAST bar, so it is already decaying when the landing arrives and
+  # its tail carries across the section line on its own
+  play crash
+    <~ ~ ~ c3>
+    dur: 1
+    gain: .85
+
+section land 4
+
+  beat pulse
+    kick ~ snare ~ ~ kick snare ~
+
+  play sub
+    <[0 ~ ~ ~ 0 ~ ~ ~] [0 ~ ~ 0 ~ ~ 0 ~]>
+    scale: a-min
+    sub 24
+    dur: .45
+    gain: 1
+
+  play stab
+    <[0 ~ ~ ~] [~ ~ 4 ~] [2 ~ ~ ~] [~ 4 ~ ~]>
+    scale: a-min
+    dur: .9
+    gain: .9
+
+  # g3, not c3: a retrigger of the SAME note steals its own voice, so this
+  # would cut the crash still ringing from the rise. Noise ignores pitch.
+  play crash
+    <g3 ~ ~ ~>
+    dur: 1
+    gain: .7
+
+song rise land
+
+sidechain kick depth:.5 release:120 stab:.9 sub:1
+
+master threshold:-9 ratio:2 attack:20 release:150 makeup:1
+
+bpm 150
+`
 
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
@@ -3325,10 +3930,18 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'drum machine', code: fromRondo(drumMachineRondo), rondo: drumMachineRondo },
   { name: 'polyrhythm', code: fromRondo(polyrhythmRondo), rondo: polyrhythmRondo },
   { name: 'live mic', code: fromRondo(liveMicRondo), rondo: liveMicRondo },
+  { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
+  { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
+  { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
+  { name: 'real room', code: fromRondo(realRoomRondo), rondo: realRoomRondo },
+  { name: 'tape', code: fromRondo(tapeRondo), rondo: tapeRondo },
+  { name: 'moving modulation', code: fromRondo(movingModRondo), rondo: movingModRondo },
+  { name: 'note bends', code: fromRondo(noteBendsRondo), rondo: noteBendsRondo },
   { name: 'wavetable lead', code: fromRondo(waveleadRondo), rondo: waveleadRondo },
   { name: 'chop', code: fromRondo(chopRondo), rondo: chopRondo },
   { name: 'macros', code: fromRondo(macrosRondo), rondo: macrosRondo },
   { name: 'waltz', code: fromRondo(waltzRondo), rondo: waltzRondo },
+  { name: 'reverse cymbal', code: fromRondo(reverseCymbalRondo), rondo: reverseCymbalRondo },
 ]
 
 /** Shipped examples + any local (gitignored) ones. This is what the app loads. */

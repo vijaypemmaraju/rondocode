@@ -18,6 +18,8 @@ import { overlayClosed, overlayOpened } from '../ui/overlays'
 import { tooltip } from '../ui/tooltip'
 import { EXAMPLES } from '../examples'
 import { MemoryDb, ProjectStore, findProjectNamed } from '../session/projects'
+import { mountSamplePersistence } from './samplestore'
+import { workspaceSampleStore } from './worksamples'
 import type { Project } from '../session/projects'
 import { openIdb } from '../session/idb'
 import { decodeShare, encodeShare, readShareHash, sharePayloadFor, shareUrl } from '../session/share'
@@ -53,14 +55,24 @@ const writeDocOwner = (id: string): void => {
 
 /** The name a conflicted tab forks under.
  *
- *  Numbered rather than suffixed again, because the suffix used to compound:
- *  a project that forked three times became "language (this tab) (this tab)
- *  (this tab)", which is both ugly and useless for telling the copies apart.
- *  Pure, so the naming is testable without a database. */
+ *  "(copy)", NOT "(this tab)". A name lives in the project list forever and
+ *  is read from every tab, where "this tab" is not true of anything: the
+ *  copy was made by whichever tab lost the race, is opened later from tabs
+ *  that had nothing to do with it, and outlives every tab involved. It read
+ *  as the app describing itself rather than the file.
+ *
+ *  Numbered rather than suffixed again, because the suffix compounds: a
+ *  project that forked three times became "language (copy) (copy) (copy)",
+ *  which is both ugly and useless for telling the copies apart.
+ *
+ *  It also still absorbs the OLD spelling, so a project already carrying
+ *  "(this tab)" from a previous version numbers up instead of growing a
+ *  second, different suffix. Pure, so the naming is testable without a
+ *  database. */
 export function forkName(base: string): string {
-  const m = /^(.*?) \(this tab(?: (\d+))?\)$/.exec(base)
-  if (m === null) return `${base} (this tab)`
-  return `${m[1]} (this tab ${m[2] === undefined ? 2 : Number(m[2]) + 1})`
+  const m = /^(.*?) \((?:copy|this tab)(?: (\d+))?\)$/.exec(base)
+  if (m === null) return `${base} (copy)`
+  return `${m[1]} (copy ${m[2] === undefined ? 2 : Number(m[2]) + 1})`
 }
 
 /** May the shared buffer be reconciled into `projectId`?
@@ -154,6 +166,11 @@ const ago = (t: number, now: number): string => {
 
 export interface LibraryHandle {
   dispose(): void
+  /** The project store this library opened. Exposed so the synth shelf can
+   *  hold SNIPPETS in it — the library is what decides whether that is
+   *  IndexedDB or the in-memory fallback, and a second opener would be a
+   *  second answer to that question. */
+  store: ProjectStore
   /** The "new" button's path, exposed for the onboarding flow: create a
    *  project and switch the editor to it. The current project is saved and
    *  kept, never clobbered. */
@@ -218,6 +235,31 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   setActiveId(activeId)
   writeDocOwner(activeId)
 
+  // A project's samples are part of the project. Without this the takes a user
+  // resamples, records or drops in live only as long as the tab does, and a
+  // saved `sample(gate, 'take1')` renders silence the next morning.
+  // With a workspace the FILE is the project, so its samples belong beside it
+  // on disk (worksamples.ts) rather than in IndexedDB — a database next to a
+  // file the user copies, commits and hands over would be lost by all three.
+  // Same interface either way, so the persistence layer never branches.
+  const samples = mountSamplePersistence({
+    audio: editor.audio,
+    store: hasWorkspace() ? workspaceSampleStore() : store,
+    onError: (m) => console.warn(`[library] ${m}`),
+  })
+  /** Point the sample layer at the current project. The KEY differs by mode:
+   *  an IndexedDB row id in the browser, the file's PATH in a workspace. In a
+   *  workspace with nothing open yet there is no key at all, and activating on
+   *  the IndexedDB id would have the workspace store resolving a uuid as a
+   *  file path — inventing folders next to nothing. */
+  const activateSamples = (): void => {
+    if (!hasWorkspace()) {
+      void samples.activate(activeId)
+      return
+    }
+    if (openPath !== null) void samples.activate(openPath)
+  }
+
   // Pending debounced autosave (see the autosave wiring below), captured with
   // the project id it belongs to. flushSave() writes it immediately — called
   // before every project switch and on dispose so no edit is lost or misfiled.
@@ -245,14 +287,21 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     if (r.kind === 'saved' || r.kind === 'unchanged') { baseVersion = r.updatedAt; return }
     if (r.kind === 'gone') return // deleted in another tab: nothing to write to
     const forked = await store.createProject(forkName(r.theirs.name), code, r.theirs.lang)
+    // SAY SO. This moves the user's work to a DIFFERENT project, and until now
+    // the only trace was a console.warn — so the project name changed under
+    // them with no explanation anywhere they were looking. Losing nothing is
+    // only half the job; the other half is knowing it happened.
     activeId = forked.id
     baseVersion = forked.updatedAt
     setActiveId(activeId)
     writeDocOwner(activeId)
+    // the fork is a different project, so its samples are its own from here
+    activateSamples()
     if (pendingSave !== undefined) pendingSave = { id: forked.id, code: pendingSave.code }
     // the list is declared below; autosave only ever runs after mount
     await render()
-    console.warn(`[library] '${r.theirs.name}' changed in another tab — this tab's edits are now '${forked.name}'`)
+    notice(`'${r.theirs.name}' was changed in another tab, so your edits here are now '${forked.name}'. Both are in the project list.`)
+    console.warn(`[library] '${r.theirs.name}' changed in another tab — these edits are now '${forked.name}'`)
   }
   const flushSave = (): void => {
     clearTimeout(saveTimer)
@@ -273,6 +322,24 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   }
 
   // ---- top-bar control -------------------------------------------------------
+  /* A line the user actually sees, for the one thing here that happens TO
+   * them rather than because of them. Dismissable, and it stays until it is
+   * dismissed: a fork that scrolls past in three seconds is the same as no
+   * notice at all. */
+  const noticeBar = el('div', 'lib-notice hidden')
+  noticeBar.setAttribute('role', 'status')
+  const noticeText = el('span', 'lib-notice-text')
+  const noticeClose = el('button', 'lib-notice-close', '\u00d7')
+  noticeClose.type = 'button'
+  noticeClose.setAttribute('aria-label', 'dismiss')
+  noticeClose.addEventListener('click', () => noticeBar.classList.add('hidden'))
+  noticeBar.append(noticeText, noticeClose)
+  document.body.append(noticeBar)
+  const notice = (msg: string): void => {
+    noticeText.textContent = msg
+    noticeBar.classList.remove('hidden')
+  }
+
   const projectBtn = el('button', 'btn project-btn')
   projectBtn.type = 'button'
   projectBtn.setAttribute('aria-expanded', 'false')
@@ -332,6 +399,14 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     flushSave()
     activeId = p.id
     active = p
+    // …AND the version to compare-and-set against. Left on the OUTGOING
+    // project's updatedAt, the first autosave here mismatched and was reported
+    // as a foreign write: "changed in another tab" plus a fork, on a project
+    // nobody else had touched. Opening an example hit it every time.
+    baseVersion = p.updatedAt
+    // the outgoing project's samples leave the bank with it, and this one's
+    // load in — a take belongs to the tune it was made for
+    activateSamples()
     // An IndexedDB project is not the file that was open: drop the path FIRST,
     // or the next autosave writes this project's code into that file, and the
     // language toggle below re-extensions it. (openFile sets its own path.)
@@ -364,6 +439,9 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     const openFile = async (path: string): Promise<void> => {
       const f = await openProjectPath(path)
       openPath = f.path
+      // a workspace project is identified by its PATH: that is the key its
+      // samples are filed under, and the previous file's leave the bank here
+      activateSamples()
       editor.setLang(f.lang)
       editor.loadCode(f.code)
       setLabel(f.name)
@@ -454,6 +532,10 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
   /** Path of the workspace file currently open, or null. The single piece of
    *  state the file-backed library needs: everything else lives on disk. */
   let openPath: string | null = null
+  // Boot: in the browser this loads the active project's samples now. In a
+  // workspace it is a no-op until a file is opened, because until then there
+  // is no project to key them to.
+  activateSamples()
 
   const render = async (): Promise<void> => {
     projects = await store.listProjects()
@@ -902,12 +984,15 @@ export async function mountLibrary(editor: EditorHandle): Promise<LibraryHandle>
     offEval()
     offLang()
     flushSave() // persist any debounced edit before tearing down
+    samples.dispose()
+    noticeBar.remove()
     document.removeEventListener('keydown', onKey)
     backdrop.remove()
     projectBtn.remove()
   }
 
   return {
+    store,
     dispose,
     createAndOpen: async (name, code, lang) => {
       const p = await store.createProject(name, code, lang)

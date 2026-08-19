@@ -2,6 +2,7 @@ import { Pattern, reify } from './pattern'
 import { MiniError, miniParse, mini, n as nTag } from './mini'
 import type { Loc } from './mini'
 import { noteNameToMidi, parseScaleName, scaleDegree } from './scales'
+import { timeHash } from './rand'
 // Side-effect import: the control methods below extend the same prototype
 // the combinators install onto; keep the module initialized first.
 import './combinators'
@@ -27,9 +28,18 @@ import './combinators'
  * LOCS: string inputs to the entry points (`n('0 3')`, `note('c4 e4')`,
  * `sound('acid')`) are parsed with source locations, threaded into
  * ControlMap.loc so the editor can flash the originating text when an
- * event fires. Value patterns given to control METHODS (`.gain('0.5 1')`)
- * are parsed WITHOUT locs — the event's loc belongs to the atom that
- * created it, not to a modifier.
+ * event fires.
+ *
+ * MODIFIER patterns carry theirs too, in `locs`. They used to be parsed
+ * WITHOUT locs on the reasoning that "the event's loc belongs to the atom that
+ * created it, not to a modifier" — which is true about the PRIMARY loc and was
+ * the wrong conclusion. A `dur: <1 .5>` line is mini-notation the reader wrote
+ * and watches, and it stayed dark while the notes beside it lit up. The rule is
+ * simply: anywhere mini-notation is supported, it lights up.
+ *
+ * `loc` stays the note atom's, so nothing downstream that wants "the one place
+ * this event came from" has to change; `locs` is everything else that
+ * contributed, and the editor flashes all of them.
  */
 export interface ControlMap {
   /** Scale degree (pre-scale, relative). Set by `n()`; consumed by `.scale()`. */
@@ -39,6 +49,22 @@ export interface ControlMap {
    *  fold it into — and applied after the lookup, so `2#` means "the third
    *  degree, raised", whatever that degree happens to be in this scale. */
   nAcc?: number
+  /** Per-note expression value from a bare `'n` suffix. Ordinary (not
+   *  structural): it flows to the synth as a param named `expr`. */
+  expr?: number
+  /** Per-note probability from `'chance:n`. STRUCTURAL: consumed when the
+   *  pattern is built and never reaches a synth. */
+  chance?: number
+  /** Which controls on this event came from a per-note LANE (`0'gain:.8`).
+   *
+   *  Provenance, so `.ctrl()` can leave them alone: a value written ON a note
+   *  is more specific than one written for the whole block, and the specific
+   *  one should win. Without this the block modifier simply landed later and
+   *  overwrote it, which made a lane look broken on any block that also set
+   *  the same control.
+   *
+   *  STRUCTURAL: listed in RESERVED_PARAM_NAMES so it never reaches a synth. */
+  laneKeys?: readonly string[]
   /** Absolute midi note (post-scale resolution, or set directly by `note()`). */
   note?: number
   /** Synth name the scheduler routes the event to. */
@@ -55,8 +81,13 @@ export interface ControlMap {
   slide?: number
   /** Source range of the atom that created this event — editor highlighting. */
   loc?: Loc
+  /** Source ranges of the MODIFIER atoms that contributed to this event: the
+   *  `<1 .5>` in `dur: <1 .5>`, the word in `sound: <a b>`. Flashed alongside
+   *  `loc`, so every piece of mini-notation the reader wrote lights up when it
+   *  actually fires. */
+  locs?: Loc[]
   /** Any other key is a synth param (cutoff, res, wobble, ...). */
-  [param: string]: number | string | Loc | undefined
+  [param: string]: number | string | Loc | Loc[] | readonly string[] | undefined
 }
 
 /** What a control method accepts: a literal, a value pattern, or a mini string. */
@@ -75,7 +106,7 @@ const numericMini = (src: string, what: string) => {
       throw new MiniError(`${what} requires numbers, got '${a.value}'`, a.loc.start, src)
     }
   }
-  return pattern as Pattern<{ value: number; loc: Loc; acc?: number }>
+  return pattern as Pattern<{ value: number; loc: Loc; acc?: number; lanes?: Readonly<Record<string, number>> }>
 }
 
 /**
@@ -98,19 +129,108 @@ export function note(x: number | string | Pattern<number>): Pattern<ControlMap> 
         )
       }
     }
-    return pattern.withValue((v) => ({
-      note: typeof v.value === 'number' ? v.value : noteNameToMidi(v.value)!,
-      loc: v.loc,
+    return withChance(pattern.withValue((v) => {
+      const out: ControlMap = {
+        note: typeof v.value === 'number' ? v.value : noteNameToMidi(v.value)!,
+        loc: v.loc,
+      }
+      return applyLanes(out, v.lanes)
     }))
   }
   return reify(x).withValue((v): ControlMap => ({ note: v }))
 }
 
+
+/* ------------------------------------------------------------------------- *
+ * PER-NOTE LANES: `0'2'gain:.8'chance:.5`.
+ *
+ * Three names are STRUCTURAL — the pattern engine consumes them, exactly as
+ * `nAcc` rides along with `n`:
+ *
+ *   gain    the note's own level
+ *   dur     a multiplier on the note's own length
+ *   chance  the probability it sounds at all
+ *
+ * A LANE IS NAMED AFTER THE CONTROL IT SETS. These were `vel` and `len` at
+ * first, which meant the same property had one name written on the note and a
+ * different one written on the modifier line below it — `'vel:.8` here and
+ * `gain: .8` two lines down, for the identical thing. `len` was worse: a pure
+ * synonym for `dur`, which the reference already defines. One word, one
+ * meaning; `chance` was already right because it had nothing to collide with.
+ *
+ * `chance` is applied where the pattern is built rather than by the caller,
+ * and it draws from the SAME time-locked stream as degradeBy — so a note that
+ * fires on cycle 3 fires on cycle 3 every time the loop comes round, which is
+ * what makes a probabilistic line reproducible instead of merely random.
+ *
+ * Every other name is an ordinary param and reaches the synth untouched, so
+ * `0'cut:.7` drives `param('cut')` on that note alone. That is the whole
+ * reason the set is small: the language should not own a vocabulary of
+ * musical properties when the synth already has one.
+ * ------------------------------------------------------------------------- */
+
+/** Apply and strip `chance`: keep the note with that probability, and never
+ *  let the key reach a synth.
+ *
+ *  The draw is the SAME time-locked stream degradeBy uses, keyed on the hap's
+ *  start — so a note that fires on cycle 3 fires on cycle 3 every time the
+ *  loop comes round. That is what separates a reproducible probabilistic line
+ *  from one that is merely random, and it is the property that makes this
+ *  usable in a piece rather than only in a jam. */
+function withChance(p: Pattern<ControlMap>): Pattern<ControlMap> {
+  return p
+    .filterHaps((h) => {
+      const c = h.value.chance
+      return c === undefined || timeHash((h.whole ?? h.part).begin, 0) < c
+    })
+    .withValue((v) => {
+      if (v.chance === undefined) return v
+      const { chance: _drop, ...rest } = v
+      return rest as ControlMap
+    })
+}
+
+/** Lane names the pattern engine consumes rather than forwarding to a synth.
+ *  Each is spelled exactly like the control it sets. */
+export const STRUCTURAL_LANES = new Set(['gain', 'dur', 'chance'])
+
+/** The names these lanes used to have. Kept ONLY to say so: a lane whose name
+ *  the engine does not know is forwarded to the synth as a param, so `'vel:.8`
+ *  would silently become `param('vel')` — a live control that does nothing,
+ *  which is exactly the failure mode a rename should not create. */
+export const RENAMED_LANES: ReadonlyMap<string, string> = new Map([['vel', 'gain'], ['len', 'dur']])
+
+/** Fold a note's lanes into its ControlMap. `chance` is left ON the map for
+ *  the filter below and stripped there, so this stays a pure mapping. */
+function applyLanes(out: ControlMap, lanes: Readonly<Record<string, number>> | undefined): ControlMap {
+  if (lanes === undefined) return out
+  const from: string[] = []
+  for (const [k, v] of Object.entries(lanes)) {
+    const renamed = RENAMED_LANES.get(k)
+    if (renamed !== undefined) {
+      throw new TypeError(
+        `'${k}' is now '${renamed}' — a lane is named after the control it sets. `
+        + `Write '${renamed}:${v} instead.`,
+      )
+    }
+    if (k === 'gain') out.gain = v
+    else if (k === 'dur') out.dur = v
+    else if (k === 'chance') out.chance = v
+    else (out as Record<string, unknown>)[k] = v
+    from.push(k)
+  }
+  if (from.length > 0) out.laneKeys = [...(out.laneKeys ?? []), ...from]
+  return out
+}
+
 /** Function form of `n`: degrees are numbers only (use `note()` for names). */
 const nCtrl = (x: number | string | Pattern<number>): Pattern<ControlMap> => {
   if (typeof x === 'string') {
-    return numericMini(x, 'n()').withValue((v) =>
-      v.acc === undefined ? { n: v.value, loc: v.loc } : { n: v.value, nAcc: v.acc, loc: v.loc })
+    return withChance(numericMini(x, 'n()').withValue((v) => {
+      const out: ControlMap = { n: v.value, loc: v.loc }
+      if (v.acc !== undefined) out.nAcc = v.acc
+      return applyLanes(out, v.lanes)
+    }))
   }
   return reify(x).withValue((v): ControlMap => ({ n: v }))
 }
@@ -155,10 +275,10 @@ export function n(
  */
 export function sound(x: string | Pattern<string>): Pattern<ControlMap> {
   if (typeof x === 'string') {
-    return miniParse(x).pattern.withValue((v) => ({
-      sound: String(v.value),
-      note: 60,
-      loc: v.loc,
+    return withChance(miniParse(x).pattern.withValue((v) => {
+      const out: ControlMap = { sound: String(v.value), note: 60, loc: v.loc }
+      // a drum hit carries lanes too: `kick'vel:.6 hat'chance:.5`
+      return applyLanes(out, v.lanes)
     }))
   }
   return x.withValue((v): ControlMap => ({ sound: v, note: 60 }))
@@ -207,7 +327,10 @@ declare module './pattern' {
      * past the scale length with octave shifts and mirror down for
      * negatives; non-integer degrees are rounded to the nearest integer.
      */
-    scale(this: Pattern<ControlMap>, name: string): Pattern<ControlMap>
+    /** Resolve degrees through a scale. A plain name (`'a minor'`) applies
+     *  throughout; a mini string of hyphen-joined names
+     *  (`'<c-major f-minor>'`) MODULATES, resolving per event. */
+    scale(this: Pattern<ControlMap>, name: string | Pattern<string>): Pattern<ControlMap>
     /**
      * Stereo split (Tidal): stack an untransformed copy panned hard left
      * with f(copy) panned hard right — juxBy(1, f). The pans are applied
@@ -237,9 +360,21 @@ declare module './pattern' {
   }
 }
 
-/** Lift a control-method argument to a value pattern (mini strings loc-free). */
-const liftValue = (x: ControlValue): Pattern<string | number> =>
-  typeof x === 'string' ? mini(x) : reify(x)
+/** Lift a control-method argument to a value pattern that keeps its source
+ *  range when there is one. A mini STRING is the only form that has a place in
+ *  the document to point at; a Pattern or a bare number does not. */
+const liftValue = (x: ControlValue): Pattern<{ value: string | number; loc?: Loc }> => {
+  if (typeof x === 'string') {
+    return miniParse(x).pattern.withValue((v) => ({ value: v.value, loc: v.loc }))
+  }
+  return reify(x).withValue((v) => ({ value: v as string | number }))
+}
+
+/** Append a modifier's source range, keeping the ones already there. */
+const withLoc = (c: ControlMap, loc: Loc | undefined): Loc[] | undefined => {
+  if (loc === undefined) return c.locs
+  return c.locs === undefined ? [loc] : [...c.locs, loc]
+}
 
 /** Keys .ctrl() refuses: they carry structural meaning and have dedicated
  *  entry points / are scheduler-managed, so patterning them as raw params
@@ -260,16 +395,34 @@ Pattern.prototype.ctrl = function (
   if (why !== undefined) {
     throw new TypeError(`ctrl('${name}') is reserved: ${why}`)
   }
-  return this.appLeft(liftValue(x), (c, v): ControlMap => ({ ...c, [name]: v }))
+  return this.appLeft(liftValue(x), (c, v): ControlMap => {
+    /* A LANE WINS. `0'cutoff:500` inside a block that also says
+     * `cutoff: 17100` keeps its 500: the value written on the note is the more
+     * specific of the two, and specificity is what every other layered system
+     * resolves by. Previously the block modifier merely landed later and
+     * overwrote it, so a lane looked broken on exactly the blocks where it was
+     * most useful. Notes with no lane for this control still take the block's
+     * value, which is the point of setting it there. */
+    const out: ControlMap = c.laneKeys?.includes(name) === true ? { ...c } : { ...c, [name]: v.value }
+    const locs = withLoc(c, v.loc)
+    if (locs !== undefined) out.locs = locs
+    return out
+  })
 }
 
 Pattern.prototype.sound = function (
   this: Pattern<ControlMap>,
   x: string | Pattern<string>,
 ): Pattern<ControlMap> {
-  const vals: Pattern<string> =
-    typeof x === 'string' ? mini(x).withValue((v) => String(v)) : x
-  return this.appLeft(vals, (c, v): ControlMap => ({ ...c, sound: v }))
+  const vals = typeof x === 'string'
+    ? miniParse(x).pattern.withValue((v) => ({ value: String(v.value), loc: v.loc as Loc | undefined }))
+    : x.withValue((v) => ({ value: v, loc: undefined as Loc | undefined }))
+  return this.appLeft(vals, (c, v): ControlMap => {
+    const out: ControlMap = { ...c, sound: v.value }
+    const locs = withLoc(c, v.loc)
+    if (locs !== undefined) out.locs = locs
+    return out
+  })
 }
 
 const ctrlAlias = (name: string) =>
@@ -284,10 +437,56 @@ Pattern.prototype.slide = ctrlAlias('slide')
 Pattern.prototype.cutoff = ctrlAlias('cutoff')
 Pattern.prototype.res = ctrlAlias('res')
 
+/** Characters that mean mini STRUCTURE. A plain scale name (`a minor`,
+ *  `f#-minor`) contains none of them, which is how a name is told from a
+ *  pattern of names without a second argument. */
+const MINI_META = /[<>[\]{}*!@?|,]/
+
+/** parseScaleName is not free (it builds the interval table), and a patterned
+ *  scale asks for the same few names on every event. */
+const scaleCache = new Map<string, ReturnType<typeof parseScaleName>>()
+const resolveScale = (name: string): ReturnType<typeof parseScaleName> => {
+  let hit = scaleCache.get(name)
+  if (hit === undefined) {
+    hit = parseScaleName(name)
+    scaleCache.set(name, hit)
+  }
+  return hit
+}
+
 Pattern.prototype.scale = function (
   this: Pattern<ControlMap>,
-  name: string,
+  name: string | Pattern<string>,
 ): Pattern<ControlMap> {
+  /* A PATTERN of scales: `scale: <c-major f-minor>` modulates the key. The
+   * scale is resolved per event and STAMPED, so a later `.add()` transposes in
+   * the scale that is actually sounding then — which is the whole reason the
+   * name rides along on the control map rather than being baked away here.
+   *
+   * Note names are hyphen-joined inside mini notation because atoms are
+   * space-delimited; parseScaleName accepts both spellings. */
+  if (typeof name !== 'string' || MINI_META.test(name)) {
+    const vals = typeof name === 'string'
+      ? (() => {
+          const { pattern, atoms } = miniParse(name)
+          // eager: a bad name still throws NOW, exactly as the static form does
+          for (const a of atoms) resolveScale(String(a.value))
+          return pattern.withValue((v) => ({ value: String(v.value), loc: v.loc as Loc | undefined }))
+        })()
+      : name.withValue((v) => ({ value: v, loc: undefined as Loc | undefined }))
+    return this.appLeft(vals, (c, v): ControlMap => {
+      if (typeof c.n !== 'number') return c
+      const { root, intervals, period } = resolveScale(v.value)
+      const out: ControlMap = {
+        ...c,
+        note: root + scaleDegree(intervals, Math.round(c.n), period) + (c.nAcc ?? 0),
+        scale: v.value,
+      }
+      const locs = withLoc(c, v.loc)
+      if (locs !== undefined) out.locs = locs
+      return out
+    })
+  }
   const { root, intervals, period } = parseScaleName(name) // eager: bad names throw now
   // Stamp the scale NAME on each event (a string — skipped by param dispatch)
   // so a later .add()/.sub() can transpose in SCALE STEPS and re-resolve the

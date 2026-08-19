@@ -192,6 +192,86 @@ p('pb', note('c3').sound('b'))
       peak = Math.max(peak, Math.abs(mix.left[i]!), Math.abs(mix.right[i]!))
     }
     expect(peak).toBeCloseTo(0.89, 3)
+    // and it says what that cost. Without this number nothing downstream can
+    // tell a mix that landed on 0.89 from one dragged down to it, because both
+    // report a peak of 0.89 — which is how a gain edit above the ceiling looks
+    // like it did nothing.
+    expect(mix.normalizeDb).toBeLessThan(0)
+    expect(mix.normalizeDb).toBeGreaterThan(-12)
+  })
+
+  /* masterGain is the only lever that scales EVERYTHING equally, which is what
+   * a mix past the 0.89 ceiling needs — every per-part gain up there is inert,
+   * so nothing smaller can bring the whole thing back under. It is therefore
+   * only useful if it is exactly a scale and nothing else. */
+  it('applies masterGain as a pure uniform scale, changing nothing else', () => {
+    const src = `const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(0.15))
+const b = synth(({ saw, note, gate }) => saw(note.freq).mul(gate).mul(0.1))
+p('x', note('c3*4').sound('a'))
+p('y', note('g4*3').sound('b'))`
+    const render = (masterGain?: number) => {
+      const staged = stageCode(src)
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 2, cps: 2 })
+      return renderMix(staged.synths, events, 1, { cps: 2, ...(masterGain !== undefined ? { masterGain } : {}) })
+    }
+    const plain = render()
+    const trimmed = render(-6)
+    expect(plain.normalized, 'the fixture must stay UNDER the ceiling, or normalization hides the effect').toBe(false)
+    expect(trimmed.normalized).toBe(false)
+    // undo the trim: the two must be the same signal to float noise
+    const k = Math.pow(10, 6 / 20)
+    let num = 0
+    let den = 0
+    for (let i = 0; i < plain.left.length; i++) {
+      const d = trimmed.left[i]! * k - plain.left[i]!
+      num += d * d
+      den += plain.left[i]! ** 2
+    }
+    expect(10 * Math.log10(num / den), 'masterGain must be a scale, not a filter').toBeLessThan(-100)
+  })
+
+  it('moves the normalization by exactly the dB it was given', () => {
+    // The reason it exists: a project mixed into the ceiling can be brought
+    // back under it, and the number says by how much.
+    const src = `const a = synth(({ sine, note, gate }) => sine(note.freq).mul(gate).mul(3))
+p('x', note('c3*4').sound('a'))`
+    const render = (masterGain?: number) => {
+      const staged = stageCode(src)
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 2, cps: 2 })
+      return renderMix(staged.synths, events, 1, { cps: 2, ...(masterGain !== undefined ? { masterGain } : {}) })
+    }
+    const before = render().normalizeDb
+    const after = render(-6).normalizeDb
+    expect(before).toBeLessThan(-6)
+    expect(after - before, 'a -6 dB trim must buy back exactly 6 dB of headroom').toBeCloseTo(6, 3)
+  })
+
+  it('reports the exact dB it removed, and 0 when it removed nothing', () => {
+    const at = (amp: number) => {
+      const staged = stageCode(
+        `const a = synth(({ note, gate, sine }) => sine(note.freq).mul(gate).mul(${amp}))
+p('x', note('c3').sound('a'))`,
+      )
+      if (!staged.ok) throw new Error('stage failed')
+      const events = runPatterns(staged.patterns, { cycles: 1, cps: 1 })
+      const mix = renderMix(staged.synths, events, 1, { cps: 1 })
+      let peak = 0
+      for (let i = 0; i < mix.left.length; i++) peak = Math.max(peak, Math.abs(mix.left[i]!))
+      return { mix, peak }
+    }
+    const under = at(0.5)
+    expect(under.mix.normalized).toBe(false)
+    expect(under.mix.normalizeDb).toBe(0)
+
+    // 8x as loud: the reported dB must be the scale actually applied, so
+    // undoing it recovers the peak the project really hit — 8x the quiet
+    // render's, since the only difference between them is that factor.
+    const over = at(4)
+    expect(over.mix.normalized).toBe(true)
+    const undone = over.peak / Math.pow(10, over.mix.normalizeDb / 20)
+    expect(undone / under.peak, 'normalizeDb must invert back to the pre-scale peak').toBeCloseTo(8, 1)
   })
 
   it('master compressor reduces a hot mix (offline parity)', () => {
@@ -497,7 +577,7 @@ p('k', note('c1*4').sound('kick'))
 p('p', note('c3').sound('pad'))
 p('b', note('g4 e5').sound('bell'))
 bus('space', ({ input, reverb }) => reverb(input, { roomSize: 0.85 }), { bell: 0.5, pad: 0.3 })
-sidechain('kick', { depth: 0.6, release: 0.15 })
+sidechain('kick', { depth: 0.6, release: 150 })
 masterCompress({ threshold: -18, ratio: 4, makeup: 8 })
 setCps(1)
 `

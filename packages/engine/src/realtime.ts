@@ -8,6 +8,7 @@ import { SampleBank } from './samples'
 import { WavetableBank } from './dsp/wavetable'
 import { gainReductionDb, smoothCoeff } from './dsp/compress'
 import { clamp, DEFAULT_CPS, softClipTanh } from './dsp/util'
+import { StereoStage } from './dsp/midside'
 import type { EngineEvent, EngineMessage } from './protocol'
 
 /* ------------------------------------------------------------------------- *
@@ -46,11 +47,57 @@ export const MAX_PENDING_EVENTS = 4096
  *  a rich multi-synth patch room to breathe — a full track can easily run a
  *  dozen synths, and per-synth `voices` lets patches right-size within it. */
 export const MAX_TOTAL_VOICES = 128
+
+/** One synth's share of the budget, given what the others already hold.
+ *
+ *  THE rule, in one place: defineSynth applies it to a single synth as it
+ *  arrives, and {@link planVoiceBudget} walks a whole project through it so the
+ *  host can say what WILL happen before sending anything. Two copies of this
+ *  arithmetic would drift, and the symptom of drift is a warning that
+ *  contradicts the engine. */
+export function allocVoices(requested: number, used: number): { voices: number; rejected: boolean } {
+  const free = MAX_TOTAL_VOICES - used
+  if (free < 1) return { voices: 0, rejected: true }
+  const want = Math.floor(requested)
+  return { voices: Math.floor(clamp(want, 1, free)), rejected: false }
+}
+
+/**
+ * What the engine will do with a project's synths, in DEFINITION ORDER.
+ *
+ * The budget is first come, first served, so order decides who loses: the
+ * synth written last is the one that gets nothing. Returns every synth with
+ * what it asked for and what it will actually get, so a host can report the
+ * whole picture rather than one synth's failure.
+ */
+export function planVoiceBudget(
+  synths: readonly { name: string; voices?: number | undefined }[],
+): { name: string; asked: number; got: number; rejected: boolean }[] {
+  const out: { name: string; asked: number; got: number; rejected: boolean }[] = []
+  let used = 0
+  for (const s of synths) {
+    const asked = s.voices === undefined ? DEFAULT_VOICES : Math.floor(s.voices)
+    const { voices, rejected } = allocVoices(asked, used)
+    used += voices
+    out.push({ name: s.name, asked, got: voices, rejected })
+  }
+  return out
+}
 /** Cap on retired-but-still-ringing voice pools kept across same-name
  *  redefines. A redefine no longer cuts playing voices — the old pool rings
  *  out while new notes use the new graph — but the backlog is bounded so rapid
  *  live edits can't accumulate pools; the oldest is hard-stopped past this. */
 export const MAX_RETIRING = 6
+/** Points in a channel's scope trace: one SIGNED PEAK per processed block, in
+ *  a ring. At 128-sample blocks that is ~2.7ms a point, so 64 covers ~170ms —
+ *  long enough to read an attack, a gate length and a pump, short enough that
+ *  the trace moves with the music.
+ *
+ *  A peak per BLOCK rather than raw samples: this is an envelope with polarity,
+ *  which is what a scope this size can actually show. Individual cycles of a
+ *  high note are not resolvable at 64 points and pretending otherwise would
+ *  cost 60x the bandwidth to draw the same picture. */
+export const SCOPE_POINTS = 64
 /** |sample| level where the master soft knee engages (see masterSafety). */
 export const CLIP_THRESHOLD = 0.95
 
@@ -59,10 +106,16 @@ const DEFAULT_MAX_SYNTHS = 16
  *  registry size, independent of the voice budget (which is what actually
  *  limits polyphony: 64 synths would run 1 voice each). */
 const MAX_SYNTHS_LIMIT = 64
-const DEFAULT_VOICES = 8
+/** Voices a synth gets when it does not ask for a number. Exported so the host
+ *  can predict the engine's allocation without hard-coding it. */
+export const DEFAULT_VOICES = 8
 const DEFAULT_CHANNEL_GAIN = 0.8
 const DEFAULT_PAN = 0.5
-const DEFAULT_MASTER_GAIN = 0.8
+/** The engine's output level before any project sets one. EXPORTED because
+ *  the app needs the same number to turn a project's masterGain(db) into the
+ *  absolute gain `setMaster` expects, and a second copy of it in the app is
+ *  exactly how this codebase's worst bugs start. */
+export const DEFAULT_MASTER_GAIN = 0.8
 const MAX_GAIN = 2
 const MAX_RAMP_MS = 10000
 /** setCps rails: wide enough for any real transport (0.001 cps is one cycle
@@ -71,10 +124,16 @@ const MAX_RAMP_MS = 10000
 const MIN_CPS = 0.001
 const MAX_CPS = 100
 const HALF_PI = Math.PI / 2
-/** Same-frame ordering: noteOff fires before noteOn (retrigger idiom — see
- *  render.ts's rank comment for the full rationale). */
+/** Same-frame ordering: noteOff, then param, then noteOn. The middle one is
+ *  what makes patterned automation land on the note it belongs to: the value
+ *  is in place before the gate opens.
+ *
+ *  These numbers MIRROR render.ts's `rank` deliberately (noteOff 0, param 1,
+ *  noteOn 2). Live and offline reordering the same events differently is the
+ *  bug class this whole file is careful about. */
 const RANK_OFF = 0
-const RANK_ON = 1
+const RANK_PARAM = 1
+const RANK_ON = 2
 
 /** Master bus per-sample safety stage, exported for direct unit testing (an
  *  honest in-graph NaN source doesn't exist — every kernel guards or flushes
@@ -84,9 +143,16 @@ const RANK_ON = 1
 export const masterSafety = (v: number): number =>
   Number.isFinite(v) ? softClipTanh(v, CLIP_THRESHOLD) : 0
 
-/** Sidechain duck bounds. */
-const DEFAULT_DUCK_DEPTH = 0.6
-const DEFAULT_DUCK_RELEASE_MS = 180
+/** Sidechain duck bounds.
+ *
+ *  The defaults are EXPORTED because they are copied twice more — the DSL
+ *  layer applies them when `sidechain('kick')` names no options, and the
+ *  editor's duck-curve widget draws the shape they make. Those copies had
+ *  drifted (0.7 / 0.2 against this 0.6 / 180 ms), so the widget drew a deeper,
+ *  slower pump than the one you were hearing, and nothing noticed because each
+ *  copy was only ever compared against itself. */
+export const DEFAULT_DUCK_DEPTH = 0.6
+export const DEFAULT_DUCK_RELEASE_MS = 180
 const MIN_DUCK_RELEASE_MS = 1
 const MAX_DUCK_RELEASE_MS = 5000
 
@@ -102,10 +168,14 @@ export const duckReleaseCoeff = (releaseMs: number, sampleRate: number): number 
 
 interface QueuedNote {
   frame: number
-  rank: number // RANK_OFF | RANK_ON
+  rank: number // RANK_OFF | RANK_PARAM | RANK_ON
   synth: string
   note: number
   velocity: number // unused for noteOff
+  /** RANK_PARAM only: what to set when this fires. Kept in its own field
+   *  rather than borrowed from `note`/`velocity`, so a queue dump reads as
+   *  what it is. */
+  param?: { name: string; value: number; rampMs: number }
 }
 
 interface ParamState {
@@ -150,6 +220,11 @@ interface Channel {
   ramps: Ramp[]
   /** Sum of squares (both legs, post strip) of the last block — meters. */
   sumSq: number
+  /** Signed peak of the CURRENT block (mid, post strip), and a ring of the
+   *  last SCOPE_POINTS of them — the inline scope trace. */
+  peak: number
+  scope: Float32Array
+  scopeHead: number
   /** How much this channel responds to the sidechain duck, [0, 1]. 1 = full
    *  duck (down to 1 - depth); 0 = ignore the duck. Effective per-sample
    *  multiplier is 1 - scAmount·(1 - duckLevel). The source channel is never
@@ -208,6 +283,9 @@ export class RealtimeEngine {
   /** False until the first FINITE startFrame adopts the host's timeline. */
   private originAdopted = false
   private masterGain = DEFAULT_MASTER_GAIN
+  /** Master-bus mid/side. Idle by default, and skipped entirely when idle so
+   *  a project that never asks for it stays sample-identical. */
+  private readonly stereo = new StereoStage()
   private masterPrev = DEFAULT_MASTER_GAIN
   private masterSumSq = 0
   /** Master-bus glue compressor (stereo-linked), off until setMasterComp.
@@ -325,6 +403,19 @@ export class RealtimeEngine {
       master: Number.isFinite(master) ? master : 0,
       channels,
     }
+    /* The scope trace, unrolled oldest-first so the host can draw it left to
+     * right without knowing about the ring. A channel that has never produced
+     * a block is all zeros, which draws as a flat line — correct, not missing. */
+    const scopes = Object.create(null) as Record<string, Float32Array>
+    for (const ch of this.list) {
+      const out = new Float32Array(SCOPE_POINTS)
+      for (let i = 0; i < SCOPE_POINTS; i++) {
+        const v = ch.scope[(ch.scopeHead + i) % SCOPE_POINTS]!
+        out[i] = Number.isFinite(v) ? v : 0
+      }
+      scopes[ch.name] = out
+    }
+    ev.scopes = scopes
     if (this.busList.length > 0) {
       const buses = Object.create(null) as Record<string, number>
       for (const bus of this.busList) {
@@ -455,6 +546,10 @@ export class RealtimeEngine {
       ch.p0 = ch.panPrev
       ch.p1 = ch.pan
       ch.panPrev = ch.pan
+      // the peak just finished belongs to the block that ended
+      ch.scope[ch.scopeHead] = ch.peak
+      ch.scopeHead = (ch.scopeHead + 1) % SCOPE_POINTS
+      ch.peak = 0
       ch.sumSq = 0
     }
     // Zero the shared-bus send accumulators for this block (mixChannel taps
@@ -528,10 +623,21 @@ export class RealtimeEngine {
       bus.sumSq = ss
     }
 
-    // Master stage: gain (one-block ramp), optional glue compressor, soft knee,
-    // non-finite scrub. The compressor runs AFTER master gain and BEFORE the
-    // limiter; it's stereo-linked (one gain from max|L|,|R|) so the image never
-    // shifts, and its reduction state carries across blocks.
+    /* Master stage: gain (one-block ramp), optional glue compressor, soft
+     * knee, non-finite scrub. The compressor runs AFTER master gain and
+     * BEFORE the safety stage; it's stereo-linked (one gain from max|L|,|R|)
+     * so the image never shifts, and its reduction state carries across
+     * blocks.
+     *
+     * That safety stage is `masterSafety`, and it is a tanh SOFT CLIP at
+     * CLIP_THRESHOLD — this comment used to call it a limiter, which it is
+     * not. It holds the output inside ±1 by bending the waveform, which is
+     * the right last resort and the wrong tool for holding a ceiling. For
+     * that there is a real look-ahead brickwall in dsp/limiter.ts, which
+     * turns down instead of distorting; put it in a post chain when the
+     * ceiling matters (a PA feed, a bounce). It is deliberately NOT wired in
+     * here: it costs latency, and changing the master path would change the
+     * output of every project that already exists. */
     const m0 = this.masterPrev
     const m1 = this.masterGain
     const mc = this.masterComp
@@ -542,6 +648,11 @@ export class RealtimeEngine {
       const g = m0 + (m1 - m0) * ((i + 1) / BLOCK)
       let l = outL[i]! * g
       let r = outR[i]! * g
+      if (!this.stereo.idle) {
+        const ms = this.stereo.step(l, r)
+        l = ms[0]!
+        r = ms[1]!
+      }
       if (mc !== undefined) {
         const peak = Math.max(Math.abs(l), Math.abs(r))
         const db = peak > 0 ? 20 * Math.log10(peak) : -120
@@ -623,6 +734,10 @@ export class RealtimeEngine {
     // amount 1 → the raw duck envelope; amount 0 → 1 (never entered here,
     // duck is null then). Shared with the offline mirror in render-runner.
     let ss = ch.sumSq
+    /* Signed peak of the block, carried across segments like sumSq. Signed so
+     * the trace reads as a waveform rather than a rectified blob. */
+    let pk = ch.peak
+    let pkMag = pk < 0 ? -pk : pk
     if (ch.g0 === ch.g1 && ch.p0 === ch.p1) {
       const gl = ch.g1 * Math.cos(ch.p1 * HALF_PI)
       const gr = ch.g1 * Math.sin(ch.p1 * HALF_PI)
@@ -633,6 +748,12 @@ export class RealtimeEngine {
         outL[cursor + i] = outL[cursor + i]! + l
         outR[cursor + i] = outR[cursor + i]! + r
         ss += l * l + r * r
+        const mid = (l + r) * 0.5
+        const mag = mid < 0 ? -mid : mid
+        if (mag > pkMag) {
+          pkMag = mag
+          pk = mid
+        }
       }
     } else {
       for (let i = 0; i < n; i++) {
@@ -645,14 +766,29 @@ export class RealtimeEngine {
         outL[cursor + i] = outL[cursor + i]! + l
         outR[cursor + i] = outR[cursor + i]! + r
         ss += l * l + r * r
+        const mid = (l + r) * 0.5
+        const mag = mid < 0 ? -mid : mid
+        if (mag > pkMag) {
+          pkMag = mag
+          pk = mid
+        }
       }
     }
     ch.sumSq = ss
+    ch.peak = pk
   }
 
   private fire(ev: QueuedNote): void {
     const ch = this.byName.get(ev.synth)
     if (!ch) return // removeSynth purges its pending events; purely defensive
+    if (ev.rank === RANK_PARAM) {
+      const p = ev.param
+      if (p === undefined) return
+      // validated when it was queued; the param can still have vanished under
+      // a redefine, which applyParam tolerates
+      this.applyParam(ch, p.name, p.value, p.rampMs, ev.frame)
+      return
+    }
     if (ev.rank === RANK_ON) {
       ch.pool.noteOn(ev.note, ev.velocity)
       // Sidechain trigger, sample-accurate: the walk splits the block at this
@@ -705,6 +841,8 @@ export class RealtimeEngine {
         return this.msgSetChannel(m)
       case 'setMaster':
         return this.msgSetMaster(m)
+      case 'setStereo':
+        return this.msgSetStereo(m)
       case 'setCps':
         return this.msgSetCps(m)
       case 'setSidechain':
@@ -752,14 +890,28 @@ export class RealtimeEngine {
       requested = Math.floor(m['maxVoices'])
     }
     // Voice budget: clamp to what the OTHER synths leave free (a same-name
-    // replacement releases its own voices first).
+    // replacement releases its own voices first). Same rule the host uses to
+    // pre-flight a project — see allocVoices.
     let others = 0
     for (const ch of this.list) if (ch !== existing) others += ch.voices
-    const budget = MAX_TOTAL_VOICES - others
-    if (budget < 1) {
-      return this.error(`voice budget exhausted (${MAX_TOTAL_VOICES} total)`, `defineSynth '${name}'`)
+    const alloc = allocVoices(requested, others)
+    if (alloc.rejected) {
+      return this.error(
+        `voice budget exhausted (${MAX_TOTAL_VOICES} total, ${others} already allocated): `
+        + `'${name}' cannot be created. Lower \`voices:\` on the largest synths.`,
+        `defineSynth '${name}'`,
+      )
     }
-    const voices = Math.floor(clamp(requested, 1, budget))
+    if (alloc.voices < requested) {
+      /* SAY SO. A synth that asked for 32 and quietly got 4 is a patch that
+       * drops notes for no visible reason. */
+      this.error(
+        `'${name}' asked for ${requested} voices and got ${alloc.voices} — `
+        + `the ${MAX_TOTAL_VOICES}-voice budget is nearly spent (${others} allocated).`,
+        `defineSynth '${name}'`,
+      )
+    }
+    const voices = alloc.voices
     const graph = m['graph'] as unknown as GraphSpec
     const postGraph = isObj(m['post']) ? (m['post'] as unknown as GraphSpec) : undefined
     // voiceOpts (mono/glide/unison/...) is normalized host-side; the pool clamps
@@ -817,6 +969,11 @@ export class RealtimeEngine {
       params,
       ramps: [],
       sumSq: 0,
+      peak: 0,
+      // Preserve the trace across a redefine, so a live edit does not blank
+      // the scope for the length of the ring.
+      scope: existing?.scope ?? new Float32Array(SCOPE_POINTS),
+      scopeHead: existing?.scopeHead ?? 0,
       // Preserve the sidechain response across a redefine (like the strip).
       scAmount: existing?.scAmount ?? 1,
       // Preserve send amounts too: a redefine shouldn't drop the synth's
@@ -1016,12 +1173,47 @@ export class RealtimeEngine {
       rampMs = clamp(m['rampMs'], 0, MAX_RAMP_MS)
     }
     const target = clamp(m['value'], p.min, p.max)
+    /* SCHEDULED, like noteOn. Without this a patterned param applied the
+     * moment its message arrived, which is up to one scheduler lookahead
+     * (~100ms) before the note it belongs to — measured at a consistent 75ms.
+     * Since a param is synth-wide and reaches every voice, the change landed
+     * on whatever was still ringing: automation was heard on the PREVIOUS
+     * note. Offline render has always applied params on their exact sample,
+     * so the same program bounced differently from how it sounded. */
+    const at = m['atFrame']
+    if (at !== undefined && !fin(at)) {
+      return this.error(`'atFrame' must be a finite number`, `setParam '${ch.name}'`)
+    }
+    if (at !== undefined && at > this.frames) {
+      this.enqueue(Math.floor(at), RANK_PARAM, ch.name, 0, 0, { name, value: target, rampMs })
+      return
+    }
+    this.applyParam(ch, name, target, rampMs, this.frames)
+  }
+
+  /**
+   * Set a param NOW, at `frame` on the engine timeline.
+   *
+   * Shared by the immediate path and by a queued param firing mid-block, so
+   * the two cannot drift. `frame` is the event's own frame rather than the
+   * block start, which is what lets a ramp queued for later start from where
+   * it was actually scheduled.
+   */
+  private applyParam(
+    ch: Channel,
+    name: string,
+    target: number,
+    rampMs: number,
+    frame: number,
+  ): void {
+    const p = ch.params.get(name)
+    if (p === undefined) return // redefined out from under a queued event
     // A new set replaces any in-flight ramp on the same param, starting from
     // the ramp's current value (evaluated at the present frame).
     const ramps = ch.ramps
     for (let i = ramps.length - 1; i >= 0; i--) {
       if (ramps[i]!.name === name) {
-        p.value = rampValue(ramps[i]!, this.frames)
+        p.value = rampValue(ramps[i]!, frame)
         ramps[i] = ramps[ramps.length - 1]!
         ramps.pop()
       }
@@ -1037,8 +1229,8 @@ export class RealtimeEngine {
         param: p,
         from: p.value,
         to: target,
-        startFrame: this.frames,
-        endFrame: this.frames + durFrames,
+        startFrame: frame,
+        endFrame: frame + durFrames,
       })
     }
   }
@@ -1063,6 +1255,19 @@ export class RealtimeEngine {
     if (gain !== undefined) ch.gain = clamp(gain, 0, MAX_GAIN)
     if (pan !== undefined) ch.pan = clamp(pan, 0, 1)
     if (sidechain !== undefined) ch.scAmount = clamp(sidechain, 0, 1)
+  }
+
+  /** Master mid/side. Non-finite values are rejected with an error rather
+   *  than silently clamped: a NaN width would collapse the mix to silence and
+   *  look like a broken synth. */
+  private msgSetStereo(m: Record<string, unknown>): void {
+    const cfg: { width?: number; monoBelow?: number } = {}
+    for (const k of ['width', 'monoBelow'] as const) {
+      if (m[k] === undefined) continue
+      if (!fin(m[k])) return this.error(`'${k}' must be a finite number`, 'setStereo')
+      cfg[k] = m[k] as number
+    }
+    this.stereo.set(cfg, this.ctx.sampleRate)
   }
 
   private msgSetMaster(m: Record<string, unknown>): void {
@@ -1205,7 +1410,14 @@ export class RealtimeEngine {
 
   /** Sorted insertion by (frame, rank), stable for equal keys. Runs on the
    *  control plane — the splices are fine here and keep process() scan-free. */
-  private enqueue(frame: number, rank: number, synthName: string, note: number, velocity: number): void {
+  private enqueue(
+    frame: number,
+    rank: number,
+    synthName: string,
+    note: number,
+    velocity: number,
+    param?: { name: string; value: number; rampMs: number },
+  ): void {
     const q = this.queue
     if (this.qHead > 0) {
       q.splice(0, this.qHead) // compact fired entries before measuring size
@@ -1237,7 +1449,9 @@ export class RealtimeEngine {
       if (e.frame < frame || (e.frame === frame && e.rank <= rank)) lo = mid + 1
       else hi = mid
     }
-    q.splice(lo, 0, { frame, rank, synth: synthName, note, velocity })
+    q.splice(lo, 0, param === undefined
+      ? { frame, rank, synth: synthName, note, velocity }
+      : { frame, rank, synth: synthName, note, velocity, param })
   }
 
   private rebuildList(): void {

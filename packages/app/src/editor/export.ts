@@ -50,10 +50,29 @@ export function bounceLoop(
   cycles: number,
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,
   bits: WavBits = 16,
-): Uint8Array | { error: string } {
+): Bounce | { error: string } {
   const mix = renderStagedMix(code, cycles, samples)
   if ('error' in mix) return mix
-  return encodeWav(mix.left, mix.right, mix.sampleRate, { bits })
+  return { bytes: encodeWav(mix.left, mix.right, mix.sampleRate, { bits }), normalizeDb: mix.normalizeDb }
+}
+
+/** How much the mix stage scaled a bounce down to reach its 0.89 peak ceiling,
+ *  as a suffix for a status line: '' when it stayed under. Worth saying out
+ *  loud because ABOVE the ceiling a gain edit no longer changes the level of
+ *  the file, only the balance inside it — turn one part up and everything else
+ *  comes down by this much, so the edit reads as having done nothing. */
+export function normalizeNote(db: number): string {
+  // Guard on the ROUNDED value: a mix a hair over the ceiling scales by a
+  // hundredth of a dB, and "normalized -0.0 dB" is noise dressed as a warning.
+  const shown = Math.round(db * 10) / 10
+  return shown < 0 ? ` · normalized ${shown.toFixed(1)} dB` : ''
+}
+
+/** A finished bounce: the WAV bytes, and what the mix stage's peak ceiling
+ *  cost on the way (0 when it never engaged). */
+export interface Bounce {
+  bytes: Uint8Array
+  normalizeDb: number
 }
 
 /** One stem file: the WAV bytes and the name it should be delivered under. */
@@ -76,16 +95,19 @@ export function bounceStems(
   samples?: Record<string, { data: Float32Array; sampleRate: number }>,
   bits: WavBits = 16,
   project = 'rondocode',
-): StemFile[] | { error: string } {
+): { files: StemFile[]; normalizeDb: number } | { error: string } {
   const mix = renderStagedMix(code, cycles, samples, { stems: true })
   if ('error' in mix) return mix
   const stems = mix.stems ?? []
   if (stems.length === 0) return { error: 'nothing to export: no synth made sound' }
-  return stems.map((s) => ({
-    part: s.name,
-    name: `${project}-${s.kind === 'bus' ? `bus-${s.name}` : s.name}.wav`,
-    bytes: encodeWav(s.left, s.right, mix.sampleRate, { bits }),
-  }))
+  return {
+    files: stems.map((s) => ({
+      part: s.name,
+      name: `${project}-${s.kind === 'bus' ? `bus-${s.name}` : s.name}.wav`,
+      bytes: encodeWav(s.left, s.right, mix.sampleRate, { bits }),
+    })),
+    normalizeDb: mix.normalizeDb,
+  }
 }
 
 /** Zip `files` into one archive named `<project>-stems.zip`. Browsers cannot
@@ -99,8 +121,15 @@ export function zipStems(files: StemFile[], project: string): { name: string; by
 }
 
 /** Measure `cycles` of `code` the way a mastering engineer would: BS.1770-4
- *  integrated loudness and true peak of the bounce. Measurement only, nothing
- *  is normalized or limited. */
+ *  integrated loudness and true peak of the bounce.
+ *
+ *  This adds NO limiting of its own — but it is not measuring a raw sum
+ *  either: the mix stage peak-normalizes to 0.89 before anyone sees the
+ *  samples, so a hot project reads back a SAMPLE peak pinned at -1.0 dBFS and
+ *  a loudness already pulled down, however far over the ceiling it went. (The
+ *  true peak here can still read higher — inter-sample overshoot survives a
+ *  sample-domain scale.) Saying how much came off is the difference between a
+ *  readout and a misreading, hence normalizeDb in the text. */
 export function measureBounce(
   code: string,
   cycles: number,
@@ -109,7 +138,7 @@ export function measureBounce(
   const mix = renderStagedMix(code, cycles, samples)
   if ('error' in mix) return mix
   const m = measureLoudness(mix.left, mix.right, mix.sampleRate)
-  return { text: `${formatLufs(m.integratedLufs)} · ${formatDbTp(m.truePeakDb)} peak` }
+  return { text: `${formatLufs(m.integratedLufs)} · ${formatDbTp(m.truePeakDb)} peak${normalizeNote(mix.normalizeDb)}` }
 }
 
 /** Capture `cycles` of `code` as a Standard MIDI File, or an error message.
@@ -241,12 +270,12 @@ export function mountExport({ view, audio, anchor, getEvalCode }: ExportOpts): (
   bounceBtn.addEventListener('click', () => {
     withRender('rendering…', (code, cycles) => {
       const res = bounceLoop(code, cycles, audio.loadedSamples, readBits())
-      if (res instanceof Uint8Array) {
-        download(res, `${projectFileName()}-loop-${cycles}.wav`)
-        flash('downloaded')
-      } else {
+      if ('error' in res) {
         bounceMsg.textContent = res.error
+        return
       }
+      download(res.bytes, `${projectFileName()}-loop-${cycles}.wav`)
+      flash(`downloaded${normalizeNote(res.normalizeDb)}`)
     })
   })
   stemsBtn.addEventListener('click', () => {
@@ -257,9 +286,9 @@ export function mountExport({ view, audio, anchor, getEvalCode }: ExportOpts): (
         bounceMsg.textContent = res.error
         return
       }
-      const zip = zipStems(res, project)
+      const zip = zipStems(res.files, project)
       download(zip.bytes, zip.name, 'application/zip')
-      flash(`${res.length} stem${res.length === 1 ? '' : 's'} downloaded`)
+      flash(`${res.files.length} stem${res.files.length === 1 ? '' : 's'} downloaded${normalizeNote(res.normalizeDb)}`)
     })
   })
   measureBtn.addEventListener('click', () => {

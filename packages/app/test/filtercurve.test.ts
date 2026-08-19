@@ -230,7 +230,12 @@ describe('scanFilters', () => {
     const [fs] = scanFilters(doc, scanKnobs(doc))
     expect(fs).toBeDefined()
     expect(fs!.kind).toBe('ladder')
-    expect(fs!.cutoffs[0]).toEqual({ value: 1200 }) // knob DEF, handle-less
+    // the DEF is what gets drawn, and the NAME is kept alongside it: a
+    // knob-bound cutoff is the one case the live dot can follow, because a
+    // pattern-driven param arrives in NoteEv.controls under that name. Still
+    // handle-less — the text stays the only write surface for a binding.
+    expect(fs!.cutoffs[0]).toEqual({ value: 1200, knob: 'cutoff' })
+    expect(fs!.cutoffs[0]!.range, 'a binding is not draggable').toBeUndefined()
     expect(fs!.res).toEqual({ value: 0.5 })
   })
 

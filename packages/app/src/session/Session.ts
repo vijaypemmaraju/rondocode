@@ -1,7 +1,7 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import { DEFAULT_TIME_SIG } from '@rondocode/pattern'
 import type { SchedulerEvent, TimeSig } from '@rondocode/pattern'
-import { RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables } from '@rondocode/engine'
+import { DEFAULT_MASTER_GAIN, MAX_TOTAL_VOICES, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables, parseSampleRef, planVoiceBudget, sampleNamesIn } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
 /** Coalesce window for live (widget/scrub) synth REBUILDS. A structural or
@@ -31,9 +31,11 @@ import { baseScope } from './scope'
  * - Scheduler wiring: pattern time comes from the audio clock
  *   (currentTimeFrames / sampleRate → monotonic seconds); fired events
  *   become noteOn/noteOff (atFrame = timeSec · sampleRate) plus setParam
- *   for numeric non-transport controls. setParam carries no atFrame in the
- *   v1 protocol, so patterned params apply when the message arrives —
- *   up to one lookahead (~100ms) early; acceptable v1 approximation.
+ *   for numeric non-transport controls, ALL stamped with the same atFrame.
+ *   The engine fires params before noteOn at equal frames, so a note opens
+ *   on its own patterned values. (Until #334 setParam carried no atFrame and
+ *   applied on arrival, up to one lookahead early — automation landed on the
+ *   previous note, and live disagreed with an offline bounce.)
  *   Events lacking a `sound` or a numeric `note` are skipped silently
  *   (nothing to route — continuous/param-only patterns are normal).
  * - Diagnostics: the Session maintains ONE merged current-diagnostics set
@@ -58,6 +60,9 @@ export interface AudioSessionLike {
   /** Audio "now" in context frames (monotonic while running). */
   readonly currentTimeFrames: number
   readonly sampleRate: number
+  /** Sample names loaded so far. Optional: a host that cannot answer simply
+   *  gets no missing-sample warnings, rather than a wrong list of them. */
+  getSamples?(): { name: string }[]
 }
 
 export interface SessionState {
@@ -176,6 +181,19 @@ const SLIDE_OVERLAP_SEC = 0.03
  *  arrives (prevents a stuck gate at pattern end / on a long gap). */
 const MAX_SLIDE_HOLD_SEC = 4
 
+
+/** A note's own STEP length in seconds, undoing the `dur` multiplier.
+ *
+ *  `durSec` is the sounding length (whole x 1/cps x dur), so a `dur: 0.1` note
+ *  reports a tenth of its step. A tie is about where the NEXT STEP begins, not
+ *  how long this note happens to sound, so the multiplier has to come back out
+ *  or a short `dur` would refuse every tie. */
+function slideStepSec(ev: SchedulerEvent): number {
+  const d = ev.controls.dur
+  const mult = typeof d === 'number' && d > 0 ? d : 1
+  return ev.durSec / mult
+}
+
 export class Session {
   private readonly audio: AudioSessionLike
   private readonly onDiagnostics: ((d: Diagnostic[]) => void) | undefined
@@ -208,7 +226,7 @@ export class Session {
   /** Live custom wavetables: name → JSON.stringify(frames), the diffing
    *  fingerprint (the specs are small partial lists — cheap to fingerprint). */
   private readonly liveWavetables = new Map<string, string>()
-  /** Live per-synth sends: `${synth} ${bus}` → amount, the diff base so an
+  /** Live per-synth sends: `${synth}\u0000${bus}` → amount, the diff base so an
    *  unchanged send isn't resent and a dropped one resets to 0. */
   private liveSends = new Map<string, number>()
   /** Slide notes whose release is deferred until the synth's next note lands
@@ -230,6 +248,10 @@ export class Session {
    *  tempo isn't resent every eval. Starts at the scheduler's own default,
    *  which is also the engine's — the two agree before anyone sets anything. */
   private liveCps: number | undefined
+  /** Last masterGain(db) applied, so an unchanged one is not resent. */
+  private masterGainDb: number | undefined
+  /** JSON fingerprint of the live stereo stage (undefined = never set). */
+  private liveStereo: string | undefined
   /** The project's meter, from the last successful eval. Not sent to the
    *  engine: nothing in the audio graph counts bars — this scales the tempo
    *  UNIT (bpm), the clock and the exported file, all of which read it from
@@ -281,7 +303,10 @@ export class Session {
 
     // Take ownership of the engine event stream (single listener by design).
     this.audio.onEvent = (ev) => {
-      if (ev.kind === 'error') this.reportRuntime('engine', ev.message)
+      if (ev.kind === 'error') {
+        this.reportRuntime('engine', ev.message)
+        this.forgetRejectedSynth(ev.context)
+      }
       this.onEngineEvent?.(ev)
     }
   }
@@ -292,10 +317,127 @@ export class Session {
    * an empty list on a clean eval — always reach onDiagnostics. On failure
    * nothing is sent and nothing changes; the result carries the details.
    */
+  /**
+   * Drop a synth the engine REFUSED from the applied mirror.
+   *
+   * `liveSynths` records what has been sent, and the diff skips anything
+   * unchanged — so a `defineSynth` the engine rejected (voice budget spent, a
+   * graph it could not compile) left the host believing the synth existed. It
+   * never re-sent it, and every note for it reported `unknown synth` forever:
+   * the only way out was editing that synth's own text, which does not help
+   * when the problem is elsewhere in the project.
+   *
+   * Forgetting it means the next eval tries again, so freeing voices anywhere
+   * is enough to bring it back.
+   */
+  private forgetRejectedSynth(context: string | undefined): void {
+    if (context === undefined) return
+    const m = /^defineSynth '(.+)'$/.exec(context)
+    if (m === null) return
+    const name = m[1]!
+    this.liveSynths.delete(name)
+    this.liveDefs.delete(name)
+  }
+
+  /**
+   * What the voice budget will do to this project, said BEFORE anything is
+   * sent and while the line that caused it is still on screen.
+   *
+   * The budget is first come, first served, so the synth written last is the
+   * one that gets nothing — and the engine's own report of that arrives as a
+   * single line that is immediately buried under `unknown synth` for every
+   * note it should have played. The host knows every synth's `voices:` up
+   * front, so it can say the whole thing once: the total, the ceiling, who is
+   * spending it, and who loses.
+   */
+  private voiceBudgetDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
+    const plan = planVoiceBudget([...synths].map(([name, def]) => ({ name, voices: def.maxVoices })))
+    const rejected = plan.filter((p) => p.rejected)
+    const clamped = plan.filter((p) => !p.rejected && p.got < p.asked)
+    if (rejected.length === 0 && clamped.length === 0) return []
+    const asked = plan.reduce((n, p) => n + p.asked, 0)
+    const biggest = [...plan].sort((a, b) => b.asked - a.asked).slice(0, 3)
+      .map((p) => `${p.name} (${p.asked})`).join(', ')
+    const parts = [`this project asks for ${asked} voices and the budget is ${MAX_TOTAL_VOICES}`]
+    if (rejected.length > 0) {
+      parts.push(`${rejected.map((p) => `'${p.name}'`).join(', ')} will NOT be created, so `
+        + `${rejected.length === 1 ? 'it is' : 'they are'} silent`)
+    }
+    for (const p of clamped) parts.push(`'${p.name}' gets ${p.got} of the ${p.asked} voices it asks for`)
+    parts.push(`the largest are ${biggest} — lower \`voices:\` on those`)
+    return [{
+      line: 1,
+      col: 1,
+      message: parts.join('. ') + '.',
+      severity: 'warning' as const,
+      source: 'eval' as const,
+    }]
+  }
+
+  /**
+   * Every sample a program plays that is not loaded.
+   *
+   * A missing sample is SILENT and says nothing: the kernel resolves the name
+   * per block and outputs zeros when it finds nothing, so a typo in a sample
+   * name renders a track with a voice quietly absent and reports success. An
+   * offline bounce of the granular example once wrote a file of digital zero
+   * this way. `sampleNamesIn` was built to answer exactly this and had no
+   * caller in the app.
+   *
+   * A WARNING, not an error: a name can legitimately be missing for a moment
+   * while you are still writing the line, or between choosing a sample and
+   * loading it, and failing the eval there would fight the person typing.
+   */
+  /**
+   * Sample names that are loaded right now, by FAMILY: `bd:1` and `bd:2` are
+   * both `bd`, because that is the name you write.
+   *
+   * Public because the editor completes sample names from it. That is the same
+   * list `missingSampleDiags` warns against, deliberately — offering a name and
+   * then warning that it is not loaded would be the editor arguing with itself.
+   */
+  loadedSampleNames(): string[] {
+    const list = this.audio.getSamples?.()
+    if (list === undefined) return []
+    const out = new Set<string>()
+    for (const s of list) out.add(parseSampleRef(s.name).base)
+    return [...out].sort()
+  }
+
+  private missingSampleDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
+    if (this.audio.getSamples === undefined) return []
+    const loaded = new Set<string>(this.loadedSampleNames())
+    const wanted = new Set<string>()
+    for (const def of synths.values()) {
+      for (const n of sampleNamesIn(def.graph)) wanted.add(n)
+      if (def.post !== undefined) for (const n of sampleNamesIn(def.post)) wanted.add(n)
+    }
+    /* Compared by FAMILY: `bd:3` is satisfied by any variant of `bd`, because
+     * the index wraps. Checking the literal name would report every
+     * round-robin reference as missing. */
+    const missing = [...wanted].filter((n) => !loaded.has(parseSampleRef(n).base))
+    if (missing.length === 0) return []
+    const have = [...loaded].sort().join(', ')
+    return missing.sort().map((name) => ({
+      line: 1,
+      col: 1,
+      message: `no sample named '${name}' is loaded, so that voice is SILENT`
+        + (have === '' ? '. Load one with the + button in the editor.' : `. Loaded: ${have}`),
+      severity: 'warning' as const,
+      source: 'eval' as const,
+    }))
+  }
+
   evalCode(source: string, opts?: { live?: boolean }): EvalResult {
     this.lastAttemptedSource = source
     const result = evalCode(source, baseScope)
-    this.evalDiags = result.diagnostics
+    this.evalDiags = result.ok
+      ? [
+          ...result.diagnostics,
+          ...this.voiceBudgetDiags(result.synths),
+          ...this.missingSampleDiags(result.synths),
+        ]
+      : result.diagnostics
     // Runtime diagnostics describe the PREVIOUS program: stale once a new
     // one applies. A failed eval leaves the old program (and its runtime
     // failures) live, so they survive.
@@ -449,6 +591,20 @@ export class Session {
 
     // Master glue compressor: same diff-and-send discipline — setMasterComp on
     // new/changed config, clearMasterComp when it vanishes.
+    // The engine has understood `setMaster` since it was written, and nothing
+    // in the app had ever sent it — a master gain the code could not reach.
+    if (result.masterGain !== this.masterGainDb) {
+      this.masterGainDb = result.masterGain
+      this.audio.send({ kind: 'setMaster', gain: Math.pow(10, (result.masterGain ?? 0) / 20) * DEFAULT_MASTER_GAIN })
+    }
+    // Master-bus mid/side: same diff-and-send discipline. Clearing it back to
+    // defaults matters as much as setting it — a width left over from the last
+    // eval would silently narrow the next program.
+    const stJson = result.stereo !== undefined ? JSON.stringify(result.stereo) : undefined
+    if (stJson !== this.liveStereo) {
+      this.liveStereo = stJson
+      this.audio.send({ kind: 'setStereo', ...(result.stereo ?? { width: 1, monoBelow: 0 }) })
+    }
     const mcJson = result.masterComp !== undefined ? JSON.stringify(result.masterComp) : undefined
     if (mcJson !== this.liveMasterComp) {
       if (result.masterComp !== undefined) {
@@ -478,7 +634,7 @@ export class Session {
     // Sends: setSend for new/changed routes, reset a dropped route to 0 — but
     // only while both endpoints still exist (removeBus/removeSynth already drop
     // the routing engine-side, and setSend to a gone endpoint would error).
-    const sendKey = (synth: string, bus: string): string => `${synth} ${bus}`
+    const sendKey = (synth: string, bus: string): string => `${synth}\u0000${bus}`
     const newSends = new Map<string, number>()
     for (const s of result.sends) newSends.set(sendKey(s.synth, s.bus), s.amount)
     for (const s of result.sends) {
@@ -490,7 +646,7 @@ export class Session {
     }
     for (const key of this.liveSends.keys()) {
       if (newSends.has(key)) continue
-      const sep = key.indexOf(' ')
+      const sep = key.indexOf('\u0000')
       const synth = key.slice(0, sep)
       const bus = key.slice(sep + 1)
       if (this.liveSynths.has(synth) && this.liveBuses.has(bus)) {
@@ -883,17 +1039,37 @@ export class Session {
       for (const [key, value] of Object.entries(ev.controls)) {
         if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
         if (this.heldParams.has(`${sound}.${key}`)) continue // a hand holds this knob
-        this.audio.send({ kind: 'setParam', synth: sound, name: key, value })
+        /* SAME FRAME AS THE NOTE. Without atFrame the engine applied the value
+         * when the message arrived, which is up to one lookahead ahead of the
+         * note it belongs to (measured at a steady 75ms) — and since a param
+         * reaches every voice of the synth, the change was heard on the
+         * PREVIOUS note's tail. At equal frames the engine fires params before
+         * noteOn, so the note opens on its own value. */
+        this.audio.send({ kind: 'setParam', synth: sound, name: key, value, atFrame })
       }
       const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
       this.audio.send({ kind: 'noteOn', synth: sound, note, velocity, atFrame })
       const slide = typeof ev.controls.slide === 'number' && ev.controls.slide > 0
       if (slide) {
-        // Defer the release: hold until the NEXT note for this synth arrives
-        // (resolved above). A safety noteOff far out prevents a stuck note if
-        // no next note ever comes; whichever fires first wins, the other is a
-        // no-op in the engine.
-        this.pendingSlide.set(sound, { note, deadlineFrame: atFrame + Math.round(MAX_SLIDE_HOLD_SEC * sr) })
+        /* Hold until the NEXT note for this synth arrives (resolved above),
+         * but NO LONGER THAN THIS NOTE'S OWN STEP.
+         *
+         * A tie is a relationship between ADJACENT steps: the next note begins
+         * where this one's step ends. Anything further away has a REST in
+         * between, and a rest is not a note to glide into. The deadline used
+         * to be a flat 4 seconds, so a slide note followed by rests sustained
+         * across them — measured at 1.25s from a step of 0.11s, which reads as
+         * a stuck gate rather than a glide.
+         *
+         * BOUNDED, not detected. Rests emit no events, and the scheduler's
+         * lookahead is often shorter than a step, so "is there a next note?"
+         * has no reliable answer at this point — peeking into the batch made
+         * the release land differently depending on where the window fell.
+         * The deadline needs no lookahead: an adjacent note is dispatched
+         * before the clock reaches it and resolves the tie first, and nothing
+         * else can hold the gate past its own step. */
+        const bound = Math.min(slideStepSec(ev) + SLIDE_OVERLAP_SEC, MAX_SLIDE_HOLD_SEC)
+        this.pendingSlide.set(sound, { note, deadlineFrame: atFrame + Math.round(bound * sr) })
       } else {
         // Gate gap: shorten the gate slightly so back-to-back events on the
         // SAME note leave a low-gate window between them, so the retriggered

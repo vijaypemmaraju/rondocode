@@ -1,5 +1,7 @@
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
 import workletUrl from './worklet/processor?worker&url'
+import { explainChoice, latencyReport, resolveDevice, resolveMicProcessing } from './devices'
+import type { DeviceChoice, DeviceInfo, LatencyReport, MicProcessing } from './devices'
 
 /* Main-thread side of the audio stack: owns the AudioContext and the
  * AudioWorkletNode hosting RealtimeEngine (see ./processor.ts), and speaks
@@ -20,7 +22,7 @@ export interface SampleInfo {
   name: string
   /** length in frames at `sampleRate` */ frames: number
   sampleRate: number
-  /** true for the demo samples shipped by default (vox/riser/pad) */ builtIn: boolean
+  /** true for the demo samples shipped by default (see BUILT_IN_SAMPLE_NAMES) */ builtIn: boolean
 }
 
 export class AudioSession {
@@ -151,6 +153,121 @@ export class AudioSession {
    *  use mic()?" — the permission prompt only ever appears for code that
    *  actually listens. Failures (denied, no device) leave the engine reading
    *  silence; the synth still runs. */
+  /** What the SETTING asks for (persisted rig), and what the CODE asked for
+   *  on the last eval. Both are id-or-label; `resolveDevice` owns which wins. */
+  private savedInput: string | undefined
+  private savedOutput: string | undefined
+  private codeInput: string | undefined
+  /** raw / voice / auto — see resolveMicProcessing. Reopens the capture when
+   *  it changes, because the constraints are fixed at getUserMedia time. */
+  private micProcessing: MicProcessing = 'auto'
+  private micIsMobile = false
+  /** The last resolution, so the UI can report a fallback rather than leaving
+   *  a missing interface to be discovered by ear. */
+  private lastInputChoice: DeviceChoice = { reason: 'default' }
+  private lastOutputChoice: DeviceChoice = { reason: 'default' }
+
+  /** Every audio device the browser will admit to, split by direction. Labels
+   *  are EMPTY until a getUserMedia permission has been granted at least once
+   *  — that is a privacy rule, not a bug, and the picker has to say so rather
+   *  than render a list of blanks. */
+  async listDevices(): Promise<{ inputs: DeviceInfo[]; outputs: DeviceInfo[]; labelled: boolean }> {
+    const md = globalThis.navigator?.mediaDevices
+    if (md?.enumerateDevices === undefined) return { inputs: [], outputs: [], labelled: false }
+    const all = await md.enumerateDevices()
+    const pick = (kind: 'audioinput' | 'audiooutput'): DeviceInfo[] =>
+      all.filter((d) => d.kind === kind).map((d) => ({ deviceId: d.deviceId, label: d.label, kind }))
+    const inputs = pick('audioinput')
+    const outputs = pick('audiooutput')
+    return { inputs, outputs, labelled: [...inputs, ...outputs].some((d) => d.label !== '') }
+  }
+
+  /** Raw capture or the voice-processing path. Reopens a live capture, since
+   *  the constraints can only be set when the stream is created. */
+  async setMicProcessing(mode: MicProcessing, isMobile: boolean): Promise<void> {
+    if (mode === this.micProcessing && isMobile === this.micIsMobile) return
+    this.micProcessing = mode
+    this.micIsMobile = isMobile
+    if (this.micStream !== null) {
+      await this.setMicEnabled(false)
+      await this.setMicEnabled(true)
+    }
+  }
+
+  /** What the capture is actually doing right now, for the options readout. */
+  micProcessingActive(): { echoCancellation: boolean; noiseSuppression: boolean } {
+    const c = resolveMicProcessing(this.micProcessing, this.micIsMobile)
+    return { echoCancellation: c.echoCancellation, noiseSuppression: c.noiseSuppression }
+  }
+
+  /** The saved rig. Re-applies immediately, so choosing a device in the
+   *  options panel takes effect without a reload. */
+  async setPreferredDevices(input?: string, output?: string): Promise<void> {
+    this.savedInput = input
+    this.savedOutput = output
+    await this.applyOutputDevice()
+    if (this.micStream !== null) {
+      // reopen the capture on the newly chosen input
+      await this.setMicEnabled(false)
+      await this.setMicEnabled(true)
+    }
+  }
+
+  /** What the code asked for (`mic device:"…"`), set from the staged program.
+   *  Reopens the capture only when the resolved device actually changes. */
+  async setCodeInputDevice(name: string | undefined): Promise<void> {
+    if (name === this.codeInput) return
+    this.codeInput = name
+    if (this.micStream !== null) {
+      await this.setMicEnabled(false)
+      await this.setMicEnabled(true)
+    }
+  }
+
+  /** Route the OUTPUT at a chosen device. `setSinkId` is a page-level API and
+   *  is not universal (Firefox gated it for years, and a WKWebView shell may
+   *  not have it at all), so this is best-effort: no sink support means the OS
+   *  default, which is what happened before this existed. */
+  private async applyOutputDevice(): Promise<void> {
+    const ctx = this.context as AudioContext & { setSinkId?: (id: string) => Promise<void> }
+    if (typeof ctx.setSinkId !== 'function') {
+      this.lastOutputChoice = { reason: 'default' }
+      return
+    }
+    const { outputs } = await this.listDevices()
+    const choice = resolveDevice(undefined, this.savedOutput, outputs)
+    this.lastOutputChoice = choice
+    try {
+      await ctx.setSinkId(choice.deviceId ?? '')
+    } catch (e) {
+      console.warn('[audio] output device not available', e)
+      this.lastOutputChoice = { reason: 'default', ...(this.savedOutput !== undefined ? { fellBackFrom: this.savedOutput } : {}) }
+    }
+  }
+
+  /** The measured latency budget — reported, never estimated. `outputLatency`
+   *  is 0 in plenty of real contexts, which under-reports rather than lies. */
+  latency(): LatencyReport {
+    const ctx = this.context as AudioContext & { outputLatency?: number }
+    const track = this.micStream?.getAudioTracks()[0]
+    const settings = track?.getSettings() as { latency?: number } | undefined
+    return latencyReport(
+      this.context.sampleRate,
+      this.context.baseLatency ?? 0,
+      ctx.outputLatency ?? 0,
+      settings?.latency ?? 0,
+    )
+  }
+
+  /** Anything the user should be told about the current routing: an interface
+   *  that was asked for and is not here. Empty when all is well. */
+  deviceWarnings(): string[] {
+    return [
+      explainChoice(this.lastInputChoice, 'input'),
+      explainChoice(this.lastOutputChoice, 'output'),
+    ].filter((m): m is string => m !== null)
+  }
+
   async setMicEnabled(on: boolean): Promise<void> {
     this.micWanted = on
     if (!on) {
@@ -166,13 +283,23 @@ export class AudioSession {
     }
     if (this.micStream !== null) return // already live
     try {
+      /* WHICH input. `resolveDevice` owns the precedence (code → setting → OS)
+       * so this method never re-decides it. Labels are blank before the first
+       * permission grant, so the very first open cannot match by name — it
+       * takes the default, and the next open (after `listDevices` can see
+       * labels) resolves properly. */
+      const { inputs } = await this.listDevices()
+      const choice = resolveDevice(this.codeInput, this.savedInput, inputs)
+      this.lastInputChoice = choice
+      /* RAW by default (phone voice-call DSP smears transients and would
+       * colour a vocoder badly) — but on a phone the speaker is two
+       * centimetres from the mic, and without echo cancellation a live chain
+       * simply howls. resolveMicProcessing owns that choice. */
+      const processing = resolveMicProcessing(this.micProcessing, this.micIsMobile)
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          // capture the true signal: phone voice-call DSP smears transients
-          // and would color a vocoder badly
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          ...processing,
+          ...(choice.deviceId !== undefined ? { deviceId: { exact: choice.deviceId } } : {}),
         },
       })
       // an eval may have turned mic OFF while the permission prompt was open

@@ -106,6 +106,122 @@ const objEntries = (n: Node): Record<string, Node> | undefined => {
 /** Print a number the way rondo reads them. */
 const num = (v: number): string => String(v)
 
+/* ---- zonedefs -------------------------------------------------------------- *
+ * A multisample is a `zones` ARRAY riding in a sample node's options, and rondo
+ * spells the same thing as a top-level `zonedef` block that `sample NAME`
+ * refers to. So this direction has to go the other way round the inlining the
+ * compiler does: the zones are lifted OUT of the synth they were found in and
+ * given their own block above it.
+ *
+ * Two things make that more than a rename. A zonedef is keyed by NAME, so two
+ * synths sampling `piano` with DIFFERENT zone lists cannot both be written —
+ * the second one has to stay JavaScript rather than silently pick up the
+ * first's zones. And a block is only emitted once the statement that wanted it
+ * has actually rendered with a `sample NAME` line in it, because rendering is
+ * speculative in places and a block nothing refers to is dead text.
+ */
+const PITCH_NAMES = ['c', 'c#', 'd', 'd#', 'e', 'f', 'f#', 'g', 'g#', 'a', 'a#', 'b']
+
+/** MIDI as the note name a musician can check: `48` reads as `c3`.
+ *
+ *  ALWAYS a name, never the number it came from. Note names cover the whole
+ *  line where bare numbers do not — the row syntax takes `\d+` only, so a zone
+ *  reaching below MIDI 0 (which `c-2` in the source is allowed to do) has no
+ *  numeric spelling at all. */
+function midiNote(v: number): string | null {
+  if (!Number.isInteger(v)) return null
+  const pc = PITCH_NAMES[((v % 12) + 12) % 12]!
+  return `${pc}${Math.floor(v / 12) - 1}`
+}
+
+interface ZoneCollector {
+  /** name → block text, for zonedefs already emitted in this document. */
+  committed: Map<string, string>
+  /** name → block text, for this statement, not yet known to be used. */
+  pending: Map<string, string>
+  /** Every name the document zones ANYWHERE — see `scanZoneNames`. */
+  names: Set<string>
+}
+const zones: ZoneCollector = { committed: new Map(), pending: new Map(), names: new Set() }
+
+/**
+ * Collect every sample name the document attaches zones to, before rendering
+ * anything.
+ *
+ * A zonedef is a GLOBAL table keyed by name, so it captures every `sample pno`
+ * in the file — not just the one whose zones it came from. Without this, a
+ * synth that plays the plain sample:
+ *
+ *   const b = synth(({ gate, sample }) => sample(gate, 'pno'))
+ *
+ * decompiles to `sample pno`, and recompiling silently hands it the OTHER
+ * synth's multisample. Nothing errors; the wrong instrument just plays.
+ *
+ * Knowing the names up front is what makes that detectable, because the plain
+ * sample may be written ABOVE the zoned one and a single pass has not met the
+ * zonedef yet when it renders. A name is collected on the mere PRESENCE of a
+ * `zones` key, without checking the array renders: over-collecting costs a
+ * `js{ }` line on a synth that was going to be one anyway, while
+ * under-collecting is the silent wrong instrument.
+ */
+function scanZoneNames(n: unknown, into: Set<string>): void {
+  if (n === null || typeof n !== 'object') return
+  if (Array.isArray(n)) {
+    for (const x of n) scanZoneNames(x, into)
+    return
+  }
+  const node = n as Node
+  if (isCall(node) && calleeName(node) === 'sample') {
+    const a = node['arguments'] as Node[]
+    const zname = a[1] !== undefined ? strValue(a[1]) : undefined
+    const last = a[a.length - 1]
+    if (zname !== undefined && last !== undefined && objEntries(last)?.['zones'] !== undefined) into.add(zname)
+  }
+  for (const k of Object.keys(node)) {
+    if (k === 'type' || k === 'start' || k === 'end') continue
+    scanZoneNames(node[k], into)
+  }
+}
+
+/**
+ * Render a `zones: [...]` array as a `zonedef NAME` block and register it,
+ * returning false when it cannot be written as one.
+ *
+ * A name already spoken for by a DIFFERENT list is the interesting refusal:
+ * rondo resolves `sample piano` through one global zonedef table, so emitting
+ * a second `zonedef piano` would quietly re-point the first synth at the
+ * second's samples. Better to leave that synth as JavaScript.
+ */
+function collectZonedef(name: string, arr: Node): boolean {
+  if (arr.type !== 'ArrayExpression') return false
+  const rows: string[] = []
+  for (const el of arr['elements'] as Node[]) {
+    const z = objEntries(el)
+    if (z === undefined) return false
+    const lo = z['lo'] !== undefined ? numValue(z['lo']) : undefined
+    const hi = z['hi'] !== undefined ? numValue(z['hi']) : undefined
+    const sname = z['name'] !== undefined ? strValue(z['name']) : undefined
+    // root is optional in BOTH directions and defaults to 60 in BOTH — the
+    // rondo parser and the sampler kernel agree — so an omitted root stays
+    // omitted rather than forcing the whole synth back to JavaScript
+    const root = z['root'] === undefined ? 60 : numValue(z['root'])
+    if (lo === undefined || hi === undefined || root === undefined || sname === undefined) return false
+    if (Object.keys(z).some((k) => !['lo', 'hi', 'name', 'root'].includes(k))) return false
+    // the row grammar takes a sample name or one family variant of it
+    if (!/^[a-zA-Z_]\w*(?::\d+)?$/.test(sname)) return false
+    if (hi < lo) return false
+    const [l, h, r] = [midiNote(lo), midiNote(hi), midiNote(root)]
+    if (l === null || h === null || r === null) return false
+    rows.push(`  ${l}..${h} ${sname}${root === 60 ? '' : ` root:${r}`}`)
+  }
+  if (rows.length === 0) return false
+  const block = [`zonedef ${name}`, ...rows].join('\n')
+  const seen = zones.committed.get(name) ?? zones.pending.get(name)
+  if (seen !== undefined) return seen === block // a DIFFERENT list under this name
+  zones.pending.set(name, block)
+  return true
+}
+
 /* ---- expression decompiler ------------------------------------------------ *
  * Renders a JS expression as a rondo expression string, tracking the loosest
  * operator precedence in the rendered string so infix composition only
@@ -144,12 +260,13 @@ const OP_ROLE: Record<string, string> = { mul: 'amp', div: 'amp', add: 'sum', su
 
 const ALIAS_INV: Record<string, string> = { roomSize: 'room', maxTime: 'maxtime', warpAmt: 'warpamt' }
 
-function namedArgs(spec: (typeof BUILTINS)[string], opts: Node | undefined): string | null {
+function namedArgs(spec: (typeof BUILTINS)[string], opts: Node | undefined, skip?: string): string | null {
   if (opts === undefined) return ''
   const entries = objEntries(opts)
   if (entries === undefined) return null
   const parts: string[] = []
   for (const [key, val] of Object.entries(entries)) {
+    if (key === skip) continue
     const rname = ALIAS_INV[key] ?? key
     const kind = spec.named?.[rname]
     if (kind === undefined) return null
@@ -277,6 +394,25 @@ function hoistAs(role: string, r: R): string {
   hoist.used.add(name)
   hoist.out.push(`${name} = ${r.s}`)
   return name
+}
+
+/**
+ * A number literal, or an expression tight enough to stand where one would.
+ *
+ * `adsr .002 dec2 0 0` and `lfo .2 -> lo..hi` are both things rondo says, and
+ * both used to come back as `js{ }` because these sites asked for a literal
+ * and read `undefined` as "cannot be written". A binding name is the common
+ * case and rather the point: the numbers in a patch are usually knobs.
+ *
+ * TIGHT and CLOSED, because these slots are juxtaposed with what follows:
+ * `adsr` reads exactly four positionals and `..` reads two, so an operand that
+ * rendered loosely would swallow the next one.
+ */
+function numOrTight(n: Node): string | null {
+  const v = numValue(n)
+  if (v !== undefined) return num(v)
+  const r = rExpr(n, true)
+  return r !== null && r.prec >= 3 && r.openPrec === undefined && !r.arityOpen ? r.s : null
 }
 
 /** A positional argument in a builtin application parses at prec ≥ 2.
@@ -424,10 +560,10 @@ function rExprRaw(n: Node, closed = false): R | null {
     // .range(lo, hi) → `x -> lo..hi`
     if (m.method === 'range' && m.args.length === 2) {
       const x = rExpr(m.obj)
-      const lo = numValue(m.args[0]!)
-      const hi = numValue(m.args[1]!)
-      if (x === null || x.prec < 2 || lo === undefined || hi === undefined) return null
-      return { s: `${x.s} -> ${num(lo)}..${num(hi)}`, prec: 1, arityOpen: false }
+      const lo = numOrTight(m.args[0]!)
+      const hi = numOrTight(m.args[1]!)
+      if (x === null || x.prec < 2 || lo === null || hi === null) return null
+      return { s: `${x.s} -> ${lo}..${hi}`, prec: 1, arityOpen: false }
     }
     return null
   }
@@ -439,15 +575,15 @@ function rExprRaw(n: Node, closed = false): R | null {
       if (args.length === 2 && isIdent(args[0], 'gate')) {
         const o = objEntries(args[1]!)
         if (o !== undefined) {
-          const vals = ['a', 'd', 's', 'r'].map((k) => (o[k] !== undefined ? numValue(o[k]!) : 0))
-          if (vals.every((x) => x !== undefined)) {
+          const vals = ['a', 'd', 's', 'r'].map((k) => (o[k] !== undefined ? numOrTight(o[k]!) : '0'))
+          if (vals.every((x) => x !== null)) {
             // CLOSED, not openPrec 2. adsr takes exactly four positionals, so
             // the parser finishes the call and binds any following operator to
             // the whole thing — verified for ^, * and +. Claiming it was open
             // blocked `^` (prec 4) while allowing `->` (prec 1), which is why
             // `adsr … ^ 3 -> 48..190` decompiled to a js{ } blob even though
             // rondo says it natively.
-            return { s: `adsr ${vals.map((x) => num(x!)).join(' ')}`, prec: 5, arityOpen: false }
+            return { s: `adsr ${vals.join(' ')}`, prec: 5, arityOpen: false }
           }
         }
       }
@@ -538,6 +674,23 @@ function rExprRaw(n: Node, closed = false): R | null {
         rest = rest.slice(0, -1)
       }
     }
+    /* A `zones` array is not a named argument at all — it is a whole top-level
+     * block folded into this call, so lift it back out and let the rest of the
+     * options render as the ordinary sample they are. The zonedef takes the
+     * sample's own name, which is the name `sample piano` will look it up by. */
+    let zoned: string | undefined
+    if (name === 'sample') {
+      const zname = rest[0] !== undefined ? strValue(rest[0]) : undefined
+      const zarr = opts !== undefined ? objEntries(opts)?.['zones'] : undefined
+      if (zarr !== undefined) {
+        if (zname === undefined || !collectZonedef(zname, zarr)) return null
+        zoned = 'zones'
+      } else if (zname !== undefined && zones.names.has(zname)) {
+        // a PLAIN sample of a zoned name: writing `sample pno` here would pick
+        // the zonedef up, so this one stays JavaScript
+        return null
+      }
+    }
     const pos: string[] = []
     for (let i = 0; i < rest.length; i++) {
       const kind = spec.pos[i]
@@ -561,7 +714,7 @@ function rExprRaw(n: Node, closed = false): R | null {
         pos.push(p)
       }
     }
-    const named = namedArgs(spec, opts)
+    const named = namedArgs(spec, opts, zoned)
     if (named === null) return null
     const posStr = pos.length > 0 ? ' ' + pos.join(' ') : ''
     // tail decides operator absorption; arity room decides token absorption
@@ -770,8 +923,20 @@ function unfoldPipelineRaw(n: Node, lines: string[]): boolean {
         rest = rest.slice(0, -1)
       }
       const pos: string[] = []
-      for (const a of rest) {
-        const p = posArg(a)
+      for (let i = 0; i < rest.length; i++) {
+        /* An ENUM positional is a bare word, not a signal. The expression
+         * branch above already knew that; this one did not, and sent every
+         * positional through posArg — which returns null for a string, so the
+         * whole line fell out to a `js{ }` blob. No proc had an enum
+         * positional until `convolve`, so the gap had never been reachable.
+         * Same rule, two copies, one of them updated. */
+        if (spec.pos[i] === 'enum') {
+          const sv = strValue(rest[i]!)
+          if (sv === undefined || !/^[a-zA-Z_]\w*$/.test(sv)) return false
+          pos.push(sv)
+          continue
+        }
+        const p = posArg(rest[i]!)
         if (p === null) return false
         pos.push(p)
       }
@@ -1264,6 +1429,15 @@ function chainToPlay(chainNode: Node):
     if (m.method === 'scale' && m.args.length === 1) {
       const sv = strValue(m.args[0]!)
       if (sv === undefined) return null
+      /* A PATTERNED scale comes back as it went out, with the `_` separators
+       * turned back into the `-` the language writes. Without this a
+       * `scale: <c-maj f-min>` line survived a round trip only as a js{} blob,
+       * which is the language failing to spell something it accepts. */
+      if (/[<>[\]{}*!@?|,]/.test(sv)) {
+        scale = sv.replace(/_/g, '-')
+        cur = m.obj
+        continue
+      }
       const [root, mode, extra] = sv.split(' ')
       if (root === undefined || mode === undefined || extra !== undefined) return null
       // the short form must re-lex as `scale:root-mode` — a root outside
@@ -1477,23 +1651,44 @@ function decompilePlay(stmt: Node): string | null {
 }
 
 /** A section const: its plays (one per stack member), or null. */
-function sectionPlays(chainNode: Node): string[] | null {
-  const members = isCall(chainNode) && calleeName(chainNode) === 'stack' &&
-      !((chainNode['arguments'] as Node[]).some((a) => {
-        const en = isCall(a) ? calleeName(a) : undefined
-        // a stack of ENTRIES is stacked voices, not section plays
-        return en === 'n' || en === 'note' || en === 'chord' || en === 's' || en === 'sound'
-      }))
+function sectionPlays(chainNode: Node): { plays: string[]; withs: string[] } | null {
+  /* Every member of a `const __sec_X = stack(...)` IS a section play: that is
+   * what the name means, and this is the only caller.
+   *
+   * It used to bail when any member was a bare `n(…)`/`s(…)` call, on the
+   * theory that such a stack was one play's stacked voices. An unmodified
+   * `beat` compiles to exactly a bare `s('kick ~ snare ~')`, so a section
+   * holding both a `play` and a `beat` looked like stacked voices, failed to
+   * convert, and took the whole section out to a `js` block with it. Measured
+   * on the shipped examples: `reverse cymbal` and `buildup + drop` each lost
+   * three blocks that way, and either kind of block ALONE was fine, which is
+   * what made it hard to see.
+   *
+   * A member that genuinely is not a play still returns null below. */
+  const members = isCall(chainNode) && calleeName(chainNode) === 'stack'
     ? (chainNode['arguments'] as Node[])
     : [chainNode]
   const out: string[] = []
+  const withs: string[] = []
   for (const m of members) {
+    /* A bare `__sec_x` member is `with x`: codegen emits a with as a
+     * REFERENCE to the other section's const rather than by copying its plays,
+     * so that the shared part stays shared. Coming back, an identifier is the
+     * only member that is not a play at all -- and it used to take the whole
+     * section out to a `js` block, since chainToPlay can make nothing of it. */
+    if (isIdent(m) && (m['name'] as string).startsWith('__sec_')) {
+      withs.push((m['name'] as string).slice('__sec_'.length))
+      continue
+    }
     const play = chainToPlay(m)
     if (play === null) return null
     const header = play.entry === 'sound' ? '  beat' : `  play ${play.sound}`
     out.push([header, ...play.body.map((l) => `    ${l}`)].join('\n'))
   }
-  return out
+  /* `plays` may be empty only in principle: the parser requires a section to
+   * have at least one play, so a with-only section cannot be written and
+   * cannot arrive here. */
+  return { plays: out, withs }
 }
 
 /** p('name', sing([voice,] lyrics, notes, { name, post? })<mods>) → a sing
@@ -1608,6 +1803,11 @@ function decompileStaging(stmt: Node): string | null {
   if ((name === 'setCps' || name === 'setBpm') && args.length === 1) {
     const v = numValue(args[0]!)
     return v !== undefined ? `${name === 'setBpm' ? 'bpm' : 'cps'} ${num(v)}` : null
+  }
+  // `masterGain(-4)` → `level -4`, in the same dB the JS states.
+  if (name === 'masterGain' && args.length === 1) {
+    const v = numValue(args[0]!)
+    return v !== undefined ? `level ${num(v)}` : null
   }
   // `setTimeSig(3, 4)` → `timesig 3 4`. Non-literal arguments stay a js block:
   // there is no rondo spelling for a computed meter.
@@ -1740,6 +1940,21 @@ function decompileStaging(stmt: Node): string | null {
     }
     return `master ${parts.join(' ')}`
   }
+  /* `stereo({ width, monoBelow })` → `stereo width:… monobelow:…`. The key
+   *  loses its camelCase on the way back: rondo has none anywhere, and the
+   *  mapping lives in exactly these two places. */
+  if (name === 'stereo' && args.length <= 1) {
+    if (args.length === 0) return 'stereo'
+    const o = objEntries(args[0]!)
+    if (o === undefined) return null
+    const parts: string[] = []
+    for (const [k, vn] of Object.entries(o)) {
+      const v = numValue(vn)
+      if (v === undefined) return null
+      parts.push(`${k === 'monoBelow' ? 'monobelow' : k}:${num(v)}`)
+    }
+    return `stereo ${parts.join(' ')}`
+  }
   if (name === 'sidechain' && args.length >= 1 && args.length <= 2) {
     const srcName = strValue(args[0]!)
     if (srcName === undefined) return null
@@ -1817,6 +2032,10 @@ export function decompile(js: string): string {
     // not parseable as JS at all — hand it back wrapped so nothing is lost
     return ['js', ...js.split('\n').map((l) => (l.length > 0 ? `  ${l}` : ''))].join('\n') + '\n'
   }
+  zones.committed.clear()
+  zones.pending.clear()
+  zones.names.clear()
+  scanZoneNames(program['body'], zones.names)
   const parts: string[] = []
   let jsRun: string[] = [] // consecutive unrecognized statements → ONE js block
   const flushJs = (): void => {
@@ -1831,7 +2050,7 @@ export function decompile(js: string): string {
   // sections: `const __sec_X = <stack of plays>` held aside; the matching
   // p('song', arrange([len, __sec_X], …)) emits section blocks + a song line.
   // A partial match falls back to js blocks for everything involved.
-  const pendingSecs = new Map<string, { plays: string[]; raw: string; placeholder: number }>()
+  const pendingSecs = new Map<string, { plays: string[]; withs: string[]; raw: string; placeholder: number }>()
   const secConst = (stmt: Node): string | null => {
     if (stmt.type !== 'VariableDeclaration') return null
     const d = (stmt['declarations'] as Node[])[0]
@@ -1846,7 +2065,7 @@ export function decompile(js: string): string {
     // placeholder index must come after it, or a bailed statement written
     // just above this section would be emitted below it (order inversion)
     flushJs()
-    pendingSecs.set(name.slice('__sec_'.length), { plays, raw: slice(stmt), placeholder: parts.length })
+    pendingSecs.set(name.slice('__sec_'.length), { plays: plays.plays, withs: plays.withs, raw: slice(stmt), placeholder: parts.length })
     parts.push('') // placeholder — filled by the song matcher (or restored raw)
     return ''
   }
@@ -1875,19 +2094,42 @@ export function decompile(js: string): string {
       lens.set(name, len)
       order.push(name)
     }
-    // fill each section's placeholder with its block, in definition position
+    /* Fill each section's placeholder with its block, in definition position.
+     *
+     * A section the song never sequences keeps its raw statement, because its
+     * LENGTH is genuinely unrecoverable: codegen writes the length only into
+     * `arrange([8, __sec_x])`, so a section nobody arranges carries none. That
+     * happens for real -- a section used only as a `with` base, or one parked
+     * while writing.
+     *
+     * It used to bail the WHOLE matcher, so one unarranged section sent every
+     * other section out to JavaScript with it. Recovering the ones that can be
+     * recovered is strictly better than recovering none, and the one that
+     * cannot is left alone rather than given an invented length. */
     for (const [name, sec] of pendingSecs) {
       const len = lens.get(name)
-      if (len === undefined) return null // a section the song never uses → bail
-      parts[sec.placeholder] = [`section ${name} ${num(len)}`, ...sec.plays].join('\n')
+      if (len === undefined) continue // no length in the JS: leave it raw
+      const withs = sec.withs.map((w) => ` with ${w}`).join('')
+      parts[sec.placeholder] = [`section ${name} ${num(len)}${withs}`, ...sec.plays].join('\n')
     }
-    pendingSecs.clear()
+    for (const name of lens.keys()) pendingSecs.delete(name)
     return `song ${order.join(' ')}`
   }
   for (const stmt of program['body'] as Node[]) {
+    zones.pending.clear()
     const r = secConst(stmt) ?? songArrange(stmt) ?? decompileSynth(stmt) ?? decompileSing(stmt) ?? decompilePlay(stmt) ?? decompileStaging(stmt)
     if (r !== null) {
       flushJs()
+      /* The zonedef goes ABOVE the synth that wanted it, and only if that
+       * synth came out referring to it by name. Rendering is speculative in
+       * places — an operand is rendered to inspect it and the result thrown
+       * away — so a zones array that was looked at but whose line ended up a
+       * `js{ }` blob would otherwise leave a block nothing reads. */
+      for (const [zname, block] of zones.pending) {
+        if (!new RegExp(`(^|\\s)sample ${zname}(\\s|$)`, 'm').test(r)) continue
+        parts.push(block)
+        zones.committed.set(zname, block)
+      }
       if (r !== '') parts.push(r)
     } else {
       jsRun.push(slice(stmt))

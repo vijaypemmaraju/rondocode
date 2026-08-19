@@ -54,7 +54,10 @@ load (or record, or resample) a sample.
 ## Why another live-coding system?
 
 [TidalCycles](https://tidalcycles.org), [Strudel](https://strudel.cc) and
-[Gibber](https://gibber.cc) already exist and are excellent. If you live-code
+[Gibber](https://gibber.cc) already exist and are excellent. The pattern side
+of rondocode follows the model Tidal invented and the mini-notation Strudel
+carried to the browser -- see [NOTICE.md](NOTICE.md) for what this project
+borrows and from whom. If you live-code
 on a laptop and love them, keep them. rondocode exists because of three bets
 they are not making:
 
@@ -76,13 +79,16 @@ they are not making:
    changes a value rewrites the source (a few views, like the multi-bar clip
    overview and the unison fan, are there to be read rather than dragged); the
    source is always the whole truth, so anything you can touch you can also
-   type, undo, diff and share. The controls read the source rather than the
+   type, undo, diff and share. Most controls read the source rather than the
    language, so they work in **both**: a dial, an envelope, a breakpoint shape,
    a step grid, a filter response curve and a tap-to-cycle enum all appear over
    JavaScript as readily as over rondo, writing back inside the string or array
    literal they came from.
    A differential test compiles a rondo program and requires both scanners to
-   find the same widgets, so the two cannot quietly drift. The two languages convert both ways: the editor
+   find the same widgets, so those cannot quietly drift. The newest two -- the
+   compressor transfer curve and the sidechain duck envelope -- are rondo-only
+   so far, and the same test names them rather than leaving the gap unstated.
+   The two languages convert both ways: the editor
    decompiles JavaScript into rondo, and whatever the terse syntax cannot
    express is preserved verbatim inside a `js` block, so nothing is lost on the
    way in and choosing rondo never locks you out of the full API. The
@@ -111,7 +117,7 @@ pnpm workspace, TypeScript throughout. Packages import each other by name
 | `@rondocode/engine` | The DSP: oscillators, filters, envelopes, effects, the `synth()` builder, live mic input, offline render, WAV encode. |
 | `@rondocode/rondo` | The rondo language: lexer, parser, codegen (rondo → JavaScript), the **decompiler** (JavaScript → rondo), and a property fuzzer that pins the round trip. |
 | `@rondocode/app` | The browser app: CodeMirror editor with live widgets, the audio session, the tap palette, onboarding, the docs page, the built-in examples (`src/examples/index.ts`). |
-| `@rondocode/server` | Headless/bridge tooling: the MCP server, offline render runner, dev scripts. |
+| `@rondocode/server` | Headless/bridge tooling: the MCP server, the browser bridge ([docs](docs/reference/mcp-bridge.md)), offline render runner, dev scripts. |
 
 ## Develop
 
@@ -131,6 +137,15 @@ Fuzz the rondo compiler/decompiler round trip beyond the CI seeds:
 ```sh
 pnpm tsx packages/rondo/scripts/fuzz.ts 100000
 ```
+
+### Letting an agent drive the live session
+
+Optional, and off unless you set it up: see
+[docs/reference/mcp-bridge.md](docs/reference/mcp-bridge.md) for how to run the
+MCP bridge and what it can do. That page also explains the
+`can't establish a connection to ws://localhost:6070/session` message the
+browser console prints when the bridge is **not** running, which is expected and
+harmless.
 
 ## The DSL
 

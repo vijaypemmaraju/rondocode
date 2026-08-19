@@ -12,24 +12,28 @@ import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
 import type { SessionState, ProbeTarget } from '../session/Session'
-import { synthsUseMic } from '../session/evalCode'
+import { synthsMicDevice, synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { builtInSamples } from '../audio/demo-samples'
+import { mountOutline } from './outlinepanel'
 import { mountSamplesPopover } from './samples'
 import { mountExport } from './export'
 import { tooltip } from '../ui/tooltip'
 import { getSetting } from '../ui/settings'
 import { EXAMPLES } from '../examples'
 import { readLangPref } from '../ui/onboarding'
-import { EventFlasher, FLASH_MS, jsRegionLiterals, rondoNoteLiterals } from './flash'
+import { EventFlasher, FLASH_MS, collectStringLiterals, jsRegionLiterals, rondoNoteLiterals } from './flash'
+import { restHighlight } from './restview'
+import type { RestSource } from './rests'
 import { karaokeExtension, mountKaraoke } from './karaoke'
 import { iconEl } from '../ui/icons'
 import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
-import { rondoLanguage, rondoAutocomplete } from './rondo'
+import { rondoLanguage, rondoAutocomplete, setLiveSampleNames } from './rondo'
+import { mapToRondo } from './rondomap'
 import { codeWidgets } from './rondo/widgets'
 import { isDesktop, openVirtualMidi } from '../desktop/bridge'
 import { NoteOut } from '../desktop/midiout'
@@ -38,6 +42,7 @@ import { mountRondoPalette } from './rondo/palette'
 import { toNoteEvs } from './rondo/widgets'
 import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
+import { synthScopes } from './rondo/scope'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import { tabGet, tabSet } from '../session/tabstore'
@@ -165,6 +170,11 @@ const toCmDiagnostics = (doc: Text, diags: Diagnostic[]): CmDiagnostic[] => {
 export interface EditorHandle {
   view: EditorView
   session: Session
+  /** The live audio device and sample bank. Exposed so the library can hand
+   *  the project's stored samples to it on open (see samplestore.ts) — the
+   *  bank is per-DEVICE and the samples are per-PROJECT, so something has to
+   *  join them, and only the library knows which project is active. */
+  audio: AudioSession
   /** The top bar element — extra chrome (viz toggle, project switcher) mounts
    *  here rather than each feature re-querying the DOM. */
   topbar: HTMLElement
@@ -382,6 +392,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   /** The last successfully EVALUATED program (post-transpile JS in rondo
    *  mode) — what "the staged track" means to resample-to-loop. */
   let lastStagedJs: string | null = null
+  /** Which rondo line each line of the last transpile came from — how an eval
+   *  diagnostic finds its way back onto this buffer. Empty in JS mode, where
+   *  positions already point at what you are looking at. */
+  let rondoLineMap: number[] = []
   let dirtyVsGood = true
   // Synth/channel names of the current sing() vocals (for karaoke detection).
   let singSoundNames = new Set<string>()
@@ -422,6 +436,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       rondoNotes = compiled.notes
       rondoJsRegions = compiled.jsRegions
       rondoPulses = compiled.pulses
+      rondoLineMap = compiled.lineMap
     }
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
@@ -434,11 +449,21 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // string literals; rondo can't (the eval'd source is transpiled JS), so
       // the compiler hands us each notation string + its buffer offset and we
       // build the flash literals from that — same highlighting, either language.
-      if (lang === 'rondo') flasher.onGoodEvalLiterals([...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)], rondoPulses)
-      else flasher.onGoodEval(source)
+      if (lang === 'rondo') {
+        const lits = [...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)]
+        flasher.onGoodEvalLiterals(lits, rondoPulses)
+        restLiterals = lits
+      } else {
+        flasher.onGoodEval(source)
+        restLiterals = collectStringLiterals(source)
+      }
       // LIVE MIC: connect the microphone iff the staged code uses mic()
       // (lazy permission prompt; disconnect + release when it stops)
-      void audio.setMicEnabled(synthsUseMic(result.synths))
+      /* The code may name its own input (`mic device:scarlett`). Set that
+       * BEFORE enabling, so the first capture opens on the right device
+       * rather than opening the default and immediately reopening. */
+      void audio.setCodeInputDevice(synthsMicDevice(result.synths))
+        .then(() => audio.setMicEnabled(synthsUseMic(result.synths)))
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.
       singSoundNames = new Set(result.sings.map((s) => s.synthName))
@@ -525,6 +550,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Per-synth inline meters: a tiny level bar at the end of every
   // `const X = synth(...)` line, fed below from the engine-event fanout.
   const meters = synthMeters()
+  /* Per-synth inline SCOPE on each `synth NAME` header: the shape behind the
+   * level the meter already shows. Fed from the same meters cadence. */
+  const scopes = synthScopes()
 
   /* DESKTOP: notes out of the virtual MIDI port. Opened on the first play so a
    * browser never touches it, and the port is not published until there is
@@ -575,11 +603,24 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     return true
   }
 
+  /* REST HIGHLIGHTING reads the same notation strings the flasher does — one
+   * notion of "where is this pattern in the document", not two — but is driven
+   * by the TRANSPORT rather than by events, because a rest emits none. */
+  let restLiterals: readonly { content: string; pieces: readonly { assembledStart: number; sourceStart: number; length: number }[] }[] = []
+  const restSource: RestSource = {
+    literals: () => restLiterals,
+    cycle: () => {
+      if (!session.getState().playing) return null
+      return session.cycleAt(audio.currentTimeFrames / audio.sampleRate)
+    },
+  }
+
   const view: EditorView = new EditorView({
     parent: host,
     state: EditorState.create({
       doc: initialDoc,
       extensions: [
+        restHighlight(restSource), // the hole the playhead is inside
         // Transport keys live with the editor (docs blocks have their own ▶).
         // Highest precedence so nothing steals Mod-Enter / Mod-.
         Prec.highest(
@@ -606,6 +647,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // Rondo only — see ui/settings.ts for why JS mode is a no-op in v1.
         formatOnNewline(() => lang === 'rondo' && getSetting('formatOnNewline')),
         meters.extension, // per-synth meter gutter (audio-driven)
+        scopes.extension, // per-synth waveform trace on the synth header
         karaokeExtension, // karaoke syllable/note highlight while a vocal sings
         EditorView.updateListener.of((u) => {
           // the tap palette re-derives its chips from the cursor context
@@ -630,6 +672,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       ],
     }),
   })
+
+  /* Sample-name completion reads what is actually loaded, which only the
+   * session knows. Registered here rather than passed through the completion
+   * source because that source is a module-level extension shared with the docs
+   * pages, which have no audio and correctly fall back to the built-in kit. */
+  setLiveSampleNames(() => session.loadedSampleNames())
 
   // Pattern-event fanout: the Session's onPatternEvents is single-consumer, and
   // the flasher already owns it — so we route it through here to also feed the
@@ -680,6 +728,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // preview is a garnish — never let it break a tap
       }
     },
+    level: (name) => chanLevel.get(name) ?? 0,
+    masterLevel: () => masterLvl,
+    duckLevel: () => duckLvl,
     onNoteEvents: (fn) =>
       subscribePatternEvents((evs) => {
         const notes = toNoteEvs(evs)
@@ -784,6 +835,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     refreshPaletteMode()
   })
 
+  /* PER-SYNTH LEVEL for the inline widgets, off the engine's existing meter
+   * cadence — the same events the header meter and the shader visualizer
+   * already consume, so this adds no new analysis. */
+  const chanLevel = new Map<string, number>()
+  let masterLvl = 0
+  let duckLvl = 1
   const flasher = new EventFlasher(
     view,
     () => audio.currentTimeFrames / audio.sampleRate,
@@ -794,16 +851,25 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   const renderDiagnostics = (diags: Diagnostic[]): void => {
     try {
       const evalDiags = diags.filter((d) => d.source === 'eval')
-      // rondo mode: eval diagnostics reference the TRANSPILED JS, not this
-      // buffer — clamped squiggles would land on unrelated rondo text, so they
-      // join the status strip instead. (Rondo COMPILE errors, whose positions
-      // do point at this buffer, are dispatched directly from applyDoc.)
-      // A successful eval still clears stale compile squiggles: empty set.
-      view.dispatch(
-        setDiagnostics(view.state, lang === 'rondo' ? [] : toCmDiagnostics(view.state.doc, evalDiags)),
-      )
+      /* In rondo mode an eval diagnostic's position points at the TRANSPILED
+       * JS, so it used to be dropped from the buffer entirely and shown as a
+       * line of text under the editor. Everything the eval checks — an unknown
+       * `.ctrl` param, a note longer than its step, a chord on a mono synth, a
+       * staging target that does not exist, any runtime throw — was a message
+       * with no place, in a language whose whole pitch is that you can see what
+       * you are editing.
+       *
+       * The compiler now says which rondo line each JS line came from, so they
+       * land on the block. Anything the map cannot place still goes to the
+       * strip rather than being clamped onto whatever text is nearest, which
+       * is the failure the old comment was avoiding. */
+      const placed = lang === 'rondo' ? evalDiags.map((d) => mapToRondo(d, rondoLineMap)) : evalDiags
+      const inBuffer = lang === 'rondo' ? placed.filter((d): d is Diagnostic => d !== null) : evalDiags
+      view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc, inBuffer)))
       const stripDiags = [
-        ...(lang === 'rondo' ? evalDiags : []),
+        // rondo: only the ones with nowhere to point. In JS they all have a
+        // squiggle already, so repeating them under the editor is noise.
+        ...(lang === 'rondo' ? evalDiags.filter((_, i) => placed[i] === null) : []),
         ...diags.filter((d) => d.source !== 'eval'),
       ].slice(-2)
       strip.replaceChildren(
@@ -823,6 +889,15 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     engineListeners.add(fn)
     return () => engineListeners.delete(fn)
   }
+  // per-synth level for the inline widgets, off the same meter cadence the
+  // header meter and the shader visualizer already ride
+  subscribeEngine((ev) => {
+    if (ev.kind !== 'meters') return
+    for (const [k, v] of Object.entries(ev.channels)) chanLevel.set(k, typeof v === 'number' ? v : 0)
+    scopes.update(ev.scopes)
+    masterLvl = typeof ev.master === 'number' ? ev.master : 0
+    duckLvl = typeof ev.duck === 'number' ? ev.duck : 1
+  })
   const stateListeners = new Set<(s: SessionState) => void>()
   const subscribeState = (fn: (s: SessionState) => void): (() => void) => {
     stateListeners.add(fn)
@@ -1004,6 +1079,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     },
   })
 
+  // outline: jump to any synth / section / play block in this document
+  const disposeOutline = mountOutline({ view, topbar, getLang: () => lang })
+
   // karaoke: light up the current sing() syllable + note as the vocal plays,
   // driven by the sing-trigger event's timing against the AudioContext clock.
   const disposeKaraoke = mountKaraoke(view, {
@@ -1028,7 +1106,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     session.dispose()
     flasher.dispose()
     meters.dispose()
+    scopes.dispose()
     disposeSamples()
+    disposeOutline()
     disposeExport()
     disposeKaraoke()
     engineListeners.clear()
@@ -1041,6 +1121,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   return {
     view,
     session,
+    audio,
     topbar,
     onEngineEvent: subscribeEngine,
     onState: subscribeState,

@@ -32,9 +32,19 @@ import type { ControlMap, Loc, SchedulerEvent } from '@rondocode/pattern'
  *  reads it via the --flash-ms custom property (set in mountEditor). */
 export const FLASH_MS = 150
 
-/** Upper bound on how long a mark stays lit — a pad holding a 20s drone
- *  shouldn't pin editor decorations indefinitely. */
-export const MAX_LIT_MS = 4000
+/** Upper bound on how long a mark stays lit.
+ *
+ *  This was 4000, which is not a long note — it is TWO CYCLES at the default
+ *  cps of 0.5. So `<c3 a2 f2 g2>/4`, a chord held four cycles, lit for the
+ *  first two and went dark while it was still sounding. The highlight is
+ *  supposed to say "this note is sounding now"; capped below the length of
+ *  ordinary held chords, it said something false.
+ *
+ *  It is a BACKSTOP, not a policy: it exists so a pathological duration cannot
+ *  pin a decoration forever. What actually keeps stale marks off the screen is
+ *  clearPending(), which now clears the visible ones too — a mark can outlive
+ *  its note only if the transport is still running, and then it is correct. */
+export const MAX_LIT_MS = 30_000
 /** Cap on concurrently scheduled flash timers (a dense pattern must not
  *  flood the event loop with thousands of setTimeouts). */
 export const MAX_PENDING_FLASHES = 64
@@ -89,6 +99,12 @@ export interface StringLit {
   contentStart: number
   content: string
   pieces: LitPiece[]
+  /** Spans that STAND FOR a stretch of the content rather than being it: a
+   *  patdef reference. `<openB tail openA tail>` has no notes of its own, so
+   *  without these the collapsed figure stays dark while the arrangement it
+   *  names plays — the reader is watching the one line that is not literal
+   *  notation, and it is the one line that never moves. */
+  refs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[]
 }
 
 /** If `node` is an escape-free string literal, or a `+` chain of them, return
@@ -228,6 +244,11 @@ export function locToDocRanges(
     // Map the assembled-string range back to the document via the chunk that
     // fully contains it. An atom that straddles a concatenation boundary maps to
     // no single chunk and is skipped (mini atoms don't span the `+` in practice).
+    // Any REFERENCE covering this atom lights too: the word that stands for
+    // the figure, and every reference nested inside it.
+    for (const r of lit.refs ?? []) {
+      if (loc.start >= r.assembledStart && loc.end <= r.assembledEnd) out.push({ from: r.from, to: r.to })
+    }
     const piece = lit.pieces.find(
       (p) => loc.start >= p.assembledStart && loc.end <= p.assembledStart + p.length,
     )
@@ -243,11 +264,12 @@ export function locToDocRanges(
  *  `from` is that string's char offset in the rondo buffer. One single-piece
  *  literal each — a mini Loc offset indexes straight into it. */
 export function rondoNoteLiterals(
-  notes: { content: string; from: number; pieces?: LitPiece[] }[],
+  notes: { content: string; from: number; pieces?: LitPiece[]; refs?: StringLit['refs'] }[],
 ): StringLit[] {
   return notes.map((n) => ({
     contentStart: n.from,
     content: n.content,
+    ...(n.refs !== undefined && n.refs.length > 0 ? { refs: n.refs } : {}),
     // a beat line with velocity suffixes compiles to a STRIPPED mini string —
     // the compiler supplies pieces mapping it back around each removed `:v`
     pieces: n.pieces ?? [{ assembledStart: 0, sourceStart: n.from, length: n.content.length }],
@@ -368,6 +390,8 @@ export class EventFlasher {
   /** Handles of scheduled-but-not-yet-fired flash timers (NOT the removal
    *  timers — those must run so existing marks get cleaned up). */
   private readonly pendingTimers = new Set<unknown>()
+  /** Ids of marks currently on screen, so a stop can take them down. */
+  private readonly litIds = new Set<number>()
   private nextId = 1
   private disposed = false
   private readonly setT: SetTimeoutImpl
@@ -408,10 +432,17 @@ export class EventFlasher {
       if (this.disposed || this.isDirty()) return
       for (const ev of evs) {
         const loc = ev.loc
+        /* EVERY piece of mini-notation that fired, not just the note atom. A
+         * `dur: <1 .5>` line is notation the reader wrote and watches, and it
+         * stayed dark while the notes beside it lit up — the rule is that
+         * anywhere mini-notation is supported, it lights up. */
+        const locs = ev.locs ?? []
         // loc-less events (patterns built from signals, not mini strings)
         // PULSE their channel's registered span instead of an atom flash
-        const pulseRanges = loc === undefined ? this.pulseRangesFor(ev.controls) : []
-        if (loc === undefined && pulseRanges.length === 0) continue
+        const pulseRanges = loc === undefined && locs.length === 0
+          ? this.pulseRangesFor(ev.controls)
+          : []
+        if (loc === undefined && locs.length === 0 && pulseRanges.length === 0) continue
         if (this.pendingTimers.size >= MAX_PENDING_FLASHES) return
         const delay = Math.max(0, (ev.timeSec - this.now()) * 1000)
         // Stay lit for the event's musical duration (the user reads "this
@@ -422,8 +453,17 @@ export class EventFlasher {
         let handle: unknown
         handle = this.setT(() => {
           this.pendingTimers.delete(handle)
-          if (loc !== undefined) this.fire(loc, ev.controls, litMs)
-          else this.flashRanges(pulseRanges, litMs)
+          if (loc === undefined && locs.length === 0) {
+            this.flashRanges(pulseRanges, litMs)
+            return
+          }
+          // one dispatch for all of them, so the note and its modifiers light
+          // and clear together rather than drifting apart by a frame
+          const ranges = [
+            ...(loc !== undefined ? locToDocRanges(this.literals, loc, ev.controls) : []),
+            ...locs.flatMap((l) => locToDocRanges(this.literals, l, ev.controls)),
+          ]
+          this.flashRanges(ranges, litMs)
         }, delay)
         this.pendingTimers.add(handle)
       }
@@ -432,12 +472,31 @@ export class EventFlasher {
     }
   }
 
-  /** Cancel every scheduled-but-unfired flash (transport stop: events that
-   *  will never sound must not light up). Removal timers keep running so
-   *  already-visible marks still fade out. */
+  /** Cancel every scheduled-but-unfired flash AND clear the visible ones
+   *  (transport stop: events that will never sound must not light up, and a
+   *  note that is no longer sounding must not stay lit).
+   *
+   *  Clearing the visible marks used to be left to their own removal timers,
+   *  which was only tolerable because MAX_LIT_MS capped them at 4s. Once a
+   *  mark can legitimately stay lit for a long held chord, a stop has to take
+   *  it down — otherwise pressing stop leaves the editor lit for the rest of
+   *  the note. */
   clearPending(): void {
     for (const h of this.pendingTimers) this.clearT(h)
     this.pendingTimers.clear()
+    this.clearLit()
+  }
+
+  /** Remove every currently-visible mark. */
+  private clearLit(): void {
+    if (this.litIds.size === 0) return
+    const ids = [...this.litIds]
+    this.litIds.clear()
+    try {
+      this.view.dispatch({ effects: ids.map((id) => removeFlash.of(id)) })
+    } catch {
+      // view may be gone; nothing to clean up
+    }
   }
 
   /** TERMINAL: cancel pending flashes and ignore everything after. */
@@ -470,8 +529,10 @@ export class EventFlasher {
       }
       if (effects.length === 0) return
       this.view.dispatch({ effects })
+      for (const id of ids) this.litIds.add(id)
       this.setT(() => {
         if (this.disposed) return
+        for (const id of ids) this.litIds.delete(id)
         try {
           this.view.dispatch({ effects: ids.map((id) => removeFlash.of(id)) })
         } catch {

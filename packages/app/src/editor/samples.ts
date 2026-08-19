@@ -5,6 +5,7 @@ import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
 import { nextMicName, startMicRecording } from './micrec'
 import type { MicRecording } from './micrec'
+import { normalizeNote } from './export'
 import { resampleTake } from './resample'
 import { analyzePartials, toDefineWavetableCall, toWavedefLine, wavetableNameFor } from './resynth'
 
@@ -96,7 +97,7 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, g
       setTimeout(() => {
         const res = resampleTake({ code, cycles, audio })
         resampling = false
-        resMsg.textContent = 'name' in res ? `${res.name} added` : res.error
+        resMsg.textContent = 'name' in res ? `${res.name} added${normalizeNote(res.normalizeDb)}` : res.error
         syncResample()
         render()
       }, 20)

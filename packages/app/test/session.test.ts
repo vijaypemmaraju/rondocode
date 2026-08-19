@@ -378,22 +378,51 @@ describe('Session: scheduler events → engine messages', () => {
     expect(ofKind('noteOn').at(-1)).toMatchObject({ synth: 'a', note: 62, atFrame: 24000 })
   })
 
-  it('adaptive slide: defers a slide note release until its next note lands (bridging a gap)', () => {
+  it('a slide does NOT bridge a rest: it releases at the end of its own step', () => {
+    /* REVERSES A DELIBERATE DECISION. This test used to assert the opposite —
+     * that note 60 held across all three rests until 67 landed at 0.75s,
+     * "bridging the gap" — and the code was written that way on purpose.
+     *
+     * It is wrong musically. `slide` is documented as tying into the NEXT
+     * note, and a rest is not a note to glide into: what you hear is a stuck
+     * gate. Reported from a real patch where a sliding sixteenth held 1.25s
+     * across two rests on a 0.11s step.
+     *
+     * A tie is a relationship between ADJACENT steps. This one has three rests
+     * after it, so it ends where any other note would. */
     const { session, audio, tick, ofKind } = rig()
     session.evalCode(`const a = ${SYNTH_SRC}\np('m', note('60 ~ ~ 67').slide('1 0 0 0').sound('a'))`)
     audio.currentTimeFrames = 0
     session.transport('play', { cps: 1 })
     tick() // window [0, 0.1): note 60 (slide) at t=0
-    // the slide note's release is DEFERRED — no early cut near its own end
-    // (~0.25s = 12000 frames); only a far-out safety noteOff exists so far.
-    expect(ofKind('noteOff').filter((o) => o.note === 60 && o.atFrame < 24000)).toHaveLength(0)
-    audio.currentTimeFrames = 36000 // t = 0.75s, when note 67 fires
-    tick()
+    // run past its own step (0.25s at cps 1) and on toward where 67 fires
+    for (let f = 0; f <= 40000; f += 1200) {
+      audio.currentTimeFrames = f
+      tick()
+    }
     const on67 = ofKind('noteOn').find((o) => o.note === 67)!
-    // note 60 is now cut just as 67 lands — bridging the 3-rest gap
     const cut60 = ofKind('noteOff').filter((o) => o.note === 60).sort((a, b) => a.atFrame - b.atFrame)[0]!
-    expect(cut60.atFrame).toBeGreaterThanOrEqual(on67.atFrame)
-    expect(cut60.atFrame - on67.atFrame).toBeLessThan(2000)
+    // released around its own step end (12000 frames) + the tie overlap,
+    // NOT held to 67 at 36000
+    expect(cut60.atFrame, 'released before its step ended').toBeGreaterThanOrEqual(12000)
+    expect(cut60.atFrame, 'still bridging the rests').toBeLessThan(on67.atFrame - 6000)
+  })
+
+  it('but it DOES tie when the next note is adjacent', () => {
+    // the case slide exists for: the gate must still be held when the next
+    // note opens, which is what makes the pitch glide instead of jumping
+    const { session, audio, tick, ofKind } = rig()
+    session.evalCode(`const a = ${SYNTH_SRC}\np('m', note('60 67 62 64').slide('1 0 0 0').sound('a'))`)
+    audio.currentTimeFrames = 0
+    session.transport('play', { cps: 1 })
+    for (let f = 0; f <= 30000; f += 1200) {
+      audio.currentTimeFrames = f
+      tick()
+    }
+    const on67 = ofKind('noteOn').find((o) => o.note === 67)!
+    const cut60 = ofKind('noteOff').filter((o) => o.note === 60).sort((a, b) => a.atFrame - b.atFrame)[0]!
+    expect(cut60.atFrame, 'cut before the note it was gliding into').toBeGreaterThanOrEqual(on67.atFrame)
+    expect(cut60.atFrame - on67.atFrame, 'held far past the tie').toBeLessThan(2000)
   })
 
   it('gate gap: back-to-back same-note events leave a low-gate window', () => {
@@ -734,5 +763,327 @@ describe('Session.evalCode: live constant patch vs rebuild', () => {
     session.evalCode(CFG(0.2))
     session.evalCode(CFG(0.5)) // Run (not live): apply now
     expect(ofKind('defineSynth')).toHaveLength(2)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A MISSING SAMPLE USED TO SAY NOTHING.
+ *
+ * The kernel resolves a sample name per block and outputs zeros when it finds
+ * none, so a typo rendered a track with a voice quietly absent and reported
+ * success. An offline bounce of the granular example once wrote a file of
+ * digital zero this way. `sampleNamesIn` was built to answer exactly this
+ * question and had no caller in the app.
+ * ------------------------------------------------------------------------- */
+
+/** The rig above has no sample list; this one can answer what is loaded. */
+const rigWithSamples = (names: string[]) => {
+  const r = rig()
+  ;(r.audio as unknown as { getSamples: () => { name: string }[] }).getSamples = () =>
+    names.map((name) => ({ name }))
+  return r
+}
+
+const sampleSrc = (name: string): string =>
+  `const kit = synth(({ gate, sample }) => sample(gate, '${name}'))\n`
+  + `p('k', note('c4').sound('kit'))`
+
+const warnings = (diags: Diagnostic[][]): string[] =>
+  (diags[diags.length - 1] ?? []).filter((d) => d.severity === 'warning').map((d) => d.message)
+
+describe('missing samples are reported instead of rendering silence', () => {
+  it('warns, names the sample, and says it will be silent', () => {
+    const { session, diags } = rigWithSamples(['bd', 'sd'])
+    expect(session.evalCode(sampleSrc('bdd')).ok, 'should still evaluate').toBe(true)
+    const w = warnings(diags)
+    expect(w).toHaveLength(1)
+    expect(w[0]).toContain("'bdd'")
+    expect(w[0]).toContain('SILENT')
+    expect(w[0], 'should say what IS loaded').toContain('bd, sd')
+  })
+
+  it('a WARNING, not an error: the program still applies', () => {
+    /* A name is legitimately missing while you are still typing the line, and
+     * failing the eval there would fight the person writing it. */
+    const { session, ofKind } = rigWithSamples(['bd'])
+    const r = session.evalCode(sampleSrc('nope'))
+    expect(r.ok).toBe(true)
+    expect(ofKind('defineSynth')).toHaveLength(1)
+  })
+
+  it('says nothing when the sample IS loaded', () => {
+    const { session, diags } = rigWithSamples(['bd'])
+    session.evalCode(sampleSrc('bd'))
+    expect(warnings(diags)).toEqual([])
+  })
+
+  it('a VARIANT is satisfied by any member of its family, because the index wraps', () => {
+    /* Checking the literal name would report every round-robin reference as
+     * missing, which would make the warning useless the moment it mattered. */
+    const { session, diags } = rigWithSamples(['bd'])
+    session.evalCode(sampleSrc('bd:3'))
+    expect(warnings(diags)).toEqual([])
+  })
+
+  it('but an unknown family with an index is still reported', () => {
+    const { session, diags } = rigWithSamples(['bd'])
+    session.evalCode(sampleSrc('clap:2'))
+    expect(warnings(diags).join(' ')).toContain("'clap:2'")
+  })
+
+  it('a host that cannot list samples gets no warnings rather than wrong ones', () => {
+    const { session, diags } = rig() // no getSamples
+    expect(session.evalCode(sampleSrc('anything')).ok).toBe(true)
+    expect(warnings(diags)).toEqual([])
+  })
+
+  it('reports each missing name once, sorted', () => {
+    const { session, diags } = rigWithSamples([])
+    session.evalCode(
+      `const a = synth(({ gate, sample }) => sample(gate, 'zed'))\n`
+      + `const b = synth(({ gate, sample }) => sample(gate, 'abe'))\n`
+      + `p('x', note('c4').sound('a'))\np('y', note('c4').sound('b'))`,
+    )
+    const w = warnings(diags)
+    expect(w).toHaveLength(2)
+    expect(w[0]).toContain("'abe'")
+    expect(w[1]).toContain("'zed'")
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * PATTERNED PARAMS MUST CARRY THEIR NOTE'S FRAME.
+ *
+ * Without it the engine applied the value on arrival, up to one scheduler
+ * lookahead before the note it belonged to (measured at a steady 75ms). A
+ * param is synth-wide, so the change landed on whatever was still ringing and
+ * the automation was heard on the PREVIOUS note.
+ * ------------------------------------------------------------------------- */
+
+describe('scheduled params are stamped with their note frame', () => {
+  const CTRL_SRC =
+    `const a = synth(({ sine, note, gate, param }) => sine(note.freq).mul(gate).mul(param('cut', 0)))\n`
+    + `p('pat', note('60 62 64 65').sound('a').ctrl('cut', mini('0.1 0.2 0.3 0.4')))`
+
+  it('every setParam carries an atFrame equal to its note', () => {
+    const { session, ofKind, audio, tick } = rig()
+    expect(session.evalCode(CTRL_SRC).ok, 'eval failed').toBe(true)
+    session.transport('play')
+    // 240 ticks of 25ms = 6s, three cycles at the default cps
+    for (let t = 0; t < 240; t++) {
+      audio.currentTimeFrames = t * 1200
+      tick()
+    }
+    const params = ofKind('setParam').filter((m) => m.name === 'cut')
+    const notes = ofKind('noteOn')
+    expect(params.length, 'too few patterned params to be meaningful').toBeGreaterThan(6)
+    for (const p of params) {
+      expect(p.atFrame, `setParam '${p.name}' was sent with no atFrame`).toBeDefined()
+    }
+    /* Sent in pairs (params for an event, then its noteOn), so the nth of each
+     * belong together. An unstamped param would already have failed above;
+     * this catches a WRONG stamp. */
+    for (const [i, p] of params.entries()) {
+      const n = notes[i]
+      if (n === undefined) break
+      expect(p.atFrame, 'param frame does not match its note').toBe(n.atFrame)
+    }
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * A SLIDE HELD ACROSS RESTS.
+ *
+ * `slide` ties a note into the NEXT one so it glides in, which means holding
+ * its gate open until that note arrives. The deadline for "never arrives" was
+ * a flat 4 seconds, so a slide note followed by rests sustained across them:
+ * measured at 1.25s from a step of 0.11s, which reads as a stuck gate rather
+ * than a glide.
+ *
+ * A tie is a relationship between ADJACENT steps. Anything further away has a
+ * rest in between, and a rest is not a note to glide into.
+ * ------------------------------------------------------------------------- */
+
+const SLIDE_SYNTH =
+  `const blip = synth(({ note, gate, adsr, saw }) => saw(note.freq).mul(adsr(gate, { a: .004, d: .12, s: .5, r: .25 })),\n`
+  + `  undefined, { mono: true, glide: 0.1 })`
+
+/** Gate lengths in seconds, per noteOn, in time order. */
+const gates = (r: ReturnType<typeof rig>, src: string, secs = 4): { note: number; on: number; gate: number }[] => {
+  const sr = r.audio.sampleRate
+  expect(r.session.evalCode(`${SLIDE_SYNTH}\n${src}\nsetCps(0.5)`).ok, 'eval failed').toBe(true)
+  r.session.transport('play')
+  const step = Math.round(0.025 * sr)
+  for (let t = 0; t < secs * sr; t += step) {
+    r.audio.currentTimeFrames = t
+    r.tick()
+  }
+  const evs = r.sent.filter((m) => m.kind === 'noteOn' || m.kind === 'noteOff') as
+    { kind: string; note: number; atFrame?: number }[]
+  return evs.filter((e) => e.kind === 'noteOn')
+    .sort((a, b) => (a.atFrame ?? 0) - (b.atFrame ?? 0))
+    .map((on) => {
+      const off = evs.filter((e) => e.kind === 'noteOff' && e.note === on.note && (e.atFrame ?? 0) > (on.atFrame ?? 0))
+        .sort((a, b) => (a.atFrame ?? 0) - (b.atFrame ?? 0))[0]
+      const onS = (on.atFrame ?? 0) / sr
+      return { note: on.note, on: onS, gate: off === undefined ? Infinity : (off.atFrame ?? 0) / sr - onS }
+    })
+}
+
+describe('a slide only holds for its own step', () => {
+  it('does not sustain across rests', () => {
+    /* The reported shape: two sixteenths inside the first third, then rests.
+     * The second note carries slide (the modifier line covers both), and used
+     * to hold 1.25s waiting for a note two thirds of a cycle away. */
+    const g = gates(rig(), `p('p', n('[[2 4] ~ ~] ~ 2').scale('d major').sound('blip').dur(0.1)\n`
+      + `  .ctrl('slide', mini('[1 0] 0 0')))`)
+    const held = g.find((x) => x.on > 0.1 && x.on < 0.2)
+    expect(held, 'the sliding note was never dispatched').toBeDefined()
+    /* Its step is 1/18 of a 2s cycle = 0.111s. Anything near a second is the
+     * old behaviour; anything at the step (plus the tie overlap) is right. */
+    expect(held!.gate, `held ${held!.gate}s for a 0.111s step`).toBeLessThan(0.25)
+  })
+
+  it('still TIES when the next note is adjacent', () => {
+    // the thing slide is for: the gate must outlast the step so the next note
+    // opens while it is still held, which is what makes the pitch glide
+    const g = gates(rig(), `p('p', n('0 2 4 5').scale('d major').sound('blip').slide('1 1 1 1'))`)
+    for (const x of g.slice(0, 3)) {
+      expect(x.gate, `note ${x.note} did not outlast its 0.5s step`).toBeGreaterThan(0.5)
+    }
+  })
+
+  it('a non-sliding note in the same line is unaffected', () => {
+    const g = gates(rig(), `p('p', n('0 2 4 5').scale('d major').sound('blip').slide('1 0 1 0'))`)
+    const sliding = g[0]!
+    const plain = g[1]!
+    expect(sliding.gate).toBeGreaterThan(0.5)
+    expect(plain.gate, 'a plain note should end within its own step').toBeLessThan(0.5)
+  })
+
+  it('a short `dur` does not shrink the tie window', () => {
+    /* durSec is the SOUNDING length (step x dur), so reading it directly would
+     * make `dur: 0.1` refuse every tie — the note would release a tenth of a
+     * step in and never reach the note it is gliding into. */
+    const g = gates(rig(), `p('p', n('0 2 4 5').scale('d major').sound('blip').dur(0.1).slide('1 1 1 1'))`)
+    for (const x of g.slice(0, 3)) {
+      expect(x.gate, `dur:0.1 broke the tie on note ${x.note}`).toBeGreaterThan(0.4)
+    }
+  })
+
+  it('every note is released — none is left hanging', () => {
+    const SECS = 4
+    const g = gates(rig(), `p('p', n('[[2 4] ~ ~] ~ 2').scale('d major').sound('blip').dur(0.1)\n`
+      + `  .ctrl('slide', mini('[1 0] 0 0')))`, SECS)
+    /* Ignore the tail of the window: notes are dispatched a lookahead ahead of
+     * the clock, so the last one or two are legitimately still open when the
+     * scan stops. Anything older than that must have released. */
+    const settled = g.filter((x) => x.on < SECS - 0.5)
+    expect(settled.length, 'nothing to check').toBeGreaterThan(3)
+    for (const x of settled) expect(x.gate, `note ${x.note} at ${x.on}s never released`).toBeLessThan(Infinity)
+  })
+})
+
+/* ------------------------------------------------------------------------- *
+ * THE VOICE BUDGET, REPORTED BEFORE IT BITES.
+ *
+ * 128 voices, first come first served. Past that, the synth written LAST is
+ * refused — and the failure was reported in the worst possible order: one
+ * `voice budget exhausted` line, then `unknown synth 'x'` for every note it
+ * should have played, until the message that explained it had scrolled away.
+ * Worse, the host recorded the rejected synth as applied, so the diff never
+ * re-sent it: freeing voices elsewhere did not bring it back.
+ * ------------------------------------------------------------------------- */
+
+/** A program of `n` synths, each asking for `voices`, in order. */
+const budgetSrc = (specs: [string, number | undefined][]): string =>
+  specs.map(([name, v]) =>
+    `const ${name} = synth(({ note, gate, sine }) => sine(note.freq).mul(gate)`
+    + `${v === undefined ? '' : `, { voices: ${v} }`})`).join('\n')
+  + `\np('x', note('c3').sound('${specs[0]![0]}'))`
+
+const warned = (diags: Diagnostic[][]): string =>
+  (diags[diags.length - 1] ?? []).filter((d) => d.severity === 'warning').map((d) => d.message).join(' ')
+
+describe('the voice budget is reported up front', () => {
+  it('says nothing when the project fits', () => {
+    const { session, diags } = rig()
+    expect(session.evalCode(budgetSrc([['a', 4], ['b', 8]])).ok).toBe(true)
+    expect(warned(diags)).toBe('')
+  })
+
+  it('names the synth that will NOT be created, and the total', () => {
+    const { session, diags } = rig()
+    session.evalCode(budgetSrc([['a', 64], ['b', 64], ['late', 8]]))
+    const w = warned(diags)
+    expect(w).toContain("'late' will NOT be created")
+    expect(w).toContain('136 voices')
+    expect(w).toContain('budget is 128')
+  })
+
+  it('names a synth that is quietly CUT DOWN, not just one that is refused', () => {
+    /* The half nobody notices: a synth that asked for 32 and runs 8 drops
+     * notes for no visible reason. */
+    /* Note the per-synth cap is 64, so the squeeze has to be built out of
+     * several synths rather than one greedy one. */
+    const { session, diags } = rig()
+    session.evalCode(budgetSrc([['a', 64], ['b', 48], ['c', 32]]))
+    expect(warned(diags)).toContain("'c' gets 16 of the 32 voices it asks for")
+  })
+
+  it('points at the biggest consumers, since that is where the fix is', () => {
+    const { session, diags } = rig()
+    session.evalCode(budgetSrc([['small', 2], ['huge', 64], ['big', 48], ['late', 32]]))
+    const w = warned(diags)
+    expect(w).toContain('huge (64)')
+    expect(w).toContain('voices:')
+  })
+
+  it('is a WARNING: the program still applies', () => {
+    const { session, ofKind } = rig()
+    const r = session.evalCode(budgetSrc([['a', 64], ['b', 64], ['late', 8]]))
+    expect(r.ok).toBe(true)
+    expect(ofKind('defineSynth').length).toBeGreaterThan(2)
+  })
+})
+
+describe('a synth the engine REFUSED is retried on the next eval', () => {
+  it('forgets a rejected defineSynth instead of recording it as applied', () => {
+    /* Without this the diff skips it forever and the only cure is editing that
+     * synth's own text — which does not help when the problem is elsewhere in
+     * the project. */
+    const { session, audio, ofKind } = rig()
+    const src = budgetSrc([['a', 4], ['late', 8]])
+    session.evalCode(src)
+    expect(ofKind('defineSynth').map((m) => m.name)).toContain('late')
+
+    // the engine refuses it, after the fact
+    audio.onEvent?.({ kind: 'error', message: 'voice budget exhausted', context: "defineSynth 'late'" } as never)
+
+    // re-evaluating the SAME source must send it again
+    const before = ofKind('defineSynth').filter((m) => m.name === 'late').length
+    session.evalCode(src)
+    const after = ofKind('defineSynth').filter((m) => m.name === 'late').length
+    expect(after, 'the rejected synth was never retried').toBeGreaterThan(before)
+  })
+
+  it('an unchanged, ACCEPTED synth is still not re-sent', () => {
+    // the retry must not turn into "re-send everything every eval"
+    const { session, ofKind } = rig()
+    const src = budgetSrc([['a', 4], ['b', 8]])
+    session.evalCode(src)
+    const before = ofKind('defineSynth').length
+    session.evalCode(src)
+    expect(ofKind('defineSynth').length).toBe(before)
+  })
+
+  it('ignores an engine error that is not a defineSynth', () => {
+    const { session, audio, ofKind } = rig()
+    const src = budgetSrc([['a', 4], ['b', 8]])
+    session.evalCode(src)
+    audio.onEvent?.({ kind: 'error', message: 'something else', context: "setParam 'a'" } as never)
+    const before = ofKind('defineSynth').length
+    session.evalCode(src)
+    expect(ofKind('defineSynth').length).toBe(before)
   })
 })

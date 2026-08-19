@@ -22,17 +22,23 @@ import { formatNumber, literalWidth, niceStep } from '../widgets/rewrite'
 import { F, TimeSpan, miniParse, parseScaleName, scaleDegree } from '@rondocode/pattern'
 import { expandScale, splitBeatVelocities } from '@rondocode/rondo'
 import { LiveWriter, MultiLiveWriter, attachGesture, verifiedChanges } from './gesture'
+import { barSpans, cellToNote, editNote, grabKind, notesOf, parseBar, pitchDelta, slotDelta, toSlots, transposeNote } from './rollnotes'
 import type { Drag } from './gesture'
 import { RONDO_WAVEDEF, WavetableRibbonWidget, previewFrames, scanWavedefs, scanWavetableCalls, warpWave, wavedefBlockDecos } from './wavetable'
 import type { WavedefDialect, WavedefScan, WavetableCallScan } from './wavetable'
 import { cycleEnumEdit, scanEnumSpans } from './enums'
 import type { EnumSpan } from './enums'
+import { activate } from './activation'
+import { CompCurveWidget, scanCompressors } from './compcurve'
+import { DuckCurveWidget, scanDucks } from './duckcurve'
+import { LfoCurveWidget, scanLfos } from './lfocurve'
+import { CurveLaneWidget, scanCurveLanes } from './curvelane'
 import { FilterCurveWidget, scanFilters } from './filtercurve'
 import type { FilterScan } from './filtercurve'
 import { scanUnisonHeaders, unisonFan } from './unison'
 import { macroReadouts, scanMacroDecls } from './macrolens'
 import { scanClampedOpts } from './clamps'
-import { POLE, poleAt, poleLeg } from './envpoints'
+import { POLE, envMarkerAt, poleAt, poleLeg } from './envpoints'
 import { scanSwitches, toggled } from './switches'
 import type { SwitchMatch } from './switches'
 import { BEND_LIMIT, bendCurve, bendPixels, envGeometry, envPath, scanEnvPoints } from './envpoints'
@@ -40,6 +46,7 @@ import type { EnvPointsScan } from './envpoints'
 import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
 import type { UnisonScan } from './unison'
+import { bendLaneBlockDecos } from './bendlane'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -71,6 +78,20 @@ export interface Hooks {
    *  LIVE: the piano-roll lights with the playhead, the envelope fires its
    *  marker per note, and a pattern-driven knob's dial follows the drive. */
   onNoteEvents?: (fn: (evs: NoteEv[]) => void) => () => void
+  /** That synth's CURRENT loudness, 0..1 — the same per-channel meter the
+   *  shader visualizer reads as `lvl_`. Note events say a widget is active;
+   *  this says how much is going through it, which for a filter written with
+   *  a literal cutoff is the only thing that ever moves. */
+  level?: (synth: string) => number
+  /** The whole mix's loudness, 0..1. Reported by the engine ALONGSIDE the
+   *  per-channel meters rather than as one of them, which is why a `master`
+   *  line cannot just look itself up in `level`. */
+  masterLevel?: () => number
+  /** The sidechain envelope AS APPLIED, 1 = open. Reported on the same meter
+   *  event as the levels — the same number the shader visualizer reads as
+   *  `duck`, so a widget showing the pump shows what the audio is doing
+   *  rather than what a formula says it should. */
+  duckLevel?: () => number
   /** TOUCH-TO-OVERRIDE: while a hand holds a knob, the held value plays and
    *  the pattern drive for that param is suppressed; releasing hands control
    *  back to the pattern on its next event. */
@@ -113,18 +134,69 @@ export const buzz = (ms = 8): void => {
  *  ('a-min'). Returns undefined when there is no scale (a scale-less degree
  *  pattern is silent anyway) or the name doesn't parse. */
 /** A degree step, with an optional accidental: `4`, `-1`, `2#`, `3bb`. */
-export const STEP_RE = /^(-?\d+)(#+|b+)?$/
+/* A degree step, as the ROLL recognises it: a number, an optional accidental
+ * run, and an optional `'value` per-note expression.
+ *
+ * The expression group was missing when the notation gained it, and the
+ * failure was quiet in the worst way: `0'1 3'0` simply stopped matching, so
+ * the line stopped being a tappable grid and the shipped "note bends" example
+ * rendered no roll at all. One definition, imported by the JS scanner too, so
+ * teaching it here teaches both languages. */
+export const STEP_RE = /^(-?\d+)(#+|b+)?((?:'(?:[a-zA-Z]+:)?-?\d*\.?\d+)*)$/
+
+/** Every lane on a step, from its trailing `'…` run: `0'2'gain:.8` gives
+ *  `{ expr: 2, vel: 0.8 }`. A bare value lands in `expr`, matching the
+ *  notation's own default lane. */
+export const laneValues = (raw: string | undefined): Record<string, number> => {
+  const out: Record<string, number> = {}
+  if (raw === undefined || raw === '') return out
+  for (const m of raw.matchAll(/'(?:([a-zA-Z]+):)?(-?\d*\.?\d+)/g)) {
+    out[m[1] ?? 'expr'] = Number(m[2])
+  }
+  return out
+}
+
+/** The `expr` lane specifically — what the roll tick and the bend lane draw. */
+export const exprValue = (raw: string | undefined): number | undefined =>
+  laneValues(raw)['expr']
 
 /** Semitones for an accidental suffix (`#` +1 each, `b` -1 each). */
 export const accValue = (suffix: string | undefined): number | undefined =>
   suffix === undefined || suffix === '' ? undefined : suffix[0] === '#' ? suffix.length : -suffix.length
 
-/** Spell a step back out, accidental included — the one place the grid writes
- *  a degree, so a drag cannot silently drop a `#` someone typed. */
-export const stepText = (v: number | null, acc: number | undefined): string =>
-  v === null ? '~' : acc === undefined || acc === 0
+/** Spell a step back out, accidental and per-note expression included — the
+ *  one place the grid writes a degree, so a drag cannot silently drop a `#`
+ *  or a `'2` someone typed. */
+export const stepText = (
+  v: number | null,
+  acc: number | undefined,
+  expr?: number | undefined,
+  otherLanes?: Readonly<Record<string, number>>,
+): string => {
+  if (v === null) return '~'
+  const withAcc = acc === undefined || acc === 0
     ? String(v)
     : `${v}${(acc > 0 ? '#' : 'b').repeat(Math.abs(acc))}`
+  /* Two decimals is plenty and keeps the notation readable; trailing zeros
+   * are trimmed so a drag to exactly 1 writes `'1`, not `'1.00`. The leading
+   * zero is dropped to match how these are written by hand throughout the
+   * language (`.5`, `.8`) — otherwise a drag on one note silently rewrites
+   * `'gain:.8` to `'gain:0.8` on a lane it never touched. */
+  const num = (x: number): string => {
+    const t = String(Number(x.toFixed(2)))
+    return t.startsWith('0.') ? t.slice(1) : t.startsWith('-0.') ? `-${t.slice(2)}` : t
+  }
+  let out = withAcc
+  if (expr !== undefined) out += `'${num(expr)}`
+  /* EVERY other lane is written back, in the order it was READ. A drag that
+   * touched only `expr` must not delete the `'gain:` beside it, and must not
+   * reorder the ones it left alone either. */
+  for (const k of Object.keys(otherLanes ?? {})) {
+    if (k === 'expr') continue
+    out += `'${k}:${num(otherLanes![k]!)}`
+  }
+  return out
+}
 
 export function rollPreviewMidi(scaleShort: string | undefined, degree: number): number | undefined {
   if (scaleShort === undefined) return undefined
@@ -229,6 +301,30 @@ function codeLines(text: string): { line: string; off: number; synth?: string }[
 export function scanKnobs(text: string): KnobMatch[] {
   const out: KnobMatch[] = []
   for (const { line, off, synth } of codeLines(text)) {
+    /* MASTER VOLUME. `level -3` compiles to masterGain, so the control has
+     * always been there — as a number you retype. It is a knob in every way
+     * that matters (one value, a sensible range, worth nudging while it
+     * plays), so it gets the dial the same as any other.
+     *
+     * No `name`, so nothing drives it live: masterGain is not a per-note
+     * param and there is no event carrying it. The dial moves when a hand
+     * moves it, which is the whole job. */
+    /* OTT DEPTH is one number too — `ott depth:.4` — and 0..1 is exactly the
+     * range a dial is for. Same reasoning as `level`: no name, because the
+     * engine reports no per-note value for it, so the dial moves when a hand
+     * moves it and nothing pretends otherwise. */
+    const ott = /^ott\b.*?\bdepth[ \t]*:[ \t]*(\d*\.?\d+)/.exec(line.trim())
+    if (ott !== null) {
+      const at = off + line.lastIndexOf(ott[1]!)
+      out.push({ defFrom: at, defTo: at + ott[1]!.length, value: Number(ott[1]), lo: 0, hi: 1, log: false })
+      continue
+    }
+    const lvl = /^level[ \t]+(-?\d*\.?\d+)/.exec(line.trim())
+    if (lvl !== null) {
+      const at = off + line.indexOf(lvl[1]!)
+      out.push({ defFrom: at, defTo: at + lvl[1]!.length, value: Number(lvl[1]), lo: -60, hi: 12, log: false })
+      continue
+    }
     // a `macro` declaration IS a knob — the same dial, the same drag, but it
     // holds every site of the macro instead of one synth's param
     for (const d of scanMacroDecls(line)) {
@@ -352,6 +448,10 @@ export interface PlayRoll {
    *  — an accidental note still belongs on its degree's row, marked, not
    *  floating between two rows that mean something else. */
   accs?: (number | undefined)[]
+  /** per-note expression values, index-aligned with steps (`0'1` -> 1). */
+  exprs?: (number | undefined)[]
+  /** every lane per step, so a rewrite cannot drop one it did not touch. */
+  lanes?: (Record<string, number> | undefined)[]
   /** POLYMETER figure: the grid edits only the inside of `{…}%n`, so events
    *  match the FULL notation and locs shift by the figure's offset in it. */
   srcFull?: string
@@ -406,6 +506,8 @@ export function scanPlays(text: string): PlayRoll[] {
           content: inner,
           steps: ptoks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
           accs: ptoks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+          exprs: ptoks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+          lanes: ptoks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
           srcFull: notation,
           srcOffset: innerStart,
         }
@@ -428,6 +530,8 @@ export function scanPlays(text: string): PlayRoll[] {
       content: notation,
       steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
       accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+      lanes: toks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
     }
     roll.synth = ph[3] ?? ph[2]!
     if (scale) roll.scale = scale[0]!.slice('scale:'.length)
@@ -788,6 +892,100 @@ export function euclidGroup(notation: string): { p: number; s: number; r: number
 /** Serialize a euclid group (omit a zero rotation). */
 export function euclidText(p: number, s: number, r: number): string {
   return r !== 0 ? `(${p},${s},${r})` : `(${p},${s})`
+}
+
+/**
+ * Make a roll's cells DRAGGABLE: sideways to move a note, UP AND DOWN to
+ * change its pitch, right edge to change its length — the piano-roll
+ * gesture, writing mini-notation.
+ *
+ * Both are the same edit (see rollnotes.placeNote): a note is written at a
+ * slot for a length, and whatever it lands on is overwritten. The bar's slot
+ * count never changes, so a bar stays the same length however much it is
+ * dragged and the pattern cannot drift out of time.
+ *
+ * Written at gesture END, not live. Every other widget here rewrites as it
+ * moves, but those edits are a number in place — this one re-serializes a
+ * whole bar, so its length changes under the pointer and the cell the user is
+ * holding would move mid-drag. The cell layer previews instead.
+ *
+ * A bar that is not a flat slot grid (a nesting, a euclid) simply does not
+ * arm: there is nothing to move a note between, and refusing is better than
+ * restructuring somebody's notation behind their back.
+ */
+function attachNoteGesture(
+  cellEl: HTMLElement,
+  cell: { x0: number; x1: number },
+  view: EditorView,
+  drag: Drag,
+  hooks: Hooks,
+  opts: { srcFrom: number; content: string; period: number; bodyWidth: number; rowH: number },
+): void {
+  attachGesture(cellEl, drag, 'window', (e) => {
+    // gesture-time verify: the notation must still sit where the widget thinks
+    const doc = view.state.doc.toString()
+    if (doc.slice(opts.srcFrom, opts.srcFrom + opts.content.length) !== opts.content) return null
+    const bars = barSpans(opts.content, opts.srcFrom)
+    const hit = cellToNote(bars, cell.x0)
+    if (hit === null) return null
+    const notes = notesOf(toSlots(parseBar(hit.barText, hit.from)!))
+    const note = notes[hit.index]
+    if (note === undefined) return null
+
+    const rect = cellEl.getBoundingClientRect()
+    const edge = grabKind(e.clientX - rect.left, rect.width)
+    const barWidth = opts.bodyWidth / Math.max(opts.period, 1)
+    const per = barWidth / Math.max(hit.slots, 1)
+    const x0 = e.clientX
+    const y0 = e.clientY
+    let lastKey = ''
+    cellEl.classList.add('dragging')
+
+    /* WHICH AXIS. A grab on the right edge is always a resize — that handle
+     * means one thing. Otherwise the drag picks the axis it has travelled
+     * furthest in, and keeps re-picking: a gesture that starts sideways and
+     * curls upward is one someone means as a pitch move by the time they let
+     * go, and a locked axis would ignore the half they meant. */
+    const apply = (dx: number, dy: number, commit: boolean): void => {
+      const slots = slotDelta(dx, barWidth, hit.slots)
+      const steps = pitchDelta(dy, opts.rowH)
+      const kind = edge === 'resize' ? 'resize' : Math.abs(dy) > Math.abs(dx) ? 'pitch' : 'move'
+
+      if (!commit) {
+        // preview on the CELL: the roll shows the edit before the document
+        // changes, and nothing is written until the pointer comes up
+        const key = `${kind}:${slots}:${steps}`
+        if (key === lastKey) return
+        lastKey = key
+        cellEl.style.transform =
+          kind === 'pitch' ? `translateY(${-steps * opts.rowH}px)`
+          : kind === 'move' ? `translateX(${slots * per}px)`
+          : ''
+        cellEl.style.width = kind === 'resize' ? `${Math.max(1, note.length + slots) * per - 1}px` : ''
+        return
+      }
+
+      const edit =
+        kind === 'pitch'
+          ? transposeNote(hit.barText, hit.from, hit.index, steps)
+          : kind === 'resize'
+            ? editNote(hit.barText, hit.from, hit.index, note.start, note.length + slots)
+            : editNote(hit.barText, hit.from, hit.index, note.start + slots, note.length)
+      if (edit === null) return
+      view.dispatch({ changes: { from: edit.from, to: edit.to, insert: edit.text } })
+      hooks.requestEval(false)
+    }
+
+    return {
+      onMove: (ev: PointerEvent) => apply(ev.clientX - x0, ev.clientY - y0, false),
+      onEnd: (ev: PointerEvent) => {
+        cellEl.classList.remove('dragging')
+        cellEl.style.transform = ''
+        cellEl.style.width = ''
+        apply(ev.clientX - x0, ev.clientY - y0, true)
+      },
+    }
+  })
 }
 
 /** The whole-roll TRANSPOSE grab strip: a narrow left-edge handle (44px
@@ -1151,6 +1349,13 @@ export class RollOverviewWidget extends WidgetType {
       el.style.bottom = `${3 + c.row * rowH}px`
       el.style.height = `${rowH - 2}px`
       cellEls.push({ el, c })
+      attachNoteGesture(el, c, view, this.drag, this.hooks, {
+        srcFrom: this.srcFrom,
+        content: this.content,
+        period,
+        bodyWidth: this.width,
+        rowH,
+      })
       layer.appendChild(el)
     }
     const head = document.createElement('span')
@@ -1720,22 +1925,14 @@ class EnvWidget extends WidgetType {
             mark.style.opacity = '0'
             return
           }
-          let x: number, y: number
-          if (t < a) { const u = t / a; x = pad + (g.ax - pad) * u; y = base + (peak - base) * u }
-          else if (t < a + d + holdSec) {
-            // one continuous one-pole from peak toward sustain: the marker has
-            // to agree with the curve it is riding
-            const u = (t - a) / (d || 1e-6)
-            x = g.ax + (g.dx - g.ax) * u
-            y = poleAt(peak, g.sy, u)
-          } else {
-            const u = (t - a - d - holdSec) / (r || 1e-6)
-            const yH = poleAt(peak, g.sy, (g.hx - g.ax) / Math.max(1, g.dx - g.ax))
-            x = g.hx + (g.rx - g.hx) * u
-            y = poleAt(yH, base, u)
+          const at = envMarkerAt(t, { a, d, holdSec, r }, g, { pad, peak, base })
+          if (at === null) {
+            wrap.classList.remove('firing')
+            mark.style.opacity = '0'
+            return
           }
-          mark.setAttribute('cx', x.toFixed(1))
-          mark.setAttribute('cy', y.toFixed(1))
+          mark.setAttribute('cx', at.x.toFixed(1))
+          mark.setAttribute('cy', at.y.toFixed(1))
           mark.style.opacity = '1'
           this.raf = requestAnimationFrame(frame)
         }
@@ -1840,6 +2037,9 @@ const EP_PAD = 4
 const EP_MIN_TIME = 0.001
 
 class EnvPointsWidget extends WidgetType {
+  private unsub: (() => void) | null = null
+  private raf = 0
+
   constructor(
     readonly scan: EnvPointsScan,
     /** the source text of the whole call — part of eq(), so an edit anywhere
@@ -1861,6 +2061,49 @@ class EnvPointsWidget extends WidgetType {
     wrap.className = 'rondo-envpts'
     wrap.setAttribute('role', 'group')
     wrap.setAttribute('aria-label', `${pts.length}-point envelope`)
+    // EnvPointsScan.synth exists for exactly this and was never wired: the
+    // adsr curve beside it fired per note while the breakpoint editor — the
+    // same envelope, written the long way — sat still.
+    /* A MARKER THAT RIDES THE CURVE, not just a glow.
+     *
+     * Lighting the whole widget says "this is doing something" and stops
+     * there: a two-second pad and a 16th-note hat look the same apart from
+     * how long the glow lasts. Time is this widget's X AXIS, so the honest
+     * thing is to show WHERE in the envelope we are — which the adsr curve
+     * beside it has always done, and this one, the same envelope written the
+     * long way, never did. */
+    const emark = () => wrap.querySelector('.emark') as SVGCircleElement | null
+    const ride = (): void => {
+      const mark = emark()
+      if (mark === null) return
+      const live = pts.map((q, i) => ({ ...q, time: times[i]!, level: levels[i]! }))
+      const g = envGeometry(live, W, EP_H, EP_PAD)
+      const total = live.reduce((n, q) => n + q.time, 0)
+      if (!(total > 0)) return
+      const t0 = performance.now()
+      cancelAnimationFrame(this.raf)
+      const frame = (nowMs: number): void => {
+        const t = (nowMs - t0) / 1000
+        if (t >= total || this.drag.active) { mark.setAttribute('opacity', '0'); this.raf = 0; return }
+        // walk the breakpoints to find the segment this instant sits in
+        let acc = 0
+        let i = 0
+        while (i < live.length - 1 && acc + live[i + 1]!.time <= t) { acc += live[i + 1]!.time; i++ }
+        const span = live[i + 1]?.time ?? 0
+        const u = span > 0 ? (t - acc) / span : 0
+        const a = g[i]!
+        const b = g[Math.min(i + 1, g.length - 1)]!
+        mark.setAttribute('cx', (a.x + (b.x - a.x) * u).toFixed(1))
+        mark.setAttribute('cy', (a.y + (b.y - a.y) * u).toFixed(1))
+        mark.setAttribute('opacity', '1')
+        this.raf = requestAnimationFrame(frame)
+      }
+      this.raf = requestAnimationFrame(frame)
+    }
+    this.unsub = activate(wrap, this.hooks, {
+      ...(this.scan.synth !== undefined ? { synth: this.scan.synth } : {}),
+      onFire: ride,
+    })
     wrap.title = 'drag a point: sideways for time, up and down for level'
     const svg = `<svg width="${W}" height="${EP_H}" viewBox="0 0 ${W} ${EP_H}">` +
       `<line class="base" x1="${EP_PAD}" y1="${EP_H - EP_PAD}" x2="${W - EP_PAD}" y2="${EP_H - EP_PAD}"/>` +
@@ -1870,6 +2113,8 @@ class EnvPointsWidget extends WidgetType {
       // modifier is not reachable with a thumb anyway.
       pts.map((_, i) => `<line class="seg" data-i="${i}"/>`).join('') +
       pts.map((_, i) => `<circle class="h" data-i="${i}" r="4.5"/>`).join('') +
+      // the note-fired marker, riding the curve. Last so it draws on top.
+      '<circle class="emark" r="3.5" opacity="0"/>' +
       '</svg>'
     wrap.innerHTML = svg
     const line = wrap.querySelector('.line') as SVGPathElement
@@ -2003,6 +2248,13 @@ class EnvPointsWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean { return true }
+
+  /** Widgets die on every rebuild — drop the subscription with the DOM. */
+  destroy(): void {
+    this.unsub?.()
+    this.unsub = null
+    cancelAnimationFrame(this.raf)
+  }
 }
 
 
@@ -2014,6 +2266,8 @@ class EnvPointsWidget extends WidgetType {
  * that answers 120 ms late does not feel like a switch.
  * -------------------------------------------------------------------------- */
 class SwitchWidget extends WidgetType {
+  private unsub: (() => void) | null = null
+
   constructor(
     readonly m: SwitchMatch,
     readonly key: string,
@@ -2027,6 +2281,9 @@ class SwitchWidget extends WidgetType {
     const wrap = document.createElement('span')
     wrap.className = 'rondo-switch'
     wrap.setAttribute('role', 'switch')
+    // A project-wide switch has no owning synth (m.synth absent), so any note
+    // lights it — which is right: it reaches every destination at once.
+    this.unsub = activate(wrap, this.hooks, m.synth !== undefined ? { synth: m.synth } : {})
     const label = (v: number): string => formatNumber(v, { step: 0.001 })
     // ARIA needs an on/off reading; the SECOND value is arbitrarily "off",
     // which is honest for a control whose two states have no inherent order
@@ -2074,6 +2331,12 @@ class SwitchWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean { return true }
+
+  /** Widgets die on every rebuild — drop the subscription with the DOM. */
+  destroy(): void {
+    this.unsub?.()
+    this.unsub = null
+  }
 }
 
 class PianoRollWidget extends WidgetType {
@@ -2087,6 +2350,10 @@ class PianoRollWidget extends WidgetType {
     readonly steps: (number | null)[],
     /** accidentals, index-aligned with steps (see PlayRoll.accs). */
     readonly accsIn: (number | undefined)[],
+    /** per-note expression values, index-aligned with steps (`0'1` -> 1). */
+    readonly exprsIn: (number | undefined)[],
+    /** every lane per step, so a drag rewrites without dropping one. */
+    readonly lanesIn: (Record<string, number> | undefined)[],
     readonly synth: string | undefined,
     readonly scale: string | undefined,
     readonly hooks: Hooks,
@@ -2118,6 +2385,8 @@ class PianoRollWidget extends WidgetType {
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
     const steps = this.steps.slice()
     const accs = this.accsIn.slice()
+    const exprs = this.exprsIn.slice()
+    const lanes = this.lanesIn.slice()
     const cellEls: HTMLElement[][] = Array.from({ length: rows }, () => [])
     // rows top (high degree) → bottom (low), so pitch goes up the screen
     for (let dr = rows - 1; dr >= 0; dr--) {
@@ -2127,6 +2396,15 @@ class PianoRollWidget extends WidgetType {
         cell.className = 'rc' + (steps[c] !== null && steps[c]! - minDeg === dr ? ' on' : '') + (c % 4 === 0 ? ' beat' : '')
         cell.dataset.r = String(dr)
         cell.dataset.c = String(c)
+        /* The bend handle rides on every cell but only SHOWS on an active one
+         * (CSS: .rc.on .bendgrab). Creating it always keeps the DOM stable as
+         * notes are painted in and out — a handle appearing and vanishing
+         * mid-drag would break the gesture that is holding it. */
+        const grab = document.createElement('span')
+        grab.className = 'bendgrab'
+        grab.dataset.c = String(c)
+        grab.setAttribute('aria-hidden', 'true')
+        cell.appendChild(grab)
         cellEls[dr]![c] = cell
         grid.appendChild(cell)
       }
@@ -2173,9 +2451,29 @@ class PianoRollWidget extends WidgetType {
         // and the grid quietly disagrees with the source.
         const acc = lit ? accs[c] : undefined
         el.classList.toggle('acc', acc !== undefined && acc !== 0)
-        el.textContent = acc === undefined || acc === 0 ? '' : acc > 0 ? '\u266f' : '\u266d'
+        /* NOT textContent: that would delete the bend handle living inside the
+         * cell, and with it the gesture someone may be mid-drag on. */
+        el.dataset.acc = acc === undefined || acc === 0 ? '' : acc > 0 ? '\u266f' : '\u266d'
+        /* THE INLINE MARK is only a TICK. The cell is 12px square (16 on
+         * touch) — enough to say WHICH notes carry a value, nowhere near
+         * enough to say how much. Drawing a curve in there produced eight
+         * marks that all looked alike, so the shape moved to the full-width
+         * bend lane under the line and this stayed as the at-a-glance read.
+         * Direction only: up for a scoop, down for a fall. */
+        const ex = lit ? exprs[c] : undefined
+        el.classList.toggle('bend', ex !== undefined && ex !== 0)
+        el.classList.toggle('bendup', ex !== undefined && ex > 0)
+        el.classList.toggle('benddn', ex !== undefined && ex < 0)
+        el.querySelector('.bendmark')?.remove()
       }
     }
+    /* Paint the initial state through the SAME path an edit uses. The cell
+     * loop above only knows on/off; accidentals and bends are applied by
+     * refresh(), so without this a freshly rendered roll showed neither until
+     * something was dragged — the marks existed and were invisible, which is
+     * the most confusing shape a bug can take. */
+    for (let c = 0; c < cols; c++) refresh(c)
+
     attachGesture(grid, this.drag, 'element', (e) => {
       const el0 = (e.target as HTMLElement).closest?.('.rc') as HTMLElement | null
       if (!el0) return null
@@ -2190,8 +2488,10 @@ class PianoRollWidget extends WidgetType {
         // asked for, so a `#` left over from the note that used to be here
         // would put it somewhere you did not click
         accs[c] = undefined
+        exprs[c] = undefined
+        lanes[c] = undefined
         refresh(c)
-        if (writer.write(steps.map((v, i) => stepText(v, accs[i])).join(' '))) {
+        if (writer.write(steps.map((v, i) => stepText(v, accs[i], exprs[i], lanes[i])).join(' '))) {
           this.hooks.requestEval(false)
         }
         buzz()
@@ -2201,6 +2501,43 @@ class PianoRollWidget extends WidgetType {
             !(this.hooks.isPlaying?.() ?? false)) {
           const midi = rollPreviewMidi(this.scale, next)
           if (midi !== undefined) this.hooks.previewNote(this.synth, midi + (accs[c] ?? 0))
+        }
+      }
+      /* THE BEND HANDLE. The cell body means "place or erase a note" and a
+       * drag across it PAINTS, so expression cannot also live on the body —
+       * it gets its own grab target on the active note, the same way a filter
+       * curve and an envelope give their draggable values their own handles.
+       * Drag it up to scoop into the note, down to fall into it.
+       *
+       * Checked against the RAW target, before the `.rc` lookup: the handle
+       * sits inside the cell, so closest('.rc') would hand back the cell and
+       * the note would be repainted instead of bent.
+       */
+      const grab = (e.target as HTMLElement).closest?.('.bendgrab') as HTMLElement | null
+      if (grab !== null) {
+        const c = Number(grab.dataset.c)
+        if (steps[c] === null) return null
+        const start = exprs[c] ?? 0
+        const y0 = e.clientY
+        const w2 = new LiveWriter(view, this.from, this.to)
+        return {
+          onMove: (ev) => {
+            // up is positive: the pitch goes UP, and so does your finger
+            const raw = start - (ev.clientY - y0) / 60
+            const next = Math.max(-1, Math.min(1, raw))
+            const snapped = Math.abs(next) < 0.02 ? undefined : Number(next.toFixed(2))
+            if (exprs[c] === snapped) return
+            exprs[c] = snapped
+            refresh(c)
+            if (w2.write(steps.map((v, i) => stepText(v, accs[i], exprs[i], lanes[i])).join(' '))) {
+              this.hooks.requestEval(false)
+            }
+          },
+          onEnd: () => {
+            this.drag.ended = true
+            view.dispatch({})
+            this.hooks.requestEval(false)
+          },
         }
       }
       const r0 = Number(el0.dataset.r), c0 = Number(el0.dataset.c)
@@ -2681,7 +3018,7 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
     items.push(Decoration.widget({ widget: new EnvWidget(e.from, e.to, e.a, e.d, e.s, e.r, e.synth, envW, hooks, drag, e.ranges), side: 1 }).range(e.to))
   }
   for (const p of scan.plays(text)) {
-    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
+    items.push(Decoration.widget({ widget: new PianoRollWidget(p.from, p.to, p.content, p.steps, p.accs ?? p.steps.map(() => undefined), p.exprs ?? p.steps.map(() => undefined), p.lanes ?? p.steps.map(() => undefined), p.synth, p.scale, hooks, drag, p.srcFull, p.srcOffset), side: 1 }).range(p.to))
   }
   for (const rp of scanRichPlays(text)) {
     // HONESTY: only a TRUE single-cycle figure earns the compact inline roll.
@@ -2734,6 +3071,46 @@ function build(view: EditorView, hooks: Hooks, drag: Drag, scan: WidgetScan): De
   // filter response curves under svf/ladder/dualsvf/eq lines (static values
   // only — see filtercurve.ts's honesty rules)
   const fcW = Math.min(envWidth(view), 420)
+  // The compressor's transfer curve. `master`/`compress` were the last nodes
+  // with no widget at all — five bare numbers and nothing saying what shape
+  // they make, or how much they are pulling down right now.
+  // The sidechain duck: shape, spread, and where it is right now.
+  for (const ds of scanDucks(text)) {
+    items.push(
+      Decoration.widget({ widget: new DuckCurveWidget(ds, JSON.stringify(ds), fcW, hooks), side: 1 }).range(ds.at),
+    )
+  }
+  // the LFO: shape, speed, and where in the cycle it is right now. It was the
+  // one modulation source with nothing to look at.
+  for (const ls of scanLfos(text)) {
+    items.push(
+      // INLINE, sitting after the line like the filter and duck curves. Block
+      // decorations cannot come from a ViewPlugin — CodeMirror refuses with
+      // "Block decorations may not be specified via plugins" — and these
+      // widgets all arrive that way.
+      Decoration.widget({ widget: new LfoCurveWidget(ls, JSON.stringify(ls), fcW, hooks), side: 1 }).range(ls.at),
+    )
+  }
+  /* THE AUTOMATION LANE. Every other shape here is drawn — the ADSR, the LFO,
+   * the filter response, the compressor curve, the duck. `curve` is the one
+   * measured in BARS, where a wrong number costs a whole section, and it was
+   * the one you had to imagine. */
+  for (const cl of scanCurveLanes(text)) {
+    items.push(
+      Decoration.widget({
+        widget: new CurveLaneWidget(cl, JSON.stringify(cl), fcW, hooks, drag),
+        side: 1,
+      }).range(cl.at),
+    )
+  }
+  for (const cs of scanCompressors(text)) {
+    items.push(
+      Decoration.widget({
+        widget: new CompCurveWidget(cs, JSON.stringify(cs), fcW, hooks),
+        side: 1,
+      }).range(cs.at),
+    )
+  }
   for (const fs of scan.filters(text, knobs)) {
     items.push(
       Decoration.widget({
@@ -2786,6 +3163,9 @@ export function blockWidgetField(hooks: Hooks, drag: Drag, scan: WidgetScan = RO
     return Decoration.set([
       ...wavedefBlockDecos(text, width, hooks, drag, scan.wavedefDialect),
       ...rollOverviewBlockDecos(text, width, hooks, drag, scan),
+      // the bend lane: only on lines that actually carry `'value` notes, so
+      // ordinary notation grows no automation row
+      ...bendLaneBlockDecos(text, width, hooks, drag, scan),
     ], true)
   }
   const field = StateField.define<DecorationSet>({

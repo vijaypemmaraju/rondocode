@@ -53,6 +53,16 @@ export interface RenderOptions {
   cps?: number
   /** Polyphony of the temporary VoicePool. Default 8. */
   maxVoices?: number
+  /** LIVE INPUT for mic() nodes, as one mono signal at the render rate.
+   *
+   *  Without this, mic() reads silence offline — which is correct for a bounce
+   *  and meant that nothing built on the live input could be tested at all. A
+   *  whole feature area (a mic channel strip: gate, de-esser, compressor) was
+   *  unverifiable for that reason. Supplying it here lets an offline render
+   *  answer "what does this chain do to that signal?" deterministically.
+   *
+   *  Read at the render position and zero-padded past the end. */
+  mic?: Float32Array
   /** Audio samples available to sample('name') nodes, keyed by name. Each is
    *  mono PCM at its own sampleRate (the kernel resamples to the render rate). */
   samples?: Record<string, { data: Float32Array; sampleRate: number }>
@@ -155,6 +165,11 @@ export function renderOffline(
     for (const [name, frames] of Object.entries(opts.wavetables)) wtBank.set(name, frames)
     ctx.wavetables = wtBank
   }
+  /* Live input. The graph reads ctx.mic as ONE shared block, so this is
+   * refilled from the supplied signal before every chunk — exactly how the
+   * worklet hands the host's capture to the engine. */
+  const micIn = opts?.mic
+  if (micIn !== undefined) ctx.mic = new Float32Array(BLOCK)
   const pool = new VoicePool(def.graph, ctx, maxVoices, def.voiceOpts)
   // Per-synth POST chain (reverb/eq/compress over the summed voices), run inline
   // so a post param() set by a setParam event actually takes effect — live and
@@ -191,6 +206,17 @@ export function renderOffline(
     if (next < timed.length && timed[next]!.sample < end) end = timed[next]!.sample
     const lo = left.subarray(cursor, end)
     const ro = right.subarray(cursor, end)
+    if (micIn !== undefined && ctx.mic !== undefined) {
+      /* Refill the shared block for THIS chunk, zero-padded past the end of
+       * the supplied signal (a chunk is shorter than BLOCK when an event
+       * splits it). The padding is DEFENSIVE and currently unobservable —
+       * kernels only read `n` samples — but a kernel that read a whole block
+       * would otherwise see the previous chunk's audio, and zeroing it costs
+       * nothing. */
+      const blk = ctx.mic
+      for (let i = 0; i < end - cursor; i++) blk[i] = micIn[cursor + i] ?? 0
+      for (let i = end - cursor; i < BLOCK; i++) blk[i] = 0
+    }
     pool.process(lo, ro, end - cursor)
     if (post !== undefined) post.processStereo(lo, ro, end - cursor)
     cursor = end

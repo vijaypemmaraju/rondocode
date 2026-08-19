@@ -52,7 +52,7 @@ const DICT_TEXT =
   "visual(fn render(uv: vec2f) -> vec4f {let p = (uv * 2.0 - 1.0) * vec2f(res.x / res.y, 1.0);" +
   "let r = length(p);spectrum(fract(smoothstep(0.05, 0.0, abs(r - hit_kick hit_lead hit_stab" +
   "vec3f(0.return vec4f(min(col, vec3f(1.0)), 1.0);} * exp(-r * 3." +
-  "sidechain('kick', { depth: 0.9, release: 0.16, duck: { sub: 0.9, pad: 0.5, stab: 0.5, lead: 0.4 } })" +
+  "sidechain('kick', { depth: 0.9, release: 160, duck: { sub: 0.9, pad: 0.5, stab: 0.5, lead: 0.4 } })" +
   "masterCompress({ threshold: -6, ratio: 2, attack: 25, release: 150, makeup: 1 })setCps(0.5" +
   "const kick = synth(({ note, gate, param, adsr, sine, saw, square, tri, noise, svf, ladder, lfo }) => {" +
   "  const env = adsr(gate, { a: 0.001, d: 0.09, s: 0, r: 0.05 })  const amp = adsr(gate, { a: 0.001, d: 0." +

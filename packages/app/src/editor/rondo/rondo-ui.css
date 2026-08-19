@@ -641,6 +641,20 @@
   color: var(--c-accent-alt, #6ea8fe);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent, #6ea8fe) 35%, transparent);
 }
+/* live on the playhead: this filter is processing a note right now. The colour
+   change is what the canvas picks up (it re-reads `color` through inkOf on the
+   redraw activation triggers); background and opacity carry the rest.
+   Deliberately no filter/blur and no per-frame work — see the roll-cell repaint
+   regression: compositor-only properties, twice per note. */
+.rondo-fcurve.armed {
+  opacity: 0.78;
+  transition: opacity 0.09s ease-out, background-color 0.09s ease-out;
+}
+.rondo-fcurve.firing {
+  opacity: 1;
+  color: var(--c-accent-alt, #6ea8fe);
+  background: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 14%, transparent);
+}
 
 /* --- the switch: a knob with two values, tapped rather than dragged --- */
 .rondo-switch {
@@ -689,7 +703,10 @@
 /* An accidental degree sits on its own degree's ROW — the rows are scale
    degrees and there is no row between them — so it is marked rather than
    moved. Without the mark, `2#` and `2` would be the same cell. */
-.rondo-roll .rc.acc {
+.rondo-roll .rc.acc::after {
+  content: attr(data-acc);
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -697,6 +714,75 @@
   line-height: 1;
   color: var(--c-bg, #10131a);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  pointer-events: none;
+}
+
+/* ---- PER-NOTE BEND ------------------------------------------------------ *
+ * TWO SURFACES, on purpose.
+ *
+ * The inline cell is 12px square (16 on touch). That is enough to say WHICH
+ * notes carry a value and hopeless for saying how much — a curve drawn in
+ * there gave eight marks that all looked alike. So the cell shows DIRECTION
+ * only, and the shape lives in a full-width lane under the line, which is the
+ * same placement a multi-cycle figure already uses for its clip overview. */
+.rondo-roll .rc { position: relative; }
+.rondo-roll .rc.bend::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 2px;
+  margin: -1px 0 0 -3.5px;
+  border-radius: 1px;
+  background: var(--c-bg, #10131a);
+  opacity: 0.7;
+  transform-origin: 50% 50%;
+}
+.rondo-roll .rc.bendup::before { transform: rotate(-32deg); }
+.rondo-roll .rc.benddn::before { transform: rotate(32deg); }
+
+/* ---- THE BEND LANE ------------------------------------------------------ *
+ * Full width, under the notation, and ONLY on a line that carries values —
+ * ordinary notation grows no automation row. Drag a note's curve to set it;
+ * the same number stays draggable in the source, because it is a number in
+ * the source. */
+.rondo-bendlane {
+  display: block;
+  margin: 2px 0 4px 8px;
+  padding: 2px 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 22%, transparent);
+  touch-action: none;
+  cursor: ns-resize;
+}
+.rondo-bendlane svg { display: block; }
+.rondo-bendlane .bl-zero {
+  stroke: var(--c-border, #2a2e37);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  vector-effect: non-scaling-stroke;
+}
+.rondo-bendlane .bl-hit { fill: transparent; }
+.rondo-bendlane .bl-slot:hover .bl-hit {
+  fill: color-mix(in srgb, var(--c-accent, #6ea8fe) 12%, transparent);
+}
+.rondo-bendlane .bl-curve {
+  fill: none;
+  stroke: var(--c-accent, #6ea8fe);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+/* a rest has no pitch to bend: draw it faint so the slot still reads as a
+   step, without implying it carries a value */
+.rondo-bendlane .bl-curve.rest { opacity: 0.18; }
+/* A note that INHERITED its value rather than setting one. Dashed and dimmer:
+   the level is real (the engine is holding it) but the note does not own it,
+   so it is not the one to drag if you want to change it. */
+.rondo-bendlane .bl-curve.held {
+  opacity: 0.45;
+  stroke-dasharray: 3 3;
 }
 
 /* The sustain guide: the curve no longer touches sustain at the decay handle
@@ -707,4 +793,198 @@
   stroke-width: 1;
   stroke-dasharray: 2 3;
   opacity: 0.45;
+}
+
+/* DRAGGABLE NOTES (widgets.ts attachNoteGesture + rollnotes.ts). A cell is a
+   note you can move: sideways to reposition it, right edge to change its
+   length. The cursor is the whole affordance — the cells are small, so a
+   visible handle would cost more room than it earns. */
+.qr-cell { cursor: grab; }
+.qr-cell:active { cursor: grabbing; }
+.qr-cell.dragging {
+  cursor: grabbing;
+  z-index: 2;
+  outline: 1px solid var(--c-accent, #6ea8fe);
+  filter: brightness(1.35);
+}
+
+/* A `patdef` name used as a pattern (patrefs.ts). It stands where notation
+   normally is, so leaving it plain made the one line that is NOT literal
+   notation look most like it. Mint, matching the keyword that defined it,
+   with a dotted underline saying "this stands for something else". */
+.cm-patref {
+  color: var(--c-kw, #a7f3d0);
+  border-bottom: 1px dotted currentColor;
+}
+
+/* --- live on the playhead, the widgets that had no live state at all --- *
+   Same rule as the filter curve: `armed` means a transport is wired up (so the
+   resting style may sit dimmer), `firing` means this widget's synth is
+   sounding right now. Compositor-only properties and no per-frame work. */
+.rondo-envpts.armed,
+.rondo-switch.armed {
+  transition: opacity 0.09s ease-out, color 0.09s ease-out;
+  opacity: 0.8;
+}
+.rondo-envpts.firing,
+.rondo-switch.firing {
+  opacity: 1;
+  color: var(--c-accent-alt, #6ea8fe);
+}
+.rondo-envpts.firing .line { stroke: var(--c-accent-alt, #6ea8fe); }
+.rondo-envpts.firing .fill { fill: color-mix(in srgb, var(--c-accent-alt, #6ea8fe) 22%, transparent); }
+
+/* the note-fired marker riding the breakpoint curve — same language as the
+   adsr widget's .emark, because it is the same envelope written the long way */
+.rondo-envpts .emark {
+  fill: var(--c-accent-alt, #6ea8fe);
+  filter: drop-shadow(0 0 4px var(--c-accent-alt, #6ea8fe));
+  pointer-events: none;
+}
+
+/* the live cutoff, riding the response curve. Compositor-only (transform +
+   opacity) and moved per NOTE, not per frame — the curve itself never redraws
+   for this. */
+.rondo-fcurve { position: relative; }
+.rondo-fcurve-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--c-accent-alt, #6ea8fe);
+  box-shadow: 0 0 6px var(--c-accent-alt, #6ea8fe);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out;
+}
+
+/* the compressor transfer curve — same surface language as the filter curve */
+.rondo-ccurve {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 6px;
+  color: var(--c-accent, #6ee7b7);
+  background: color-mix(in srgb, var(--c-border, #1e352c) 22%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rondo-ccurve canvas { display: block; }
+.rondo-ccurve.armed { opacity: 0.78; transition: opacity 0.09s ease-out; }
+.rondo-ccurve.firing { opacity: 1; color: var(--c-accent-alt, #67e8f9); }
+
+/* the sidechain duck envelope */
+.rondo-dcurve {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 6px;
+  color: var(--c-accent, #6ee7b7);
+  background: color-mix(in srgb, var(--c-border, #1e352c) 22%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rondo-dcurve canvas { display: block; }
+.rondo-dcurve.armed { opacity: 0.78; transition: opacity 0.09s ease-out; }
+.rondo-dcurve.firing { opacity: 1; color: var(--c-accent-alt, #67e8f9); }
+
+/* the LFO curve: shape, speed, and a dot where the cycle is right now */
+.rondo-lfocurve {
+  display: inline-block;
+  /* like .rondo-fcurve: a tall inline box raises the whole line box unless it
+     is aligned to the middle, which put the code's baseline at the bottom of a
+     38px row and read as a rendering bug */
+  vertical-align: middle;
+  position: relative;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 22%, transparent);
+}
+.rondo-lfocurve svg { display: block; }
+.rondo-lfocurve .lc-mid {
+  stroke: var(--c-border, #2a2e37);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.rondo-lfocurve .lc-curve {
+  fill: none;
+  stroke: var(--c-accent, #7fd1b9);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.rondo-lfocurve .lc-head {
+  stroke: var(--c-accent, #7fd1b9);
+  stroke-width: 1.5;
+  /* 0.45 was too faint to track at speed, which was the whole complaint */
+  opacity: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+.rondo-lfocurve .lc-dot {
+  fill: var(--c-accent, #7fd1b9);
+  /* a ring in the background colour, so the dot stays legible where it
+     crosses the curve it is riding */
+  stroke: var(--c-bg, #14161a);
+  stroke-width: 1.5;
+  /* a fast LFO moves the dot several times its own width per frame, so it
+     needs to carry at a glance rather than be found */
+  filter: drop-shadow(0 0 3px var(--c-accent, #7fd1b9));
+}
+.rondo-lfocurve .lc-label {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font: 10px var(--mono, monospace);
+  color: var(--c-dim, #7b8494);
+  pointer-events: none;
+}
+
+/* THE AUTOMATION LANE — `cut: curve 8 1 8 .35 400..7000`.
+ *
+ * Sits after its own line like the filter and LFO curves. The bar grid is the
+ * part that makes it a LANE rather than a shape: automation here is measured
+ * in bars against the transport, so being able to count them is the whole
+ * difference between reading the picture and guessing at it. */
+.rondo-curvelane {
+  display: inline-block;
+  vertical-align: middle;
+  position: relative;
+  margin: 2px 0 2px 10px;
+  padding: 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 22%, transparent);
+}
+.rondo-curvelane svg { display: block; }
+.rondo-curvelane .cl-bar {
+  stroke: var(--c-border, #2a2e37);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.rondo-curvelane .cl-line {
+  fill: none;
+  stroke: var(--c-accent, #7fd1b9);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.rondo-curvelane .cl-head {
+  stroke: var(--c-accent-alt, #d9a441);
+  stroke-width: 1;
+}
+/* A breakpoint is a HANDLE, so it has to look grabbable: filled, and it grows
+ * under the pointer rather than only changing colour. */
+.rondo-curvelane .cl-pt {
+  fill: var(--c-accent, #7fd1b9);
+  stroke: var(--c-bg, #14161a);
+  stroke-width: 1;
+  cursor: ew-resize;
+  transition: r 90ms ease-out;
+}
+.rondo-curvelane .cl-pt:hover {
+  r: 6;
+  cursor: move;
 }

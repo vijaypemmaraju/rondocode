@@ -17,6 +17,8 @@
  * does not exist.
  * ------------------------------------------------------------------------- */
 
+import { rank, terms } from './search'
+
 import { SECTIONS, blockText, orderedSections } from './content'
 import { DSL_DOCS } from './dsl-docs'
 
@@ -40,14 +42,24 @@ export const ROUTES: readonly RouteDef[] = [
     view: 'guide',
     path: '/docs',
     label: 'guide',
-    groups: ['start here', 'sound design', 'effects & mix', 'patterns & form', 'voice & visuals', 'the rondo language'],
+    groups: ['start here', 'sound design', 'effects & mix', 'patterns & form', 'voice, midi & files', 'visuals', 'the rondo language'],
     blurb: 'Read it through, or jump to a topic. Every snippet plays.',
   },
   {
     view: 'cookbook',
     path: '/cookbook',
     label: 'cookbook',
-    groups: ['cookbook'],
+    // one shelf per kind of question (see cookbook.ts's RecipeGroup); the
+    // route claims them all, so the page is still one browsable list
+    groups: [
+      'cookbook: instruments',
+      'cookbook: rhythm',
+      'cookbook: notes & harmony',
+      'cookbook: mix & space',
+      'cookbook: live & performance',
+      'cookbook: arrangement',
+      'cookbook: visuals',
+    ],
     blurb: 'Complete programs for things you might want. Paste one and press play.',
   },
   {
@@ -138,16 +150,21 @@ export const SEARCH_INDEX: readonly IndexEntry[] = (() => {
  *  half the docs just because the reader is on the wrong page. Capped: this is
  *  a "look over here" list, not a second results page. */
 export function crossRouteHits(q: string, current: DocView, limit = 8): IndexEntry[] {
-  const needle = q.trim().toLowerCase()
-  if (needle === '') return []
-  // RANKED, not index order. Searching "supersaw" from another page turned up
-  // eight guide sections that mention the word before the cookbook recipe
-  // actually called "Build a wide supersaw lead", because the cap filled in
-  // authoring order. A title match is what the reader meant.
-  const hits = SEARCH_INDEX.filter((e) => e.view !== current && e.text.includes(needle))
-    .map((e, i) => ({ e, i, rank: e.title.toLowerCase().includes(needle) ? 0 : 1 }))
-    .sort((a, b) => a.rank - b.rank || a.i - b.i)
-    .map((x) => x.e)
+  const ts = terms(q)
+  if (ts.length === 0) return []
+  /* RANKED, not index order. Searching "supersaw" from another page turned up
+   * eight guide sections that mention the word before the cookbook recipe
+   * actually called "Build a wide supersaw lead", because the cap filled in
+   * authoring order. A title match is what the reader meant.
+   *
+   * EVERY TERM must appear, rather than the query as one substring: two words
+   * is how a reader describes a thing, and it was the one shape that could
+   * never match. */
+  const hits = rank(
+    SEARCH_INDEX.filter((e) => e.view !== current),
+    ts,
+    (e) => ({ title: e.title.toLowerCase(), body: e.text }),
+  ).map((r) => r.item)
   // one line per reference symbol would drown the section hits, so the
   // reference collapses to a single entry
   const seen = new Set<string>()
@@ -156,7 +173,13 @@ export function crossRouteHits(q: string, current: DocView, limit = 8): IndexEnt
     const key = h.view === 'reference' ? 'reference' : h.id
     if (seen.has(key)) continue
     seen.add(key)
-    out.push(h.view === 'reference' ? { ...h, title: 'the reference', id: 'reference' } : h)
+    /* Keep WHICH SYMBOL matched. Collapsing every reference row to the bare
+     * words "the reference" threw away the one useful thing about the hit: a
+     * search for `supersaw` ranks the `supersaw(...)` entry top, and then
+     * showed a link that could have been about anything. */
+    out.push(h.view === 'reference'
+      ? { ...h, title: `the reference: ${h.title}`, id: 'reference' }
+      : h)
     if (out.length >= limit) break
   }
   return out

@@ -23,7 +23,7 @@
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
-import { STEP_RE, accValue } from '../rondo/widgets'
+import { STEP_RE, accValue, exprValue, laneValues } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, SVF_MODES as EDITOR_SVF_MODES, WT_TABLES } from '../rondo/enums'
@@ -395,8 +395,9 @@ export function scanPlaysJs(text: string): PlayRoll[] {
     if (c === null) continue
     const toks = c.text.value.trim().split(/\s+/).filter(Boolean)
     if (toks.length === 0) continue
-    // degrees may carry an accidental (`2#`, `3b`) — the notation is the same
-    // string in both languages, so this is the same STEP_RE the rondo scan uses
+    // degrees may carry an accidental (`2#`, `3b`) and a per-note expression
+    // (`0'1`) — the notation is the same string in both languages, so this is
+    // the same STEP_RE the rondo scan uses, and scan-parity holds them equal
     if (!toks.every((tk) => tk === '~' || STEP_RE.test(tk))) continue
     const roll: PlayRoll = {
       from: c.text.from,
@@ -404,6 +405,8 @@ export function scanPlaysJs(text: string): PlayRoll[] {
       content: c.text.value,
       steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
       accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+      lanes: toks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
     }
     if (c.synth !== undefined) roll.synth = c.synth
     if (c.scale !== undefined) roll.scale = c.scale
@@ -729,7 +732,7 @@ function paramBindings(doc: string, root: SyntaxNode): Map<string, number> {
       }
     }
     if (name === undefined || def === null) continue
-    out.set(`${enclosingSynth(doc, root, n.from) ?? ''} ${name}`, def.value)
+    out.set(`${enclosingSynth(doc, root, n.from) ?? ''}\u0000${name}`, def.value)
   }
   return out
 }
@@ -748,9 +751,12 @@ function staticArgJs(
   const num = numTok(doc, node)
   if (num !== null) return { value: num.value, range: { from: num.from, to: num.to } }
   if (node.name !== 'VariableName') return null // a rich expression: no read
-  const def = bindings.get(`${synth ?? ''} ${slice(doc, node)}`)
-    ?? bindings.get(` ${slice(doc, node)}`)
-  return def !== undefined ? { value: def } : null
+  const name = slice(doc, node)
+  const def = bindings.get(`${synth ?? ''}\u0000${name}`) ?? bindings.get(`\u0000${name}`)
+  // Keep the NAME as well as the DEF: it is what the live cutoff dot looks
+  // up in NoteEv.controls. The rondo scanner does the same, and
+  // scan-parity.test.ts holds the two to the identical shape.
+  return def !== undefined ? { value: def, knob: name } : null
 }
 
 const isSvfMode = (s: string | null): s is SvfModeName => s !== null && SVF_MODES.has(s)
@@ -903,7 +909,8 @@ export function scanEnumSpansJs(text: string): EnumSpan[] {
         const tok = strTok(text, node)
         // `table:` accepts any registered wavedef, not just the built-ins
         const list = key === 'table' ? tables : values
-        if (tok === null || !list.includes(tok.value)) continue
+        // a null list is a runtime set: nothing to cycle through
+        if (tok === null || list === null || !list.includes(tok.value)) continue
         out.push({ from: tok.from, to: tok.to, word: tok.value, values: list })
       }
     }

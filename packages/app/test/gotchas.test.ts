@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '@rondocode/rondo'
-import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
+import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../server/src/render-runner'
 import { GOTCHAS } from '../src/docs/gotchas'
 import type { Gotcha } from '../src/docs/gotchas'
 import { SECTIONS, orderedSections } from '../src/docs/content'
@@ -39,7 +39,7 @@ const run = (src: string): Run => {
   const evs = runPatterns(st.patterns, { cycles: 2, cps })
   const flat = [...evs.values()].flat()
   const key = JSON.stringify(flat)
-  const mix = renderMix(st.synths, evs, 2 / cps, { cps, sampleRate: 22050 })
+  const mix = renderMix(st.synths, evs, 2 / cps, mixOptsFor(st, { cps, sampleRate: 22050 }))
   let peak = 0
   for (const v of mix.left) { const a = Math.abs(v); if (a > peak) peak = a }
   return { compiled: true, staged: true, events: flat.length, peak, key }
@@ -127,7 +127,7 @@ describe('the input entry is precise about WHY, not just that it fails', () => {
    * page that over-generalises teaches a rule the reader will then trip over
    * in the opposite direction. */
   const bus = (body: string): boolean =>
-    compile(`synth p\n  saw note\n\nbus b\n  ${body}\n  send p 1\n\nplay p\n  c3\n\ncps .5\n`).ok
+    compile(`synth q\n  saw note\n\nbus b\n  ${body}\n  send p 1\n\nplay q\n  c3\n\ncps .5\n`).ok
 
   it('a one-signal processor rejects an explicit input', () => {
     expect(bus('reverb input room:.7')).toBe(false)

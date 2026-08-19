@@ -1,7 +1,7 @@
 import type { Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { Tag, tags as t } from '@lezer/highlight'
 import {
   C_ACCENT,
   C_ACCENT_ALT,
@@ -13,6 +13,7 @@ import {
   C_GREEN,
   C_RAISED,
   C_TEXT,
+  C_REST,
   C_WARN,
 } from '../ui/palette'
 
@@ -41,6 +42,39 @@ const editorTheme = EditorView.theme(
       padding: '10px 0 40vh', // bottom slack: keep the caret above the keyboard
     },
     '.cm-line': { padding: '0 12px 0 6px' },
+    // FIND PANEL. Unstyled it is a browser-default form sitting on top of the
+    // code — white box, system font, invisible against the phosphor palette.
+    '.cm-panels': { backgroundColor: C_BG, color: C_TEXT, border: 'none' },
+    '.cm-panels.cm-panels-top': { borderBottom: `1px solid ${C_DIM}` },
+    '.cm-panel.cm-search': {
+      backgroundColor: C_BG,
+      padding: '8px 10px',
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '6px',
+      alignItems: 'center',
+      fontFamily: 'inherit',
+    },
+    '.cm-panel.cm-search input, .cm-panel.cm-search button': {
+      fontFamily: 'inherit',
+      fontSize: '14px',
+      backgroundColor: 'transparent',
+      color: C_TEXT,
+      border: `1px solid ${C_DIM}`,
+      borderRadius: '6px',
+      padding: '6px 8px',
+    },
+    '.cm-panel.cm-search input:focus-visible': { outline: `2px solid ${C_ACCENT}`, outlineOffset: '1px' },
+    '.cm-panel.cm-search button': { cursor: 'pointer', minHeight: '32px' },
+    '.cm-panel.cm-search button:hover': { borderColor: C_ACCENT, color: C_ACCENT },
+    '.cm-panel.cm-search label': { fontSize: '12px', color: C_DIM, display: 'inline-flex', alignItems: 'center', gap: '3px' },
+    '.cm-panel.cm-search [name=close]': { color: C_DIM, fontSize: '18px', border: 'none', padding: '0 6px' },
+    // the match you are ON, against the other matches
+    '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--c-warn, #f2b155) 22%, transparent)' },
+    '.cm-searchMatch.cm-searchMatch-selected': {
+      backgroundColor: 'color-mix(in srgb, var(--c-accent, #6ea8fe) 45%, transparent)',
+      outline: `1px solid ${C_ACCENT}`,
+    },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: C_ACCENT, borderLeftWidth: '2px' },
     '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground':
       { backgroundColor: `${C_GREEN}66` },
@@ -128,12 +162,18 @@ const editorTheme = EditorView.theme(
   { dark: true },
 )
 
+/** A rest, as its own tag. `t.atom` already covers the grouping characters
+ *  and `t.number` the digits, and both are amber — so a rest painted as
+ *  either is painted invisible. */
+export const restTag = Tag.define()
+
 const highlight = HighlightStyle.define([
   { tag: t.comment, color: C_FAINT, fontStyle: 'italic' },
   { tag: t.string, color: C_ACCENT_ALT }, // cyan channel
   { tag: t.number, color: C_WARN }, // amber channel
   { tag: [t.keyword, t.definitionKeyword, t.modifier], color: '#a7f3d0' }, // bright mint
   { tag: [t.bool, t.null, t.atom], color: C_WARN },
+  { tag: restTag, color: C_REST, fontWeight: '600' },
   { tag: [t.function(t.variableName), t.function(t.propertyName)], color: C_ACCENT }, // phosphor
   { tag: t.propertyName, color: '#5ec8b0' },
   { tag: [t.definition(t.variableName), t.variableName], color: C_TEXT },

@@ -154,8 +154,15 @@ function genExpr(r: R, ctx: ExprCtx, depth: number): string {
   const roll = r.int(0, 5)
   if (roll <= 1) return genAtom(r, ctx)
   if (roll <= 3) return genCall(r, ctx)
-  // infix: LEFT is never a bare number (num-op-sig is an error by design)
-  const left = r.chance(0.4) ? genCall(r, ctx) : ctx.refs.length > 0 ? r.pick(ctx.refs) : genCall(r, ctx)
+  /* infix: LEFT is never a bare number (num-op-sig is an error by design), and
+   * a CALL is bracketed. A named-argument tail parses at prec >= 2, so
+   * `granular … spray:2400 + note/2` makes `2400 + note/2` the value of
+   * `spray:` rather than a term of the sum. That used to compile: the signal
+   * was dropped by the config mapper and the argument silently fell back to
+   * its default. Now it is an error, correctly, so the generator has to say
+   * which grouping it meant. */
+  const call = (): string => `(${genCall(r, ctx)})`
+  const left = r.chance(0.4) ? call() : ctx.refs.length > 0 ? r.pick(ctx.refs) : call()
   const op = r.pick(['+', '-', '*', '*', '^'])
   const right = op === '^' ? r.pick(['2', '3']) : genExpr(r, ctx, depth - 1)
   return `${left} ${op} ${right}`
@@ -399,7 +406,7 @@ export function genProgram(seed: number): string {
     blocks.push(`scaledef ${r.pick(SCALEDEF_NAMES)} ${vals.join(' ')}`)
   }
   if (r.chance(0.15) && synths.length >= 2) {
-    blocks.push(`sidechain ${synths[0]!.name} depth:${r.pick(SMALL)} release:.09 ${synths[1]!.name}:${r.pick(SMALL)}`)
+    blocks.push(`sidechain ${synths[0]!.name} depth:${r.pick(SMALL)} release:90 ${synths[1]!.name}:${r.pick(SMALL)}`)
   }
   if (r.chance(0.15)) blocks.push(`master threshold:-6 ratio:2 makeup:1`)
   if (r.chance(0.15)) {

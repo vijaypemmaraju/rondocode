@@ -190,7 +190,7 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
       '  c2 ~ c2 ~',
       '',
       'js',
-      "  sidechain('kick', { depth: 0.6, release: 0.12 })",
+      "  sidechain('kick', { depth: 0.6, release: 120 })",
       '',
       'cps .5',
       '',
@@ -386,7 +386,31 @@ describe('math ops end to end', () => {
       { time: 0.3, type: 'noteOff', note: 57 },
     ], 0.5).left
 
+  /* The saw with NO op on it — the thing every op has to differ from.
+   *
+   * This test used to assert only that each op produced finite samples, which
+   * silence satisfies, and which a compiler mapping all ten ops to the
+   * identity satisfies too. "Compiles, evals and sounds" was three claims and
+   * one of them was checked. So: it must sound, it must CHANGE the signal, and
+   * no two ops may come out the same. */
+  const bare = (): Float32Array =>
+    render(build(`synth t
+  saw note
+  * env
+  env = adsr .01 .1 .5 .2
+
+play t
+  c4`))
+
+  const rmsOf = (a: Float32Array): number => {
+    let s = 0
+    for (const v of a) s += v * v
+    return Math.sqrt(s / a.length)
+  }
+
   it('every math op compiles, evals and sounds from rondo', () => {
+    const plain = bare()
+    const fingerprints = new Map<string, string>()
     for (const line of ['abs', 'floor', 'ceil', 'round', 'sign', 'sqrt', 'exp', 'log', 'sin', 'cos']) {
       const def = build(`synth t
   saw note
@@ -398,10 +422,21 @@ play t
   c4`)
       const out = render(def)
       expect(out.every((v) => Number.isFinite(v)), `${line} produced a non-finite sample`).toBe(true)
+      expect(rmsOf(out), `${line} rendered silence`).toBeGreaterThan(0.01)
+      // it has to DO something: an op wired to the identity moves nothing
+      let maxDiff = 0
+      for (let i = 0; i < out.length; i++) maxDiff = Math.max(maxDiff, Math.abs(out[i]! - (plain[i] ?? 0)))
+      expect(maxDiff, `${line} left the signal unchanged`).toBeGreaterThan(0.02)
+      // ...and something of its OWN: ten ops collapsing to one still "sounds"
+      const key = Array.from(out.slice(0, 400), (v) => v.toFixed(6)).join(',')
+      const twin = fingerprints.get(key)
+      expect(twin, `${line} renders identically to ${twin}`).toBeUndefined()
+      fingerprints.set(key, line)
     }
   })
 
   it('the one-argument ops take an operand', () => {
+    const plain = bare()
     for (const line of ['min .5', 'max -.5', 'mod .7']) {
       const def = build(`synth t
   saw note
@@ -411,7 +446,12 @@ play t
 
 play t
   c4`)
-      expect(render(def).every((v) => Number.isFinite(v)), line).toBe(true)
+      const out = render(def)
+      expect(out.every((v) => Number.isFinite(v)), line).toBe(true)
+      // the operand has to reach the op — `min .5` that ignored .5 is a no-op
+      let maxDiff = 0
+      for (let i = 0; i < out.length; i++) maxDiff = Math.max(maxDiff, Math.abs(out[i]! - (plain[i] ?? 0)))
+      expect(maxDiff, `${line} left the signal unchanged`).toBeGreaterThan(0.02)
     }
   })
 

@@ -291,6 +291,22 @@ p('rim', note('c5(-3,8)').sound('tick').gain(0.22))
 p('bass', n('$a=[0 3] $a ~ $a $a').scale('a minor').sound('drum').gain(0.5))
 p('stab', n('0 | 5@3').scale('a minor').sound('drum').gain(0.35))`,
       ),
+      p("Two lanes are for FEEL. `'push:` moves one hit off the grid by a fraction of its own step, positive late and negative early, so laying a snare back is one number on one note: `sn'push:.08`. `'humanize:` on a group jitters every hit late by its own deterministic amount (same line, same render, every time), on the same ruler as swing, so `[hh*8]'humanize:.12'grid:8` breathes without a single hand edit."),
+      code(
+        'Feel: the snare sits behind the beat, the hats are loose, the kick never moves.',
+        `const tick = synth(({ note, gate, adsr, svf, noise }) =>
+  svf(noise(), 7000, { mode: 'hp' }).mul(adsr(gate, { a: 0.001, d: 0.03, s: 0, r: 0.02 })))
+const drum = synth(({ note, gate, adsr, sine }) =>
+  sine(note.freq).mul(adsr(gate, { a: 0.001, d: 0.14, s: 0, r: 0.04 })))
+
+// the snare LAYS BACK: 8% of its step late, and nothing else moves
+p('snare', note("~ c5'push:.08 ~ c5'push:.08").sound('tick').gain(0.5))
+
+// the hats BREATHE: each hit its own lateness, the same way every render
+p('hats', note("[c6*8]'humanize:.12'grid:8").sound('tick').gain(0.3))
+
+p('kick', note('c2 ~ c2 ~').sound('drum').gain(0.9))`,
+      ),
       p('The API reference panel (search or scroll to Mini-notation) lists every operator with a one-line description, `*` `/` `!` `@` `~` `_` `[]` `<>` `{}` `?` `|` `,` `..` `.` and the euclid form, in one place.'),
     ],
   },

@@ -969,6 +969,39 @@ level -2`,
     why: 'Swing on the GROUP, not on the pattern. `swingBy` is a whole-pattern combinator, so shuffling the hats used to mean pulling them into their own pattern and swinging that, which splits one groove across two places. `\'swing:` attaches to `[hat*8]` and moves nothing else: the off-beat hats go late, the on-beats stay, and the kick beside them never knew. `\'grid:` is the subdivision and defaults to 4, which is shuffled eighths in four-four; `\'grid:2` swings quarters, `\'grid:8` sixteenths. It cannot be guessed from what is written, because `[hat*8]` is one term that makes eight events while `[a b c d]` is four terms that make four.',
   },
   {
+    id: 'lay-back-the-snare',
+    group: 'rhythm',
+    title: 'Lay the snare back fifteen milliseconds',
+    tags: ['push', 'humanize', 'feel', 'timing', 'lay-back', 'groove', 'pocket'],
+    code: `synth hat
+  noise
+  svf 7200 mode:hp
+  * adsr .001 .03 0 .02
+  * .3
+
+synth kick
+  sine drop
+  * adsr .001 .13 0 .05
+  drop = adsr .001 .07 0 .04 ^ 2 -> 45..150
+
+synth snare
+  noise
+  svf 1800 mode:bp res:.4
+  * adsr .001 .09 0 .06
+  * .7
+
+# the snare sits BEHIND the kick's grid; the hats are loose; the kick never moves
+beat
+  kick ~ ~ ~ kick ~ ~ ~
+  ~ ~ snare'push:.06 ~ ~ ~ snare'push:.06 ~
+  [hat*8]'humanize:.12'grid:8
+
+cps .5
+
+level -2`,
+    why: 'Feel is a TIMING edit, not a volume edit, and it is measured in milliseconds. `\'push:.06` moves that one snare 6% of its own step: at cps .5 a bar is two seconds, an eighth-note slot is 250 ms, so the snare lands 15 ms behind the kick -- the pocket, written as one number on one note. A negative push rushes instead. `\'humanize:` is the same idea applied statistically: every hat lands late by its OWN amount, up to `.12` of a sixteenth-grid subdivision (also 15 ms here), drawn deterministically from the hit\'s exact onset -- so the line breathes like a player but renders the same way every time. Both lanes are consumed as timing: no phantom param ever reaches the synth.',
+  },
+  {
     id: 'counter-rhythm',
     group: 'rhythm',
     title: 'Write the answer to a rhythm without restating it',

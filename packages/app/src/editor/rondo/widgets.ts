@@ -160,6 +160,15 @@ export const laneValues = (raw: string | undefined): Record<string, number> => {
 export const exprValue = (raw: string | undefined): number | undefined =>
   laneValues(raw)['expr']
 
+/** Erase every `'…` lane run (`'gain:.8`, `'swing:.6`, `'2`) from a notation
+ *  string. The rich-roll scanners test a line against a digits-and-structure
+ *  charset to keep note names as text; a lane's letters read as note names to
+ *  that test, so `[0*8]'swing:.55` silently lost its roll (measured, in the
+ *  gauntlet). Strip first, test what remains — the same move codegen's
+ *  entryFor makes. One definition for both languages' scanners. */
+export const stripNoteLanes = (notation: string): string =>
+  notation.replace(/'(?:[a-zA-Z]+:)?-?\d*\.?\d+/g, '')
+
 /** Semitones for an accidental suffix (`#` +1 each, `b` -1 each). */
 export const accValue = (suffix: string | undefined): number | undefined =>
   suffix === undefined || suffix === '' ? undefined : suffix[0] === '#' ? suffix.length : -suffix.length
@@ -867,9 +876,11 @@ export function scanRichPlays(text: string): RichPlay[] {
     // structural char (otherwise the editable flat grid already handles it)
     // `#`/`b` are accidentals on a degree (`-4#`, `3b`), not note names — a
     // read-only roll that refuses them would vanish from a line the compiler
-    // and the scheduler both accept
-    if (!/^[0-9~\s<>[\]{}%*/!@?,.()#b-]+$/.test(notation)) continue
-    if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
+    // and the scheduler both accept. Lanes are stripped before the test for
+    // the same reason: their letters are controls, not note names.
+    const bare = stripNoteLanes(notation)
+    if (!/^[0-9~\s<>[\]{}%*/!@?,.()#b-]+$/.test(bare)) continue
+    if (!/[<>[\]{}%*/!@?,()]/.test(bare)) continue
     if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
     const from = offs[i + 1]! + indent
     out.push({ content: notation, from, to: from + notation.length, synth: ph[3] ?? ph[2]! })

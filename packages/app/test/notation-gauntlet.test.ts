@@ -40,6 +40,12 @@ const NOTATIONS: [name: string, notation: string, extra?: string][] = [
   ['polymeter', '{0 3 5}%4'],
   ['degrade', '0? 3 5? 7'],
   ['elongation', '0@3 5'],
+  ['per-note lanes', "0'gain:.8 3'dur:.5 5'chance:.9 7"],
+  ['per-note push', "0 3'push:.25 5 7'push:-.1"],
+  ['push through euclid', "0'push:.25(3,8)"],
+  ['swing on a group', "[0*8]'swing:.55"],
+  ['humanize on a group', "[0*8]'humanize:.2'grid:8"],
+  ['push on a group', "[0 3](3,8)'push:.1"],
 ]
 
 const doc = (notation: string, extra = ''): string =>

@@ -347,6 +347,18 @@ describe('a beat line with a groove lane', () => {
 
   it('takes every lane the group carries', () => {
     expect(splitBeatVelocities("[hat*8]'swing:.5'grid:8").notes).toBe("[hat*8]'swing:.5'grid:8")
+    expect(splitBeatVelocities("[hat*8]'humanize:.2").notes).toBe("[hat*8]'humanize:.2")
+  })
+
+  it("a note's own 'push: rides into BOTH strings, keeping gain aligned", () => {
+    /* `.gain()` aligns by TIME: a pushed hat sounds where an unpushed gain
+     * step is not, so its velocity has to be pushed with it. The lane regex
+     * matches the velocity and the lane separately, and the lane lands on
+     * the note in one string and on the value in the other. */
+    const r = splitBeatVelocities("hat:.5'push:.1 hat")
+    expect(r.has).toBe(true)
+    expect(r.notes).toBe("hat'push:.1 hat")
+    expect(r.gains).toBe("0.5'push:.1 1")
   })
 
   it('leaves an ordinary beat line exactly as it was', () => {

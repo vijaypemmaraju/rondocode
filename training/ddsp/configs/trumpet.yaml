@@ -4,7 +4,8 @@ hop: 512
 steps: 100000
 batch: 16
 lr: 3.0e-4
-license: CC0-1.0
-provenance: "MusOpen public-domain solo trumpet recordings (see DATA_LICENSES.md)"
-fmin: 160.0
+excerpt_seconds: 2.5
+license: CC-BY-4.0
+provenance: "Medley-solos-DB v1.2 + TinySOL v6.0 (both CC BY 4.0; see DATA_LICENSES.md)"
+fmin: 150.0
 fmax: 1200.0

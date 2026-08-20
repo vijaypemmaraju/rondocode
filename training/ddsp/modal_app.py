@@ -19,6 +19,7 @@ image = (
     )
     .add_local_dir(str(pathlib.Path(__file__).parent / "ddsp"), "/root/ddsp")
     .add_local_file(str(pathlib.Path(__file__).parent / "train.py"), "/root/train.py")
+    .add_local_file(str(pathlib.Path(__file__).parent / "prepare.py"), "/root/prepare.py")
 )
 volume = modal.Volume.from_name("rondo-ddsp-data", create_if_missing=True)
 
@@ -37,6 +38,10 @@ def train_remote(config_text: str, steps: int | None) -> bytes:
     cfg_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = cfg_dir / f"{name}.yaml"
     cfg_path.write_text(config_text)
+    # features first (skips files already prepared on the volume), then train
+    if pathlib.Path(f"/vol/data/{name}/raw").exists():
+        subprocess.run([sys.executable, "/root/prepare.py", str(cfg_path)], check=True, cwd="/root")
+        volume.commit()
     cmd = [sys.executable, "/root/train.py", str(cfg_path), "--device", "cuda"]
     if steps:
         cmd += ["--steps", str(steps)]

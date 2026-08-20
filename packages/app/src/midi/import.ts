@@ -198,6 +198,7 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
   }
 
   const emitDrums = (notes: readonly MidiNote[], varName: string) => {
+    if (notes.length === 0) return // an empty stack() would not even eval
     hasDrums = true
     const roles = new Map<'kick' | 'snare' | 'hat' | 'clap', MidiNote[]>()
     for (const nt of notes) {
@@ -218,20 +219,29 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
     stackParts.push(varName)
   }
 
+  /* Drums are a property of the NOTE's channel (GM percussion is channel 10,
+   * index 9), not of the track. A format-0 file puts the whole song in ONE
+   * track, and treating that track as all-or-nothing routed every melodic
+   * note into the drum kit: measured on a real format-0 arrangement, 855
+   * notes imported as 855 drum hits and no melody at all. Split per note and
+   * a mixed track contributes to both sides. */
+  const drumNotes = (t: MidiTrack): MidiNote[] => t.notes.filter((n) => n.channel === 9)
+  const pitchedNotes = (t: MidiTrack): MidiNote[] => t.notes.filter((n) => n.channel !== 9)
+
   if ((opts.voicing ?? 'perTrack') === 'byRegister') {
     // ignore (flaky) track labels: pool all pitched notes and split by pitch
-    // register into bass / keys / lead so parts play continuously. Drums, which
-    // are identified by channel not label, still route per drum track.
-    emitDrums(tracks.filter((t) => t.isDrum).flatMap((t) => t.notes), 'drums')
-    const pitched = tracks.filter((t) => !t.isDrum).flatMap((t) => t.notes)
+    // register into bass / keys / lead so parts play continuously
+    emitDrums(tracks.flatMap(drumNotes), 'drums')
+    const pitched = tracks.flatMap(pitchedNotes)
     emitMelodic(pitched.filter((n) => n.pitch < REG_BASS_MAX), 'bass', 'bass register', 'bassReg')
     emitMelodic(pitched.filter((n) => n.pitch >= REG_BASS_MAX && n.pitch < REG_LEAD_MIN), 'keys', 'mid register', 'keysReg')
     emitMelodic(pitched.filter((n) => n.pitch >= REG_LEAD_MIN), 'lead', 'high register', 'leadReg')
   } else {
     // one synth per MIDI track (default), chosen from the track name / program
     tracks.forEach((t, i) => {
-      if (t.isDrum) emitDrums(t.notes, `drums${i}`)
-      else emitMelodic(t.notes, trackType(t), t.name ?? trackType(t), `${trackType(t)}${i}`)
+      emitDrums(drumNotes(t), `drums${i}`)
+      const pitched = pitchedNotes(t)
+      if (pitched.length > 0) emitMelodic(pitched, trackType(t), t.name ?? trackType(t), `${trackType(t)}${i}`)
     })
   }
 

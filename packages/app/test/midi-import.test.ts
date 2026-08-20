@@ -153,6 +153,39 @@ describe('midiToRondocode → evalCode round-trip', () => {
     expect(r.synths.has('bass')).toBe(true)
   })
 
+  it('a MIXED track (format-0 style) keeps its melody instead of routing it to the kit', () => {
+    /* A format-0 file puts the whole song in ONE track, drums and melody
+     * together. Drums used to be a property of the TRACK (isDrum = any note
+     * on channel 9), so that track went to the kit whole: measured on a real
+     * format-0 arrangement, 855 notes imported as 855 drum hits and no
+     * melody at all — and the import LOOKED successful. */
+    const mixed: TrackSpec = {
+      name: 'BETTER~1',
+      notes: [
+        { pitch: 36, start: 0, dur: 60, ch: 9 },
+        { pitch: 36, start: 960, dur: 60, ch: 9 },
+        { pitch: 70, start: 0, dur: 240, ch: 1 },
+        { pitch: 67, start: 480, dur: 240, ch: 1 },
+        { pitch: 40, start: 0, dur: 480, ch: 2 },
+      ],
+    }
+    for (const voicing of ['perTrack', 'byRegister'] as const) {
+      const { code, summary } = midiToRondocode(buildSmf([mixed]), { name: 'mixed', voicing })
+      const r = evalsClean(code)
+      expect(r.synths.has('kick'), voicing).toBe(true)
+      // the melodic notes must land in SOME pitched synth, not the kit
+      const pitched = [...r.synths.keys()].filter((s) => !['kick', 'snare', 'hat', 'clap'].includes(s))
+      expect(pitched.length, `${voicing}: ${summary.join(' | ')}`).toBeGreaterThanOrEqual(1)
+      expect(code, voicing).toContain("note('")
+    }
+  })
+
+  it('a drumless byRegister import emits no empty drum stack', () => {
+    const { code } = midiToRondocode(buildSmf([BASS_TRACK]), { name: 'nodrums', voicing: 'byRegister' })
+    expect(code).not.toContain('const drums = stack(')
+    evalsClean(code)
+  })
+
   it('mix: false emits neither sidechain nor masterCompress and evals clean', () => {
     const { code } = midiToRondocode(buildSmf([DRUMS_WITH_KICK, BASS_TRACK]), { name: 'dry', mix: false })
     expect(code).not.toContain('sidechain(')

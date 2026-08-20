@@ -20,10 +20,9 @@ def a_weighting_db(freqs: np.ndarray) -> np.ndarray:
     return 20.0 * np.log10(np.maximum(ra, 1e-20)) + 2.0
 
 
-def loudness_db(
-    audio: np.ndarray, sample_rate: int, hop: int, n_fft: int = 2048
+def _raw_loudness_db(
+    audio: np.ndarray, sample_rate: int, hop: int, n_fft: int
 ) -> np.ndarray:
-    """[-90, 0] dB A-weighted loudness per frame, frame i centered at i*hop."""
     x = torch.from_numpy(audio).float()
     s = torch.stft(
         x,
@@ -37,9 +36,34 @@ def loudness_db(
     freqs = np.fft.rfftfreq(n_fft, 1.0 / sample_rate)
     weighted = power * (10.0 ** (a_weighting_db(freqs)[:, None] / 10.0))
     mean_power = weighted.mean(axis=0)
-    db = 10.0 * np.log10(np.maximum(mean_power, 1e-20))
-    # Roughly align full-scale sine with 0 dB, then clamp to the spec range.
-    db = db - 10.0 * np.log10(0.25 / n_fft)
+    return 10.0 * np.log10(np.maximum(mean_power, 1e-20))
+
+
+_REF_DB: dict[tuple[int, int, int], float] = {}
+
+
+def _ref_db(sample_rate: int, hop: int, n_fft: int) -> float:
+    """Calibration: a FULL-SCALE 1 kHz sine reads 0 dB. Computed empirically
+    through the exact analysis path (a closed-form window/bin-count offset was
+    wrong once already: it pushed everything past 0 where the clip flattened
+    the whole loudness curve to a constant — a dead conditioning input)."""
+    key = (sample_rate, hop, n_fft)
+    if key not in _REF_DB:
+        t = np.arange(sample_rate) / sample_rate
+        sine = np.sin(2 * np.pi * 1000.0 * t).astype(np.float32)
+        db = _raw_loudness_db(sine, sample_rate, hop, n_fft)
+        _REF_DB[key] = float(np.median(db[2:-2]))
+    return _REF_DB[key]
+
+
+def loudness_db(
+    audio: np.ndarray, sample_rate: int, hop: int, n_fft: int = 2048
+) -> np.ndarray:
+    """[-90, 0] dB A-weighted loudness per frame, frame i centered at i*hop.
+    0 dB = full-scale 1 kHz sine (see _ref_db)."""
+    db = _raw_loudness_db(audio, sample_rate, hop, n_fft) - _ref_db(
+        sample_rate, hop, n_fft
+    )
     return np.clip(db, -90.0, 0.0).astype(np.float32)
 
 

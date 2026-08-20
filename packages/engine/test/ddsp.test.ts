@@ -6,6 +6,8 @@ import {
   DdspModelBank,
   DdspKernel,
   renderHarmonicFrames,
+  ddspNoiseFir,
+  ddspCosBasis,
 } from '../src/dsp/ddsp'
 import type { DdspModel } from '../src/dsp/ddsp'
 import { compileGraph } from '../src/compile'
@@ -115,6 +117,55 @@ describe('harmonic renderer golden parity', () => {
     const amps = golden.outputs.harm_amps.map((a) => Float32Array.from(a))
     const out = renderHarmonicFrames(f0, amps, golden.harmonic_render.sample_rate, golden.harmonic_render.hop)
     closeAll(out, golden.harmonic_render.samples, 2e-4, 0)
+  })
+})
+
+describe('ddspNoiseFir keeps noise bands at their trained frequencies', () => {
+  const J = 65
+  const taps = 2 * (J - 1)
+  const basis = ddspCosBasis(J)
+
+  /** |DFT| of the FIR at engine band centers (bin b = b/taps cycles/sample). */
+  const response = (fir: Float32Array): number[] => {
+    const out: number[] = []
+    for (let b = 0; b < J; b++) {
+      let re = 0
+      let im = 0
+      for (let t = 0; t < taps; t++) {
+        const ph = (2 * Math.PI * b * t) / taps
+        re += fir[t]! * Math.cos(ph)
+        im -= fir[t]! * Math.sin(ph)
+      }
+      out.push(Math.hypot(re, im))
+    }
+    return out
+  }
+  const argmax = (xs: number[]): number => xs.indexOf(Math.max(...xs))
+
+  it('same rate: a band-32 magnitude peak stays at band 32', () => {
+    const mags = new Float32Array(J).fill(1e-4)
+    mags[32] = 1
+    const fir = new Float32Array(taps)
+    ddspNoiseFir(mags, 1, basis, fir)
+    expect(argmax(response(fir))).toBe(32)
+  })
+
+  it('double-rate engine: the peak lands at band 16 (same absolute Hz)', () => {
+    const mags = new Float32Array(J).fill(1e-4)
+    mags[32] = 1
+    const fir = new Float32Array(taps)
+    ddspNoiseFir(mags, 2, basis, fir)
+    expect(argmax(response(fir))).toBe(16)
+  })
+
+  it('bands above the model Nyquist are zeroed, not wrapped', () => {
+    const mags = new Float32Array(J).fill(1)
+    const fir = new Float32Array(taps)
+    ddspNoiseFir(mags, 48000 / 22050, basis, fir) // model bandwidth ends at ~band 29.8
+    const r = response(fir)
+    const top = r.slice(40).reduce((a, b) => a + b, 0)
+    const bottom = r.slice(0, 24).reduce((a, b) => a + b, 0)
+    expect(top).toBeLessThan(bottom * 0.05)
   })
 })
 

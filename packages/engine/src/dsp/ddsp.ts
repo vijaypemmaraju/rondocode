@@ -443,6 +443,62 @@ export function renderHarmonicFrames(
   return out
 }
 
+/** Windowed linear-phase noise FIR from decoder magnitudes (exported pure for
+ *  the frequency-mapping test). `mags` has J bins spanning [0, modelNyquist];
+ *  the FIR runs at the ENGINE rate, so bin j of the engine-rate response sits
+ *  at magnitude curve position j * rateRatio (engineRate / modelRate) —
+ *  without the remap a 22 kHz-trained breath noise would play an octave too
+ *  bright on a 48 kHz engine. Linear interpolation between bins; zero above
+ *  the model's Nyquist. `cosBasis` is the taps x J table cos(2*pi*t*j/taps);
+ *  `out` receives 2*(J-1) taps. */
+export function ddspNoiseFir(mags: Float32Array, rateRatio: number, cosBasis: Float32Array, out: Float32Array): void {
+  const J = mags.length
+  const taps = 2 * (J - 1)
+  // resample the magnitude curve onto engine-rate band centers
+  const m = SCRATCH_MAGS.length >= J ? SCRATCH_MAGS : new Float32Array(J)
+  for (let j = 0; j < J; j++) {
+    const x = j * rateRatio
+    const i0 = Math.floor(x)
+    if (i0 >= J - 1) {
+      m[j] = x <= J - 1 ? mags[J - 1]! : 0
+    } else {
+      const f = x - i0
+      m[j] = mags[i0]! * (1 - f) + mags[i0 + 1]! * f
+    }
+  }
+  for (let t = 0; t < taps; t++) {
+    // real-input irfft: (1/taps) * (m0 + m_last*cos(pi t) + 2*sum m_j cos)
+    let acc = m[0]!
+    const row = t * J
+    for (let j = 1; j < J - 1; j++) acc += 2 * m[j]! * cosBasis[row + j]!
+    acc += m[J - 1]! * cosBasis[row + J - 1]!
+    out[t] = acc / taps
+  }
+  const half = taps / 2 // roll: swap halves (roll by taps/2 either way)
+  for (let t = 0; t < half; t++) {
+    const a = out[t]!
+    out[t] = out[t + half]!
+    out[t + half] = a
+  }
+  for (let t = 0; t < taps; t++) {
+    out[t] = out[t]! * (0.5 - 0.5 * Math.cos((2 * Math.PI * t) / (taps - 1)))
+  }
+}
+
+/** Shared remap scratch (audio-thread no-alloc; 513 covers the format's max
+ *  n_noise, and ddspNoiseFir falls back to allocating for anything bigger). */
+const SCRATCH_MAGS = new Float32Array(513)
+
+/** cos(2*pi*t*j/taps) basis for ddspNoiseFir, taps x J. */
+export function ddspCosBasis(J: number): Float32Array {
+  const taps = 2 * (J - 1)
+  const basis = new Float32Array(taps * J)
+  for (let t = 0; t < taps; t++) {
+    for (let j = 0; j < J; j++) basis[t * J + j] = Math.cos((2 * Math.PI * ((t * j) % taps)) / taps)
+  }
+  return basis
+}
+
 /* ------------------------------------------------------------------ kernel */
 
 export interface DdspConfig {
@@ -544,42 +600,18 @@ export class DdspKernel implements Kernel {
     this.firNext = new Float32Array(taps)
     this.noiseRing = new Float32Array(taps) // power of two (parse enforces)
     // irfft cos basis, computed once per bind off the hot path
-    const J = model.header.nNoise
-    const basis = new Float32Array(taps * J)
-    for (let t = 0; t < taps; t++) {
-      for (let j = 0; j < J; j++) basis[t * J + j] = Math.cos((2 * Math.PI * ((t * j) % taps)) / taps)
-    }
-    this.firCos = basis
+    this.firCos = ddspCosBasis(model.header.nNoise)
     this.rev = 0
     this.ringPos = 0
     this.toTick = 0
   }
 
   /** Windowed linear-phase FIR from magnitudes: irfft, roll by taps/2, Hann.
-   *  Matches ddsp/synth.py::noise_fir. Writes into firNext. */
-  private buildFir(mags: Float32Array): void {
-    const model = this.model!
-    const J = model.header.nNoise
-    const taps = 2 * (J - 1)
-    const basis = this.firCos!
-    const out = this.firNext!
-    for (let t = 0; t < taps; t++) {
-      // real-input irfft: (1/taps) * (m0 + m_last*cos(pi t) + 2*sum m_j cos)
-      let acc = mags[0]!
-      const row = t * J
-      for (let j = 1; j < J - 1; j++) acc += 2 * mags[j]! * basis[row + j]!
-      acc += mags[J - 1]! * basis[row + J - 1]!
-      out[t] = acc / taps
-    }
-    const half = taps / 2 // roll: swap halves (roll by taps/2 either way)
-    for (let t = 0; t < half; t++) {
-      const a = out[t]!
-      out[t] = out[t + half]!
-      out[t + half] = a
-    }
-    for (let t = 0; t < taps; t++) {
-      out[t] = out[t]! * (0.5 - 0.5 * Math.cos((2 * Math.PI * t) / (taps - 1)))
-    }
+   *  Matches ddsp/synth.py::noise_fir when the rates agree; `rateRatio`
+   *  (engine rate / model rate) keeps the noise BANDS at their trained
+   *  absolute frequencies when they differ. Writes into firNext. */
+  private buildFir(mags: Float32Array, rateRatio: number): void {
+    ddspNoiseFir(mags, rateRatio, this.firCos!, this.firNext!)
   }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {
@@ -610,6 +642,7 @@ export class DdspKernel implements Kernel {
     const engNyq = sr / 2
     const attackCoeff = 1 - Math.exp(-(hop / sr) / this.attack)
     const releaseCoeff = 1 - Math.exp(-(hop / sr) / this.release)
+    const rateRatio = sr / model.header.sampleRate
     let noiseX = this.noiseState
 
     for (let i = 0; i < n; i++) {
@@ -654,7 +687,7 @@ export class DdspKernel implements Kernel {
             const target2 = (k + 1) * f0 < engNyq ? decoder.harmAmps[k]! : 0
             ampsDelta[k] = (target2 - ampsCur[k]!) / hop
           }
-          this.buildFir(decoder.noiseMags)
+          this.buildFir(decoder.noiseMags, rateRatio)
           for (let t = 0; t < taps; t++) firDelta[t] = (firNext[t]! - fir[t]!) / hop
         } else {
           ampsCur.fill(0)

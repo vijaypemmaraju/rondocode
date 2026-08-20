@@ -177,6 +177,23 @@ declare module './pattern' {
     swingBy(amount: Fraction | number, n: number): Pattern<T>
     /** swingBy(1/3, n) — classic triplet swing. */
     swing(n: number): Pattern<T>
+    /**
+     * Deterministic timing jitter, on swing's ruler: every event whose whole
+     * begins moves LATE by a random amount below amount/(2n) cycles — so at
+     * full amount a hit lands at most where `swingBy(amount, n)` puts the
+     * off-beats. Late-only, like the engine's per-voice humanize: a hit
+     * pulled early would have to sound before the transport on its first
+     * onset, and a drummer who rushes is a different instruction from one
+     * who breathes.
+     *
+     * The draw is `timeHash` of the event's exact onset, so re-querying any
+     * span reproduces the identical offsets (re-renders are bit-identical),
+     * and every fragment of one event shifts together. The default seed is a
+     * dedicated stream, NOT the shared seed-0 stream `?`/degradeBy/'chance:'
+     * draw from — otherwise the same coin would decide whether a note fires
+     * and how late it lands, and the survivors would all drag.
+     */
+    humanizeBy(amount: Fraction | number, n: number, seed?: number): Pattern<T>
   }
 }
 
@@ -613,4 +630,47 @@ Pattern.prototype.swingBy = function <T>(
 
 Pattern.prototype.swing = function <T>(this: Pattern<T>, n: number): Pattern<T> {
   return this.swingBy(F(1, 3), n)
+}
+
+/** The default humanize stream. Any fixed value works as long as it is not 0,
+ *  the shared stream `?`/degradeBy/'chance:' draw from (see the doc above). */
+const HUMANIZE_SEED = 46
+
+Pattern.prototype.humanizeBy = function <T>(
+  this: Pattern<T>,
+  amount: Fraction | number,
+  n: number,
+  seed: number = HUMANIZE_SEED,
+): Pattern<T> {
+  requirePosInt(n, 'humanizeBy')
+  const max = toF(amount).div(2 * n)
+  if (!max.gt(0)) return this
+  // Quantized to 64 levels so an offset stays a small exact rational instead
+  // of a double's 2^52 denominator; 64 steps of a jitter ceiling is far below
+  // anything audible. floor of [0,1) keeps every offset strictly below max,
+  // which the lookback below relies on.
+  const offsetOf = (t: Fraction): Fraction =>
+    max.mul(F(Math.floor(timeHash(t, seed) * 64), 64))
+  return new Pattern<T>((span) => {
+    const out: Hap<T>[] = []
+    // An event due IN this span may have begun up to max earlier, so query
+    // wider, shift, and clip parts back to the span (the pattern law). An
+    // event shifted past the end is dropped here and found again by the next
+    // query, whose lookback covers it; a fragment clipped at the span start
+    // stops being an onset, because its true onset fired in the previous
+    // span. Both directions were measured in the tests before this shipped.
+    for (const h of this.query(new TimeSpan(span.begin.sub(max), span.end))) {
+      if (h.whole === undefined) {
+        // A continuous signal has no onset to move; keep its sample as-is.
+        const part = h.part.intersection(span)
+        if (part !== undefined) out.push(hap(undefined, part, h.value))
+        continue
+      }
+      const d = offsetOf(h.whole.begin)
+      const part = h.part.withTime((x) => x.add(d)).intersection(span)
+      if (part === undefined) continue
+      out.push(hap(h.whole.withTime((x) => x.add(d)), part, h.value))
+    }
+    return out
+  })
 }

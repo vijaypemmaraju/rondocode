@@ -20,6 +20,39 @@ const EXAMPLES = ['acid', 'pad', 'wob', 'club', 'drums', 'poly'].map((name) => (
 }))
 
 describe('decompile round-trips', () => {
+  it('the feel vocabulary survives the round trip: push lanes and humanizeBy', () => {
+    /* 'push: and 'humanize: live INSIDE the notation string, which both
+     * directions treat as opaque -- pinned here so a tokenizer change that
+     * starts reading into it shows up as a diff. humanizeBy is a chain
+     * method, which is the direction that CAN silently bail to a js{ }
+     * block. */
+    const src = [
+      'synth a',
+      '  saw note',
+      '  * adsr .01 .1 .5 .1',
+      '',
+      'play a',
+      "  0 3'push:.08 5 7'push:-.1",
+      '  scale:c-maj',
+      '  humanizeBy .2 8',
+      '',
+      'cps .5',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    expect(first.code).toContain('.humanizeBy(')
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain("'push:.08")
+    expect(rondo2).toContain('humanizeBy 0.2 8')
+    expect(rondo2, 'no js{ } bail').not.toContain('js{')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   it('env/eq/vocoder sugar survives the round trip', () => {
     const src = [
       'synth talk',

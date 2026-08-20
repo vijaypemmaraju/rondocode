@@ -1,5 +1,7 @@
 import { Fraction } from './fraction'
 import { Pattern } from './pattern'
+import { TimeSpan, hap } from './types'
+import type { Hap } from './types'
 import { timeHash } from './rand'
 // Side-effect import: installs euclid/degradeBy/fast/slow prototype methods
 // used by the compiled patterns. Must stay even though nothing is bound.
@@ -68,6 +70,16 @@ import './combinators'
  * - `.` splits a seq into EQUAL-WIDTH groups (`0 . 1 2 . 3` is `[0] [1 2]
  *   [3]`). It binds tighter than `,` and `|`, so it needs none of their
  *   disambiguation: those split whole sequences, this one groups within.
+ * - `'push:x` on a NOTE moves that one hit by x of its own step, positive
+ *   late, negative early, |x| <= 1. Timing, consumed at parse (pushPass):
+ *   it never reaches the synth, and it composes with euclid — each chosen
+ *   hit moves by x of ITS step.
+ * - Group timing lanes after `]`/`>`/`}`: `'swing:a'grid:n` shuffles the
+ *   odd 2n-ths late by a/(2n); `'humanize:a'grid:n` jitters every onset
+ *   late by up to the same a/(2n), deterministically (its own seed, so it
+ *   cannot correlate with `?`/'chance:'); `'push:x` moves the whole group
+ *   late by x of its slot (late-only — an early group shift would wrap).
+ *   `'swing:`/`'humanize:`/`'grid:` on a bare note are ERRORS, not params.
  */
 
 /** Half-open offset range [start, end) into the original source string. */
@@ -114,6 +126,13 @@ export interface MiniValue {
    *  the same value and feeds one to the rest. A value written on the note
    *  survives all of that, because it never leaves the note. */
   readonly lanes?: Readonly<Record<string, number>>
+  /** Per-note `'push:` — the fraction of this note's OWN step its onset
+   *  moves, positive late, negative early, |push| <= 1. TIMING, consumed by
+   *  the pushPass at the top of the parse: it never reaches a synth. In the
+   *  value rather than in the times, because only the fully assembled
+   *  pattern knows the note's step — see pushPass for the two measured
+   *  failures that pinned this. */
+  readonly push?: number
 }
 
 /** Quote a source string for the error header, truncated for huge inputs. */
@@ -383,6 +402,9 @@ class Parser {
   readonly atoms: { value: string | number; loc: Loc }[] = []
   /** Figures named on this line with `$a=…`, by name. */
   private readonly motifs = new Map<string, Pattern<MiniValue>>()
+  /** True once any atom carries a 'push: — tells miniParse to run the
+   *  pushPass, so unpushed lines never pay its padded query. */
+  hasPush = false
 
   constructor(
     private readonly toks: Tok[],
@@ -863,18 +885,47 @@ class Parser {
    */
   private applyGroove(pat: Pattern<MiniValue>, t: Tok): Pattern<MiniValue> {
     const lanes = t.lanes ?? {}
+    const KNOWN = ['swing', 'grid', 'humanize', 'push']
     for (const name of Object.keys(lanes)) {
-      if (name !== 'swing' && name !== 'grid') {
-        this.err(`'${name}' is not a timing lane. A group takes 'swing:' and 'grid:'`, t.start)
+      if (!KNOWN.includes(name)) {
+        this.err(
+          `'${name}' is not a timing lane. A group takes 'swing:', 'humanize:', 'grid:' and 'push:'`,
+          t.start,
+        )
       }
     }
-    const amount = lanes['swing']
-    if (amount === undefined) this.err(`'grid:' needs a 'swing:' to go with it`, t.start)
+    const swing = lanes['swing']
+    const humanize = lanes['humanize']
+    const push = lanes['push']
+    if (lanes['grid'] !== undefined && swing === undefined && humanize === undefined) {
+      this.err(`'grid:' needs a 'swing:' or 'humanize:' to go with it`, t.start)
+    }
     const grid = lanes['grid'] ?? 4
     if (!Number.isInteger(grid) || grid < 1) {
       this.err(`'grid:' must be a whole number of subdivisions, not ${grid}`, t.start)
     }
-    return pat.swingBy(amount, grid)
+    /* A group's early shift would wrap: its timeline here is cyclic and
+     * still uncompressed, so late(-.1) IS late(.9) — "a touch early" turning
+     * into "very late" with no error. A note's own 'push: goes through the
+     * pushPass and CAN be negative; send the writer there. */
+    if (push !== undefined && push < 0) {
+      this.err(
+        `'push:' on a group is late-only (an early shift wraps to the end of `
+        + `its slot). To pull hits early, push the notes themselves: `
+        + `[bd'push:${push} sn]`,
+        t.start,
+      )
+    }
+    /* Swing first, on the clean grid — a pushed group would put the whole
+     * figure between subdivisions and the parity test would sort every event
+     * into the wrong half. Humanize next, keyed on the swung onsets. The
+     * push last: a plain late() of the group's still-uncompressed time, so
+     * it means a fraction of the group's OWN slot. */
+    let out = pat
+    if (swing !== undefined) out = out.swingBy(swing, grid)
+    if (humanize !== undefined) out = out.humanizeBy(humanize, grid)
+    if (push !== undefined && push !== 0) out = out.late(push)
+    return out
   }
 
   /** '(' already consumed: arg ',' arg (',' arg)? ')' -> euclid. Each
@@ -910,11 +961,50 @@ class Parser {
 
   /** Record an atom (the `n` tag validates against the list) and build its pattern. */
   private mkAtom(value: string | number, loc: Loc, acc = 0, lanes?: Record<string, number>): Pattern<MiniValue> {
+    let push: number | undefined
+    if (lanes !== undefined) {
+      /* The group timing lanes are ERRORS on a single note, not params. A
+       * lane the engine does not know is forwarded to the synth, so 'swing:
+       * here would silently become param('swing') — a shuffle that never
+       * arrives, with no clue but the silence. Same guard RENAMED_LANES
+       * gives the controls. */
+      for (const name of ['swing', 'grid', 'humanize']) {
+        if (name in lanes) {
+          this.err(
+            `'${name}:' is a timing lane for a GROUP. Put brackets around the `
+            + `notes it moves, as in "[hh*8]'${name === 'grid' ? 'swing:.6\'grid:8' : `${name}:.6`}"`,
+            loc.start,
+          )
+        }
+      }
+      /* 'push: is TIMING, consumed by the pushPass: the value must never
+       * reach the synth as a param. It rides in the VALUE rather than as a
+       * time warp here, because an atom's own timeline is cyclic and still
+       * uncompressed — a shift applied at this depth wraps (late(-.1) IS
+       * late(.9), measured) and vanishes under euclid. See pushPass. */
+      if ('push' in lanes) {
+        push = lanes['push']
+        if (!(push! >= -1 && push! <= 1)) {
+          this.err(
+            `'push:' moves a note by a fraction of its own step, -1 (a full `
+            + `step early) to 1 (a full step late), not ${push}`,
+            loc.start,
+          )
+        }
+        const rest = { ...lanes }
+        delete rest['push']
+        lanes = Object.keys(rest).length > 0 ? rest : undefined
+      }
+    }
     // Stamp the source so the editor can flash exactly this literal (see Loc).
     const located: Loc = { start: loc.start, end: loc.end, src: this.src }
     const base = acc === 0 ? { value, loc: located } : { value, loc: located, acc }
-    const v: MiniValue = lanes === undefined ? base : { ...base, lanes }
+    const withLanes = lanes === undefined ? base : { ...base, lanes }
+    const v: MiniValue = push === undefined || push === 0
+      ? withLanes
+      : { ...withLanes, push }
     this.atoms.push(v)
+    if (push !== undefined && push !== 0) this.hasPush = true
     return Pattern.pure(v)
   }
 
@@ -1108,8 +1198,52 @@ export function miniParse(src: string): {
   atoms: { value: string | number; loc: Loc }[]
 } {
   const parser = new Parser(tokenize(src), src)
-  return { pattern: parser.parseTop(), atoms: parser.atoms }
+  const pattern = parser.parseTop()
+  return { pattern: parser.hasPush ? pushPass(pattern) : pattern, atoms: parser.atoms }
 }
+
+/**
+ * The `'push:` pass: shift every pushed event by push × its own step.
+ *
+ * Applied ONCE, to the fully assembled pattern — the only place an event's
+ * step is knowable. Two measured failures pinned this design:
+ *
+ * - Inside the parse an atom's timeline is cyclic and still uncompressed,
+ *   so a time warp applied there WRAPS: late(-.1) on an atom is late(.9),
+ *   and "a touch early" silently became "very late".
+ * - Euclid samples structure from underneath, so a pushed atom under (3,8)
+ *   lost its push entirely — same timing as unpushed, no error.
+ *
+ * Carried in the value, the push survives every structural transform and
+ * moves the event that actually sounds: `bd'push:.1(3,8)` moves each chosen
+ * hit by a tenth of ITS step, and negative means genuinely early.
+ *
+ * The event's step is its whole, capped at one cycle (`<x'push:.5>` in an
+ * alternation moves half a cycle; a note stretched over four cycles still
+ * moves at most one). The cap is what bounds the padded query: |push| <= 1
+ * (parse-checked), so every shifted event lives within PAD of its origin,
+ * in both directions. Fragments of one event shift together — the offset is
+ * a pure function of the value and the whole — so an onset stays an onset
+ * and a clipped tail stays a tail.
+ */
+const pushPass = (p: Pattern<MiniValue>): Pattern<MiniValue> =>
+  new Pattern<MiniValue>((span) => {
+    const PAD = Fraction.ONE
+    const out: Hap<MiniValue>[] = []
+    for (const h of p.query(new TimeSpan(span.begin.sub(PAD), span.end.add(PAD)))) {
+      const push = h.value.push
+      if (push === undefined || push === 0 || h.whole === undefined) {
+        const part = h.part.intersection(span)
+        if (part !== undefined) out.push(hap(h.whole, part, h.value))
+        continue
+      }
+      const d = Fraction.fromNumber(push).mul(h.whole.length.min(Fraction.ONE))
+      const part = h.part.withTime((x) => x.add(d)).intersection(span)
+      if (part === undefined) continue
+      out.push(hap(h.whole.withTime((x) => x.add(d)), part, h.value))
+    }
+    return out
+  })
 
 const parse = miniParse
 

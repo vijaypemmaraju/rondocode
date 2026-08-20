@@ -35,6 +35,10 @@ describe('the synth library', () => {
     expect(presets.length).toBeGreaterThanOrEqual(18)
   })
 
+  /* 30s: this renders real audio, and the heaviest preset (wtpad) has been
+   * measured at 7s+ under full-suite CPU contention. The default 5s made the
+   * test measure the machine's load, not the preset — the same trap the
+   * parse-budget fix (#376) pulled out of a correctness test. */
   it.each(presets.map((p) => [p.name, p] as const))('%s evaluates and makes sound', (_name, p) => {
     const program = `${unescape(p.code)}\n${unescape(p.tail)}`
     const staged = stageCode(program)
@@ -51,7 +55,7 @@ describe('the synth library', () => {
     for (const v of mix.left) { const a = Math.abs(v); if (a > peak) peak = a }
     expect(peak, 'rendered silence').toBeGreaterThan(0.001)
     for (const v of mix.left) expect(Number.isFinite(v)).toBe(true)
-  })
+  }, 30_000)
 
   it('every preset inserts a synth whose name matches its entry', () => {
     // the panel inserts `code` at the cursor; a mismatched const name would

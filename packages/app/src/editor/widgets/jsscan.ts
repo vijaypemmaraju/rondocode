@@ -23,7 +23,7 @@
 
 import { javascriptLanguage } from '@codemirror/lang-javascript'
 import type { BeatBlock, BeatRow, EnvMatch, KnobMatch, PlayRoll, RichPlay, WidgetScan } from '../rondo/widgets'
-import { STEP_RE, accValue, exprValue, laneValues } from '../rondo/widgets'
+import { STEP_RE, accValue, exprValue, laneValues, stripNoteLanes } from '../rondo/widgets'
 import type { EnvPointsScan } from '../rondo/envpoints'
 import type { WavetableCallScan, WavedefScan } from '../rondo/wavetable'
 import { ENUM_VALUE_TABLE, EQ_TYPE_CYCLES, SVF_MODES as EDITOR_SVF_MODES, WT_TABLES } from '../rondo/enums'
@@ -427,8 +427,9 @@ export function scanRichPlaysJs(text: string): RichPlay[] {
     if (c === null) continue
     const notation = c.text.value
     if (notation.length === 0) continue
-    if (!/^[0-9~\s<>[\]{}%*/!@?,.()-]+$/.test(notation)) continue
-    if (!/[<>[\]{}%*/!@?,()]/.test(notation)) continue
+    const bare = stripNoteLanes(notation)
+    if (!/^[0-9~\s<>[\]{}%*/!@?,.()-]+$/.test(bare)) continue
+    if (!/[<>[\]{}%*/!@?,()]/.test(bare)) continue
     if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue
     const rich: RichPlay = { content: notation, from: c.text.from, to: c.text.to }
     if (c.synth !== undefined) rich.synth = c.synth

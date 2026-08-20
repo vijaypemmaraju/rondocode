@@ -49,6 +49,8 @@ def stage_medley() -> None:
                 by_uuid[row["uuid4"]] = name
     by_name: dict[str, list[pathlib.Path]] = {}
     for wav in extracted.rglob("*.wav"):
+        if wav.name.startswith("._"):  # macOS AppleDouble junk in the tars
+            continue
         # Medley-solos-DB_<subset>-<class>_<uuid>.wav
         uuid = wav.stem.split("_")[-1]
         name = by_uuid.get(uuid)
@@ -72,6 +74,8 @@ def stage_tinysol() -> None:
     extract(DL / "TinySOL.tar.gz", extracted)
     count: dict[str, int] = {}
     for wav in extracted.rglob("*.wav"):
+        if wav.name.startswith("._"):  # macOS AppleDouble junk in the tars
+            continue
         # TinySOL paths look like .../Strings/Vn/ordinario/Vn-ord-C4-ff-...wav
         parts = wav.parts
         name = None

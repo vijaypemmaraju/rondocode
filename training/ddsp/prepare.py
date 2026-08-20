@@ -41,7 +41,12 @@ def main(config_path: str) -> None:
     raw_dir = root / "data" / cfg["name"] / "raw"
     out_dir = root / "data" / cfg["name"] / "features"
     out_dir.mkdir(parents=True, exist_ok=True)
-    files = sorted(p for p in raw_dir.rglob("*") if p.suffix.lower() in AUDIO_EXTS)
+    files = sorted(
+        p
+        for p in raw_dir.rglob("*")
+        if p.suffix.lower() in AUDIO_EXTS and not p.name.startswith("._")
+        and not p.name.startswith("medley_._")  # macOS AppleDouble junk
+    )
     if not files:
         sys.exit(f"no audio in {raw_dir}")
     import os

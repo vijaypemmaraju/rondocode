@@ -48,9 +48,9 @@ export interface BendLane {
   notes: BendNote[]
 }
 
-/** Lanes for every simple degree line that carries at least one expression.
- *  Pure, so the decision to render is testable without an editor. */
-export function scanBendLanes(text: string, scan: WidgetScan = RONDO_SCAN): BendLane[] {
+/** Token rows for EVERY simple degree line, unfiltered — the shared scan the
+ *  bend and feel lanes each filter for their own trigger. Pure. */
+export function scanLaneRows(text: string, scan: WidgetScan = RONDO_SCAN): BendLane[] {
   const out: BendLane[] = []
   for (const p of scan.plays(text)) {
     const toks = p.content.trim().split(/\s+/).filter(Boolean)
@@ -61,12 +61,17 @@ export function scanBendLanes(text: string, scan: WidgetScan = RONDO_SCAN): Bend
         ? { i, step: null, acc: undefined, expr: undefined, lanes: undefined }
         : { i, step: Number(m[1]), acc: accValue(m[2]), expr: exprValue(m[3]), lanes: laneValues(m[3]) }
     })
-    // no value anywhere on the line → no lane. An empty automation row under
-    // every pattern would be pure cost.
-    if (!notes.some((n) => n.expr !== undefined)) continue
     out.push({ from: p.from, to: p.to, content: p.content, notes })
   }
   return out
+}
+
+/** Lanes for every simple degree line that carries at least one expression.
+ *  Pure, so the decision to render is testable without an editor. */
+export function scanBendLanes(text: string, scan: WidgetScan = RONDO_SCAN): BendLane[] {
+  // no value anywhere on the line → no lane. An empty automation row under
+  // every pattern would be pure cost.
+  return scanLaneRows(text, scan).filter((l) => l.notes.some((n) => n.expr !== undefined))
 }
 
 /** Spell a whole lane back out as notation. Extracted from the drag so it is

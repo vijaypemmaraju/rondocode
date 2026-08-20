@@ -785,6 +785,38 @@
   stroke-dasharray: 3 3;
 }
 
+/* The feel lane: the written grid as a ruler, one mark per note where the
+   engine actually plays it. Sideways drag; ew-resize says so. */
+.rondo-feellane {
+  display: block;
+  margin: 2px 0 4px 8px;
+  padding: 2px 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--c-border, #2a2e37) 22%, transparent);
+  touch-action: none;
+  cursor: ew-resize;
+}
+.rondo-feellane svg { display: block; }
+.rondo-feellane .fl-grid {
+  stroke: var(--c-border, #2a2e37);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+  vector-effect: non-scaling-stroke;
+}
+.rondo-feellane .fl-hit { fill: transparent; }
+.rondo-feellane .fl-hit:hover {
+  fill: color-mix(in srgb, var(--c-accent, #6ea8fe) 12%, transparent);
+}
+.rondo-feellane .fl-mark {
+  stroke: var(--c-accent, #6ea8fe);
+  stroke-width: 3;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+/* a note sitting exactly ON its gridpoint carries no lane: real, but not the
+   thing this lane is about, so it reads quieter than a pushed one */
+.rondo-feellane .fl-mark.grid-on { opacity: 0.35; }
+
 /* The sustain guide: the curve no longer touches sustain at the decay handle
    (it is one time constant, 63.2% of the way), so the level needs its own
    readable reference or a low sustain becomes unguessable. */

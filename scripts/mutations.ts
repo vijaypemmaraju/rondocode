@@ -894,8 +894,8 @@ export const MUTATIONS: Mutation[] = [
   {
     label: 'lane: appears under EVERY line, not just ones carrying values',
     file: 'packages/app/src/editor/rondo/bendlane.ts',
-    find: "    if (!notes.some((n) => n.expr !== undefined)) continue",
-    replace: '',
+    find: "  return scanLaneRows(text, scan).filter((l) => l.notes.some((n) => n.expr !== undefined))",
+    replace: '  return scanLaneRows(text, scan)',
     tests: 'packages/app/test/bendlane.test.ts',
   },
   {
@@ -918,6 +918,36 @@ export const MUTATIONS: Mutation[] = [
     find: 'stepText(n.step, n.acc, n.expr, n.lanes)',
     replace: 'stepText(n.step, undefined, n.expr, n.lanes)',
     tests: 'packages/app/test/bendlane.test.ts',
+  },
+
+  /* ---- the feel lane ------------------------------------------------------ */
+  {
+    label: 'feel lane: appears under EVERY line, not just ones carrying a push',
+    file: 'packages/app/src/editor/rondo/feellane.ts',
+    find: "  return scanLaneRows(text, scan).filter((l) =>\n    l.notes.some((n) => n.lanes?.['push'] !== undefined))",
+    replace: '  return scanLaneRows(text, scan)',
+    tests: 'packages/app/test/feellane.test.ts',
+  },
+  {
+    label: 'feel lane: the mark stops sitting where the note plays (draws on grid)',
+    file: 'packages/app/src/editor/rondo/feellane.ts',
+    find: '  return (i + (push ?? 0)) * slot',
+    replace: '  return i * slot',
+    tests: 'packages/app/test/feellane.test.ts',
+  },
+  {
+    label: 'feel lane: a drag escapes the ±1 range the parser refuses',
+    file: 'packages/app/src/editor/rondo/feellane.ts',
+    find: '  const cl = Math.max(-FEEL_RANGE, Math.min(FEEL_RANGE, next))',
+    replace: '  const cl = next',
+    tests: 'packages/app/test/feellane.test.ts',
+  },
+  {
+    label: 'feel lane: releasing on the gridpoint leaves a 0.00 residue',
+    file: 'packages/app/src/editor/rondo/feellane.ts',
+    find: "  return Math.abs(cl) < 0.02 ? undefined : Number(cl.toFixed(2))",
+    replace: '  return Number(cl.toFixed(2))',
+    tests: 'packages/app/test/feellane.test.ts',
   },
 
   /* ---- multi-lane note expression ---------------------------------------- */

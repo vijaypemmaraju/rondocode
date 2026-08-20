@@ -47,6 +47,7 @@ import type { EffectiveOpt } from './clamps'
 import type { MacroDecl } from './macrolens'
 import type { UnisonScan } from './unison'
 import { bendLaneBlockDecos } from './bendlane'
+import { feelLaneBlockDecos } from './feellane'
 
 /** `knob DEF lo..hi [curve]` — groups: 1=prefix(`knob `), 2=DEF, 3=lo, 4=hi, 5=curve. */
 const KNOB_RE = /\b(knob\s+)(-?\d*\.?\d+)\s+(-?\d*\.?\d+)\.\.(-?\d*\.?\d+)(?:\s+(log|lin))?/g
@@ -3177,6 +3178,8 @@ export function blockWidgetField(hooks: Hooks, drag: Drag, scan: WidgetScan = RO
       // the bend lane: only on lines that actually carry `'value` notes, so
       // ordinary notation grows no automation row
       ...bendLaneBlockDecos(text, width, hooks, drag, scan),
+      // the feel lane, on the same earned-ness rule: only lines with a 'push:
+      ...feelLaneBlockDecos(text, width, hooks, drag, scan),
     ], true)
   }
   const field = StateField.define<DecorationSet>({

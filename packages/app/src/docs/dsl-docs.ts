@@ -559,6 +559,12 @@ const SYNTH_CTX: DocEntry[] = [
     "modal(gate, note.freq, { model: 'piano', decay: 6 })",
   ),
   sc(
+    'ddsp',
+    "ddsp(gate, model, opts?: { freq?, vel?, breath?, vib?, vibrate?, level?, dyn?, attack?, release?, seed? })",
+    "A TRAINED instrument: a small neural decoder (learned from real solo recordings -- violin, flute, trumpet, tenorsax ship free) turns pitch and loudness into 64 harmonic amplitudes plus a noise spectrum, re-decided ~94 times a second, and an additive renderer plays them. The consequence is that LOUDNESS CHANGES TIMBRE the way it does on the real instrument: a quiet violin is not a loud violin turned down, it loses bow noise and upper partials, and that is what the decoder learned. Pitch tracks the note and loudness follows velocity on their own. `breath` (dB, a signal) pushes the decoder's loudness input around while a note holds -- an lfo or envelope here is crescendo/decay INSIDE the note, the most expressive knob on the instrument. `vib` (semitones) and `vibrate` (Hz, def 5.5) run a delayed-onset vibrato like a real player's. `level` (dB, def -30) sets the loudness fed at full velocity, `dyn` (dB, def 30) how far velocity reaches down from it; `attack`/`release` (s, def 0.04/0.3) shape the loudness envelope. Models load lazily from the model CDN on first use (silence until the ~1 MB file lands, then it just starts sounding -- same live-load contract as samples). Self-enveloping: no ADSR needed. Mono, ~[-1,1]; treat it like a real player and give it room reverb in the post chain.",
+    "ddsp(gate, 'violin', { vib: 0.3, breath: lfo(0.5).range(-6, 0) })",
+  ),
+  sc(
     'svf',
     "svf(input, cutoff, opts?: { res, mode: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' })",
     'A clean multimode filter: low-pass by default, high-pass for hats, band-pass for claps, notch to scoop a band out, peak for a resonant bell that boosts at cutoff, allpass to swirl the phase without touching the level (stack a few for phaser motion); res adds a resonant peak.',

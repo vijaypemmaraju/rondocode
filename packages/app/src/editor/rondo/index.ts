@@ -171,6 +171,7 @@ export const OPTIONS: RondoOption[] = [
   c('granular', 'function', 'granular name pos:… size:…', 'Grain cloud over a loaded sample.'),
   c('pluck', 'function', 'pluck [freq] decay:…', 'Karplus–Strong plucked string.'),
   c('modal', 'function', 'modal [freq] model:bell', 'Modal resonator: bell/bar/drum/glass.'),
+  c('ddsp', 'function', 'ddsp violin vib:.3 breath:…', 'Trained neural instrument (violin/flute/trumpet/tenorsax). Pitch and velocity wire themselves; breath (dB) shapes timbre, vib adds delayed vibrato.', 'ddsp violin vib:.3'),
   c('delay', 'function', 'delay time [feedback]', 'Echo on the running signal.'),
   c('shape', 'function', 'shape drive type:tube', 'Waveshaper drive: soft/hard/sine/tube.'),
   c('bitcrush', 'function', 'bitcrush bits:8', 'Bit/rate crusher -- lo-fi grit.'),

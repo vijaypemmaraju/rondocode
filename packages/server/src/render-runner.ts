@@ -281,6 +281,11 @@ export interface MixOpts {
    *  registry — which stageCode just populated — so custom tables render
    *  either way; passing them keeps isolated renders explicit. */
   wavetables?: Record<string, number[][]>
+  /** Trained DDSP instrument models (name -> RDSP .bin bytes) for ddsp(...)
+   *  nodes, threaded into every stem's render so a bounce plays the same
+   *  instruments the live engine fetched. Omitted = ddsp nodes render silent,
+   *  exactly like an unloaded sample. */
+  ddspModels?: Record<string, Uint8Array>
   /** Master-bus glue compressor (dB / ratio / ms), applied stereo-linked over
    *  the summed mix before normalization — mirrors the live engine's master
    *  compressor (which runs after master gain, before the limiter). */
@@ -503,6 +508,7 @@ export function renderMix(
       maxVoices: def.maxVoices ?? maxVoices,
       samples,
       wavetables: opts?.wavetables,
+      ddspModels: opts?.ddspModels,
     })
     // Send tap: pre-duck (raw post-FX), so a reverb send does not pump.
     const stemSends = sendsBySynth.get(name)

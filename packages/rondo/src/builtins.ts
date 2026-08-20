@@ -87,6 +87,13 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   },
   pluck: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { decay: 'num', damp: 'num', seed: 'num' } },
   modal: { kind: 'gated', pos: ['sig'], freqDefault: true, named: { model: 'enum', decay: 'num', damp: 'num', stretch: 'num', keyScale: 'num' } },
+  // trained neural instrument: `ddsp violin`. Pitch/velocity wire themselves
+  // (the builder defaults freq/vel to the note); breath is the expressive
+  // loudness offset (dB, drives TIMBRE), vib/vibrate the built-in vibrato.
+  ddsp: {
+    kind: 'gated', pos: ['enum'],
+    named: { breath: 'sig', vib: 'sig', vibrate: 'sig', vel: 'sig', level: 'num', dyn: 'num', attack: 'num', release: 'num', seed: 'num' },
+  },
   // breakpoint envelope — flat time/level pairs, special-parsed (variadic):
   // `e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1`
   env: { kind: 'gated', pos: [], named: { release: 'num', curve: 'num', loop: 'bool' } },

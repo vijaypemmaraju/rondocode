@@ -466,6 +466,27 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'ddsp',
+    group: 'sound design',
+    title: 'Trained instruments (ddsp)',
+    blocks: [
+      p("ddsp() plays a real instrument a neural model learned from solo recordings: violin, flute, trumpet and tenorsax ship free. The decoder re-decides the full harmonic spectrum and breath noise ~94 times a second from just pitch and loudness, so LOUDNESS CHANGES TIMBRE the way it does on the actual instrument -- a quiet violin loses bow noise and upper partials rather than just getting turned down. Pitch and velocity wire themselves; it is self-enveloping like pluck. The model (~1 MB) downloads on first use and the synth is silent until it lands, then simply starts sounding -- the same live-load contract as samples."),
+      p("The expressive input is breath: a dB offset (a signal) into the decoder's loudness while the note holds. An envelope there is a crescendo inside the note; an lfo is a player leaning in and out. vib (semitones) and vibrate (Hz) add a delayed-onset vibrato like a real player's. Treat the output like a close-miked player: give it room reverb in the post chain."),
+      code(
+        'A violin line with vibrato over a flute drone.',
+        `const strings = synth(({ note, gate, ddsp }) =>
+  ddsp(gate, 'violin', { vib: 0.3 }),
+  ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.85 }), 0.3))
+const air = synth(({ note, gate, ddsp, lfo }) =>
+  ddsp(gate, 'flute', { breath: lfo(0.4).range(-9, 0) }))
+
+p('lead', note('a3 c4 e4 c4 b3 e4 a4 ~').sound('strings'))
+p('drone', note('<a2 e3>').sound('air').gain(0.6))
+setCps(0.4)`,
+      ),
+    ],
+  },
+  {
     id: 'effects',
     group: 'effects & mix',
     title: 'Effects & the post-chain',

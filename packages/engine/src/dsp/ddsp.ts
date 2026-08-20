@@ -194,6 +194,19 @@ export function parseDdspModel(bytes: Uint8Array): DdspModel {
   }
 }
 
+/** parseDdspModel with a per-buffer memo: offline renders parse each model
+ *  once per process, not once per stem (renderMix calls renderOffline per
+ *  synth, and a parse is ~400k half->float conversions). */
+const parsedCache = new WeakMap<Uint8Array, DdspModel>()
+export function parseDdspModelCached(bytes: Uint8Array): DdspModel {
+  let m = parsedCache.get(bytes)
+  if (m === undefined) {
+    m = parseDdspModel(bytes)
+    parsedCache.set(bytes, m)
+  }
+  return m
+}
+
 /** Shared name -> model store, same adopt-or-publish contract as SampleBank:
  *  the engine fills it from loadDdspModel messages and kernels re-resolve per
  *  block, so a model loaded after compile becomes audible with no rebuild. */

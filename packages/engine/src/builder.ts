@@ -253,6 +253,32 @@ export interface SynthCtx {
       keyScale?: number
     },
   ): Sig
+  /** DDSP NEURAL INSTRUMENT: a trained decoder (violin, flute, trumpet, ...)
+   *  drives an additive + noise renderer. `model` names a model in the shared
+   *  bank (loaded via loadDdspModel; silence until it arrives — live-load,
+   *  like samples). Pitch tracks the note and loudness follows the voice
+   *  velocity unless overridden. `breath` (dB, sig) steers the decoder's
+   *  loudness input — dynamics change TIMBRE, not just gain — and `vib`
+   *  (semitones) / `vibrate` (Hz) run the built-in delayed-onset vibrato.
+   *  Config: `level` peak loudness dB (def -30), `dyn` dB across velocity
+   *  (def 30), `attack`/`release` loudness envelope seconds (def 0.04/0.3),
+   *  `seed` for the noise PRNG. Self-enveloping — no ADSR needed. */
+  ddsp(
+    gate: SigIn,
+    model: string,
+    opts?: {
+      freq?: SigIn
+      vel?: SigIn
+      breath?: SigIn
+      vib?: SigIn
+      vibrate?: SigIn
+      level?: number
+      dyn?: number
+      attack?: number
+      release?: number
+      seed?: number
+    },
+  ): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -1078,10 +1104,11 @@ const makeCtx = (b: Builder): SynthCtx => {
   const src = (x: SigIn, what: string): InputSource => b.src(x, what)
   const shared = makeShared(b)
   const noteFreq = b.node('notefreq', {})
+  const velocity = b.node('velocity', {})
   return {
     note: { freq: noteFreq },
     gate: b.node('gate', {}),
-    velocity: b.node('velocity', {}),
+    velocity,
 
     param: shared.param,
     svf: shared.svf,
@@ -1237,6 +1264,30 @@ const makeCtx = (b: Builder): SynthCtx => {
           keyScale: opts?.keyScale,
         }),
       ),
+
+    ddsp: (gate, model, opts) => {
+      const inputs: Record<string, InputSource> = {
+        gate: src(gate, 'ddsp gate'),
+        // pitch and dynamics track the note unless the caller rewires them
+        freq: src(opts?.freq ?? noteFreq, 'ddsp freq'),
+        vel: src(opts?.vel ?? velocity, 'ddsp vel'),
+      }
+      if (opts?.breath !== undefined) inputs['breath'] = src(opts.breath, 'ddsp breath')
+      if (opts?.vib !== undefined) inputs['vib'] = src(opts.vib, 'ddsp vib')
+      if (opts?.vibrate !== undefined) inputs['vibrate'] = src(opts.vibrate, 'ddsp vibrate')
+      return b.node(
+        'ddsp',
+        inputs,
+        definedConfig({
+          model,
+          level: opts?.level,
+          dyn: opts?.dyn,
+          attack: opts?.attack,
+          release: opts?.release,
+          seed: opts?.seed,
+        }),
+      )
+    },
 
     adsr: (gate, opts) =>
       b.node('adsr', {

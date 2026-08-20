@@ -9,11 +9,17 @@ Usage: uv run python stage_data.py
 
 import csv
 import pathlib
+import random
 import shutil
 import tarfile
 
 ROOT = pathlib.Path(__file__).parent / "data"
 DL = ROOT / "_downloads"
+
+# DDSP converges on ~20-60 min per instrument; cap the phrase clips (2.972 s
+# each) with a SEEDED subsample so staging is reproducible and the Modal
+# upload stays small. TinySOL notes are few enough to keep wholesale.
+MEDLEY_CLIP_CAP = 900  # ~45 min per instrument
 
 # Medley-solos-DB instrument_id -> our model name
 MEDLEY_CLASSES = {3: "flute", 5: "tenorsax", 6: "trumpet", 7: "violin"}
@@ -41,18 +47,23 @@ def stage_medley() -> None:
             name = MEDLEY_CLASSES.get(int(row["instrument_id"]))
             if name is not None:
                 by_uuid[row["uuid4"]] = name
-    count: dict[str, int] = {}
+    by_name: dict[str, list[pathlib.Path]] = {}
     for wav in extracted.rglob("*.wav"):
         # Medley-solos-DB_<subset>-<class>_<uuid>.wav
         uuid = wav.stem.split("_")[-1]
         name = by_uuid.get(uuid)
-        if name is None:
-            continue
-        dest = ROOT / name / "raw" / f"medley_{wav.name}"
-        if not dest.exists():
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(wav, dest)
-        count[name] = count.get(name, 0) + 1
+        if name is not None:
+            by_name.setdefault(name, []).append(wav)
+    count: dict[str, int] = {}
+    for name, wavs in sorted(by_name.items()):
+        wavs.sort()
+        picked = wavs if len(wavs) <= MEDLEY_CLIP_CAP else random.Random(1234).sample(wavs, MEDLEY_CLIP_CAP)
+        for wav in picked:
+            dest = ROOT / name / "raw" / f"medley_{wav.name}"
+            if not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(wav, dest)
+        count[name] = len(picked)
     print("medley staged:", count)
 
 

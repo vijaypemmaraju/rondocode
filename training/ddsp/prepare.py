@@ -13,6 +13,7 @@ import pathlib
 import sys
 
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
 import yaml
@@ -24,8 +25,10 @@ AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".aif", ".aiff", ".m4a"}
 
 
 def load_mono(path: pathlib.Path, sr: int) -> np.ndarray:
-    wav, file_sr = torchaudio.load(str(path))
-    wav = wav.mean(dim=0)
+    # soundfile, not torchaudio.load: torchaudio >= 2.9 delegates decoding to
+    # torchcodec, an extra native dep we don't need for wav/flac/ogg
+    data, file_sr = sf.read(str(path), dtype="float32", always_2d=True)
+    wav = torch.from_numpy(data.mean(axis=1))
     if file_sr != sr:
         wav = torchaudio.functional.resample(wav, file_sr, sr)
     return wav.numpy().astype(np.float32)

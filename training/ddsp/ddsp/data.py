@@ -33,18 +33,27 @@ class ExcerptDataset(Dataset):
         for p in paths:
             z = np.load(p)
             n_frames = min(len(z["f0"]), len(z["loudness"]), len(z["audio"]) // hop)
-            if n_frames >= excerpt_frames:
-                self.items.append(
-                    {
-                        "audio": z["audio"].astype(np.float32),
-                        "f0": z["f0"].astype(np.float32),
-                        "loudness": z["loudness"].astype(np.float32),
-                        "n_frames": n_frames,
-                    }
-                )
+            if n_frames < 8:
+                continue
+            audio = z["audio"].astype(np.float32)[: n_frames * hop]
+            f0 = z["f0"].astype(np.float32)[:n_frames]
+            ld = z["loudness"].astype(np.float32)[:n_frames]
+            if n_frames < excerpt_frames:
+                # Short files (single pp notes are ~2 s) pad with silence
+                # rather than being dropped: dropping them would bias the
+                # dataset toward loud playing. Silence = -90 dB loudness with
+                # the f0 held, which is also a true fact worth learning.
+                pad = excerpt_frames - n_frames
+                audio = np.pad(audio, (0, pad * hop))
+                f0 = np.pad(f0, (0, pad), mode="edge")
+                ld = np.pad(ld, (0, pad), constant_values=-90.0)
+                n_frames = excerpt_frames
+            self.items.append(
+                {"audio": audio, "f0": f0, "loudness": ld, "n_frames": n_frames}
+            )
         if not self.items:
             raise ValueError(
-                f"no file in {features_dir} is >= {excerpt_frames} frames long"
+                f"no usable feature file in {features_dir}"
             )
 
     def __len__(self) -> int:

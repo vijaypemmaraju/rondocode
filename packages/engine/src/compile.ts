@@ -35,6 +35,8 @@ import type { SampleSliceConfig, SampleZone } from './dsp/sample'
 import { GranularKernel } from './dsp/granular'
 import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
+import { DdspKernel } from './dsp/ddsp'
+import type { DdspConfig } from './dsp/ddsp'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
 import { GateKernel } from './dsp/gate'
@@ -177,6 +179,10 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],
   modal: [{ name: 'gate' }, { name: 'freq', def: 220 }],
+  // trained neural instrument: vel/breath steer the decoder's loudness input
+  // (timbre, not just gain); vib/vibrate are the built-in vibrato LFO
+  ddsp: [{ name: 'gate' }, { name: 'freq', def: 220 }, { name: 'vel', def: 1 },
+    { name: 'breath', def: 0 }, { name: 'vib', def: 0 }, { name: 'vibrate', def: 5.5 }],
   svf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   ladder: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   onepole: [{ name: 'in' }, { name: 'cutoff' }],
@@ -269,6 +275,9 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   // ctx sizes the delay line to the lowest note at the engine rate up front
   pluck: (c, ctx) => new PluckKernel(c as PluckConfig, ctx),
   modal: (c, ctx) => new ModalKernel(c as ModalConfig, ctx),
+  // ctx carries the shared model bank the kernel resolves `model` against each
+  // block (so models fetched after compile still become audible).
+  ddsp: (c) => new DdspKernel(c as DdspConfig),
   svf: (c) => new SvfKernel((c['mode'] as SvfMode | undefined) ?? 'lp'),
   ladder: () => new LadderKernel(),
   onepole: () => new OnePoleKernel(),

@@ -6,6 +6,7 @@ import type { GraphSpec } from './graph'
 import type { DspContext } from './dsp/types'
 import { SampleBank } from './samples'
 import { WavetableBank } from './dsp/wavetable'
+import { DdspModelBank, parseDdspModel } from './dsp/ddsp'
 import { gainReductionDb, smoothCoeff } from './dsp/compress'
 import { clamp, DEFAULT_CPS, softClipTanh } from './dsp/util'
 import { StereoStage } from './dsp/midside'
@@ -329,6 +330,10 @@ export class RealtimeEngine {
    *  WavetableKernels resolve custom names against it (and see re-loads —
    *  they re-resolve per block, same contract as samples). */
   private readonly wavetables: WavetableBank
+  /** Trained DDSP model store; also exposed on ctx.ddsp so compiled
+   *  DdspKernels resolve model names against it (and see later loads —
+   *  they re-resolve per block, same contract as samples). */
+  private readonly ddspModels: DdspModelBank
   /** the shared live-mic block (see ctx.mic aliasing in the constructor). */
   private readonly micBlock: Float32Array
   private micQuiet = true
@@ -343,6 +348,9 @@ export class RealtimeEngine {
     // ONE store that loadWavetable messages fill.
     this.wavetables = (ctx.wavetables as WavetableBank | undefined) ?? new WavetableBank()
     ctx.wavetables = this.wavetables
+    // DDSP models: same adopt-or-publish as the sample bank.
+    this.ddspModels = (ctx.ddsp as DdspModelBank | undefined) ?? new DdspModelBank()
+    ctx.ddsp = this.ddspModels
     // LIVE MIC: adopt any block the host already put on the ctx, else create
     // one and publish it back (same pattern as the sample bank) — every graph
     // compiled with this ctx aliases ONE buffer, so writeMic() is one copy
@@ -857,6 +865,10 @@ export class RealtimeEngine {
         return this.msgLoadWavetable(m)
       case 'clearWavetable':
         return this.msgClearWavetable(m)
+      case 'loadDdspModel':
+        return this.msgLoadDdspModel(m)
+      case 'clearDdspModel':
+        return this.msgClearDdspModel(m)
       case 'setMasterComp':
         return this.msgSetMasterComp(m)
       case 'clearMasterComp':
@@ -1354,6 +1366,32 @@ export class RealtimeEngine {
       return this.error(`'name' must be a non-empty string`, 'clearWavetable')
     }
     this.wavetables.delete(name)
+  }
+
+  private msgLoadDdspModel(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'loadDdspModel')
+    }
+    const data = m['data']
+    if (!(data instanceof Uint8Array)) {
+      return this.error(`'data' must be a Uint8Array`, `loadDdspModel '${name}'`)
+    }
+    // parseDdspModel validates magic/version/header ranges/tensor shapes and
+    // throws on anything malformed; that becomes an error event here.
+    try {
+      this.ddspModels.set(name, parseDdspModel(data))
+    } catch (e) {
+      this.error(e instanceof Error ? e.message : String(e), `loadDdspModel '${name}'`)
+    }
+  }
+
+  private msgClearDdspModel(m: Record<string, unknown>): void {
+    const name = m['name']
+    if (typeof name !== 'string' || name.length === 0) {
+      return this.error(`'name' must be a non-empty string`, 'clearDdspModel')
+    }
+    this.ddspModels.delete(name)
   }
 
   private msgSetMasterComp(m: Record<string, unknown>): void {

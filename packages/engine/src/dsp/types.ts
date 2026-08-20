@@ -48,6 +48,13 @@ export interface DspContext {
    *  synth rebuild. Structural type (not WavetableBankRO) to keep this module
    *  import-free of the wavetable module that imports it. */
   wavetables?: { get(name: string): Float32Array[][] | undefined }
+  /** Trained DDSP instrument models, resolved by name by DdspKernel. Same
+   *  shared-store contract as samples: the engine fills it from loadDdspModel
+   *  messages and kernels re-resolve per block, so a model loaded after
+   *  compile becomes audible with no rebuild. Values are parsed DdspModel
+   *  objects; typed structurally (object) to keep this module import-free of
+   *  the ddsp module that imports it — DdspModelBank is the only writer. */
+  ddsp?: { get(name: string): object | undefined }
 }
 
 /** One processor instance = one node inside one voice.

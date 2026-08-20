@@ -1,6 +1,6 @@
 export type NodeType =
   | 'sine' | 'saw' | 'square' | 'tri' | 'pulse' | 'noise' | 'wavetable' | 'syncsaw' | 'fm' | 'supersaw' | 'lfsr'
-  | 'sample' | 'granular' | 'pluck' | 'modal'
+  | 'sample' | 'granular' | 'pluck' | 'modal' | 'ddsp'
   | 'svf' | 'ladder' | 'onepole' | 'dualsvf'
   | 'adsr' | 'env' | 'lfo'
   | 'mul' | 'add' | 'sub' | 'div' | 'pow' | 'clip' | 'fold' | 'tanh'

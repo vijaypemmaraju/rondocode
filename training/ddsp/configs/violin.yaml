@@ -1,0 +1,10 @@
+name: violin
+sample_rate: 48000
+hop: 512
+steps: 100000
+batch: 16
+lr: 3.0e-4
+license: CC0-1.0
+provenance: "MusOpen public-domain solo violin recordings (see DATA_LICENSES.md)"
+fmin: 190.0
+fmax: 2200.0

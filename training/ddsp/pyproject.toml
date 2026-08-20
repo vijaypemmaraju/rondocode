@@ -1,0 +1,20 @@
+[project]
+name = "rondo-ddsp"
+version = "0.1.0"
+description = "DDSP instrument model training for rondocode's ddsp synth"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "torch>=2.4",
+    "torchaudio>=2.4",
+    "torchcrepe>=0.0.23",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+modal = ["modal>=0.64"]
+
+[tool.uv]
+package = false

@@ -1,0 +1,10 @@
+name: smoke
+sample_rate: 48000
+hop: 512
+steps: 300
+batch: 4
+lr: 3.0e-4
+license: CC0-1.0
+provenance: "synthetic smoke-test data"
+reverb_length: 4800
+ckpt_every: 300

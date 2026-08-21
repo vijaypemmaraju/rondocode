@@ -86,9 +86,16 @@ Header JSON fields:
   "hidden": 128,
   "layers": 3,
   "gru": 192,
+  "out_norm": 1.0,
   "tensors": [{ "name": "in_mlp_f0.0.weight", "shape": [128, 1], "offset": 0 }]
 }
 ```
+
+`out_norm` (optional, default 1, runtime-clamped to [0.05, 20]) is the
+per-model output calibration written at export: the model's forte level
+(f0 440 Hz, loudness -15 dB) mapped onto a shared reference, so the
+runtime's default gain lands every instrument at the same mixable level
+regardless of how hot its source recording was.
 
 Tensor offsets are relative to the start of the tensor data section. Tensor
 names follow the PyTorch `state_dict` names of `ddsp/model.py::Decoder`.

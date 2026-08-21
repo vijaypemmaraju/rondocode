@@ -56,6 +56,11 @@ import { baseScope } from './scope'
 /** The slice of AudioSession the Session needs — injectable for tests. */
 export interface AudioSessionLike {
   send(msg: EngineMessage): void
+  /** Load raw mono PCM as a named sample. Optional: when present (the real
+   *  AudioSession), loads also register in the main-thread PCM store the
+   *  bounce path reads, so features that deliver samples (ddsp body IRs)
+   *  render offline exactly as live. Absent = host without sample support. */
+  loadSamplePcm?(name: string, data: Float32Array, sampleRate: number): void
   /** Session assigns this in its constructor (takes ownership). */
   onEvent?: (ev: EngineEvent) => void
   /** Audio "now" in context frames (monotonic while running). */
@@ -755,6 +760,12 @@ export class Session {
       (model, bytes) => {
         this.ddspDelivered.add(model)
         this.audio.send({ kind: 'loadDdspModel', name: model, data: bytes })
+      },
+      (sampleName, data, sampleRate) => {
+        // body-resonance IR for the post chain's convolve('<name>body') —
+        // loadSamplePcm (when the host has it) also fills the bounce store
+        if (this.audio.loadSamplePcm) this.audio.loadSamplePcm(sampleName, data, sampleRate)
+        else this.audio.send({ kind: 'loadSample', name: sampleName, data, sampleRate })
       },
     )
     const msg: Extract<EngineMessage, { kind: 'defineSynth' }> = { kind: 'defineSynth', name, graph: def.graph }

@@ -471,7 +471,7 @@ setCps(0.5)`,
     title: 'Trained instruments (ddsp)',
     blocks: [
       p("ddsp() plays a real instrument a neural model learned from solo recordings: violin, viola, cello, bass, flute, trumpet and tenorsax ship free. The decoder re-decides the full harmonic spectrum and breath noise ~94 times a second from just pitch and loudness, so LOUDNESS CHANGES TIMBRE the way it does on the actual instrument -- a quiet violin loses bow noise and upper partials rather than just getting turned down. Pitch and velocity wire themselves; it is self-enveloping like pluck. The model (~1 MB) downloads on first use and the synth is silent until it lands, then simply starts sounding -- the same live-load contract as samples."),
-      p("The expressive input is breath: a dB offset (a signal) into the decoder's loudness while the note holds. An envelope there is a crescendo inside the note; an lfo is a player leaning in and out. vib (semitones) and vibrate (Hz) add a delayed-onset vibrato like a real player's. Treat the output like a close-miked player: give it room reverb in the post chain."),
+      p("The expressive input is breath: a dB offset (a signal) into the decoder's loudness while the note holds. An envelope there is a crescendo inside the note; an lfo is a player leaning in and out. vib (semitones) and vibrate (Hz) add a delayed-onset vibrato like a real player's. Each model also ships its BODY resonances as a sample ('violinbody' etc., loaded automatically): mix convolve(input, 'violinbody') into the post chain to put the wood back, then give it room reverb like a real player."),
       code(
         'A violin line with vibrato over a flute drone.',
         `const strings = synth(({ note, gate, ddsp }) =>

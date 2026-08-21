@@ -78,8 +78,21 @@ def main() -> None:
     if latest.exists():
         ck = torch.load(latest, map_location=device, weights_only=True)
         model.load_state_dict(ck["model"])
-        reverb.load_state_dict(ck["reverb"])
-        opt.load_state_dict(ck["opt"])
+        old_ir = ck["reverb"]["ir"]
+        if old_ir.shape[0] != reverb.ir.shape[0]:
+            # reverb_length changed between runs: keep the learned head, pad
+            # (or truncate) into the new buffer, and let the optimizer state
+            # start fresh (its shapes changed with the params)
+            with torch.no_grad():
+                n = min(old_ir.shape[0], reverb.ir.shape[0])
+                reverb.ir.zero_()
+                reverb.ir[:n] = old_ir[:n]
+            opt2 = torch.optim.Adam(params, lr=cfg.get("lr", 3e-4))
+            opt.load_state_dict(opt2.state_dict())
+            print(f"reverb resized {old_ir.shape[0]} -> {reverb.ir.shape[0]}; optimizer reset")
+        else:
+            reverb.load_state_dict(ck["reverb"])
+            opt.load_state_dict(ck["opt"])
         sched.load_state_dict(ck["sched"])
         step = ck["step"]
         print(f"resumed from step {step}")

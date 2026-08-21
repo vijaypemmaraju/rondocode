@@ -387,16 +387,17 @@ describe('DdspKernel', () => {
     expect(goertzel(settled, 330, sr)).toBeGreaterThan(goertzel(settled, 220, sr) * 2)
   })
 
-  it('flow: the fundamental takes an interval-scaled S-curve, not a step', () => {
-    // Spectral windows cannot resolve a ~40 ms transition (Δf·Δt ≥ 1), so
-    // this asserts on the voice's own fundamental. 220 -> 330 is ~7
-    // semitones: the transition stretches beyond the 28 ms base.
+  it('flow: the RENDERED pitch snaps like a finger change (~8 ms, no smear)', () => {
+    // Rendered pitch must arrive fast — slower transitions read as
+    // portamento on fast passages (they did, at 28-56 ms). The decoder's
+    // conditioning keeps its own slower curve internally; what the ear
+    // tracks is this trajectory.
     const k = new DdspKernel({ model: 'fixture' })
     const ctx = mkCtx()
     const at = (ms: number): number => Math.round((ms / 1000) * sr)
     const boundary = 4096
     const f0At: Record<number, number> = {}
-    const marks = [boundary - 1, boundary + at(5), boundary + at(15), boundary + at(30), boundary + at(70)]
+    const marks = [boundary - 1, boundary + at(3), boundary + at(15), boundary + at(30), boundary + at(70)]
     let done = 0
     const total = boundary + at(100)
     const out = new Float32Array(128)
@@ -414,13 +415,11 @@ describe('DdspKernel', () => {
       }
     }
     expect(f0At[boundary - 1]!).toBeCloseTo(220, 0)
-    // 5 ms in: barely moved; 15 ms: clearly between; 30 ms: most of the way;
-    // 70 ms: arrived
-    expect(f0At[boundary + at(5)]!).toBeGreaterThan(220)
-    expect(f0At[boundary + at(5)]!).toBeLessThan(245)
-    expect(f0At[boundary + at(15)]!).toBeGreaterThan(240)
-    expect(f0At[boundary + at(15)]!).toBeLessThan(315)
-    expect(f0At[boundary + at(30)]!).toBeGreaterThan(280)
+    // 3 ms in: mid-flight (continuous, so no click) — by 15 ms: ARRIVED
+    expect(f0At[boundary + at(3)]!).toBeGreaterThan(225)
+    expect(f0At[boundary + at(3)]!).toBeLessThan(325)
+    expect(f0At[boundary + at(15)]!).toBeCloseTo(330, 0)
+    expect(f0At[boundary + at(30)]!).toBeCloseTo(330, 0)
     expect(f0At[boundary + at(70)]!).toBeCloseTo(330, 0)
   })
 

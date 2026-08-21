@@ -607,8 +607,10 @@ export class DdspKernel implements Kernel {
   private flowFrom = 0
   private flowTo = 0
   private flowT = 0 // samples into the current transition
-  private flowLen = 1 // transition length in samples (scales with interval)
+  private flowLen = 1 // legacy field kept for reset simplicity
   private flowCur = 0
+  private flowCond = 0 // slower fundamental fed to the DECODER only
+  private flowCondFrom = 0
   private dipDb = 0 // brief negative loudness at a legato note boundary
   /** micro-intonation: players land a few cents off and correct (tuner-perfect
    *  pitch is the loudest machine tell). Linear-domain deviation, decaying. */
@@ -661,6 +663,8 @@ export class DdspKernel implements Kernel {
     this.flowT = 0
     this.flowLen = 1
     this.flowCur = 0
+    this.flowCond = 0
+    this.flowCondFrom = 0
     this.dipDb = 0
     this.intoneDev = 0
     this.noteCount = 0
@@ -765,7 +769,8 @@ export class DdspKernel implements Kernel {
     // note-to-note flow: ~28 ms S-curve pitch transitions, a few dB loudness
     // dip at legato boundaries, slow within-note settle (see DdspConfig.flow)
     const flowOn = this.flow > 0
-    const transSamples = Math.max(1, Math.round(0.028 * sr))
+    const renderSamples = Math.max(1, Math.round(0.008 * sr))
+    const condSamples = Math.max(1, Math.round(0.02 * sr))
     const dipDecay = Math.exp(-1 / (0.05 * sr))
     const intoneDecay = Math.exp(-1 / (0.45 * sr)) // players correct over ~half a second
     const settleDb = 2.5 * this.flow
@@ -814,41 +819,51 @@ export class DdspKernel implements Kernel {
         this.toTick--
         continue
       }
-      // note-to-note flow: the voice follows flowCur, a smoothstep between the
-      // last fundamental and the current one, retargeted whenever the freq
-      // input jumps by more than ~a quarter semitone. A legato jump (no gate
-      // edge) also dips the decoder's loudness briefly — the boundary signal
-      // the model learned every note change to have.
+      // note-to-note flow, TWO tracks with different jobs:
+      //  - the RENDERED pitch (flowCur) snaps in ~8 ms — a real finger change
+      //    is near-instant, and anything slower reads as portamento smear
+      //    (it did, on fast passages, at the old 28-56 ms)
+      //  - the DECODER's conditioning (flowCond) takes ~20 ms, matching what
+      //    crepe extraction actually shows at note changes (1-2 frames), so
+      //    the model stays in-distribution and produces the boundary sound
+      // A legato jump (no gate edge) also dips the decoder's loudness — the
+      // other half of the boundary signal it learned.
       const fRawIn = freq[i]!
       const fIn = Number.isFinite(fRawIn) && fRawIn > 0 ? fRawIn : 0
       if (!flowOn || fIn === 0) {
         this.flowCur = fIn
+        this.flowCond = fIn
         this.flowTo = fIn
       } else if (this.flowCur === 0 || rising) {
         // from silence (or a fresh attack): start AT the note, no transition
         this.flowCur = fIn
+        this.flowCond = fIn
         this.flowFrom = fIn
         this.flowTo = fIn
-        this.flowT = this.flowLen
+        this.flowT = 1 << 30
       } else if (Math.abs(fIn - this.flowTo) > this.flowTo * 0.015) {
         this.flowFrom = this.flowCur // retarget from wherever we are now
+        this.flowCondFrom = this.flowCond
         this.flowTo = fIn
         this.flowT = 0
-        // a fifth takes the hand longer than a step: scale the transition
-        // with the interval (~17.3 semitones per ln unit)
-        const semis = Math.abs(Math.log(fIn / this.flowFrom)) * 17.31
-        this.flowLen = Math.max(1, Math.round(transSamples * clampNum(0.6 + semis / 8, 0.6, 2)))
         if (g > 0) this.dipDb = -3.5 * this.flow // legato boundary dip
         this.newNoteHumanization(fIn, sr)
       }
-      if (rising && flowOn) this.newNoteHumanization(fIn, sr)
-      if (this.flowT < this.flowLen) {
+      if (this.flowT < condSamples) {
         this.flowT++
-        const t = this.flowT / this.flowLen
-        const s = t * t * (3 - 2 * t)
-        this.flowCur = this.flowFrom + (this.flowTo - this.flowFrom) * s
+        if (this.flowT >= renderSamples) {
+          this.flowCur = this.flowTo
+        } else {
+          const t = this.flowT / renderSamples
+          const s = t * t * (3 - 2 * t)
+          this.flowCur = this.flowFrom + (this.flowTo - this.flowFrom) * s
+        }
+        const tc = Math.min(1, this.flowT / condSamples)
+        const sc = tc * tc * (3 - 2 * tc)
+        this.flowCond = this.flowCondFrom + (this.flowTo - this.flowCondFrom) * sc
       } else {
         this.flowCur = this.flowTo
+        this.flowCond = this.flowTo
       }
       this.dipDb *= dipDecay
       // micro-intonation correction + onset wobble (see field docs)
@@ -894,7 +909,7 @@ export class DdspKernel implements Kernel {
         this.envDb += (target - this.envDb) * (g > 0 ? attackCoeff : releaseCoeff)
         this.silent = g <= 0 && this.envDb <= -85
         if (!this.silent) {
-          const f0 = (this.flowCur > 0 ? this.flowCur : 1e-5) * vibNow
+          const f0 = (this.flowCond > 0 ? this.flowCond : 1e-5) * vibNow
           // dip marks the note boundary; settle is the slow post-attack decay
           // every sustained instrument has — both keep the decoder's loudness
           // trajectory looking like the performances it learned from

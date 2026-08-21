@@ -44,3 +44,10 @@ attributions (or the .bin headers) intact.
   one recording setup.
 - License of those files: Creative Commons Attribution 3.0 (attributed to
   John Garner; originally commissioned by Musopen).
+
+## Bach Cello Suite No. 1 — Darrell Jacobi (CC BY 3.0)
+
+- Source: Wikimedia Commons (files IMSLP173147-173152, originally uploaded
+  to IMSLP), complete BWV 1007, ~20 minutes, one performer.
+- License: Creative Commons Attribution 3.0 (attributed to Darrell Jacobi).
+- Used for the cello model (v2 retrain), replacing the TinySOL-only corpus.

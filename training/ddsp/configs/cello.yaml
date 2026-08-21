@@ -1,11 +1,12 @@
 name: cello
 sample_rate: 48000
 hop: 512
-steps: 100000
+steps: 140000
 batch: 16
 lr: 3.0e-4
 excerpt_seconds: 2.5
-license: CC-BY-4.0
-provenance: "TinySOL v6.0 (CC BY 4.0; see DATA_LICENSES.md)"
+license: CC-BY-3.0
+provenance: "Darrell Jacobi, Bach Cello Suite No. 1 via Wikimedia Commons (CC BY 3.0; see DATA_LICENSES.md)"
 fmin: 60.0
 fmax: 900.0
+reverb_length: 96000

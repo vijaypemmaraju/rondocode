@@ -599,8 +599,18 @@ export class DdspKernel implements Kernel {
   private flowFrom = 0
   private flowTo = 0
   private flowT = 0 // samples into the current transition
+  private flowLen = 1 // transition length in samples (scales with interval)
   private flowCur = 0
   private dipDb = 0 // brief negative loudness at a legato note boundary
+  /** micro-intonation: players land a few cents off and correct (tuner-perfect
+   *  pitch is the loudest machine tell). Linear-domain deviation, decaying. */
+  private intoneDev = 0
+  private noteCount = 0 // varies the intonation draw across repeated notes
+  /** onset pitch instability: bow bite / breath settling for ~45 ms */
+  private wobLeft = 0
+  private wobTotal = 1
+  private wobLp = 0
+  private wobState = 1
 
   constructor(config: DdspConfig = {}, _ctx?: DspContext) {
     this.modelName = typeof config.model === 'string' ? config.model : ''
@@ -641,8 +651,44 @@ export class DdspKernel implements Kernel {
     this.flowFrom = 0
     this.flowTo = 0
     this.flowT = 0
+    this.flowLen = 1
     this.flowCur = 0
     this.dipDb = 0
+    this.intoneDev = 0
+    this.noteCount = 0
+    this.wobLeft = 0
+    this.wobTotal = 1
+    this.wobLp = 0
+    this.wobState = 1
+  }
+
+  /** The fundamental the voice is following right now (post flow, pre
+   *  vibrato/articulation), in Hz. For tests and meters: spectral windows
+   *  cannot resolve a 30 ms transition (Δf·Δt), but this can. */
+  currentF0(): number {
+    return this.flowCur
+  }
+
+  /** Start-of-note humanization: draw this note's intonation offset (±5
+   *  cents, correcting over ~0.45 s) and arm the onset pitch wobble (~45 ms
+   *  of settling). Deterministic — everything derives from noteHash01. */
+  private newNoteHumanization(f: number, sr: number): void {
+    this.noteCount++
+    const h = this.noteHash01(f)
+    this.intoneDev = (h * 2 - 1) * 5 * this.flow * (Math.LN2 / 1200) // ±5 cents
+    this.wobTotal = Math.max(1, Math.round(0.045 * sr))
+    this.wobLeft = this.wobTotal
+    this.wobLp = 0
+    this.wobState = ((h * 0xffffffff) >>> 0) || 1
+  }
+
+  /** Deterministic per-note draw in [0, 1): hashes the note, the running note
+   *  count (so a repeated note re-draws) and the seed. */
+  private noteHash01(f: number): number {
+    let h = ((Math.abs(f * 128) | 0) + Math.imul(this.noteCount, 0x9e3779b1)) ^ this.seed
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
+    h = Math.imul(h ^ (h >>> 13), 0x45d9f3b)
+    return ((h ^ (h >>> 16)) >>> 0) / 0x100000000
   }
 
   /** (Re)bind to a model. The ONE place this kernel allocates outside the
@@ -713,6 +759,7 @@ export class DdspKernel implements Kernel {
     const flowOn = this.flow > 0
     const transSamples = Math.max(1, Math.round(0.028 * sr))
     const dipDecay = Math.exp(-1 / (0.05 * sr))
+    const intoneDecay = Math.exp(-1 / (0.45 * sr)) // players correct over ~half a second
     const settleDb = 2.5 * this.flow
     let noiseX = this.noiseState
 
@@ -773,22 +820,43 @@ export class DdspKernel implements Kernel {
         this.flowCur = fIn
         this.flowFrom = fIn
         this.flowTo = fIn
-        this.flowT = transSamples
+        this.flowT = this.flowLen
       } else if (Math.abs(fIn - this.flowTo) > this.flowTo * 0.015) {
         this.flowFrom = this.flowCur // retarget from wherever we are now
         this.flowTo = fIn
         this.flowT = 0
+        // a fifth takes the hand longer than a step: scale the transition
+        // with the interval (~17.3 semitones per ln unit)
+        const semis = Math.abs(Math.log(fIn / this.flowFrom)) * 17.31
+        this.flowLen = Math.max(1, Math.round(transSamples * clampNum(0.6 + semis / 8, 0.6, 2)))
         if (g > 0) this.dipDb = -3.5 * this.flow // legato boundary dip
+        this.newNoteHumanization(fIn, sr)
       }
-      if (this.flowT < transSamples) {
+      if (rising && flowOn) this.newNoteHumanization(fIn, sr)
+      if (this.flowT < this.flowLen) {
         this.flowT++
-        const t = this.flowT / transSamples
+        const t = this.flowT / this.flowLen
         const s = t * t * (3 - 2 * t)
         this.flowCur = this.flowFrom + (this.flowTo - this.flowFrom) * s
       } else {
         this.flowCur = this.flowTo
       }
       this.dipDb *= dipDecay
+      // micro-intonation correction + onset wobble (see field docs)
+      this.intoneDev *= intoneDecay
+      let humanF = 1 + this.intoneDev
+      if (this.wobLeft > 0) {
+        this.wobLeft--
+        let x = this.wobState
+        x ^= x << 13
+        x ^= x >>> 17
+        x ^= x << 5
+        x >>>= 0
+        this.wobState = x
+        this.wobLp += (x / 0x80000000 - 1 - this.wobLp) * 0.02
+        const fade = this.wobLeft / this.wobTotal
+        humanF += this.wobLp * fade * 0.0035 * this.flow // ~±6 cents at onset
+      }
       // vibrato LFO advances exactly once per audible sample; the same factor
       // feeds the decoder's f0 (at ticks) and the oscillator bank. Pitch
       // articulation (scoop/fall) rides along multiplicatively.
@@ -805,7 +873,7 @@ export class DdspKernel implements Kernel {
           this.artMode = 0
         }
       }
-      const vibNow = this.vibFactor(vib[i]!, vibrate[i]!, sr) * this.artFactor
+      const vibNow = this.vibFactor(vib[i]!, vibrate[i]!, sr, flowOn) * this.artFactor * humanF
       if (this.toTick <= 0) {
         this.toTick = hop
         // loudness envelope (frame rate, dB domain); punch rides the target
@@ -890,7 +958,7 @@ export class DdspKernel implements Kernel {
    *  Depth ramps in over `vibdelay` seconds after note-on (real players delay
    *  vibrato), and a slow deterministic LFO drifts rate and depth a few
    *  percent — a metronomic vibrato is the tell of a synthetic player. */
-  private vibFactor(depth: number, rate: number, sr: number): number {
+  private vibFactor(depth: number, rate: number, sr: number, conditioned: boolean): number {
     const d = clampNum(depth, 0, 2)
     const r = clampNum(rate, 0, 20)
     this.vibSlow += 0.31 / sr
@@ -900,7 +968,9 @@ export class DdspKernel implements Kernel {
     this.vibPhase -= this.vibPhase | 0
     if (d === 0) return 1
     const ramp = this.noteTime > this.vibdelay ? 1 : this.vibdelay <= 0 ? 1 : this.noteTime / this.vibdelay
-    const dHuman = d * (1 + 0.07 * sinTurns((this.vibSlow * 0.618 + 0.37) % 1))
+    let dHuman = d * (1 + 0.07 * sinTurns((this.vibSlow * 0.618 + 0.37) % 1))
+    // players vibrate WITH the sound: quiet playing gets shallow vibrato
+    if (conditioned) dHuman *= clampNum((this.envDb + 55) / 35, 0.25, 1.15)
     // 2^(x/12) ~= 1 + x * ln2/12 for the small x vibrato uses
     return 1 + dHuman * ramp * sinTurns(this.vibPhase) * (Math.LN2 / 12)
   }

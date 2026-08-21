@@ -360,12 +360,47 @@ describe('DdspKernel', () => {
     const border = rms(out, Math.round(sr / 3) - 512, Math.round(sr / 3) + 512)
     const steady = rms(out, sr / 6, sr / 4)
     expect(border).toBeGreaterThan(steady * 0.4)
-    // mid-transition (5-20 ms in) the pitch is still MOVING, not yet at 330...
-    const during = out.subarray(Math.round(sr / 3 + 0.005 * sr), Math.round(sr / 3 + 0.02 * sr))
-    const settled = out.subarray(Math.round(sr / 3 + 0.06 * sr), Math.round(sr / 3 + 0.16 * sr))
-    expect(goertzel(during, 330, sr) / during.length).toBeLessThan(goertzel(settled, 330, sr) / settled.length)
-    // ...and by 60 ms the note has arrived
+    // by 80 ms the new note dominates the audio (long window — spectrally
+    // resolvable, unlike the transition itself)
+    const settled = out.subarray(Math.round(sr / 3 + 0.08 * sr), Math.round(sr / 3 + 0.18 * sr))
     expect(goertzel(settled, 330, sr)).toBeGreaterThan(goertzel(settled, 220, sr) * 2)
+  })
+
+  it('flow: the fundamental takes an interval-scaled S-curve, not a step', () => {
+    // Spectral windows cannot resolve a ~40 ms transition (Δf·Δt ≥ 1), so
+    // this asserts on the voice's own fundamental. 220 -> 330 is ~7
+    // semitones: the transition stretches beyond the 28 ms base.
+    const k = new DdspKernel({ model: 'fixture' })
+    const ctx = mkCtx()
+    const at = (ms: number): number => Math.round((ms / 1000) * sr)
+    const boundary = 4096
+    const f0At: Record<number, number> = {}
+    const marks = [boundary - 1, boundary + at(5), boundary + at(15), boundary + at(30), boundary + at(70)]
+    let done = 0
+    const total = boundary + at(100)
+    const out = new Float32Array(128)
+    for (let i = 0; i < total; i += 128) {
+      const len = Math.min(128, total - i)
+      const mk = (v: (j: number) => number): Float32Array => Float32Array.from({ length: len }, (_, j) => v(i + j))
+      k.process(len, {
+        gate: mk(() => 1), freq: mk((j) => (j < boundary ? 220 : 330)), vel: mk(() => 1),
+        breath: mk(() => 0), vib: mk(() => 0), vibrate: mk(() => 5.5),
+        air: mk(() => 1), bright: mk(() => 0), scoop: mk(() => 0), fall: mk(() => 0),
+      }, out.subarray(0, len), ctx)
+      while (done < marks.length && marks[done]! < i + len) {
+        f0At[marks[done]!] = k.currentF0()
+        done++
+      }
+    }
+    expect(f0At[boundary - 1]!).toBeCloseTo(220, 0)
+    // 5 ms in: barely moved; 15 ms: clearly between; 30 ms: most of the way;
+    // 70 ms: arrived
+    expect(f0At[boundary + at(5)]!).toBeGreaterThan(220)
+    expect(f0At[boundary + at(5)]!).toBeLessThan(245)
+    expect(f0At[boundary + at(15)]!).toBeGreaterThan(240)
+    expect(f0At[boundary + at(15)]!).toBeLessThan(315)
+    expect(f0At[boundary + at(30)]!).toBeGreaterThan(280)
+    expect(f0At[boundary + at(70)]!).toBeCloseTo(330, 0)
   })
 
   it('flow: 0 disables the transition — the step lands within one decoder hop', () => {

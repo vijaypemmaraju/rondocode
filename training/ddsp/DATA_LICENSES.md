@@ -34,3 +34,13 @@ see SPEC.md), not the recordings. No audio from either dataset is
 redistributed. Attribution above satisfies CC BY 4.0 for the derived
 weights; anyone redistributing the models should keep this file's
 attributions (or the .bin headers) intact.
+
+## Bach Violin Dataset v1.0 (per-file licenses)
+
+- Source: https://zenodo.org/records/6050245 (Dong et al., "Deep Performer";
+  dataset repo https://github.com/salu133445/bach-violin-dataset)
+- Content used for the violin model (v2 retrain): the John Garner recordings
+  of Bach's Sonatas and Partitas (BWV 1001-1006), ~21 minutes, one performer,
+  one recording setup.
+- License of those files: Creative Commons Attribution 3.0 (attributed to
+  John Garner; originally commissioned by Musopen).

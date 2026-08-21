@@ -531,6 +531,48 @@ describe('DdspKernel output calibration and noise floor', () => {
   })
 })
 
+describe('tempo-adaptive articulation', () => {
+  const sr = 48000
+  /** Drive duty-cycled detache notes one sample at a time and read the
+   *  envelope 33 ms after note 4's gate-off. The fixture's random weights
+   *  make audio amplitude non-monotonic in loudness, so the release
+   *  behavior is asserted on the envelope itself. */
+  const envAfterGap = (ioiMs: number): number => {
+    const ioi = Math.round((ioiMs / 1000) * sr)
+    const k = new DdspKernel({ model: 'fixture' })
+    const ctx = mkCtx()
+    const readAt = ioi * 4 + Math.round(ioi * 0.7) + Math.round(0.033 * sr)
+    const out = new Float32Array(1)
+    const one = (v: number): Float32Array => Float32Array.from([v])
+    for (let i = 0; i <= readAt; i++) {
+      k.process(1, {
+        gate: one(i % ioi < ioi * 0.7 ? 1 : 0), freq: one(220), vel: one(1),
+        breath: one(0), vib: one(0), vibrate: one(5.5), air: one(0),
+        bright: one(0), scoop: one(0), fall: one(0),
+      }, out, ctx)
+    }
+    return k.currentLoudness()
+  }
+
+  it('release scales with note rate: fast gaps notch, slow phrases ring', () => {
+    // same 33 ms after gate-off in both cases — only the note RATE differs
+    const fast = envAfterGap(110) // ~136 bpm sixteenths
+    const slow = envAfterGap(600)
+    expect(fast).toBeLessThan(slow - 8) // fast release cuts far deeper, same elapsed time
+    expect(fast).toBeLessThan(-30) // a real notch, not a smear
+  })
+
+  it('fast notes still speak: early level reaches the note body quickly', () => {
+    const ioi = Math.round(0.11 * sr)
+    const k = new DdspKernel({ model: 'fixture' })
+    const out = run(k, mkCtx(), ioi * 6, { gate: (i) => (i % ioi < ioi * 0.7 ? 1 : 0), air: 0 })
+    const on4 = ioi * 4
+    const early = rms(out, on4, on4 + Math.round(0.025 * sr))
+    const mid = rms(out, on4 + Math.round(ioi * 0.3), on4 + Math.round(ioi * 0.55))
+    expect(early / (mid + 1e-12)).toBeGreaterThan(0.55)
+  })
+})
+
 describe('DdspKernel perf sanity', () => {
   it('8 voices render faster than real time by a wide margin', () => {
     // Full-size architecture (H=128 L=3 G=192 K=64 J=65) with synthetic

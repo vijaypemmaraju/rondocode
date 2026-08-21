@@ -594,6 +594,13 @@ export class DdspKernel implements Kernel {
   private envDb = -90
   private prevGate = 0
   private noteTime = 0
+  /** seconds since the last note boundary (gate edge OR legato pitch change)
+   *  and the previous inter-onset interval — the note RATE, which scales
+   *  every articulation time constant (a player bows sixteenths with a
+   *  faster, lighter stroke than whole notes; fixed constants tuned on slow
+   *  phrases made fast passages mushy). */
+  private boundTime = 0
+  private prevIoi = 0.5
   private vibPhase = 0
   private vibSlow = 0 // slow LFO drifting vibrato rate/depth (humanization)
   private silent = true
@@ -650,6 +657,8 @@ export class DdspKernel implements Kernel {
     this.envDb = -90
     this.prevGate = 0
     this.noteTime = 0
+    this.boundTime = 0
+    this.prevIoi = 0.5
     this.vibPhase = 0
     this.vibSlow = 0
     this.silent = true
@@ -672,6 +681,14 @@ export class DdspKernel implements Kernel {
     this.wobTotal = 1
     this.wobLp = 0
     this.wobState = 1
+  }
+
+  /** The decoder's current loudness conditioning in dB (the articulation
+   *  envelope). For tests and meters — the fixture models' random weights
+   *  make output amplitude non-monotonic in loudness, so envelope behavior
+   *  is asserted here, not through the audio. */
+  currentLoudness(): number {
+    return this.envDb
   }
 
   /** The fundamental the voice is following right now (post flow, pre
@@ -763,15 +780,15 @@ export class DdspKernel implements Kernel {
     const firNext = this.firNext!
     const ring = this.noiseRing!
     const engNyq = sr / 2
-    const attackCoeff = 1 - Math.exp(-(hop / sr) / this.attack)
-    const releaseCoeff = 1 - Math.exp(-(hop / sr) / this.release)
+    const hopSec = hop / sr
     const rateRatio = sr / model.header.sampleRate
     // note-to-note flow: ~28 ms S-curve pitch transitions, a few dB loudness
     // dip at legato boundaries, slow within-note settle (see DdspConfig.flow)
     const flowOn = this.flow > 0
     const renderSamples = Math.max(1, Math.round(0.008 * sr))
     const condSamples = Math.max(1, Math.round(0.02 * sr))
-    const dipDecay = Math.exp(-1 / (0.05 * sr))
+    // dip recovery: 50 ms on slow phrases, ~a fifth of the note on fast ones
+    const dipDecayFor = (ioi: number): number => Math.exp(-1 / (Math.min(0.05, ioi / 5) * sr))
     const intoneDecay = Math.exp(-1 / (0.45 * sr)) // players correct over ~half a second
     const settleDb = 2.5 * this.flow
     const outGain = this.gain * (model.header.outNorm || 1) // || guards hand-built model objects
@@ -784,6 +801,8 @@ export class DdspKernel implements Kernel {
       this.prevGate = g
       if (rising) {
         this.noteTime = 0
+        this.prevIoi = clampNum(this.boundTime, 0.03, 2)
+        this.boundTime = 0
         this.punchDb = this.punch // decoder-side attack accent, decays per tick
         const s = clampNum(scoop[i]!, 0, 12)
         if (s > 0) {
@@ -846,7 +865,11 @@ export class DdspKernel implements Kernel {
         this.flowCondFrom = this.flowCond
         this.flowTo = fIn
         this.flowT = 0
-        if (g > 0) this.dipDb = -3.5 * this.flow // legato boundary dip
+        this.prevIoi = clampNum(this.boundTime, 0.03, 2)
+        this.boundTime = 0
+        // legato boundary dip: gentler and quicker when notes come fast, or
+        // sixteenth runs flutter instead of flowing
+        if (g > 0) this.dipDb = -3.5 * this.flow * clampNum(this.prevIoi / 0.15, 0.5, 1)
         this.newNoteHumanization(fIn, sr)
       }
       if (this.flowT < condSamples) {
@@ -865,7 +888,7 @@ export class DdspKernel implements Kernel {
         this.flowCur = this.flowTo
         this.flowCond = this.flowTo
       }
-      this.dipDb *= dipDecay
+      this.dipDb *= dipDecayFor(this.prevIoi)
       // micro-intonation correction + onset wobble (see field docs)
       this.intoneDev *= intoneDecay
       let humanF = 1 + this.intoneDev
@@ -905,8 +928,13 @@ export class DdspKernel implements Kernel {
         const v = clampNum(vel[i]!, 0, 1)
         const target =
           g > 0 ? this.level - (1 - v) * this.dyn + clampNum(breath[i]!, -24, 24) + this.punchDb : -90
-        this.punchDb *= 0.55
-        this.envDb += (target - this.envDb) * (g > 0 ? attackCoeff : releaseCoeff)
+        // fast notes SPEAK: attack shortens to ~a sixth of the note, release
+        // to ~a third (floored so phrase endings still ring), punch decays
+        // within the note instead of blurring across it
+        const atkTau = clampNum(Math.min(this.attack, this.prevIoi / 6), 0.006, this.attack)
+        const relTau = clampNum(Math.min(this.release, Math.max(0.08, this.prevIoi / 3)), 0.02, this.release)
+        this.punchDb *= Math.exp(-hopSec / Math.min(0.035, this.prevIoi / 5))
+        this.envDb += (target - this.envDb) * (1 - Math.exp(-hopSec / (g > 0 ? atkTau : relTau)))
         this.silent = g <= 0 && this.envDb <= -85
         if (!this.silent) {
           const f0 = (this.flowCond > 0 ? this.flowCond : 1e-5) * vibNow
@@ -976,6 +1004,7 @@ export class DdspKernel implements Kernel {
       this.ringPos = (this.ringPos + 1) & ringMask
       out[i] = acc * outGain
       this.noteTime += 1 / sr
+      this.boundTime += 1 / sr
     }
     this.noiseState = noiseX
     this.rev = flush(this.rev)

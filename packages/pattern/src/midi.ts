@@ -281,6 +281,14 @@ export interface MiniOptions {
 
 export interface MiniResult {
   /** one mini-notation string per monophonic voice (wrap with note(...)) */ voices: string[]
+  /** velocity patterns ALIGNED with `voices` — same bars, same event
+   *  boundaries, values 0..1 (2 decimals). Feed to `.gain()` so imported
+   *  dynamics survive; check `hasDynamics` first — a file whose velocities
+   *  never vary yields constant patterns not worth emitting. */
+  gains: string[]
+  /** true when the source velocities vary (more than one distinct 2-decimal
+   *  gain value across all voices) */
+  hasDynamics: boolean
   bars: number
   /** rms onset+duration quantization error in steps (0 = perfectly on-grid) */ quantErr: number
   /** notes dropped because they exceeded maxVoices */ dropped: number
@@ -290,6 +298,7 @@ interface Seg {
   pitch: number
   /** absolute step index of onset */ start: number
   /** length in steps (>=1) */ len: number
+  /** note velocity 0..127 (carried so gains stay aligned with notes) */ vel: number
 }
 
 /** Convert one track's notes to editable mini-notation voice strings.
@@ -306,7 +315,7 @@ export function midiNotesToVoices(
   const maxVoices = opts.maxVoices ?? 8
   const stepTicks = ppq / stepsPerBeat
   const stepsPerBar = stepsPerBeat * timeSig.num
-  if (notes.length === 0) return { voices: [], bars: 0, quantErr: 0, dropped: 0 }
+  if (notes.length === 0) return { voices: [], gains: [], hasDynamics: false, bars: 0, quantErr: 0, dropped: 0 }
 
   // 1. quantize onset + duration to the step grid, tracking error
   let errSq = 0
@@ -317,7 +326,7 @@ export function midiNotesToVoices(
     const e = Math.round((nt.startTick + nt.durTick) / stepTicks)
     errSq += (nt.startTick / stepTicks - s) ** 2
     errN += 1
-    quant.push({ pitch: nt.pitch, start: s, len: Math.max(1, e - s) })
+    quant.push({ pitch: nt.pitch, start: s, len: Math.max(1, e - s), vel: nt.velocity })
   }
   const quantErr = Math.sqrt(errSq / errN)
 
@@ -329,7 +338,7 @@ export function midiNotesToVoices(
     while (remaining > 0) {
       const barEnd = (Math.floor(start / stepsPerBar) + 1) * stepsPerBar
       const len = Math.min(remaining, barEnd - start)
-      segs.push({ pitch: q.pitch, start, len })
+      segs.push({ pitch: q.pitch, start, len, vel: q.vel })
       start += len
       remaining -= len
     }
@@ -357,22 +366,27 @@ export function midiNotesToVoices(
     voiceEnd[v] = s.start + s.len
   }
 
-  // 4. emit each voice as `<bar bar ...>` with weighted tokens
-  const voiceStrings = voices.map((vsegs) => {
+  // 4. emit each voice as `<bar bar ...>` with weighted tokens — once naming
+  //    pitches, once naming velocities, over the SAME segments so the two
+  //    patterns stay event-aligned for note(...).gain(...)
+  const emitVoice = (vsegs: Seg[], nameOf: (s: Seg) => string): string => {
     const barStrs: string[] = []
     for (let b = 0; b < bars; b++) {
       const base = b * stepsPerBar
       const inBar = vsegs.filter((s) => s.start >= base && s.start < base + stepsPerBar).sort((a, b2) => a.start - b2.start)
-      barStrs.push(emitBar(inBar, base, stepsPerBar))
+      barStrs.push(emitBar(inBar, base, stepsPerBar, nameOf))
     }
     return `<${barStrs.join(' ')}>`
-  })
-
-  return { voices: voiceStrings, bars, quantErr, dropped }
+  }
+  const gainOf = (s: Seg): string => (Math.max(1, s.vel) / 127).toFixed(2).replace(/^0\./, '.')
+  const voiceStrings = voices.map((v) => emitVoice(v, (s) => midiToName(s.pitch)))
+  const gainStrings = voices.map((v) => emitVoice(v, gainOf))
+  const distinct = new Set(segs.map(gainOf))
+  return { voices: voiceStrings, gains: gainStrings, hasDynamics: distinct.size > 1, bars, quantErr, dropped }
 }
 
 /** One bar of a monophonic voice → a mini-notation term (weights sum to steps). */
-function emitBar(segs: Seg[], base: number, steps: number): string {
+function emitBar(segs: Seg[], base: number, steps: number, nameOf: (s: Seg) => string): string {
   if (segs.length === 0) return '~'
   const tokens: string[] = []
   let cursor = 0
@@ -383,7 +397,7 @@ function emitBar(segs: Seg[], base: number, steps: number): string {
   for (const s of segs) {
     const local = s.start - base
     if (local > cursor) push('~', local - cursor) // gap before the note
-    push(midiToName(s.pitch), s.len)
+    push(nameOf(s), s.len)
     cursor = local + s.len
   }
   if (cursor < steps) push('~', steps - cursor) // trailing rest

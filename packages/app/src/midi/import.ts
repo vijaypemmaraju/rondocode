@@ -180,10 +180,17 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
   let maxBars = 0
   let hasDrums = false
 
-  const voiceStack = (voices: string[], sound: string): string =>
-    voices.length === 1
-      ? `note('${voices[0]}').sound('${sound}')`
-      : 'stack(\n' + voices.map((v) => `  note('${v}').sound('${sound}')`).join(',\n') + ',\n)'
+  // Velocities ride along as an aligned .gain() pattern — but only when the
+  // file HAS dynamics: a flat-velocity export would just bury the notes in
+  // constant-gain noise. Same event boundaries by construction (midi.ts emits
+  // both patterns from the same segments), so every note gets its own level.
+  const voiceStack = (voices: string[], gains: string[] | undefined, sound: string): string => {
+    const lane = (i: number): string =>
+      `note('${voices[i]}')${gains ? `.gain('${gains[i]}')` : ''}.sound('${sound}')`
+    return voices.length === 1
+      ? lane(0)
+      : 'stack(\n' + voices.map((_, i) => `  ${lane(i)}`).join(',\n') + ',\n)'
+  }
 
   // emit one melodic group (a set of notes -> a synth), appending its block,
   // stack member and summary line
@@ -192,9 +199,9 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
     usedSynths.add(type)
     const res = midiNotesToVoices(notes, f.ppq, f.timeSig, { stepsPerBeat, maxVoices: 8 })
     maxBars = Math.max(maxBars, res.bars)
-    blocks.push(`// ---- ${label} (${res.voices.length} ${res.voices.length === 1 ? 'voice' : 'voices'}) ----\nconst ${varName} = ${voiceStack(res.voices, type)}`)
+    blocks.push(`// ---- ${label} (${res.voices.length} ${res.voices.length === 1 ? 'voice' : 'voices'}) ----\nconst ${varName} = ${voiceStack(res.voices, res.hasDynamics ? res.gains : undefined, type)}`)
     stackParts.push(varName)
-    summary.push(`${label} -> ${type}: ${notes.length} notes, ${res.voices.length} voices, qErr=${res.quantErr.toFixed(2)}${res.dropped ? `, dropped ${res.dropped}` : ''}`)
+    summary.push(`${label} -> ${type}: ${notes.length} notes, ${res.voices.length} voices, qErr=${res.quantErr.toFixed(2)}${res.dropped ? `, dropped ${res.dropped}` : ''}${res.hasDynamics ? ', dynamics' : ''}`)
   }
 
   const emitDrums = (notes: readonly MidiNote[], varName: string) => {
@@ -211,9 +218,13 @@ export function midiToRondocode(input: Uint8Array | ArrayBuffer, opts: ImportOpt
       usedSynths.add(role)
       const res = midiNotesToVoices(roleNotes, f.ppq, f.timeSig, { stepsPerBeat, maxVoices: 1 })
       maxBars = Math.max(maxBars, res.bars)
-      // percussion ignores pitch; the voice string's note names just trigger the synth
-      for (const v of res.voices) parts.push(`  note('${v}').sound('${role}')`)
-      summary.push(`drums/${role}: ${roleNotes.length} hits`)
+      // percussion ignores pitch; the voice string's note names just trigger
+      // the synth. Velocities still matter — ghost notes are the groove.
+      for (let i = 0; i < res.voices.length; i++) {
+        const g = res.hasDynamics ? `.gain('${res.gains[i]}')` : ''
+        parts.push(`  note('${res.voices[i]}')${g}.sound('${role}')`)
+      }
+      summary.push(`drums/${role}: ${roleNotes.length} hits${res.hasDynamics ? ', dynamics' : ''}`)
     }
     blocks.push(`// ---- drums ----\nconst ${varName} = stack(\n${parts.join(',\n')},\n)`)
     stackParts.push(varName)

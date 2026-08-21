@@ -34,7 +34,7 @@ const ascii = (s: string) => [...s].map((c) => c.charCodeAt(0))
 
 interface TrackSpec {
   name?: string
-  notes: { pitch: number; start: number; dur: number; ch?: number }[]
+  notes: { pitch: number; start: number; dur: number; ch?: number; vel?: number }[]
 }
 
 /** Build a format-1 SMF (120 BPM, ppq 480, 4/4 unless a meter is given) from
@@ -55,7 +55,7 @@ function buildSmf(tracks: TrackSpec[], timeSig: { num: number; den: number } = {
     if (t.name !== undefined) events.push({ tick: 0, bytes: [0xff, 0x03, t.name.length, ...ascii(t.name)] })
     for (const n of t.notes) {
       const ch = n.ch ?? 0
-      events.push({ tick: n.start, bytes: [0x90 | ch, n.pitch, 100] })
+      events.push({ tick: n.start, bytes: [0x90 | ch, n.pitch, n.vel ?? 100] })
       events.push({ tick: n.start + n.dur, bytes: [0x80 | ch, n.pitch, 0] })
     }
     events.sort((a, b) => a.tick - b.tick)
@@ -192,6 +192,57 @@ describe('midiToRondocode → evalCode round-trip', () => {
     expect(code).not.toContain('masterCompress(')
     const r = evalsClean(code)
     expect(r.masterComp).toBeUndefined()
+  })
+})
+
+describe('velocities come across as aligned gain patterns', () => {
+  const DYNAMIC_TRACK: TrackSpec = {
+    name: 'violin',
+    notes: [
+      { pitch: 69, start: 0, dur: 480, vel: 127 },
+      { pitch: 71, start: 480, dur: 480, vel: 64 },
+      { pitch: 72, start: 960, dur: 480, vel: 32 },
+      { pitch: 74, start: 1440, dur: 480, vel: 96 },
+    ],
+  }
+
+  it('a file WITH dynamics: every note carries its own gain, event-aligned', () => {
+    const { code } = midiToRondocode(buildSmf([DYNAMIC_TRACK]), { name: 'dyn' })
+    expect(code).toContain(".gain('")
+    const r = evalsClean(code)
+    const span = new TimeSpan(F(0), F(1))
+    const haps = [...r.patterns.values()][0]!
+      .query(span)
+      .filter(hasOnset)
+      .filter((h) => typeof h.value.note === 'number')
+      .sort((a, b) => Number(a.whole!.begin.valueOf()) - Number(b.whole!.begin.valueOf()))
+    expect(haps.length).toBe(4)
+    // gains track the velocities note-for-note (2-decimal quantization)
+    const want = [127, 64, 32, 96].map((v) => Number((v / 127).toFixed(2)))
+    for (let i = 0; i < 4; i++) {
+      expect(haps[i]!.value.gain, `note ${i}`).toBeCloseTo(want[i]!, 2)
+    }
+  })
+
+  it('a flat-velocity file emits NO gain pattern (constant gain is noise)', () => {
+    const flat: TrackSpec = { name: 'violin', notes: DYNAMIC_TRACK.notes.map((n) => ({ ...n, vel: 97 })) }
+    const { code } = midiToRondocode(buildSmf([flat]), { name: 'flat' })
+    expect(code).not.toContain(".gain('")
+    evalsClean(code)
+  })
+
+  it('drum ghost notes keep their velocities too', () => {
+    const ghosts: TrackSpec = {
+      name: 'drums',
+      notes: [
+        { pitch: 42, start: 0, dur: 60, ch: 9, vel: 110 },
+        { pitch: 42, start: 480, dur: 60, ch: 9, vel: 30 },
+      ],
+    }
+    const { code } = midiToRondocode(buildSmf([ghosts, BASS_TRACK]), { name: 'ghost' })
+    const hatLane = code.split('\n').find((l) => l.includes(".sound('hat')"))
+    expect(hatLane).toContain(".gain('")
+    evalsClean(code)
   })
 })
 

@@ -292,6 +292,11 @@ export interface SynthCtx {
       release?: number
       /** dB of decoder-side attack accent at each retrigger (def 2.5) */
       punch?: number
+      /** note-to-note flow conditioning, 0..2 (def 1; 0 = off): S-curve pitch
+       *  transitions + boundary loudness dips + within-note settle keep the
+       *  decoder's inputs inside its training distribution, which is where
+       *  the transition sound comes from */
+      flow?: number
       /** seconds before vibrato reaches full depth (def 0.6) */
       vibdelay?: number
       seed?: number
@@ -1309,6 +1314,7 @@ const makeCtx = (b: Builder): SynthCtx => {
           release: opts?.release,
           punch: opts?.punch,
           vibdelay: opts?.vibdelay,
+          flow: opts?.flow,
           seed: opts?.seed,
         }),
       )

@@ -522,6 +522,17 @@ export interface DdspConfig {
    *  (default 2.5): the MODEL then produces the bow-change / tongued attack
    *  it learned loud onsets to have, which no amplitude envelope can fake. */
   punch?: number
+  /** NOTE-TO-NOTE FLOW (0..2, default 1; 0 = off): scales the performance
+   *  conditioning layer that keeps the decoder's inputs inside its TRAINING
+   *  distribution at note boundaries. The model learned from crepe curves,
+   *  which never step — real playing moves f0 through a ~28 ms S-curve and
+   *  dips loudness a few dB at every note change, and THAT trajectory is what
+   *  makes the model produce transition sound. Square steps are
+   *  out-of-distribution and read as pasted-together notes. Also adds the
+   *  within-note settle every sustained instrument has (a couple of dB of
+   *  slow decay after the attack). Not portamento: the transition is far
+   *  below the ~60 ms where pitch motion reads as a slide. */
+  flow?: number
   /** seconds before vibrato reaches full depth after note-on (default 0.6) */
   vibdelay?: number
   /** noise PRNG seed (deterministic renders; default fixed) */
@@ -566,6 +577,7 @@ export class DdspKernel implements Kernel {
 
   private readonly punch: number
   private readonly vibdelay: number
+  private readonly flow: number
 
   private rev = 0
   private ringPos = 0
@@ -583,6 +595,12 @@ export class DdspKernel implements Kernel {
   private artFloor = 1
   private artMode = 0 // 0 idle, 1 scooping up to 1, 2 falling to artFloor
   private punchDb = 0
+  /** note-flow state: the smoothed fundamental the whole voice follows */
+  private flowFrom = 0
+  private flowTo = 0
+  private flowT = 0 // samples into the current transition
+  private flowCur = 0
+  private dipDb = 0 // brief negative loudness at a legato note boundary
 
   constructor(config: DdspConfig = {}, _ctx?: DspContext) {
     this.modelName = typeof config.model === 'string' ? config.model : ''
@@ -593,6 +611,7 @@ export class DdspKernel implements Kernel {
     this.release = clampNum(config.release ?? 0.3, 0.005, 10)
     this.punch = clampNum(config.punch ?? 2.5, 0, 12)
     this.vibdelay = clampNum(config.vibdelay ?? 0.6, 0, 5)
+    this.flow = clampNum(config.flow ?? 1, 0, 2)
     this.seed = ((config.seed ?? 0x2f6e2b1) >>> 0) || 1
     this.noiseState = this.seed
   }
@@ -619,6 +638,11 @@ export class DdspKernel implements Kernel {
     this.artFloor = 1
     this.artMode = 0
     this.punchDb = 0
+    this.flowFrom = 0
+    this.flowTo = 0
+    this.flowT = 0
+    this.flowCur = 0
+    this.dipDb = 0
   }
 
   /** (Re)bind to a model. The ONE place this kernel allocates outside the
@@ -684,6 +708,12 @@ export class DdspKernel implements Kernel {
     const attackCoeff = 1 - Math.exp(-(hop / sr) / this.attack)
     const releaseCoeff = 1 - Math.exp(-(hop / sr) / this.release)
     const rateRatio = sr / model.header.sampleRate
+    // note-to-note flow: ~28 ms S-curve pitch transitions, a few dB loudness
+    // dip at legato boundaries, slow within-note settle (see DdspConfig.flow)
+    const flowOn = this.flow > 0
+    const transSamples = Math.max(1, Math.round(0.028 * sr))
+    const dipDecay = Math.exp(-1 / (0.05 * sr))
+    const settleDb = 2.5 * this.flow
     let noiseX = this.noiseState
 
     for (let i = 0; i < n; i++) {
@@ -728,6 +758,37 @@ export class DdspKernel implements Kernel {
         this.toTick--
         continue
       }
+      // note-to-note flow: the voice follows flowCur, a smoothstep between the
+      // last fundamental and the current one, retargeted whenever the freq
+      // input jumps by more than ~a quarter semitone. A legato jump (no gate
+      // edge) also dips the decoder's loudness briefly — the boundary signal
+      // the model learned every note change to have.
+      const fRawIn = freq[i]!
+      const fIn = Number.isFinite(fRawIn) && fRawIn > 0 ? fRawIn : 0
+      if (!flowOn || fIn === 0) {
+        this.flowCur = fIn
+        this.flowTo = fIn
+      } else if (this.flowCur === 0 || rising) {
+        // from silence (or a fresh attack): start AT the note, no transition
+        this.flowCur = fIn
+        this.flowFrom = fIn
+        this.flowTo = fIn
+        this.flowT = transSamples
+      } else if (Math.abs(fIn - this.flowTo) > this.flowTo * 0.015) {
+        this.flowFrom = this.flowCur // retarget from wherever we are now
+        this.flowTo = fIn
+        this.flowT = 0
+        if (g > 0) this.dipDb = -3.5 * this.flow // legato boundary dip
+      }
+      if (this.flowT < transSamples) {
+        this.flowT++
+        const t = this.flowT / transSamples
+        const s = t * t * (3 - 2 * t)
+        this.flowCur = this.flowFrom + (this.flowTo - this.flowFrom) * s
+      } else {
+        this.flowCur = this.flowTo
+      }
+      this.dipDb *= dipDecay
       // vibrato LFO advances exactly once per audible sample; the same factor
       // feeds the decoder's f0 (at ticks) and the oscillator bank. Pitch
       // articulation (scoop/fall) rides along multiplicatively.
@@ -756,9 +817,12 @@ export class DdspKernel implements Kernel {
         this.envDb += (target - this.envDb) * (g > 0 ? attackCoeff : releaseCoeff)
         this.silent = g <= 0 && this.envDb <= -85
         if (!this.silent) {
-          const fRaw = freq[i]!
-          const f0 = (Number.isFinite(fRaw) && fRaw > 0 ? fRaw : 1e-5) * vibNow
-          decoder.step(f0, this.envDb)
+          const f0 = (this.flowCur > 0 ? this.flowCur : 1e-5) * vibNow
+          // dip marks the note boundary; settle is the slow post-attack decay
+          // every sustained instrument has — both keep the decoder's loudness
+          // trajectory looking like the performances it learned from
+          const settle = -settleDb * (1 - Math.exp(-this.noteTime / 1.2))
+          decoder.step(f0, this.envDb + this.dipDb + settle)
           // bright: loudness-preserving spectral tilt of the harmonic set
           const b = clampNum(bright[i]!, -3, 3)
           if (b !== 0) {
@@ -802,8 +866,7 @@ export class DdspKernel implements Kernel {
       // per-sample: ramp amps + FIR toward the current frame's targets
       for (let k = 0; k < K; k++) ampsCur[k] = ampsCur[k]! + ampsDelta[k]!
       for (let t = 0; t < taps; t++) fir[t] = fir[t]! + firDelta[t]!
-      const f0i = freq[i]!
-      const fSyn = (Number.isFinite(f0i) && f0i > 0 ? f0i : 0) * vibNow
+      const fSyn = this.flowCur * vibNow
       this.rev += fSyn / sr
       this.rev -= this.rev | 0
       let acc = ddspHarmSample(this.rev, ampsCur, K)

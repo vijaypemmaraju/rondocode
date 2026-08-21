@@ -180,9 +180,11 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],
   modal: [{ name: 'gate' }, { name: 'freq', def: 220 }],
   // trained neural instrument: vel/breath steer the decoder's loudness input
-  // (timbre, not just gain); vib/vibrate are the built-in vibrato LFO
+  // (timbre, not just gain); vib/vibrate are the built-in vibrato LFO; the
+  // articulation set (air/bright/scoop/fall) reshapes the decoder's outputs
   ddsp: [{ name: 'gate' }, { name: 'freq', def: 220 }, { name: 'vel', def: 1 },
-    { name: 'breath', def: 0 }, { name: 'vib', def: 0 }, { name: 'vibrate', def: 5.5 }],
+    { name: 'breath', def: 0 }, { name: 'vib', def: 0 }, { name: 'vibrate', def: 5.5 },
+    { name: 'air', def: 1 }, { name: 'bright', def: 0 }, { name: 'scoop', def: 0 }, { name: 'fall', def: 0 }],
   svf: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   ladder: [{ name: 'in' }, { name: 'cutoff' }, { name: 'res', def: 0 }],
   onepole: [{ name: 'in' }, { name: 'cutoff' }],

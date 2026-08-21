@@ -274,11 +274,26 @@ export interface SynthCtx {
       breath?: SigIn
       vib?: SigIn
       vibrate?: SigIn
+      /** noise-vs-harmonic balance (sig): 1 = as trained, 0 = pure harmonics,
+       *  2 = double breath/bow noise. The two halves are separate until the
+       *  final sum, so this is free. */
+      air?: SigIn
+      /** loudness-preserving spectral tilt (sig, -3..3): positive leans on the
+       *  upper harmonics (bow pressure / brighter embouchure), 0 = as trained. */
+      bright?: SigIn
+      /** semitones approached from below at note-on, gliding up over ~80 ms */
+      scoop?: SigIn
+      /** semitones dropped over ~120 ms at release */
+      fall?: SigIn
       level?: number
       dyn?: number
       gain?: number
       attack?: number
       release?: number
+      /** dB of decoder-side attack accent at each retrigger (def 2.5) */
+      punch?: number
+      /** seconds before vibrato reaches full depth (def 0.6) */
+      vibdelay?: number
       seed?: number
     },
   ): Sig
@@ -1278,6 +1293,10 @@ const makeCtx = (b: Builder): SynthCtx => {
       if (opts?.breath !== undefined) inputs['breath'] = src(opts.breath, 'ddsp breath')
       if (opts?.vib !== undefined) inputs['vib'] = src(opts.vib, 'ddsp vib')
       if (opts?.vibrate !== undefined) inputs['vibrate'] = src(opts.vibrate, 'ddsp vibrate')
+      if (opts?.air !== undefined) inputs['air'] = src(opts.air, 'ddsp air')
+      if (opts?.bright !== undefined) inputs['bright'] = src(opts.bright, 'ddsp bright')
+      if (opts?.scoop !== undefined) inputs['scoop'] = src(opts.scoop, 'ddsp scoop')
+      if (opts?.fall !== undefined) inputs['fall'] = src(opts.fall, 'ddsp fall')
       return b.node(
         'ddsp',
         inputs,
@@ -1288,6 +1307,8 @@ const makeCtx = (b: Builder): SynthCtx => {
           gain: opts?.gain,
           attack: opts?.attack,
           release: opts?.release,
+          punch: opts?.punch,
+          vibdelay: opts?.vibdelay,
           seed: opts?.seed,
         }),
       )

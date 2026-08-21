@@ -518,6 +518,12 @@ export interface DdspConfig {
   attack?: number
   /** loudness release time constant, seconds (default 0.3) */
   release?: number
+  /** dB of extra loudness fed to the decoder for ~80 ms at each retrigger
+   *  (default 2.5): the MODEL then produces the bow-change / tongued attack
+   *  it learned loud onsets to have, which no amplitude envelope can fake. */
+  punch?: number
+  /** seconds before vibrato reaches full depth after note-on (default 0.6) */
+  vibdelay?: number
   /** noise PRNG seed (deterministic renders; default fixed) */
   seed?: number
 }
@@ -526,7 +532,12 @@ const clampNum = (v: number, lo: number, hi: number): number => (v < lo ? lo : v
 
 /** The playable instrument. Ports: gate (edge = note), freq (Hz), vel (0..1),
  *  breath (dB offset into the decoder's loudness — the expressive input),
- *  vib (vibrato depth, semitones), vibrate (vibrato rate, Hz).
+ *  vib (vibrato depth, semitones), vibrate (vibrato rate, Hz), plus the
+ *  articulation set: air (noise-vs-harmonic balance, 1 = as trained),
+ *  bright (spectral tilt, loudness-preserving, 0 = as trained), scoop
+ *  (semitones approached from below at note-on) and fall (semitones dropped
+ *  at release). air/bright reshape the decoder's OUTPUTS — the two halves
+ *  are separate right up to the sum, which is what makes them cheap.
  *
  *  The decoder is conditioned on (f0, loudness); loudness comes from an
  *  internal attack/release envelope in dB, so dynamics change TIMBRE (that is
@@ -553,6 +564,9 @@ export class DdspKernel implements Kernel {
   private noiseRing: Float32Array | undefined
   private firCos: Float32Array | undefined // cached irfft basis for this taps size
 
+  private readonly punch: number
+  private readonly vibdelay: number
+
   private rev = 0
   private ringPos = 0
   private noiseState: number
@@ -561,7 +575,14 @@ export class DdspKernel implements Kernel {
   private prevGate = 0
   private noteTime = 0
   private vibPhase = 0
+  private vibSlow = 0 // slow LFO drifting vibrato rate/depth (humanization)
   private silent = true
+  /** pitch articulation: current factor, per-sample multiplier, clamp, mode */
+  private artFactor = 1
+  private artStep = 1
+  private artFloor = 1
+  private artMode = 0 // 0 idle, 1 scooping up to 1, 2 falling to artFloor
+  private punchDb = 0
 
   constructor(config: DdspConfig = {}, _ctx?: DspContext) {
     this.modelName = typeof config.model === 'string' ? config.model : ''
@@ -570,6 +591,8 @@ export class DdspKernel implements Kernel {
     this.gain = clampNum(config.gain ?? 12, 0, 64)
     this.attack = clampNum(config.attack ?? 0.04, 0.001, 5)
     this.release = clampNum(config.release ?? 0.3, 0.005, 10)
+    this.punch = clampNum(config.punch ?? 2.5, 0, 12)
+    this.vibdelay = clampNum(config.vibdelay ?? 0.6, 0, 5)
     this.seed = ((config.seed ?? 0x2f6e2b1) >>> 0) || 1
     this.noiseState = this.seed
   }
@@ -589,7 +612,13 @@ export class DdspKernel implements Kernel {
     this.prevGate = 0
     this.noteTime = 0
     this.vibPhase = 0
+    this.vibSlow = 0
     this.silent = true
+    this.artFactor = 1
+    this.artStep = 1
+    this.artFloor = 1
+    this.artMode = 0
+    this.punchDb = 0
   }
 
   /** (Re)bind to a model. The ONE place this kernel allocates outside the
@@ -635,6 +664,10 @@ export class DdspKernel implements Kernel {
     const breath = inputs['breath']!
     const vib = inputs['vib']!
     const vibrate = inputs['vibrate']!
+    const air = inputs['air']!
+    const bright = inputs['bright']!
+    const scoop = inputs['scoop']!
+    const fall = inputs['fall']!
     const sr = ctx.sampleRate
     const hop = Math.max(1, Math.round((model.header.hop / model.header.sampleRate) * sr))
     const K = model.header.nHarmonics
@@ -656,9 +689,19 @@ export class DdspKernel implements Kernel {
     for (let i = 0; i < n; i++) {
       const g = gate[i]!
       const rising = g > 0 && this.prevGate <= 0
+      const falling = g <= 0 && this.prevGate > 0
       this.prevGate = g
       if (rising) {
         this.noteTime = 0
+        this.punchDb = this.punch // decoder-side attack accent, decays per tick
+        const s = clampNum(scoop[i]!, 0, 12)
+        if (s > 0) {
+          // approach from s semitones below, gliding up over ~80 ms — one pow
+          // here, then a single multiply per sample
+          this.artFactor = Math.pow(2, -s / 12)
+          this.artStep = Math.pow(1 / this.artFactor, 1 / (0.08 * sr))
+          this.artMode = 1
+        }
         // Waking from silence, stagger this voice's decoder tick by a hash of
         // the NOTE (deterministic — it depends only on inputs, so offline
         // renders stay reproducible), so an 8-voice chord doesn't run all its
@@ -670,6 +713,14 @@ export class DdspKernel implements Kernel {
           hsh = (hsh ^ (hsh >>> 12)) >>> 0
           this.toTick = hsh % hop
         }
+      } else if (falling) {
+        const f = clampNum(fall[i]!, 0, 12)
+        if (f > 0) {
+          // drop up to f semitones over ~120 ms while the release rings out
+          this.artFloor = Math.pow(2, -f / 12) * this.artFactor
+          this.artStep = Math.pow(2, -f / 12 / (0.12 * sr))
+          this.artMode = 2
+        }
       }
       if (this.silent && g <= 0 && this.toTick > 0) {
         // Fully released and idle: silence without decoder or noise work.
@@ -678,24 +729,63 @@ export class DdspKernel implements Kernel {
         continue
       }
       // vibrato LFO advances exactly once per audible sample; the same factor
-      // feeds the decoder's f0 (at ticks) and the oscillator bank
-      const vibNow = this.vibFactor(vib[i]!, vibrate[i]!, sr)
+      // feeds the decoder's f0 (at ticks) and the oscillator bank. Pitch
+      // articulation (scoop/fall) rides along multiplicatively.
+      if (this.artMode === 1) {
+        this.artFactor *= this.artStep
+        if (this.artFactor >= 1) {
+          this.artFactor = 1
+          this.artMode = 0
+        }
+      } else if (this.artMode === 2) {
+        this.artFactor *= this.artStep
+        if (this.artFactor <= this.artFloor) {
+          this.artFactor = this.artFloor
+          this.artMode = 0
+        }
+      }
+      const vibNow = this.vibFactor(vib[i]!, vibrate[i]!, sr) * this.artFactor
       if (this.toTick <= 0) {
         this.toTick = hop
-        // loudness envelope (frame rate, dB domain)
+        // loudness envelope (frame rate, dB domain); punch rides the target
+        // for the first few frames of a note so the DECODER plays the accent
         const v = clampNum(vel[i]!, 0, 1)
-        const target = g > 0 ? this.level - (1 - v) * this.dyn + clampNum(breath[i]!, -24, 24) : -90
+        const target =
+          g > 0 ? this.level - (1 - v) * this.dyn + clampNum(breath[i]!, -24, 24) + this.punchDb : -90
+        this.punchDb *= 0.55
         this.envDb += (target - this.envDb) * (g > 0 ? attackCoeff : releaseCoeff)
         this.silent = g <= 0 && this.envDb <= -85
         if (!this.silent) {
           const fRaw = freq[i]!
           const f0 = (Number.isFinite(fRaw) && fRaw > 0 ? fRaw : 1e-5) * vibNow
           decoder.step(f0, this.envDb)
+          // bright: loudness-preserving spectral tilt of the harmonic set
+          const b = clampNum(bright[i]!, -3, 3)
+          if (b !== 0) {
+            let sum0 = 0
+            let sumW = 0
+            for (let k = 0; k < K; k++) {
+              const a = decoder.harmAmps[k]!
+              const w = Math.pow(k + 1, b)
+              sum0 += a
+              sumW += a * w
+              decoder.harmAmps[k] = a * w
+            }
+            if (sumW > 1e-12) {
+              const norm = sum0 / sumW
+              for (let k = 0; k < K; k++) decoder.harmAmps[k] = decoder.harmAmps[k]! * norm
+            }
+          }
           for (let k = 0; k < K; k++) {
             const target2 = (k + 1) * f0 < engNyq ? decoder.harmAmps[k]! : 0
             ampsDelta[k] = (target2 - ampsCur[k]!) / hop
           }
           this.buildFir(decoder.noiseMags, rateRatio)
+          // air: scale the noise half against the harmonics (1 = as trained)
+          const airNow = clampNum(air[i]!, 0, 4)
+          if (airNow !== 1) {
+            for (let t = 0; t < taps; t++) firNext[t] = firNext[t]! * airNow
+          }
           for (let t = 0; t < taps; t++) firDelta[t] = (firNext[t]! - fir[t]!) / hop
         } else {
           ampsCur.fill(0)
@@ -734,15 +824,21 @@ export class DdspKernel implements Kernel {
   }
 
   /** Advances the vibrato LFO one sample and returns the pitch factor.
-   *  Depth ramps in over ~0.6 s after note-on (real players delay vibrato). */
+   *  Depth ramps in over `vibdelay` seconds after note-on (real players delay
+   *  vibrato), and a slow deterministic LFO drifts rate and depth a few
+   *  percent — a metronomic vibrato is the tell of a synthetic player. */
   private vibFactor(depth: number, rate: number, sr: number): number {
     const d = clampNum(depth, 0, 2)
     const r = clampNum(rate, 0, 20)
-    this.vibPhase += r / sr
+    this.vibSlow += 0.31 / sr
+    this.vibSlow -= this.vibSlow | 0
+    const drift = sinTurns(this.vibSlow)
+    this.vibPhase += (r * (1 + 0.05 * drift)) / sr
     this.vibPhase -= this.vibPhase | 0
     if (d === 0) return 1
-    const ramp = this.noteTime > 0.6 ? 1 : this.noteTime / 0.6
+    const ramp = this.noteTime > this.vibdelay ? 1 : this.vibdelay <= 0 ? 1 : this.noteTime / this.vibdelay
+    const dHuman = d * (1 + 0.07 * sinTurns((this.vibSlow * 0.618 + 0.37) % 1))
     // 2^(x/12) ~= 1 + x * ln2/12 for the small x vibrato uses
-    return 1 + d * ramp * sinTurns(this.vibPhase) * (Math.LN2 / 12)
+    return 1 + dHuman * ramp * sinTurns(this.vibPhase) * (Math.LN2 / 12)
   }
 }

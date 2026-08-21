@@ -68,6 +68,27 @@ describe('parseDdspModel', () => {
     expect(() => parseDdspModel(fixtureBin.slice(0, fixtureBin.length - 8))).toThrow(/out of range/)
   })
 
+  it('reads out_norm when present, defaults to 1 (old files), clamps insanity', () => {
+    expect(parseDdspModel(fixtureBin).header.outNorm).toBe(1) // fixture predates the field
+    const rebuild = (mut: (h: Record<string, unknown>) => void): Uint8Array => {
+      const dv = new DataView(fixtureBin.buffer, fixtureBin.byteOffset)
+      const hlen = dv.getUint32(8, true)
+      const header = JSON.parse(Buffer.from(fixtureBin.subarray(12, 12 + hlen)).toString('utf8'))
+      mut(header)
+      const hjson = Buffer.from(JSON.stringify(header), 'utf8')
+      const dataStart = 12 + hlen + ((4 - ((12 + hlen) % 4)) % 4)
+      const newDataStart = 12 + hjson.length + ((4 - ((12 + hjson.length) % 4)) % 4)
+      const out = new Uint8Array(newDataStart + (fixtureBin.length - dataStart))
+      out.set(fixtureBin.subarray(0, 8), 0)
+      new DataView(out.buffer).setUint32(8, hjson.length, true)
+      out.set(hjson, 12)
+      out.set(fixtureBin.subarray(dataStart), newDataStart)
+      return out
+    }
+    expect(parseDdspModel(rebuild((h) => { h.out_norm = 0.43 })).header.outNorm).toBe(0.43)
+    expect(parseDdspModel(rebuild((h) => { h.out_norm = 9999 })).header.outNorm).toBe(20)
+  })
+
   it('rejects an n_noise whose FIR length is not a power of two', () => {
     // rebuild the file with n_noise bumped 9 -> 10 (tensor shapes untouched:
     // the header check must fire before any tensor validation)
@@ -485,6 +506,32 @@ describe('DdspKernel', () => {
   })
 })
 
+describe('DdspKernel output calibration and noise floor', () => {
+  it('out_norm scales the voice linearly', () => {
+    const loudModel = { ...model, header: { ...model.header, outNorm: 0.25 } }
+    const bank = new DdspModelBank()
+    bank.set('fixture', loudModel)
+    const scaled = run(new DdspKernel({ model: 'fixture', gain: 1 }), { sampleRate: 48000, ddsp: bank }, 8192)
+    const plain = run(new DdspKernel({ model: 'fixture', gain: 1 }), mkCtx(), 8192)
+    for (let i = 4000; i < 4032; i++) expect(scaled[i]!).toBeCloseTo(plain[i]! * 0.25, 5)
+  })
+
+  it('the noise floor gate silences a noise-heavy model after release', () => {
+    // a model whose noise head reproduces the recording's room floor: without
+    // the gate the release would hiss at the floor level indefinitely
+    const noisy = syntheticModel(64, 2, 96, 32, 33)
+    noisy.noiseB.fill(2.5) // expSigmoid(2.5) ~ 1.6 per band — a LOUD floor
+    const bank = new DdspModelBank()
+    bank.set('noisy', noisy)
+    const ctx: DspContext = { sampleRate: 48000, ddsp: bank }
+    const k = new DdspKernel({ model: 'noisy', release: 0.05, gain: 1 })
+    const sr = 48000
+    const out = run(k, ctx, sr, { gate: (i) => (i < sr / 4 ? 1 : 0) })
+    expect(rms(out, 0, sr / 4)).toBeGreaterThan(1e-3) // it does sound
+    expect(rms(out, (7 * sr) / 8, sr)).toBeLessThan(1e-5) // and truly stops
+  })
+})
+
 describe('DdspKernel perf sanity', () => {
   it('8 voices render faster than real time by a wide margin', () => {
     // Full-size architecture (H=128 L=3 G=192 K=64 J=65) with synthetic
@@ -529,7 +576,7 @@ function syntheticModel(H: number, L: number, G: number, K: number, J: number): 
   return {
     header: {
       name: 'big', license: 'CC0-1.0', provenance: 'synthetic', sampleRate: 48000,
-      hop: 512, nHarmonics: K, nNoise: J, hidden: H, layers: L, gru: G,
+      hop: 512, nHarmonics: K, nNoise: J, hidden: H, layers: L, gru: G, outNorm: 1,
     },
     inMlpF0: mlp(1),
     inMlpLd: mlp(1),

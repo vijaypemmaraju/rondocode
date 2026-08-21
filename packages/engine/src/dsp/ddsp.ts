@@ -21,6 +21,10 @@ export interface DdspHeader {
   hidden: number
   layers: number
   gru: number
+  /** per-model output calibration written at export: maps this model's forte
+   *  level onto the shared reference the default gain expects (absent in old
+   *  files = 1). Without it a model trained on a hot recording clips. */
+  outNorm: number
 }
 
 interface MlpLayer {
@@ -118,6 +122,10 @@ export function parseDdspModel(bytes: Uint8Array): DdspModel {
     hidden: intField(h, 'hidden', 1, 1024),
     layers: intField(h, 'layers', 1, 8),
     gru: intField(h, 'gru', 1, 1024),
+    outNorm:
+      typeof h['out_norm'] === 'number' && Number.isFinite(h['out_norm'])
+        ? clampNum(h['out_norm'] as number, 0.05, 20)
+        : 1,
   }
   // The noise ring buffer indexes with a mask, so the FIR length 2*(n_noise-1)
   // must be a power of two: n_noise is 2^m + 1 (65, 33, 9, ...).
@@ -761,6 +769,7 @@ export class DdspKernel implements Kernel {
     const dipDecay = Math.exp(-1 / (0.05 * sr))
     const intoneDecay = Math.exp(-1 / (0.45 * sr)) // players correct over ~half a second
     const settleDb = 2.5 * this.flow
+    const outGain = this.gain * (model.header.outNorm || 1) // || guards hand-built model objects
     let noiseX = this.noiseState
 
     for (let i = 0; i < n; i++) {
@@ -913,8 +922,12 @@ export class DdspKernel implements Kernel {
             ampsDelta[k] = (target2 - ampsCur[k]!) / hop
           }
           this.buildFir(decoder.noiseMags, rateRatio)
-          // air: scale the noise half against the harmonics (1 = as trained)
-          const airNow = clampNum(air[i]!, 0, 4)
+          // air: scale the noise half against the harmonics (1 = as trained),
+          // times the floor gate: below ~-45 dB conditioning a real
+          // instrument is silent, but the noise head reproduces the
+          // RECORDING's room floor there — every release would hiss.
+          const floorGate = clampNum((this.envDb + 75) / 30, 0, 1)
+          const airNow = clampNum(air[i]!, 0, 4) * floorGate
           if (airNow !== 1) {
             for (let t = 0; t < taps; t++) firNext[t] = firNext[t]! * airNow
           }
@@ -946,7 +959,7 @@ export class DdspKernel implements Kernel {
       ring[this.ringPos] = noiseX / 0x80000000 - 1
       for (let t = 0; t < taps; t++) acc += fir[t]! * ring[(this.ringPos - t + taps) & ringMask]!
       this.ringPos = (this.ringPos + 1) & ringMask
-      out[i] = acc * this.gain
+      out[i] = acc * outGain
       this.noteTime += 1 / sr
     }
     this.noiseState = noiseX

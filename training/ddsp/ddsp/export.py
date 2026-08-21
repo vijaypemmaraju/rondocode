@@ -14,6 +14,28 @@ MAGIC = b"RDSP"
 VERSION = 1
 
 
+FORTE_REF_SUM = 0.18  # model-scale harmonic sum the runtime's default gain expects
+
+
+def _out_norm(model: Decoder) -> float:
+    """Per-model output calibration: models reproduce their RECORDING's
+    absolute level, which varies wildly with the source material. The header
+    carries a normalizer that maps forte (f0 440, loudness -15 dB) onto a
+    fixed reference, so the kernel's default gain lands every instrument at
+    the same mixable level."""
+    was_training = model.training
+    model.eval()
+    with torch.no_grad():
+        f0 = torch.full((1, 30), 440.0)
+        ld = torch.full((1, 30), -15.0)
+        h = float(model(f0, ld)["harm_amps"][0, -1].sum())
+    if was_training:
+        model.train()
+    if h < 1e-6:
+        return 1.0
+    return max(0.05, min(20.0, FORTE_REF_SUM / h))
+
+
 def export_bin(
     model: Decoder, path: str, name: str, license_id: str, provenance: str
 ) -> None:
@@ -36,6 +58,7 @@ def export_bin(
         "hidden": model.hidden,
         "layers": model.layers,
         "gru": model.gru_size,
+        "out_norm": round(_out_norm(model), 5),
         "tensors": tensors,
     }
     hjson = json.dumps(header).encode("utf-8")

@@ -261,7 +261,7 @@ export interface SynthCtx {
    *  loudness input — dynamics change TIMBRE, not just gain — and `vib`
    *  (semitones) / `vibrate` (Hz) run the built-in delayed-onset vibrato.
    *  Config: `level` full-velocity loudness dB (def -15), `dyn` dB across
-   *  velocity (def 30), `gain` linear output makeup (def 12 — the model
+   *  velocity (def 30), `gain` linear output makeup (def 2 — the model
    *  reproduces the recording's absolute level, quiet next to oscillators),
    *  `attack`/`release` loudness envelope seconds (def 0.04/0.3), `seed` for
    *  the noise PRNG. Self-enveloping — no ADSR needed. */

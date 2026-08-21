@@ -260,11 +260,11 @@ describe('DdspKernel', () => {
     expect(peak).toBeLessThan(4) // exp_sigmoid caps model-scale output near 2
   })
 
-  it('gain is linear output makeup and defaults to 12', () => {
+  it('gain is linear output makeup and defaults to 2', () => {
     const unity = run(new DdspKernel({ model: 'fixture', gain: 1 }), mkCtx(), 8192)
     const dflt = run(new DdspKernel({ model: 'fixture' }), mkCtx(), 8192)
     for (let i = 4000; i < 4032; i++) {
-      expect(dflt[i]!).toBeCloseTo(unity[i]! * 12, 4)
+      expect(dflt[i]!).toBeCloseTo(unity[i]! * 2, 4)
     }
   })
 

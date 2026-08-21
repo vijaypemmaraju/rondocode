@@ -509,7 +509,7 @@ export interface DdspConfig {
   level?: number
   /** dB of loudness range across velocity 1 -> 0 (default 30) */
   dyn?: number
-  /** linear output makeup (default 12): the decoder reproduces the RECORDED
+  /** linear output makeup (default 2): the decoder reproduces the RECORDED
    *  absolute level (a solo instrument peaks ~0.03 full-scale), which is
    *  unmixable next to oscillators at ~1.0. Makeup lives OUTSIDE the model so
    *  the decoder's loudness conditioning stays in its trained scale. */
@@ -588,7 +588,7 @@ export class DdspKernel implements Kernel {
     this.modelName = typeof config.model === 'string' ? config.model : ''
     this.level = clampNum(config.level ?? -15, -60, 0)
     this.dyn = clampNum(config.dyn ?? 30, 0, 60)
-    this.gain = clampNum(config.gain ?? 12, 0, 64)
+    this.gain = clampNum(config.gain ?? 2, 0, 64)
     this.attack = clampNum(config.attack ?? 0.04, 0.001, 5)
     this.release = clampNum(config.release ?? 0.3, 0.005, 10)
     this.punch = clampNum(config.punch ?? 2.5, 0, 12)

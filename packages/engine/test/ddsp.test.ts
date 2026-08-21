@@ -181,7 +181,7 @@ const mkCtx = (): DspContext => {
 
 interface Drive {
   gate?: (i: number) => number
-  freq?: number
+  freq?: number | ((i: number) => number)
   vel?: number
   breath?: number
   vib?: number
@@ -202,7 +202,7 @@ const run = (k: DdspKernel, ctx: DspContext, n: number, d: Drive = {}, splits?: 
       len,
       {
         gate: mk(d.gate ?? (() => 1)),
-        freq: mk(() => d.freq ?? 220),
+        freq: mk(typeof d.freq === 'function' ? d.freq : () => (d.freq as number | undefined) ?? 220),
         vel: mk(() => d.vel ?? 1),
         breath: mk(() => d.breath ?? 0),
         vib: mk(() => d.vib ?? 0),
@@ -339,6 +339,30 @@ describe('DdspKernel', () => {
     expect(early(scooped)).toBeLessThan(early(straight) * 0.5)
     const late = (x: Float32Array): number => goertzel(x.subarray(sr / 4, sr / 2), 220, sr)
     expect(late(scooped)).toBeGreaterThan(late(straight) * 0.5)
+  })
+
+  it('legato (slurred bowing): a mid-gate pitch glide never re-attacks or clicks', () => {
+    // one "bow": gate high throughout, freq slides 220 -> 330 over the middle
+    const glide = (i: number): number => {
+      if (i < sr / 4) return 220
+      if (i > sr / 2) return 330
+      return 220 + (110 * (i - sr / 4)) / (sr / 4)
+    }
+    const k = new DdspKernel({ model: 'fixture', punch: 12 })
+    const out = run(k, mkCtx(), (3 * sr) / 4, { freq: glide, air: 0 })
+    // no re-attack: the punch accent only fires at the ONE gate edge, so the
+    // glide region's envelope stays continuous — no sample-to-sample jump
+    // bigger than the waveform's own slope anywhere after the attack settles
+    let maxStep = 0
+    for (let i = sr / 8; i < (3 * sr) / 4; i++) maxStep = Math.max(maxStep, Math.abs(out[i]! - out[i - 1]!))
+    let maxAmp = 0
+    for (let i = sr / 8; i < (3 * sr) / 4; i++) maxAmp = Math.max(maxAmp, Math.abs(out[i]!))
+    // a 330 Hz partial stack moves at most ~2*pi*f_max/sr of its amplitude per
+    // sample; a click would be an order of magnitude above this bound
+    expect(maxStep).toBeLessThan(maxAmp * 0.3)
+    // and the glide actually lands: end of render is pitched at 330, not 220
+    const tail = out.subarray(Math.round(0.6 * sr), Math.round(0.75 * sr))
+    expect(goertzel(tail, 330, sr)).toBeGreaterThan(goertzel(tail, 220, sr) * 3)
   })
 
   it('punch, fall and vibdelay all reach the audio', () => {

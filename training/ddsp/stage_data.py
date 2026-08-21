@@ -24,8 +24,12 @@ MEDLEY_CLIP_CAP = 900  # ~45 min per instrument
 # Medley-solos-DB instrument_id -> our model name
 MEDLEY_CLASSES = {3: "flute", 5: "tenorsax", 6: "trumpet", 7: "violin"}
 # TinySOL instrument folder -> our model name (ordinario only; alto sax skipped
-# so the tenorsax model stays a tenor)
-TINYSOL_INSTRUMENTS = {"Vn": "violin", "Fl": "flute", "TpC": "trumpet"}
+# so the tenorsax model stays a tenor). The low strings are TinySOL-only —
+# Medley-solos-DB has no viola/cello/contrabass class.
+TINYSOL_INSTRUMENTS = {
+    "Vn": "violin", "Fl": "flute", "TpC": "trumpet",
+    "Va": "viola", "Vc": "cello", "Cb": "bass",
+}
 
 
 def extract(archive: pathlib.Path, dest: pathlib.Path) -> None:

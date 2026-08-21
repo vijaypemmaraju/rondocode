@@ -16,7 +16,7 @@
  *  editor/rondo/enums.ts mirrors this list; ddsp-models.test.ts pins them
  *  together). The bank accepts user-loaded models under any name; this list
  *  is only what the CDN serves. */
-export const DDSP_MODELS = ['violin', 'flute', 'trumpet', 'tenorsax'] as const
+export const DDSP_MODELS = ['violin', 'viola', 'cello', 'bass', 'flute', 'trumpet', 'tenorsax'] as const
 
 const DEFAULT_BASE = 'https://models.rondocode.com/ddsp/v1'
 

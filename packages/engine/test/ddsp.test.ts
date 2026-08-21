@@ -341,7 +341,31 @@ describe('DdspKernel', () => {
     expect(late(scooped)).toBeGreaterThan(late(straight) * 0.5)
   })
 
-  it('legato (slurred bowing): a mid-gate pitch glide never re-attacks or clicks', () => {
+  it('legato: an INSTANT mid-gate pitch step never re-attacks, clicks or gaps', () => {
+    // true legato is a finger change, not a slide: pitch steps 220 -> 330 in
+    // one sample while the gate stays high (what pattern `slide` ties +
+    // glide 0 produce)
+    const step = (i: number): number => (i < sr / 3 ? 220 : 330)
+    const k = new DdspKernel({ model: 'fixture', punch: 12 })
+    const out = run(k, mkCtx(), (2 * sr) / 3, { freq: step, air: 0 })
+    let maxStep = 0
+    let maxAmp = 0
+    for (let i = sr / 8; i < (2 * sr) / 3; i++) {
+      maxStep = Math.max(maxStep, Math.abs(out[i]! - out[i - 1]!))
+      maxAmp = Math.max(maxAmp, Math.abs(out[i]!))
+    }
+    expect(maxStep).toBeLessThan(maxAmp * 0.3) // no click at the boundary
+    // no gap: the transition region keeps sounding (envelope never dips out)
+    const border = rms(out, Math.round(sr / 3) - 512, Math.round(sr / 3) + 512)
+    const steady = rms(out, sr / 6, sr / 4)
+    expect(border).toBeGreaterThan(steady * 0.4)
+    // and the new pitch is REACHED immediately (within one decoder hop):
+    // 15 ms after the step, energy sits at 330, not 220
+    const after = out.subarray(Math.round(sr / 3 + 0.015 * sr), Math.round(sr / 3 + 0.08 * sr))
+    expect(goertzel(after, 330, sr)).toBeGreaterThan(goertzel(after, 220, sr) * 2)
+  })
+
+  it('portamento (a separate thing from legato): a mid-gate pitch glide never re-attacks or clicks', () => {
     // one "bow": gate high throughout, freq slides 220 -> 330 over the middle
     const glide = (i: number): number => {
       if (i < sr / 4) return 220

@@ -7,7 +7,10 @@
  *     sounds, is pitched at the note (Goertzel at 220 Hz beats its
  *     inharmonic neighbours), and decays after release.
  *
- *   pnpm tsx scripts/verify-ddsp-model.ts training/ddsp/runs/violin/ddsp-violin.bin
+ *   pnpm tsx scripts/verify-ddsp-model.ts training/ddsp/runs/violin/ddsp-violin.bin [midiNote]
+ *
+ * midiNote defaults to 57 (A3, 220 Hz) — pass one inside the instrument's
+ * trained range (flute 69, bass 45).
  */
 import { readFileSync } from 'node:fs'
 import { parseDdspModel, DdspDecoder, renderOffline } from '../packages/engine/src/index'
@@ -65,11 +68,12 @@ const spec: GraphSpec = {
   params: [],
 }
 const sr = 48000
+const midi = Number(process.argv[3] ?? 57)
 const res = renderOffline(
   { graph: spec },
   [
-    { type: 'noteOn', time: 0.05, note: 57, velocity: 0.9 },
-    { type: 'noteOff', time: 1.55, note: 57 },
+    { type: 'noteOn', time: 0.05, note: midi, velocity: 0.9 },
+    { type: 'noteOff', time: 1.55, note: midi },
   ],
   3,
   { sampleRate: sr, ddspModels: { [model.header.name]: bytes } },
@@ -84,7 +88,7 @@ const rms = (from: number, to: number): number => {
 const sustained = mono.subarray(Math.round(0.6 * sr), Math.round(1.4 * sr))
 const sustainRms = rms(Math.round(0.6 * sr), Math.round(1.4 * sr))
 check('sounds while held', sustainRms > 1e-3, `sustain rms ${sustainRms}`)
-const f0 = 220 // A3 = midi 57
+const f0 = 440 * Math.pow(2, (midi - 69) / 12)
 const atF0 = goertzel(sustained, f0, sr) + goertzel(sustained, 2 * f0, sr) + goertzel(sustained, 3 * f0, sr)
 const off = goertzel(sustained, f0 * 1.26, sr) + goertzel(sustained, f0 * 2.24, sr) + goertzel(sustained, f0 * 3.36, sr)
 check('pitched at the note', atF0 > off * 4, `harmonic power ${atF0} vs inharmonic ${off}`)

@@ -20,6 +20,20 @@ from ddsp.model import Decoder
 from ddsp.synth import TrainableReverb, render
 
 
+def frame_loudness_mae_db(dry: torch.Tensor, target: torch.Tensor, hop: int) -> torch.Tensor:
+    """Frame-RMS loudness gap in dB between the DRY render and the target.
+    The shipped model is the dry half, so the level must live there — the
+    spectral loss alone lets the learned reverb carry it (see TrainableReverb).
+    """
+    b, n = dry.shape
+    frames = n // hop
+    d = dry[:, : frames * hop].reshape(b, frames, hop)
+    t = target[:, : frames * hop].reshape(b, frames, hop)
+    ld_d = 10.0 * torch.log10(d.pow(2).mean(dim=-1) + 1e-8)
+    ld_t = 10.0 * torch.log10(t.pow(2).mean(dim=-1) + 1e-8)
+    return (ld_d - ld_t).abs().mean()
+
+
 def pick_device(arg: str | None) -> str:
     if arg:
         return arg
@@ -101,7 +115,8 @@ def main() -> None:
                 f0, out["harm_amps"], out["noise_mags"], cfg["sample_rate"], cfg["hop"]
             )
             wet = reverb(dry)
-            loss = multiscale_stft_loss(wet, target)
+            ld_gap = frame_loudness_mae_db(dry, target, cfg["hop"])
+            loss = multiscale_stft_loss(wet, target) + cfg.get("ld_weight", 0.1) * ld_gap
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, 3.0)
@@ -111,7 +126,8 @@ def main() -> None:
             if step % 100 == 0:
                 rec = {
                     "step": step,
-                    "loss": round(float(loss), 4),
+                    "loss": round(float(loss.detach()), 4),
+                    "ld_mae_db": round(float(ld_gap.detach()), 2),
                     "lr": sched.get_last_lr()[0],
                     "sec": round(time.time() - t0, 1),
                 }
@@ -130,8 +146,8 @@ def main() -> None:
                     latest,
                 )
                 if eval_ds is not None:
-                    ev = evaluate(model, eval_ds, cfg, device)
-                    rec = {"step": step, "eval_loss": round(ev, 4)}
+                    ev, ev_ld = evaluate(model, reverb, eval_ds, cfg, device)
+                    rec = {"step": step, "eval_loss": round(ev, 4), "eval_ld_mae_db": round(ev_ld, 2)}
                     print(rec)
                     log.write(json.dumps(rec) + "\n")
                     log.flush()
@@ -146,9 +162,13 @@ def main() -> None:
 
 
 @torch.no_grad()
-def evaluate(model: Decoder, eval_ds, cfg: dict, device: str) -> float:
+def evaluate(model: Decoder, reverb: TrainableReverb, eval_ds, cfg: dict, device: str) -> tuple[float, float]:
+    """Held-out spectral loss THROUGH the learned reverb (comparing dry to a
+    roomy recording penalizes the model for getting drier — the goal), plus
+    the dry-render loudness gap (which is what the shipped half must hold)."""
     model.eval()
     total = 0.0
+    total_ld = 0.0
     for i in range(len(eval_ds)):
         b = eval_ds[i]
         f0 = b["f0"].unsqueeze(0).to(device)
@@ -158,9 +178,10 @@ def evaluate(model: Decoder, eval_ds, cfg: dict, device: str) -> float:
         dry = render(
             f0, out["harm_amps"], out["noise_mags"], cfg["sample_rate"], cfg["hop"]
         )
-        total += float(multiscale_stft_loss(dry, target))
+        total += float(multiscale_stft_loss(reverb(dry), target))
+        total_ld += float(frame_loudness_mae_db(dry, target, cfg["hop"]))
     model.train()
-    return total / len(eval_ds)
+    return total / len(eval_ds), total_ld / len(eval_ds)
 
 
 if __name__ == "__main__":

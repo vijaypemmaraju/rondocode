@@ -107,6 +107,12 @@ class TrainableReverb(torch.nn.Module):
     def forward(self, dry: torch.Tensor) -> torch.Tensor:
         ir = self.ir.clone()
         ir = torch.cat([ir.new_zeros(1), ir[1:]])  # no dry-path leakage
+        # A room REFLECTS, it does not amplify: cap the IR energy at 1 so the
+        # dry path must carry the level. Unconstrained, one training run
+        # parked +17 dB of gain here (IR energy 51) and the shipped dry model
+        # whispered ~29 dB under the recordings.
+        energy = ir.pow(2).sum()
+        ir = ir * torch.clamp(torch.rsqrt(energy + 1e-12), max=1.0)
         n = dry.shape[-1] + ir.shape[-1]
         n_fft = 1
         while n_fft < n:

@@ -341,10 +341,11 @@ describe('DdspKernel', () => {
     expect(late(scooped)).toBeGreaterThan(late(straight) * 0.5)
   })
 
-  it('legato: an INSTANT mid-gate pitch step never re-attacks, clicks or gaps', () => {
-    // true legato is a finger change, not a slide: pitch steps 220 -> 330 in
-    // one sample while the gate stays high (what pattern `slide` ties +
-    // glide 0 produce)
+  it('legato: a mid-gate pitch step never re-attacks, clicks or gaps, and FLOWS', () => {
+    // true legato is a finger change: pitch steps 220 -> 330 in one sample
+    // while the gate stays high. With flow (default), the voice follows a
+    // ~28 ms in-distribution transition — too short to hear as a slide, long
+    // enough that the decoder produces the note-change sound it learned.
     const step = (i: number): number => (i < sr / 3 ? 220 : 330)
     const k = new DdspKernel({ model: 'fixture', punch: 12 })
     const out = run(k, mkCtx(), (2 * sr) / 3, { freq: step, air: 0 })
@@ -355,14 +356,25 @@ describe('DdspKernel', () => {
       maxAmp = Math.max(maxAmp, Math.abs(out[i]!))
     }
     expect(maxStep).toBeLessThan(maxAmp * 0.3) // no click at the boundary
-    // no gap: the transition region keeps sounding (envelope never dips out)
+    // no gap: the boundary keeps sounding through the flow dip (-3.5 dB)
     const border = rms(out, Math.round(sr / 3) - 512, Math.round(sr / 3) + 512)
     const steady = rms(out, sr / 6, sr / 4)
     expect(border).toBeGreaterThan(steady * 0.4)
-    // and the new pitch is REACHED immediately (within one decoder hop):
-    // 15 ms after the step, energy sits at 330, not 220
+    // mid-transition (5-20 ms in) the pitch is still MOVING, not yet at 330...
+    const during = out.subarray(Math.round(sr / 3 + 0.005 * sr), Math.round(sr / 3 + 0.02 * sr))
+    const settled = out.subarray(Math.round(sr / 3 + 0.06 * sr), Math.round(sr / 3 + 0.16 * sr))
+    expect(goertzel(during, 330, sr) / during.length).toBeLessThan(goertzel(settled, 330, sr) / settled.length)
+    // ...and by 60 ms the note has arrived
+    expect(goertzel(settled, 330, sr)).toBeGreaterThan(goertzel(settled, 220, sr) * 2)
+  })
+
+  it('flow: 0 disables the transition — the step lands within one decoder hop', () => {
+    const step = (i: number): number => (i < sr / 3 ? 220 : 330)
+    const k = new DdspKernel({ model: 'fixture', flow: 0 })
+    const out = run(k, mkCtx(), (2 * sr) / 3, { freq: step, air: 0 })
     const after = out.subarray(Math.round(sr / 3 + 0.015 * sr), Math.round(sr / 3 + 0.08 * sr))
     expect(goertzel(after, 330, sr)).toBeGreaterThan(goertzel(after, 220, sr) * 2)
+    for (const v of out) expect(Number.isFinite(v)).toBe(true)
   })
 
   it('portamento (a separate thing from legato): a mid-gate pitch glide never re-attacks or clicks', () => {

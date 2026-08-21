@@ -95,7 +95,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     named: {
       breath: 'sig', vib: 'sig', vibrate: 'sig', vel: 'sig',
       air: 'sig', bright: 'sig', scoop: 'sig', fall: 'sig',
-      level: 'num', dyn: 'num', gain: 'num', attack: 'num', release: 'num', punch: 'num', vibdelay: 'num', seed: 'num',
+      level: 'num', dyn: 'num', gain: 'num', attack: 'num', release: 'num', punch: 'num', vibdelay: 'num', flow: 'num', seed: 'num',
     },
   },
   // breakpoint envelope — flat time/level pairs, special-parsed (variadic):

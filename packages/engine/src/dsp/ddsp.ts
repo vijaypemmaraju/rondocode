@@ -791,6 +791,15 @@ export class DdspKernel implements Kernel {
     const dipDecayFor = (ioi: number): number => Math.exp(-1 / (Math.min(0.05, ioi / 5) * sr))
     const intoneDecay = Math.exp(-1 / (0.45 * sr)) // players correct over ~half a second
     const settleDb = 2.5 * this.flow
+    // ONSET TEXTURE: a bowed/blown attack is not a quiet sustain — it is
+    // noise-dominated (bow scratch, breath chiff) with harmonics blooming
+    // from the bottom up. The decoder cannot know a frame is an onset
+    // (loudness-only conditioning), so the articulation layer reshapes its
+    // outputs: noise boosted and top harmonics held back, both decaying over
+    // the first tens of ms. The noise SPECTRUM stays the model's own, so a
+    // cello scratches like a cello and a flute chiffs like a flute.
+    const onsetAirTau = 0.035
+    const onsetBloomTau = 0.06
     const outGain = this.gain * (model.header.outNorm || 1) // || guards hand-built model objects
     let noiseX = this.noiseState
 
@@ -943,8 +952,11 @@ export class DdspKernel implements Kernel {
           // trajectory looking like the performances it learned from
           const settle = -settleDb * (1 - Math.exp(-this.noteTime / 1.2))
           decoder.step(f0, this.envDb + this.dipDb + settle)
-          // bright: loudness-preserving spectral tilt of the harmonic set
-          const b = clampNum(bright[i]!, -3, 3)
+          // bright: loudness-preserving spectral tilt of the harmonic set,
+          // plus the onset bloom (top partials arrive late on real attacks)
+          const onsetT = this.noteTime
+          const bloom = this.flow * 0.45 * Math.exp(-onsetT / onsetBloomTau)
+          const b = clampNum(bright[i]!, -3, 3) - bloom
           if (b !== 0) {
             let sum0 = 0
             let sumW = 0
@@ -970,7 +982,8 @@ export class DdspKernel implements Kernel {
           // instrument is silent, but the noise head reproduces the
           // RECORDING's room floor there — every release would hiss.
           const floorGate = clampNum((this.envDb + 75) / 30, 0, 1)
-          const airNow = clampNum(air[i]!, 0, 4) * floorGate
+          const scratch = 1 + this.flow * 1.4 * Math.exp(-onsetT / onsetAirTau)
+          const airNow = clampNum(air[i]!, 0, 4) * floorGate * scratch
           if (airNow !== 1) {
             for (let t = 0; t < taps; t++) firNext[t] = firNext[t]! * airNow
           }

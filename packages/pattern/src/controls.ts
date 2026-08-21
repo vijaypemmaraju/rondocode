@@ -3,6 +3,8 @@ import { MiniError, miniParse, mini, n as nTag } from './mini'
 import type { Loc } from './mini'
 import { noteNameToMidi, parseScaleName, scaleDegree } from './scales'
 import { timeHash } from './rand'
+import { TimeSpan, hasOnset } from './types'
+import { Fraction } from './fraction'
 // Side-effect import: the control methods below extend the same prototype
 // the combinators install onto; keep the module initialized first.
 import './combinators'
@@ -314,6 +316,21 @@ declare module './pattern' {
      *  into the next one so the next note glides in (needs a mono + glide
      *  synth). e.g. note('a2 c3 e3 c3').slide('0 1 0 1') slides into c3 and c3. */
     slide(this: Pattern<ControlMap>, x: ControlValue): Pattern<ControlMap>
+    /** SMART BOWING: derive per-note slide ties from the note content, the
+     *  way a string player slurs. A note ties into the next only when the
+     *  next starts EXACTLY where this one ends (a rest breaks the phrase)
+     *  and carries a DIFFERENT pitch — a slide tie between identical pitches
+     *  erases the boundary entirely (no gate edge, no pitch change: the
+     *  synth cannot know a new note happened), which is also why a player
+     *  re-articulates repeated notes even under a slur. `prob` (default 0.8)
+     *  is the chance a tieable boundary actually ties, drawn deterministically
+     *  from the boundary's exact time, so bow lengths vary but re-renders are
+     *  bit-identical (mean slur ~= 1/(1-prob) notes). Events that already
+     *  carry a slide value are left untouched, so explicit `.slide()` wins.
+     *  Patterns LOOP, so a cycle's last note ties into the next cycle's
+     *  first — end the phrase with a rest to breathe. Needs a mono voice to
+     *  sound tied, like slide itself. */
+    slur(this: Pattern<ControlMap>, prob?: number, seed?: number): Pattern<ControlMap>
     /** ctrl('cutoff', x): filter cutoff synth param. */
     cutoff(this: Pattern<ControlMap>, x: ControlValue): Pattern<ControlMap>
     /** ctrl('res', x): filter resonance synth param. */
@@ -434,6 +451,40 @@ Pattern.prototype.gain = ctrlAlias('gain')
 Pattern.prototype.pan = ctrlAlias('pan')
 Pattern.prototype.dur = ctrlAlias('dur')
 Pattern.prototype.slide = ctrlAlias('slide')
+
+/** Draw stream for slur bow-length variety; distinct from humanize (46) and
+ *  the shared seed-0 chance stream, for the reason humanizeBy documents. */
+const SLUR_SEED = 71
+const SLUR_EPS = new Fraction(1, 4096)
+
+Pattern.prototype.slur = function (
+  this: Pattern<ControlMap>,
+  prob = 0.8,
+  seed: number = SLUR_SEED,
+): Pattern<ControlMap> {
+  const src = this
+  return new Pattern<ControlMap>((span) =>
+    src.query(span).map((h) => {
+      if (!hasOnset(h) || h.whole === undefined || typeof h.value.note !== 'number') return h
+      if (h.value.slide !== undefined) return h // explicit slide wins
+      const end = h.whole.end
+      // the note (or notes — a chord is several haps) starting exactly at
+      // this note's end; a gap of any size means the phrase breathes
+      const nexts = src
+        .query(new TimeSpan(end, end.add(SLUR_EPS)))
+        .filter(
+          (x) =>
+            x.whole !== undefined && x.whole.begin.eq(end) && hasOnset(x) && typeof x.value.note === 'number',
+        )
+      const tie =
+        nexts.length > 0 &&
+        nexts.every((x) => x.value.note !== h.value.note) &&
+        timeHash(end, seed) < prob
+      if (!tie) return h
+      return { ...h, value: { ...h.value, slide: 1 } }
+    }),
+  )
+}
 Pattern.prototype.cutoff = ctrlAlias('cutoff')
 Pattern.prototype.res = ctrlAlias('res')
 

@@ -504,10 +504,16 @@ export function ddspCosBasis(J: number): Float32Array {
 export interface DdspConfig {
   /** model name resolved against the shared bank each block */
   model?: string
-  /** peak loudness in dB fed to the decoder at full velocity (default -30) */
+  /** loudness in dB fed to the decoder at full velocity (default -15 — forte
+   *  in the calibrated training scale, where 0 dB is a full-scale sine) */
   level?: number
   /** dB of loudness range across velocity 1 -> 0 (default 30) */
   dyn?: number
+  /** linear output makeup (default 12): the decoder reproduces the RECORDED
+   *  absolute level (a solo instrument peaks ~0.03 full-scale), which is
+   *  unmixable next to oscillators at ~1.0. Makeup lives OUTSIDE the model so
+   *  the decoder's loudness conditioning stays in its trained scale. */
+  gain?: number
   /** loudness attack time constant, seconds (default 0.04) */
   attack?: number
   /** loudness release time constant, seconds (default 0.3) */
@@ -532,6 +538,7 @@ export class DdspKernel implements Kernel {
   private readonly modelName: string
   private readonly level: number
   private readonly dyn: number
+  private readonly gain: number
   private readonly attack: number
   private readonly release: number
   private readonly seed: number
@@ -558,8 +565,9 @@ export class DdspKernel implements Kernel {
 
   constructor(config: DdspConfig = {}, _ctx?: DspContext) {
     this.modelName = typeof config.model === 'string' ? config.model : ''
-    this.level = clampNum(config.level ?? -30, -60, 0)
+    this.level = clampNum(config.level ?? -15, -60, 0)
     this.dyn = clampNum(config.dyn ?? 30, 0, 60)
+    this.gain = clampNum(config.gain ?? 12, 0, 64)
     this.attack = clampNum(config.attack ?? 0.04, 0.001, 5)
     this.release = clampNum(config.release ?? 0.3, 0.005, 10)
     this.seed = ((config.seed ?? 0x2f6e2b1) >>> 0) || 1
@@ -717,7 +725,7 @@ export class DdspKernel implements Kernel {
       ring[this.ringPos] = noiseX / 0x80000000 - 1
       for (let t = 0; t < taps; t++) acc += fir[t]! * ring[(this.ringPos - t + taps) & ringMask]!
       this.ringPos = (this.ringPos + 1) & ringMask
-      out[i] = acc
+      out[i] = acc * this.gain
       this.noteTime += 1 / sr
     }
     this.noiseState = noiseX

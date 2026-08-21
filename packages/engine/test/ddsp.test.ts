@@ -239,16 +239,24 @@ describe('DdspKernel', () => {
     expect(rms(run(k, ctx, 4096))).toBeGreaterThan(1e-4)
   })
 
-  it('renders finite, bounded audio while gated', () => {
-    const k = new DdspKernel({ model: 'fixture' })
+  it('renders finite, bounded audio while gated (unity makeup)', () => {
+    const k = new DdspKernel({ model: 'fixture', gain: 1 })
     const out = run(k, mkCtx(), sr)
     let peak = 0
     for (const v of out) {
       expect(Number.isFinite(v)).toBe(true)
       peak = Math.max(peak, Math.abs(v))
     }
-    expect(peak).toBeGreaterThan(1e-4)
-    expect(peak).toBeLessThan(4)
+    expect(peak).toBeGreaterThan(1e-5)
+    expect(peak).toBeLessThan(4) // exp_sigmoid caps model-scale output near 2
+  })
+
+  it('gain is linear output makeup and defaults to 12', () => {
+    const unity = run(new DdspKernel({ model: 'fixture', gain: 1 }), mkCtx(), 8192)
+    const dflt = run(new DdspKernel({ model: 'fixture' }), mkCtx(), 8192)
+    for (let i = 4000; i < 4032; i++) {
+      expect(dflt[i]!).toBeCloseTo(unity[i]! * 12, 4)
+    }
   })
 
   it('decays to silence after the gate drops', () => {

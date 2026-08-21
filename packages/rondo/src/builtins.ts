@@ -92,7 +92,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   // loudness offset (dB, drives TIMBRE), vib/vibrate the built-in vibrato.
   ddsp: {
     kind: 'gated', pos: ['enum'],
-    named: { breath: 'sig', vib: 'sig', vibrate: 'sig', vel: 'sig', level: 'num', dyn: 'num', attack: 'num', release: 'num', seed: 'num' },
+    named: { breath: 'sig', vib: 'sig', vibrate: 'sig', vel: 'sig', level: 'num', dyn: 'num', gain: 'num', attack: 'num', release: 'num', seed: 'num' },
   },
   // breakpoint envelope — flat time/level pairs, special-parsed (variadic):
   // `e = env .005 1 .15 .4 .5 .6 release:.3 curve:3 loop:1`

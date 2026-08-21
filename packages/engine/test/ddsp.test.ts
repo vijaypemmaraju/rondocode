@@ -573,6 +573,29 @@ describe('tempo-adaptive articulation', () => {
   })
 })
 
+describe('onset texture', () => {
+  it('the onset noise boost is real: scratch on vs off at the same window', () => {
+    const sr = 48000
+    // identical drive; only flow (which scales the scratch) differs. The
+    // fixture's random loudness->spectrum map makes early-vs-late
+    // comparisons meaningless, so compare the SAME early window instead.
+    const on = run(new DdspKernel({ model: 'fixture', attack: 0.01 }), mkCtx(), sr, { air: 1 })
+    const off = run(new DdspKernel({ model: 'fixture', attack: 0.01, flow: 0 }), mkCtx(), sr, { air: 1 })
+    const w = Math.round(0.04 * sr)
+    const from = Math.round(0.004 * sr)
+    // 301 Hz sits between the fundamental and 2nd harmonic: noise-dominated
+    const noiseOn = goertzel(on.subarray(from, from + w), 301, sr)
+    const noiseOff = goertzel(off.subarray(from, from + w), 301, sr)
+    expect(noiseOn).toBeGreaterThan(noiseOff * 1.8)
+    // and the boost is gone by half a second (same comparison, late window)
+    const lateFrom = Math.round(0.5 * sr)
+    const lateOn = goertzel(on.subarray(lateFrom, lateFrom + w), 301, sr)
+    const lateOff = goertzel(off.subarray(lateFrom, lateFrom + w), 301, sr)
+    expect(lateOn).toBeLessThan(lateOff * 1.5)
+    expect(lateOn).toBeGreaterThan(lateOff * 0.5)
+  })
+})
+
 describe('DdspKernel perf sanity', () => {
   it('8 voices render faster than real time by a wide margin', () => {
     // Full-size architecture (H=128 L=3 G=192 K=64 J=65) with synthetic

@@ -20,6 +20,7 @@ import { miniNotationHighlight } from './mininotation'
 import { patRefHighlight } from './rondo/patrefs'
 import { rondocodeCompletionSource } from './complete'
 import { wgslHighlight, wgslCompletionSource } from './wgsl'
+import { rondoJsHighlight } from './jsblocks'
 import { gotoDefExtension } from './gotodef'
 import { noteHover } from './notehover'
 import { dslHover } from './hover'
@@ -130,6 +131,7 @@ export function codeEditingExtensions(opts: CodeEditingOpts): Extension[] {
         ? opts.completionCompartment.of(rondocodeAutocomplete)
         : rondocodeAutocomplete,
     wgslHighlight(), // WGSL syntax highlighting inside visual(`…`) templates
+    rondoJsHighlight(), // real JS highlighting inside rondo js blocks / js{ … } spans
     dslHover, // hover a DSL symbol → its docs
     noteHover(), // hover a note/chord → a piano-keyboard hovercard
     gotoDefExtension(), // Cmd/Ctrl-click a symbol → jump to its definition

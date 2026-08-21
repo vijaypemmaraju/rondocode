@@ -41,7 +41,7 @@ const num = (v: number): string => String(v)
 export const KNOWN_CTX = [
   'note', 'gate', 'velocity', 'param', 'input',
   'sine', 'cosine', 'saw', 'square', 'tri', 'pulse', 'syncsaw', 'fm', 'wavetable', 'supersaw', 'lfsr', 'noise',
-  'sample', 'granular', 'pluck', 'modal', 'pan',
+  'sample', 'granular', 'pluck', 'modal', 'ddsp', 'pan',
   'svf', 'dualsvf', 'ladder', 'onepole', 'adsr', 'env', 'lfo', 'mic',
   'delay', 'reverb', 'chorus', 'comb', 'shape', 'compress', 'noisegate', 'deess', 'follow', 'pitchshift', 'convolve', 'tape', 'limiter', 'phaser', 'formant', 'vocoder',
   'width', 'transient', 'flanger',

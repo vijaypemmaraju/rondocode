@@ -129,6 +129,14 @@ export type EngineMessage = (
   /** Drop a custom wavetable. Synths still referencing it keep playing their
    *  last resolved bank; re-DEFINING such a synth then fails (unknown name). */
   | { kind: 'clearWavetable'; name: string }
+  /** Load (or REPLACE) a trained DDSP instrument model under `name`, available
+   *  to any synth's ddsp node. `data` is an RDSP .bin (training/ddsp/SPEC.md);
+   *  parsing and validation happen in the handler, so a malformed file becomes
+   *  an error event, never an audio-thread throw. Control-plane op; ddsp
+   *  kernels re-resolve the name per block, so a load is heard live. */
+  | { kind: 'loadDdspModel'; name: string; data: Uint8Array }
+  /** Drop a loaded ddsp model; synths referencing `name` fall back to silence. */
+  | { kind: 'clearDdspModel'; name: string }
   /** MASTER GLUE COMPRESSOR: a stereo-linked feed-forward compressor on the
    *  master bus, after master gain and before the limiter. All fields optional
    *  with compressor defaults (threshold -18 dB, ratio 4, attack 10 ms, release

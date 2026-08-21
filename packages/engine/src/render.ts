@@ -4,6 +4,7 @@ import { VoicePool } from './voice'
 import { PostChain } from './post'
 import { SampleBank } from './samples'
 import { WavetableBank } from './dsp/wavetable'
+import { DdspModelBank, parseDdspModelCached } from './dsp/ddsp'
 import type { DspContext } from './dsp/types'
 import { DEFAULT_CPS } from './dsp/util'
 
@@ -73,6 +74,12 @@ export interface RenderOptions {
    *  (which shares this realm), so a render right after an eval sees the
    *  eval's tables — pass this explicitly for isolated/deterministic renders. */
   wavetables?: Record<string, number[][]>
+  /** Trained DDSP instrument models available to ddsp(...) nodes, keyed by
+   *  name. Raw RDSP .bin bytes (training/ddsp/SPEC.md); parsing is memoized
+   *  per buffer, so passing the same cache to many renders parses once.
+   *  A malformed file throws here (control plane), matching the live
+   *  engine's loadDdspModel validation. */
+  ddspModels?: Record<string, Uint8Array>
 }
 
 /** Sort rank for events landing on the same SAMPLE (ordering happens in the
@@ -164,6 +171,11 @@ export function renderOffline(
     const wtBank = new WavetableBank()
     for (const [name, frames] of Object.entries(opts.wavetables)) wtBank.set(name, frames)
     ctx.wavetables = wtBank
+  }
+  if (opts?.ddspModels !== undefined) {
+    const ddspBank = new DdspModelBank()
+    for (const [name, bytes] of Object.entries(opts.ddspModels)) ddspBank.set(name, parseDdspModelCached(bytes))
+    ctx.ddsp = ddspBank
   }
   /* Live input. The graph reads ctx.mic as ONE shared block, so this is
    * refilled from the supplied signal before every chunk — exactly how the

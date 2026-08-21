@@ -61,6 +61,11 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   shape: { named: { type: ['soft', 'hard', 'sine', 'tube'] } },
   // physical.ts MODAL_MODELS keys
   modal: { named: { model: ['bell', 'bar', 'drum', 'glass', 'piano'] } },
+  // the SHIPPED ddsp instrument models (audio/ddspModels.ts DDSP_MODELS —
+  // ddsp-models.test.ts pins the two lists together). The bank also accepts
+  // user-loaded models by any name, so this list is a cycle of the built-ins,
+  // not a validation.
+  ddsp: { pos: [['violin', 'viola', 'cello', 'bass', 'flute', 'trumpet', 'tenorsax']] },
   // width.ts MODE_DELAY keys (the decorrelation delay: 12 ms vs 3 ms)
   width: { pos: [null], named: { mode: ['wide', 'tight'] } },
   // wavetable.ts WAVETABLE_WARPS; table gets doc wavedefs appended at scan

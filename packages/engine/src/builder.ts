@@ -253,6 +253,50 @@ export interface SynthCtx {
       keyScale?: number
     },
   ): Sig
+  /** DDSP NEURAL INSTRUMENT: a trained decoder (violin, flute, trumpet, ...)
+   *  drives an additive + noise renderer. `model` names a model in the shared
+   *  bank (loaded via loadDdspModel; silence until it arrives — live-load,
+   *  like samples). Pitch tracks the note and loudness follows the voice
+   *  velocity unless overridden. `breath` (dB, sig) steers the decoder's
+   *  loudness input — dynamics change TIMBRE, not just gain — and `vib`
+   *  (semitones) / `vibrate` (Hz) run the built-in delayed-onset vibrato.
+   *  Config: `level` full-velocity loudness dB (def -15), `dyn` dB across
+   *  velocity (def 30), `gain` linear output makeup (def 2 — the model
+   *  reproduces the recording's absolute level, quiet next to oscillators),
+   *  `attack`/`release` loudness envelope seconds (def 0.04/0.3), `seed` for
+   *  the noise PRNG. Self-enveloping — no ADSR needed. */
+  ddsp(
+    gate: SigIn,
+    model: string,
+    opts?: {
+      freq?: SigIn
+      vel?: SigIn
+      breath?: SigIn
+      vib?: SigIn
+      vibrate?: SigIn
+      /** noise-vs-harmonic balance (sig): 1 = as trained, 0 = pure harmonics,
+       *  2 = double breath/bow noise. The two halves are separate until the
+       *  final sum, so this is free. */
+      air?: SigIn
+      /** loudness-preserving spectral tilt (sig, -3..3): positive leans on the
+       *  upper harmonics (bow pressure / brighter embouchure), 0 = as trained. */
+      bright?: SigIn
+      /** semitones approached from below at note-on, gliding up over ~80 ms */
+      scoop?: SigIn
+      /** semitones dropped over ~120 ms at release */
+      fall?: SigIn
+      level?: number
+      dyn?: number
+      gain?: number
+      attack?: number
+      release?: number
+      /** dB of decoder-side attack accent at each retrigger (def 2.5) */
+      punch?: number
+      /** seconds before vibrato reaches full depth (def 0.6) */
+      vibdelay?: number
+      seed?: number
+    },
+  ): Sig
   svf(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn; mode?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   ladder(inp: SigIn, cutoff: SigIn, opts?: { res?: SigIn }): Sig
   onepole(inp: SigIn, cutoff: SigIn): Sig
@@ -1078,10 +1122,11 @@ const makeCtx = (b: Builder): SynthCtx => {
   const src = (x: SigIn, what: string): InputSource => b.src(x, what)
   const shared = makeShared(b)
   const noteFreq = b.node('notefreq', {})
+  const velocity = b.node('velocity', {})
   return {
     note: { freq: noteFreq },
     gate: b.node('gate', {}),
-    velocity: b.node('velocity', {}),
+    velocity,
 
     param: shared.param,
     svf: shared.svf,
@@ -1237,6 +1282,37 @@ const makeCtx = (b: Builder): SynthCtx => {
           keyScale: opts?.keyScale,
         }),
       ),
+
+    ddsp: (gate, model, opts) => {
+      const inputs: Record<string, InputSource> = {
+        gate: src(gate, 'ddsp gate'),
+        // pitch and dynamics track the note unless the caller rewires them
+        freq: src(opts?.freq ?? noteFreq, 'ddsp freq'),
+        vel: src(opts?.vel ?? velocity, 'ddsp vel'),
+      }
+      if (opts?.breath !== undefined) inputs['breath'] = src(opts.breath, 'ddsp breath')
+      if (opts?.vib !== undefined) inputs['vib'] = src(opts.vib, 'ddsp vib')
+      if (opts?.vibrate !== undefined) inputs['vibrate'] = src(opts.vibrate, 'ddsp vibrate')
+      if (opts?.air !== undefined) inputs['air'] = src(opts.air, 'ddsp air')
+      if (opts?.bright !== undefined) inputs['bright'] = src(opts.bright, 'ddsp bright')
+      if (opts?.scoop !== undefined) inputs['scoop'] = src(opts.scoop, 'ddsp scoop')
+      if (opts?.fall !== undefined) inputs['fall'] = src(opts.fall, 'ddsp fall')
+      return b.node(
+        'ddsp',
+        inputs,
+        definedConfig({
+          model,
+          level: opts?.level,
+          dyn: opts?.dyn,
+          gain: opts?.gain,
+          attack: opts?.attack,
+          release: opts?.release,
+          punch: opts?.punch,
+          vibdelay: opts?.vibdelay,
+          seed: opts?.seed,
+        }),
+      )
+    },
 
     adsr: (gate, opts) =>
       b.node('adsr', {

@@ -10,6 +10,7 @@ import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
  *  rebuilds are debounced to fire once movement settles. Constant-only changes
  *  bypass this entirely (patchConstants, applied immediately/continuously). */
 export const REBUILD_DEBOUNCE_MS = 120
+import { ensureDdspModels, ddspModelNamesInGraph } from '../audio/ddspModels'
 import { clampCps, evalCode } from './evalCode'
 import type { Diagnostic, EvalResult } from './evalCode'
 import { baseScope } from './scope'
@@ -740,8 +741,22 @@ export class Session {
     this.audio.send({ kind: 'setCps', cps })
   }
 
+  /** ddsp model names already posted to THIS engine instance, so re-evals
+   *  don't re-clone ~1 MB of weights per eval. The worklet bank keeps them
+   *  for the AudioSession's lifetime, which the Session shares. */
+  private readonly ddspDelivered = new Set<string>()
+
   /** Send defineSynth NOW and record it as the live def/fingerprint. */
   private defineSynthNow(name: string, def: SynthDef, json: string): void {
+    // Lazy-fetch any shipped ddsp models this graph names (silence until the
+    // bytes land, then the kernel resolves them per block — sample contract).
+    ensureDdspModels(
+      ddspModelNamesInGraph(def.graph).filter((m) => !this.ddspDelivered.has(m)),
+      (model, bytes) => {
+        this.ddspDelivered.add(model)
+        this.audio.send({ kind: 'loadDdspModel', name: model, data: bytes })
+      },
+    )
     const msg: Extract<EngineMessage, { kind: 'defineSynth' }> = { kind: 'defineSynth', name, graph: def.graph }
     if (def.post !== undefined) msg.post = def.post
     if (def.voiceOpts !== undefined) msg.voiceOpts = def.voiceOpts

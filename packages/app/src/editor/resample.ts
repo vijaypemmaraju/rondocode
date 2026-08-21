@@ -3,6 +3,7 @@ import { stageCode, runPatterns, renderMix, mixOptsFor } from '../../../server/s
 import type { MixStem } from '../../../server/src/render-runner'
 import type { RenderEvent } from '@rondocode/engine'
 import { normalize, toMono } from './micrec'
+import { loadedDdspModels } from '../audio/ddspModels'
 
 /* RESAMPLE TO LOOP: bounce N cycles of the staged track back into the sample
  * bank as a named take, then chop/loop it like any sample. Compose something
@@ -93,6 +94,7 @@ export function renderStagedMix(
   const durationSec = cycles / cps + (opts?.tailSec ?? 0)
   const events = runPatterns(staged.patterns, { cycles, cps })
   const tables = getCustomWavetables()
+  const ddspModels = loadedDdspModels()
   const mix = renderMix(staged.synths, events, durationSec, mixOptsFor(staged, {
     sampleRate: opts?.sampleRate ?? 48000,
     // The tempo the events were scheduled at: `sync` lfo/delay nodes rate
@@ -101,6 +103,10 @@ export function renderStagedMix(
     ...(samples ? { samples } : {}),
     // custom wavetables the staged program registered (defineWavetable/wavedef)
     ...(tables.size > 0 ? { wavetables: Object.fromEntries(tables) } : {}),
+    // every ddsp model the session fetched so far, so a bounce plays the same
+    // trained instruments the live engine does (a dropped option here is the
+    // audited quietly-sounds-different bug class)
+    ...(Object.keys(ddspModels).length > 0 ? { ddspModels } : {}),
     ...(opts?.stems ? { stems: true } : {}),
     ...(opts?.maxVoices !== undefined ? { maxVoices: opts.maxVoices } : {}),
   }))

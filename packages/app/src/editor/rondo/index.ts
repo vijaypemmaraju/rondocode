@@ -23,32 +23,48 @@ export { setLiveSampleNames } from './complete'
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { rondoWidgets } from './widgets'
 import { wgslCompletionSource, visualHeaderIndent, inVisualBody } from '../wgsl'
+import { jsHeaderIndent, inJsBody } from '../jsblocks'
+import { scanBalanced } from '@rondocode/rondo'
 import type { Hooks as RondoWidgetHooks } from './widgets'
 
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
 
-const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number }>({
+const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; js?: number; jsInline?: boolean }>({
   name: 'rondo',
   // Mod-/ toggle comment (the defaultKeymap binding) needs to know rondo's
   // line-comment token; without this the command silently no-ops in rondo.
   languageData: { commentTokens: { line: '#' } },
   startState: () => ({}),
   token(stream, state) {
-    // A `visual` body is WGSL, and wgsl.ts paints it as an overlay. Emitting
-    // rondo tokens UNDER that overlay would not change a colour (the marks
-    // nest innermost and win) but it splits every one of them at every rondo
-    // token boundary: 32 spans a line instead of the shader's own ~10. So the
-    // rondo tokenizer stands down and hands the line over whole.
-    if (stream.sol() && state.wgsl !== undefined && !inVisualBody(state.wgsl, stream.string)) {
-      state.wgsl = undefined
+    // A `visual` body is WGSL and a `js` body is JavaScript; wgsl.ts and
+    // jsblocks.ts paint them as overlays. Emitting rondo tokens UNDER an
+    // overlay would not change a colour (the marks nest innermost and win) but
+    // it splits every one of them at every rondo token boundary — and worse,
+    // wherever the overlay has no mark the rondo colour would show through,
+    // painting escaped JS as music. So the tokenizer stands down and hands the
+    // line over whole.
+    if (stream.sol()) {
+      if (state.wgsl !== undefined && !inVisualBody(state.wgsl, stream.string)) state.wgsl = undefined
+      if (state.js !== undefined && !inJsBody(state.js, stream.string)) state.js = undefined
     }
-    if (state.wgsl !== undefined) {
+    if (state.wgsl !== undefined || state.js !== undefined) {
       stream.skipToEnd()
       return null
     }
     if (stream.eatSpace()) return null
     const ch = stream.peek()!
+    // the braced span of an inline `js{ … }`: consumed whole (balanced, the
+    // lexer's own scan) and left unstyled for the JS overlay to paint
+    if (state.jsInline) {
+      state.jsInline = false
+      if (ch === '{') {
+        const close = scanBalanced(stream.string, stream.pos)
+        if (close >= 0) stream.pos = close + 1
+        else stream.skipToEnd()
+        return null
+      }
+    }
     if (ch === '#') {
       // a comment only at line start or after whitespace — matching the
       // lexer's rule, so `c#4` keeps its sharp instead of greying out
@@ -70,6 +86,13 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number }
       if (w === 'visual') {
         const header = visualHeaderIndent(stream.string)
         if (header !== null) state.wgsl = header
+      }
+      // `js` opens an escape hatch: a lone header starts the block form, and
+      // `js` glued to a `{` starts the inline span (consumed above, next call)
+      if (w === 'js') {
+        const header = jsHeaderIndent(stream.string)
+        if (header !== null) state.js = header
+        else if (/^\s*\{/.test(stream.string.slice(stream.pos))) state.jsInline = true
       }
       if (KEYWORDS.has(w)) return 'kw'
       if (BUILTINS.has(w)) return 'builtin'

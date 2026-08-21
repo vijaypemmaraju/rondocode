@@ -181,4 +181,10 @@ const highlight = HighlightStyle.define([
   { tag: t.bracket, color: C_DIM },
 ])
 
+/** The HighlightStyle itself, for overlays that paint OUTSIDE the grammar:
+ *  editor/jsblocks.ts runs the lezer JS parser over rondo `js{ … }` regions and
+ *  needs the same classes syntaxHighlighting applies, so escaped JS and a JS
+ *  document can never colour differently. */
+export const editorHighlightStyle = highlight
+
 export const synthTheme: Extension = [editorTheme, syntaxHighlighting(highlight)]

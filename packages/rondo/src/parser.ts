@@ -669,7 +669,7 @@ const COMB_WORDS = new Set([
   'rev', 'fast', 'slow', 'struct', 'euclid', 'euclidinv', 'euclidInv', 'arp', 'ply', 'iter', 'iterBack',
   'palindrome', 'degrade', 'degradeby', 'degradeBy', 'undegradeBy', 'segment', 'chunk', 'swing', 'swingBy',
   'humanizeBy', 'humanizeby',
-  'linger', 'roll', 'echo', 'ping', 'add', 'sub', 'mul', 'div', 'invert', 'octave', 'voicing', 'voiceLead',
+  'linger', 'roll', 'echo', 'ping', 'chop', 'striate', 'add', 'sub', 'mul', 'div', 'invert', 'octave', 'voicing', 'voiceLead',
   'onsetsOnly', 'early', 'late', 'jux',
 ])
 

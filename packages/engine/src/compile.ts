@@ -174,7 +174,10 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   // reference note = slice 0), ignored otherwise.
   sample: [{ name: 'gate' }, { name: 'speed', def: 1 }, { name: 'pitch', def: 1 }, { name: 'variant', def: 0 },
     // note frequency, so the kernel can pick a KEY ZONE by note
-    { name: 'nfreq', def: 440 }],
+    { name: 'nfreq', def: 440 },
+    // the per-NOTE slice (`.chop()`): the Voice patches these two ports at
+    // noteOn, and the kernel latches them on the gate edge
+    { name: 'begin', def: 0 }, { name: 'end', def: 1 }],
   // gate spawns grains; pos scans the buffer 0..1; rate is the pitch.
   granular: [{ name: 'gate' }, { name: 'pos', def: 0 }, { name: 'rate', def: 1 }],
   pluck: [{ name: 'gate' }, { name: 'freq', def: 220 }],

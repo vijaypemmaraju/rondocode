@@ -20,7 +20,7 @@ export const KEYWORDS: ReadonlySet<string> = new Set([...BLOCK_KEYWORDS, 'post',
  *  OPTIONS table by a test: anything documented has to be highlighted. */
 export const MODIFIERS = new Set([
   'scale', 'gain', 'dur', 'pan', 'every', 'struct', 'fast', 'slow', 'rev',
-  'euclid', 'degradeby', 'degrade', 'add', 'sub', 'ply', 'segment', 'rand', 'perlin',
+  'euclid', 'degradeby', 'degrade', 'add', 'sub', 'ply', 'segment', 'chop', 'striate', 'rand', 'perlin',
   // These were documented and completed but never highlighted, so `slide:`
   // read as a plain identifier sitting next to a coloured `gain:` — the
   // inconsistency is what makes it look like the feature is not real. The

@@ -3,7 +3,8 @@ import { MiniError, miniParse, mini, n as nTag } from './mini'
 import type { Loc } from './mini'
 import { noteNameToMidi, parseScaleName, scaleDegree } from './scales'
 import { timeHash } from './rand'
-import { TimeSpan, hasOnset } from './types'
+import { TimeSpan, hasOnset, hap } from './types'
+import type { Hap } from './types'
 import { Fraction } from './fraction'
 // Side-effect import: the control methods below extend the same prototype
 // the combinators install onto; keep the module initialized first.
@@ -331,6 +332,26 @@ declare module './pattern' {
      *  first — end the phrase with a rest to breathe. Needs a mono voice to
      *  sound tied, like slide itself. */
     slur(this: Pattern<ControlMap>, prob?: number, seed?: number): Pattern<ControlMap>
+    /**
+     * CHOP each event into `n` consecutive slices of its OWN sample: slice i
+     * plays the buffer fraction [i/n, (i+1)/n). The rhythm is unchanged — one
+     * event becomes n back-to-back events filling the same span — so a single
+     * `sound('break')` hit turns into an n-step run through the break, in order.
+     * Sets `begin`/`end` on each sub-event (Strudel's `.chop`); the synth must
+     * play the routed sound with `sample(gate, name)` (no `slices:` needed —
+     * the note carries its window). n must be a positive integer.
+     */
+    chop(this: Pattern<ControlMap>, n: number): Pattern<ControlMap>
+    /**
+     * STRIATE the pattern into `n` slices, INTERLEAVED: the whole pattern is
+     * played n times across the cycle, pass i playing slice [i/n,(i+1)/n) of
+     * every event. Where `chop` walks one event through its slices in place,
+     * `striate` sweeps the same slice across all events then moves to the next
+     * — so a row of drum hits becomes n sweeps through the kit, the classic
+     * Tidal break-shuffle. Sets `begin`/`end` (Strudel's `.striate`). n must
+     * be a positive integer.
+     */
+    striate(this: Pattern<ControlMap>, n: number): Pattern<ControlMap>
     /** ctrl('cutoff', x): filter cutoff synth param. */
     cutoff(this: Pattern<ControlMap>, x: ControlValue): Pattern<ControlMap>
     /** ctrl('res', x): filter resonance synth param. */
@@ -617,4 +638,56 @@ Pattern.prototype.ping = function (
     layers.push(tap.withValue((v) => ({ ...scaleGain(v, feedback ** i), pan })))
   }
   return Pattern.stack(...layers)
+}
+
+
+/** Merge a [begin,end) slice window onto an event value. Composes with an
+ *  existing chop (a striate of a chop, say): the new fraction is taken WITHIN
+ *  the window already set, so nesting narrows rather than resets. */
+const withSlice = (v: ControlMap, lo: number, hi: number): ControlMap => {
+  const b0 = typeof v.begin === 'number' ? v.begin : 0
+  const e0 = typeof v.end === 'number' ? v.end : 1
+  const span = e0 - b0
+  return { ...v, begin: b0 + lo * span, end: b0 + hi * span }
+}
+
+Pattern.prototype.chop = function (this: Pattern<ControlMap>, n: number): Pattern<ControlMap> {
+  const k = Math.floor(n)
+  if (!(k >= 1)) throw new Error(`chop: n must be a positive integer, got ${n}`)
+  if (k === 1) return this
+  const src = this
+  return new Pattern<ControlMap>((span) => {
+    const out: Hap<ControlMap>[] = []
+    for (const h of src.query(span)) {
+      if (h.whole === undefined) { out.push(h); continue } // continuous: nothing to slice
+      const w = h.whole.length.div(k)
+      for (let i = 0; i < k; i++) {
+        const b = h.whole.begin.add(w.mul(i))
+        const sub = new TimeSpan(b, b.add(w))
+        const part = sub.intersection(h.part)
+        if (part === undefined) continue
+        out.push(hap(sub, part, withSlice(h.value, i / k, (i + 1) / k)))
+      }
+    }
+    return out
+  })
+}
+
+Pattern.prototype.striate = function (this: Pattern<ControlMap>, n: number): Pattern<ControlMap> {
+  const k = Math.floor(n)
+  if (!(k >= 1)) throw new Error(`striate: n must be a positive integer, got ${n}`)
+  if (k === 1) return this
+  const src = this
+  // n passes squeezed into the cycle, pass i playing slice i of every event.
+  // _fast(k) then per-pass slice: the cycle index the fast copy came from is
+  // the slice number, so each squeezed copy of the whole pattern reads one
+  // slice across all its events.
+  const passes: Pattern<ControlMap>[] = []
+  for (let i = 0; i < k; i++) {
+    passes.push(src.withValue((v) => withSlice(v, i / k, (i + 1) / k)))
+  }
+  // fastcat squeezes the n passes into one cycle, in order: pass 0 (slice 0 of
+  // every event) fills the first 1/n, pass 1 the next, and so on — the whole
+  // pattern swept n times, one slice per sweep.
+  return Pattern.fastcat(...passes)
 }

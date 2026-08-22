@@ -31,6 +31,10 @@ export interface RenderEvent {
   note?: number
   /** noteOn velocity 0..1; defaults to 1. */
   velocity?: number
+  /** noteOn slice of the sample, fractions 0..1 (defaults 0 / 1) — what
+   *  `.chop()` writes; a plain synth ignores them. */
+  begin?: number
+  end?: number
   /** Param name — required for param events. Unknown names are a no-op
    *  (matching Voice.setParam's typo tolerance). */
   name?: string
@@ -205,7 +209,7 @@ export function renderOffline(
     // apply everything scheduled at (or before — first iteration) the cursor
     while (next < timed.length && timed[next]!.sample <= cursor) {
       const e = timed[next]!.e
-      if (e.type === 'noteOn') pool.noteOn(e.note!, e.velocity ?? 1)
+      if (e.type === 'noteOn') pool.noteOn(e.note!, e.velocity ?? 1, e.begin ?? 0, e.end ?? 1)
       else if (e.type === 'noteOff') pool.noteOff(e.note!)
       // route a param set to the voice pool, or the post chain if it's a
       // post-only param (so .ctrl() of a post param works, not just voice params)

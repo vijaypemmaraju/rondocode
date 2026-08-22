@@ -55,7 +55,10 @@ export type EngineMessage = (
    *  applies at the start of the next block; in the future → queued and
    *  applied sample-accurately. Schedulers learn "now" from the `frame`
    *  field of meters events (or engine.currentFrame on the worklet side). */
-  | { kind: 'noteOn'; synth: string; note: number; velocity?: number; atFrame?: number }
+  /** `begin`/`end` (fractions 0..1, default 0/1): the slice of the sample
+   *  this note plays — what `.chop()` writes. Per NOTE, latched by every
+   *  sampler in the voice at the gate edge (a plain synth ignores them). */
+  | { kind: 'noteOn'; synth: string; note: number; velocity?: number; begin?: number; end?: number; atFrame?: number }
   | { kind: 'noteOff'; synth: string; note: number; atFrame?: number }
   /** Panic: releases every note on every synth NOW and drops all queued
    *  note events. Envelopes RELEASE (tails ring) — used when a live-coding

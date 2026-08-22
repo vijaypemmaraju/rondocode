@@ -1074,7 +1074,11 @@ export class Session {
         this.audio.send({ kind: 'setParam', synth: sound, name: key, value, atFrame })
       }
       const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
-      this.audio.send({ kind: 'noteOn', synth: sound, note, velocity, atFrame })
+      // per-note sample slice (.chop): begin/end ride the noteOn, latched by
+      // any sampler in the voice at the gate edge (a plain synth ignores them)
+      const begin = typeof ev.controls.begin === 'number' ? ev.controls.begin : undefined
+      const end = typeof ev.controls.end === 'number' ? ev.controls.end : undefined
+      this.audio.send({ kind: 'noteOn', synth: sound, note, velocity, atFrame, ...(begin !== undefined ? { begin } : {}), ...(end !== undefined ? { end } : {}) })
       const slide = typeof ev.controls.slide === 'number' && ev.controls.slide > 0
       if (slide) {
         /* Hold until the NEXT note for this synth arrives (resolved above),

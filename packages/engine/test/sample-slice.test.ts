@@ -17,12 +17,14 @@ const run = (
   k: SampleKernel,
   n: number,
   sampleRate: number,
-  opts?: { speed?: number; gate?: Float32Array; pitch?: number },
+  opts?: { speed?: number; gate?: Float32Array; pitch?: number; begin?: number; end?: number },
 ): number[] => {
   const gate = opts?.gate ?? new Float32Array(n).fill(1)
   const inputs: Record<string, Float32Array> = { gate }
   if (opts?.speed !== undefined) inputs['speed'] = new Float32Array(n).fill(opts.speed)
   if (opts?.pitch !== undefined) inputs['pitch'] = new Float32Array(n).fill(opts.pitch)
+  if (opts?.begin !== undefined) inputs['begin'] = new Float32Array(n).fill(opts.begin)
+  if (opts?.end !== undefined) inputs['end'] = new Float32Array(n).fill(opts.end)
   const out = new Float32Array(n)
   k.process(n, inputs, out, { sampleRate })
   return [...out]
@@ -375,5 +377,39 @@ describe('sample() slicing through synth() + renderOffline', () => {
     // ...and the reverse read is its exact mirror (the ramp is odd about 0)
     expect(rev[SR / 2 + 100]!).toBe(0)
     for (let i = 0; i < SR / 2 - 4; i += 997) expect(rev[i]!).toBeCloseTo(-fwd[i]!, 4)
+  })
+})
+
+describe('SampleKernel: per-note slice (.chop) via begin/end inputs', () => {
+  it('the begin/end inputs pick the window, overriding the config default', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(100), 48000)
+    // config is the whole buffer, so the note fraction [0.25, 0.5) IS [0.25, 0.5)
+    const k = new SampleKernel('r', false, bank, { fade: 0 })
+    const out = run(k, 30, 48000, { begin: 0.25, end: 0.5 })
+    expect(out.slice(0, 25)).toEqual([...Array(25)].map((_, i) => 25 + i))
+    expect(out.slice(25)).toEqual([0, 0, 0, 0, 0])
+  })
+
+  it('latches on the gate EDGE: a slice moving mid-note does not jump', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(100), 48000)
+    const k = new SampleKernel('r', false, bank, { fade: 0 })
+    const gate = new Float32Array(30).fill(1)
+    const begin = new Float32Array(30).fill(0.25)
+    const end = new Float32Array(30).fill(0.5)
+    // move the inputs AFTER the edge — the window must stay what it was at i=0
+    for (let i = 10; i < 30; i++) { begin[i] = 0.75; end[i] = 1 }
+    const out = new Float32Array(30)
+    k.process(30, { gate, begin, end }, out, { sampleRate: 48000 })
+    expect([...out].slice(0, 25)).toEqual([...Array(25)].map((_, i) => 25 + i))
+  })
+
+  it('an inverted note slice falls back to the config window rather than silence', () => {
+    const bank = new SampleBank()
+    bank.set('r', ramp(100), 48000)
+    const k = new SampleKernel('r', false, bank, { start: 0.5, end: 0.75, fade: 0 })
+    const out = run(k, 30, 48000, { begin: 0.8, end: 0.2 }) // end <= begin
+    expect(out.slice(0, 25)).toEqual([...Array(25)].map((_, i) => 50 + i)) // config [0.5,0.75)
   })
 })

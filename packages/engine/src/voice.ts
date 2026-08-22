@@ -199,8 +199,25 @@ export class Voice {
 
   /** Start (or retrigger) a note: notefreq = 440*2^((n-69)/12), gate = 1,
    *  velocity clamped to [0, 1]. Kernels are NOT reset (see class doc). */
-  noteOn(midiNote: number, velocity: number): void {
+  /** Step ids whose kernel takes the per-note slice (`begin`/`end` ports —
+   *  the samplers). Found lazily on the first noteOn rather than in the
+   *  constructor, so the compiled graph is certainly assigned. */
+  private sliceSteps: number[] | null = null
+
+  /** Start (or retrigger) a note. `begin`/`end` (fractions 0..1) are the
+   *  slice of the sample this note plays — what `.chop()` writes; they are
+   *  PATCHED onto every sampler's ports before the gate rises, and the kernel
+   *  latches them on the edge, so they are per note and per voice without a
+   *  graph node of their own. A graph with no sampler never looks at them. */
+  noteOn(midiNote: number, velocity: number, begin = 0, end = 1): void {
     const g = this.graph
+    if (this.sliceSteps === null) {
+      this.sliceSteps = g.steps.filter((st) => 'begin' in st.inputs && 'end' in st.inputs).map((st) => st.id)
+    }
+    for (const id of this.sliceSteps) {
+      this.patchConstant(id, 'begin', begin)
+      this.patchConstant(id, 'end', end)
+    }
     this.midiNote = midiNote
     this.gateOn = true
     this.isActive = true
@@ -575,9 +592,9 @@ export class VoicePool {
     return NaN
   }
 
-  noteOn(note: number, vel: number): void {
-    if (this.mono) return this.monoNoteOn(note, vel)
-    if (this.unison > 1) return this.polyUnisonNoteOn(note, vel)
+  noteOn(note: number, vel: number, begin = 0, end = 1): void {
+    if (this.mono) return this.monoNoteOn(note, vel, begin, end)
+    if (this.unison > 1) return this.polyUnisonNoteOn(note, vel, begin, end)
 
     // --- original poly path (unison 1) — byte-identical to pre-feature ---
     const vs = this.voices
@@ -606,32 +623,32 @@ export class VoicePool {
       }
     }
     this.seqs[idx] = ++this.seqCounter
-    vs[idx]!.noteOn(note, vel)
+    vs[idx]!.noteOn(note, vel, begin, end)
   }
 
   /** Mono note-on with legato note priority: a new note over a held one slides
    *  (no re-attack); the first note of an idle voice retriggers. All cluster
    *  voices move together. */
-  private monoNoteOn(note: number, vel: number): void {
+  private monoNoteOn(note: number, vel: number, begin = 0, end = 1): void {
     const held = this.held
     const wasIdle = held.length === 0
     const k = held.indexOf(note)
     if (k >= 0) held.splice(k, 1)
     held.push(note)
     for (let j = 0; j < this.clusterSize; j++) {
-      if (wasIdle) this.voices[j]!.noteOn(note, vel)
+      if (wasIdle) this.voices[j]!.noteOn(note, vel, begin, end)
       else this.voices[j]!.glideTo(note)
     }
   }
 
   /** Poly unison note-on: retrigger the note's existing cluster if still
    *  sounding, else allocate a fresh cluster of `unison` sub-voices. */
-  private polyUnisonNoteOn(note: number, vel: number): void {
+  private polyUnisonNoteOn(note: number, vel: number, begin = 0, end = 1): void {
     const vs = this.voices
     let retriggered = false
     for (let i = 0; i < vs.length; i++) {
       if (vs[i]!.active && vs[i]!.note === note) {
-        vs[i]!.noteOn(note, vel) // keep this sub-voice's detune/pan
+        vs[i]!.noteOn(note, vel, begin, end) // keep this sub-voice's detune/pan
         this.seqs[i] = ++this.seqCounter
         retriggered = true
       }
@@ -641,7 +658,7 @@ export class VoicePool {
       const idx = this.allocIndex()
       this.seqs[idx] = ++this.seqCounter
       vs[idx]!.setUnison(this.detuneMuls[j]!, this.panPos[j]!, this.gains[j]!)
-      vs[idx]!.noteOn(note, vel)
+      vs[idx]!.noteOn(note, vel, begin, end)
     }
   }
 

@@ -25,6 +25,29 @@ export interface DdspHeader {
    *  level onto the shared reference the default gain expects (absent in old
    *  files = 1). Without it a model trained on a hot recording clips. */
   outNorm: number
+  /** ordered conditioning features (v1 files: ['f0', 'loudness']) */
+  inputs: DdspFeature[]
+  /** per-MIDI-key stiffness B (128 values) for inharmonic models, else null */
+  inharmonicity: Float32Array | null
+}
+
+/** The conditioning vocabulary. Scaling per feature is pinned by SPEC.md. */
+export const DDSP_FEATURES = ['f0', 'loudness', 'velocity', 'onset_age', 'release_age', 'held'] as const
+export type DdspFeature = (typeof DDSP_FEATURES)[number]
+const AGE_SCALE = Math.log1p(20)
+
+export function scaleFeature(name: DdspFeature, v: number): number {
+  switch (name) {
+    case 'f0':
+      return scaleF0(v)
+    case 'loudness':
+      return scaleLoudness(v)
+    case 'onset_age':
+    case 'release_age':
+      return Math.log1p(v > 0 ? v : 0) / AGE_SCALE
+    default: // velocity, held
+      return v < 0 ? 0 : v > 1 ? 1 : v
+  }
 }
 
 interface MlpLayer {
@@ -38,10 +61,10 @@ interface MlpLayer {
 
 export interface DdspModel {
   header: DdspHeader
-  inMlpF0: MlpLayer[]
-  inMlpLd: MlpLayer[]
+  /** one input MLP per conditioning feature, in header.inputs order */
+  inMlps: MlpLayer[][]
   outMlp: MlpLayer[]
-  gruWih: Float32Array // [3G, 2H] rows ordered r, z, n (torch layout)
+  gruWih: Float32Array // [3G, nInputs*H] rows ordered r, z, n (torch layout)
   gruWhh: Float32Array // [3G, G]
   gruBih: Float32Array
   gruBhh: Float32Array
@@ -126,6 +149,38 @@ export function parseDdspModel(bytes: Uint8Array): DdspModel {
       typeof h['out_norm'] === 'number' && Number.isFinite(h['out_norm'])
         ? clampNum(h['out_norm'] as number, 0.05, 20)
         : 1,
+    inputs: ['f0', 'loudness'],
+    inharmonicity: null,
+  }
+  // v2: named conditioning inputs (absent = the v1 pair; present = validated)
+  const v1Names = !('inputs' in h)
+  if (!v1Names) {
+    const raw = h['inputs']
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > DDSP_FEATURES.length) {
+      throw new Error(`ddsp model header 'inputs' must be a non-empty list of feature names`)
+    }
+    const seen = new Set<string>()
+    for (const f of raw as unknown[]) {
+      if (typeof f !== 'string' || !(DDSP_FEATURES as readonly string[]).includes(f) || seen.has(f)) {
+        throw new Error(`ddsp model header 'inputs' has an unknown or duplicate feature: ${String(f)}`)
+      }
+      seen.add(f)
+    }
+    if (!seen.has('f0')) throw new Error(`ddsp model conditioning must include 'f0'`)
+    header.inputs = raw as DdspFeature[]
+  }
+  if ('inharmonicity' in h) {
+    const raw = h['inharmonicity']
+    if (!Array.isArray(raw) || raw.length !== 128) throw new Error(`ddsp model 'inharmonicity' must be 128 values`)
+    const table = new Float32Array(128)
+    for (let i = 0; i < 128; i++) {
+      const v = raw[i]
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) {
+        throw new Error(`ddsp model 'inharmonicity' values must be finite in [0, 1]`)
+      }
+      table[i] = v
+    }
+    header.inharmonicity = table
   }
   // The noise ring buffer indexes with a mask, so the FIR length 2*(n_noise-1)
   // must be a power of two: n_noise is 2^m + 1 (65, 33, 9, ...).
@@ -186,12 +241,13 @@ export function parseDdspModel(bytes: Uint8Array): DdspModel {
     }
     return out
   }
+  const nIn = header.inputs.length
+  const v1Prefix: Record<string, string> = { f0: 'in_mlp_f0', loudness: 'in_mlp_ld' }
   return {
     header,
-    inMlpF0: mlp('in_mlp_f0', 1),
-    inMlpLd: mlp('in_mlp_ld', 1),
-    outMlp: mlp('out_mlp', G + 2),
-    gruWih: take('gru.weight_ih_l0', 3 * G * 2 * H),
+    inMlps: header.inputs.map((name) => mlp(v1Names ? v1Prefix[name]! : `in_mlps.${name}`, 1)),
+    outMlp: mlp('out_mlp', G + nIn),
+    gruWih: take('gru.weight_ih_l0', 3 * G * nIn * H),
     gruWhh: take('gru.weight_hh_l0', 3 * G * G),
     gruBih: take('gru.bias_ih_l0', 3 * G),
     gruBhh: take('gru.bias_hh_l0', 3 * G),
@@ -284,30 +340,46 @@ export class DdspDecoder {
   readonly harmAmps: Float32Array
   readonly noiseMags: Float32Array
   readonly gruH: Float32Array
+  /** partial frequency multipliers m_k (partial k at m_k * f0); null when the
+   *  model is harmonic (m_k = k+1 implicitly) */
+  readonly partialMult: Float32Array | null
+  /** raw feature values for the next step, in header.inputs order */
+  readonly features: Float32Array
   private readonly m: DdspModel
-  private readonly x: Float32Array // concat of the two input MLP outputs, 2H
+  private readonly nIn: number
+  private readonly x: Float32Array // concat of the input MLP outputs, nIn*H
+  private readonly scaled: Float32Array
   private readonly scalarIn: Float32Array
   private readonly mlpTmp: Float32Array
   private readonly mlpOut: Float32Array
   private readonly gates: Float32Array // 3G: r, z, n pre-activations, then h'
-  private readonly outIn: Float32Array // G + 2
+  private readonly outIn: Float32Array // G + nIn
   private readonly y: Float32Array
   private readonly harm: Float32Array // 1 + K
 
   constructor(model: DdspModel) {
     const { hidden: H, gru: G, nHarmonics, nNoise } = model.header
     this.m = model
+    this.nIn = model.header.inputs.length
     this.harmAmps = new Float32Array(nHarmonics)
     this.noiseMags = new Float32Array(nNoise)
+    this.partialMult = model.header.inharmonicity ? new Float32Array(nHarmonics) : null
+    this.features = new Float32Array(this.nIn)
     this.gruH = new Float32Array(G)
-    this.x = new Float32Array(2 * H)
+    this.x = new Float32Array(this.nIn * H)
+    this.scaled = new Float32Array(this.nIn)
     this.scalarIn = new Float32Array(1)
     this.mlpTmp = new Float32Array(H)
     this.mlpOut = new Float32Array(H)
     this.gates = new Float32Array(3 * G)
-    this.outIn = new Float32Array(G + 2)
+    this.outIn = new Float32Array(G + this.nIn)
     this.y = new Float32Array(H)
     this.harm = new Float32Array(1 + nHarmonics)
+  }
+
+  /** Index of a feature in this model's conditioning, or -1. */
+  featureIndex(name: DdspFeature): number {
+    return this.m.header.inputs.indexOf(name)
   }
 
   reset(): void {
@@ -328,25 +400,34 @@ export class DdspDecoder {
     }
   }
 
+  /** v1 convenience: a (f0, loudness) model stepped by the two scalars. */
   step(f0Hz: number, loudnessDb: number): void {
+    this.features[0] = f0Hz
+    if (this.nIn > 1) this.features[1] = loudnessDb
+    this.stepFeatures()
+  }
+
+  /** Advance one frame from `features` (raw values, header.inputs order). */
+  stepFeatures(): void {
     const m = this.m
     const H = m.header.hidden
     const G = m.header.gru
-    const f0s = scaleF0(f0Hz)
-    const lds = scaleLoudness(loudnessDb)
-    this.scalarIn[0] = f0s
-    this.mlp(m.inMlpF0, this.scalarIn, this.mlpOut)
-    this.x.set(this.mlpOut.subarray(0, H), 0)
-    this.scalarIn[0] = lds
-    this.mlp(m.inMlpLd, this.scalarIn, this.mlpOut)
-    this.x.set(this.mlpOut.subarray(0, H), H)
+    const nIn = this.nIn
+    const inputs = m.header.inputs
+    const f0Hz = this.features[inputs.indexOf('f0')]!
+    for (let i = 0; i < nIn; i++) {
+      this.scaled[i] = scaleFeature(inputs[i]!, this.features[i]!)
+      this.scalarIn[0] = this.scaled[i]!
+      this.mlp(m.inMlps[i]!, this.scalarIn, this.mlpOut)
+      this.x.set(this.mlpOut.subarray(0, H), i * H)
+    }
     // GRU (torch semantics: separate input/hidden biases, gate order r, z, n)
     const gates = this.gates
-    const inN = 2 * H
+    const inW = nIn * H
     for (let o = 0; o < 3 * G; o++) {
       let acc = m.gruBih[o]!
-      const row = o * inN
-      for (let i = 0; i < inN; i++) acc += m.gruWih[row + i]! * this.x[i]!
+      const row = o * inW
+      for (let i = 0; i < inW; i++) acc += m.gruWih[row + i]! * this.x[i]!
       gates[o] = acc
     }
     const h = this.gruH
@@ -372,16 +453,30 @@ export class DdspDecoder {
     }
     for (let o = 0; o < G; o++) h[o] = gates[o]!
     this.outIn.set(h, 0)
-    this.outIn[G] = f0s
-    this.outIn[G + 1] = lds
+    for (let i = 0; i < nIn; i++) this.outIn[G + i] = this.scaled[i]!
     this.mlp(m.outMlp, this.outIn, this.y)
     matvec(m.harmW, this.y, m.harmB, H, 1 + m.header.nHarmonics, this.harm)
     const amp = expSigmoid(this.harm[0]!)
     const K = m.header.nHarmonics
     const nyq = m.header.sampleRate / 2
+    // inharmonic models: partial k at f0 * (k+1) * sqrt(1 + B (k+1)^2), B
+    // linearly interpolated at the note's MIDI pitch
+    const mult = this.partialMult
+    if (mult !== null) {
+      const table = m.header.inharmonicity!
+      const midi = clampNum(69 + 12 * Math.log2((f0Hz < 1e-5 ? 1e-5 : f0Hz) / 440), 0, 127)
+      const lo = Math.min(126, Math.floor(midi))
+      const fr = midi - lo
+      const B = table[lo]! * (1 - fr) + table[lo + 1]! * fr
+      for (let k = 0; k < K; k++) {
+        const kk = k + 1
+        mult[k] = kk * Math.sqrt(1 + B * kk * kk)
+      }
+    }
     let sum = 0
     for (let k = 0; k < K; k++) {
-      const d = (k + 1) * f0Hz < nyq ? expSigmoid(this.harm[1 + k]!) : 0
+      const fk = (mult !== null ? mult[k]! : k + 1) * f0Hz
+      const d = fk < nyq ? expSigmoid(this.harm[1 + k]!) : 0
       this.harmAmps[k] = d
       sum += d
     }
@@ -419,6 +514,18 @@ export function ddspHarmSample(rev: number, amps: Float32Array, count: number): 
   return acc
 }
 
+/** One additive sample from PER-PARTIAL phases (inharmonic models):
+ *  sum_k amps[k] * sin(2*pi*phases[k]). */
+export function ddspPartialSample(phases: Float32Array, amps: Float32Array, count: number): number {
+  let acc = 0
+  for (let k = 0; k < count; k++) {
+    const a = amps[k]!
+    if (a === 0) continue
+    acc += a * sinTurns(phases[k]!)
+  }
+  return acc
+}
+
 /** Spec-exact offline harmonic render (frame i's values at sample i*hop,
  *  linear ramp to frame i+1, last frame holds; rev accumulates BEFORE each
  *  sample is emitted). This is what the golden parity test runs; the kernel
@@ -428,24 +535,40 @@ export function renderHarmonicFrames(
   harmAmps: Float32Array[], // per frame, length K each
   sampleRate: number,
   hop: number,
+  partialMult?: Float32Array[], // per frame, length K: inharmonic stretch (optional)
 ): Float32Array {
   const T = f0Frames.length
   const K = harmAmps[0]?.length ?? 0
   const out = new Float32Array(T * hop)
   const amps = new Float32Array(K)
+  const mult = new Float32Array(K)
+  const phases = new Float32Array(K)
   let rev = 0
   for (let fr = 0; fr < T; fr++) {
     const f0a = f0Frames[fr]!
     const f0b = fr + 1 < T ? f0Frames[fr + 1]! : f0a
     const aa = harmAmps[fr]!
     const ab = fr + 1 < T ? harmAmps[fr + 1]! : aa
+    const ma = partialMult?.[fr]
+    const mb = partialMult ? (fr + 1 < T ? partialMult[fr + 1]! : ma!) : undefined
     for (let s = 0; s < hop; s++) {
       const w = s / hop
       const f0 = f0a + (f0b - f0a) * w
       for (let k = 0; k < K; k++) amps[k] = aa[k]! + (ab[k]! - aa[k]!) * w
-      rev += f0 / sampleRate
-      rev -= rev | 0
-      out[fr * hop + s] = ddspHarmSample(rev, amps, K)
+      if (ma !== undefined && mb !== undefined) {
+        // inharmonic: every partial owns its accumulator
+        for (let k = 0; k < K; k++) {
+          mult[k] = ma[k]! + (mb[k]! - ma[k]!) * w
+          let ph = phases[k]! + (f0 * mult[k]!) / sampleRate
+          ph -= ph | 0
+          phases[k] = ph
+        }
+        out[fr * hop + s] = ddspPartialSample(phases, amps, K)
+      } else {
+        rev += f0 / sampleRate
+        rev -= rev | 0
+        out[fr * hop + s] = ddspHarmSample(rev, amps, K)
+      }
     }
   }
   return out
@@ -588,6 +711,8 @@ export class DdspKernel implements Kernel {
   private readonly flow: number
 
   private rev = 0
+  private partPhase: Float32Array | undefined // per-partial phases (inharmonic models)
+  private releaseTime = 0 // seconds since the gate fell (0 while held)
   private ringPos = 0
   private noiseState: number
   private toTick = 0
@@ -651,6 +776,8 @@ export class DdspKernel implements Kernel {
     this.firDelta?.fill(0)
     this.noiseRing?.fill(0)
     this.rev = 0
+    this.partPhase?.fill(0)
+    this.releaseTime = 0
     this.ringPos = 0
     this.noiseState = this.seed
     this.toTick = 0
@@ -735,6 +862,7 @@ export class DdspKernel implements Kernel {
     this.firDelta = new Float32Array(taps)
     this.firNext = new Float32Array(taps)
     this.noiseRing = new Float32Array(taps) // power of two (parse enforces)
+    this.partPhase = model.header.inharmonicity ? new Float32Array(K) : undefined
     // irfft cos basis, computed once per bind off the hot path
     this.firCos = ddspCosBasis(model.header.nNoise)
     this.rev = 0
@@ -801,6 +929,16 @@ export class DdspKernel implements Kernel {
     const onsetAirTau = 0.035
     const onsetBloomTau = 0.06
     const outGain = this.gain * (model.header.outNorm || 1) // || guards hand-built model objects
+    // STRUCK models (no loudness input — piano) GENERATE their decay from
+    // velocity + onset age; the envelope here is only the damper: near-instant
+    // attack, and the release tau shapes the key-up damping
+    const struck = this.decoder!.featureIndex('loudness') < 0
+    const iOnset = this.decoder!.featureIndex('onset_age')
+    const iRelease = this.decoder!.featureIndex('release_age')
+    const iVel = this.decoder!.featureIndex('velocity')
+    const iHeld = this.decoder!.featureIndex('held')
+    const iF0 = this.decoder!.featureIndex('f0')
+    const iLd = this.decoder!.featureIndex('loudness')
     let noiseX = this.noiseState
 
     for (let i = 0; i < n; i++) {
@@ -810,6 +948,7 @@ export class DdspKernel implements Kernel {
       this.prevGate = g
       if (rising) {
         this.noteTime = 0
+        this.releaseTime = 0
         this.prevIoi = clampNum(this.boundTime, 0.03, 2)
         this.boundTime = 0
         this.punchDb = this.punch // decoder-side attack accent, decays per tick
@@ -940,7 +1079,7 @@ export class DdspKernel implements Kernel {
         // fast notes SPEAK: attack shortens to ~a sixth of the note, release
         // to ~a third (floored so phrase endings still ring), punch decays
         // within the note instead of blurring across it
-        const atkTau = clampNum(Math.min(this.attack, this.prevIoi / 6), 0.006, this.attack)
+        const atkTau = struck ? 0.003 : clampNum(Math.min(this.attack, this.prevIoi / 6), 0.006, this.attack)
         const relTau = clampNum(Math.min(this.release, Math.max(0.08, this.prevIoi / 3)), 0.02, this.release)
         this.punchDb *= Math.exp(-hopSec / Math.min(0.035, this.prevIoi / 5))
         this.envDb += (target - this.envDb) * (1 - Math.exp(-hopSec / (g > 0 ? atkTau : relTau)))
@@ -951,7 +1090,15 @@ export class DdspKernel implements Kernel {
           // every sustained instrument has — both keep the decoder's loudness
           // trajectory looking like the performances it learned from
           const settle = -settleDb * (1 - Math.exp(-this.noteTime / 1.2))
-          decoder.step(f0, this.envDb + this.dipDb + settle)
+          // assemble the model's conditioning by name (header.inputs order)
+          const feats = decoder.features
+          feats[iF0] = f0
+          if (iLd >= 0) feats[iLd] = this.envDb + this.dipDb + settle
+          if (iVel >= 0) feats[iVel] = clampNum(vel[i]!, 0, 1)
+          if (iOnset >= 0) feats[iOnset] = this.noteTime
+          if (iRelease >= 0) feats[iRelease] = this.releaseTime
+          if (iHeld >= 0) feats[iHeld] = g > 0 ? 1 : 0
+          decoder.stepFeatures()
           // bright: loudness-preserving spectral tilt of the harmonic set,
           // plus the onset bloom (top partials arrive late on real attacks)
           const onsetT = this.noteTime
@@ -972,8 +1119,10 @@ export class DdspKernel implements Kernel {
               for (let k = 0; k < K; k++) decoder.harmAmps[k] = decoder.harmAmps[k]! * norm
             }
           }
+          const pm = decoder.partialMult
           for (let k = 0; k < K; k++) {
-            const target2 = (k + 1) * f0 < engNyq ? decoder.harmAmps[k]! : 0
+            const fk = (pm !== null ? pm[k]! : k + 1) * f0
+            const target2 = fk < engNyq ? decoder.harmAmps[k]! : 0
             ampsDelta[k] = (target2 - ampsCur[k]!) / hop
           }
           this.buildFir(decoder.noiseMags, rateRatio)
@@ -1004,9 +1153,22 @@ export class DdspKernel implements Kernel {
       for (let k = 0; k < K; k++) ampsCur[k] = ampsCur[k]! + ampsDelta[k]!
       for (let t = 0; t < taps; t++) fir[t] = fir[t]! + firDelta[t]!
       const fSyn = this.flowCur * vibNow
-      this.rev += fSyn / sr
-      this.rev -= this.rev | 0
-      let acc = ddspHarmSample(this.rev, ampsCur, K)
+      let acc: number
+      const pp = this.partPhase
+      if (pp !== undefined && decoder.partialMult !== null) {
+        // inharmonic: every partial owns its phase accumulator
+        const pm = decoder.partialMult
+        for (let k = 0; k < K; k++) {
+          let ph = pp[k]! + (fSyn * pm[k]!) / sr
+          ph -= ph | 0
+          pp[k] = ph
+        }
+        acc = ddspPartialSample(pp, ampsCur, K)
+      } else {
+        this.rev += fSyn / sr
+        this.rev -= this.rev | 0
+        acc = ddspHarmSample(this.rev, ampsCur, K)
+      }
       // filtered noise: xorshift white noise through the interpolated FIR
       noiseX ^= noiseX << 13
       noiseX ^= noiseX >>> 17
@@ -1015,9 +1177,13 @@ export class DdspKernel implements Kernel {
       ring[this.ringPos] = noiseX / 0x80000000 - 1
       for (let t = 0; t < taps; t++) acc += fir[t]! * ring[(this.ringPos - t + taps) & ringMask]!
       this.ringPos = (this.ringPos + 1) & ringMask
-      out[i] = acc * outGain
+      // struck: the envelope is a damper — unity while held, the release tau
+      // takes the note away on key-up (the model itself plays the decay)
+      const damper = struck ? Math.min(1, Math.pow(10, (this.envDb - this.level) / 20)) : 1
+      out[i] = acc * outGain * damper
       this.noteTime += 1 / sr
       this.boundTime += 1 / sr
+      if (g <= 0) this.releaseTime += 1 / sr
     }
     this.noiseState = noiseX
     this.rev = flush(this.rev)

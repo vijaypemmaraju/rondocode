@@ -38,6 +38,13 @@ class ExcerptDataset(Dataset):
             audio = z["audio"].astype(np.float32)[: n_frames * hop]
             f0 = z["f0"].astype(np.float32)[:n_frames]
             ld = z["loudness"].astype(np.float32)[:n_frames]
+            # optional per-frame conditioning features (struck instruments:
+            # velocity, onset_age, release_age, held) ride along when present
+            extra = {
+                k: z[k].astype(np.float32)[:n_frames]
+                for k in ("velocity", "onset_age", "release_age", "held")
+                if k in z.files
+            }
             if n_frames < excerpt_frames:
                 # Short files (single pp notes are ~2 s) pad with silence
                 # rather than being dropped: dropping them would bias the
@@ -47,9 +54,11 @@ class ExcerptDataset(Dataset):
                 audio = np.pad(audio, (0, pad * hop))
                 f0 = np.pad(f0, (0, pad), mode="edge")
                 ld = np.pad(ld, (0, pad), constant_values=-90.0)
+                for k in list(extra):
+                    extra[k] = np.pad(extra[k], (0, pad), mode="edge")
                 n_frames = excerpt_frames
             self.items.append(
-                {"audio": audio, "f0": f0, "loudness": ld, "n_frames": n_frames}
+                {"audio": audio, "f0": f0, "loudness": ld, "n_frames": n_frames, **extra}
             )
         if not self.items:
             raise ValueError(
@@ -64,8 +73,12 @@ class ExcerptDataset(Dataset):
         start = int(self.rng.integers(item["n_frames"] - self.excerpt_frames + 1))
         end = start + self.excerpt_frames
         audio = item["audio"][start * self.hop : end * self.hop]
-        return {
+        out = {
             "audio": torch.from_numpy(audio.copy()),
             "f0": torch.from_numpy(item["f0"][start:end].copy()),
             "loudness": torch.from_numpy(item["loudness"][start:end].copy()),
         }
+        for k in ("velocity", "onset_age", "release_age", "held"):
+            if k in item:
+                out[k] = torch.from_numpy(item[k][start:end].copy())
+        return out

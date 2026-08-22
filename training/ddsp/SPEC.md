@@ -42,6 +42,26 @@ Output transforms (`exp_sigmoid(x) = 2.0 * sigmoid(x)^log(10) + 1e-7`):
 - harmonic amplitude `a_k = amp * dist_k`
 - `noise_mag_j = exp_sigmoid(noise[j])`
 
+## Format v2 additions (header fields, all optional; absent = v1 behavior)
+
+- `inputs`: ordered conditioning feature names (default `["f0", "loudness"]`).
+  Vocabulary and per-feature scaling (identical in both implementations):
+  - `f0` -> `hz_to_midi(f0)/127`; `loudness` -> `(clamp(db,-90,0)+90)/90`
+  - `velocity` -> clamp 0..1; `held` -> 0/1
+  - `onset_age`, `release_age` (seconds) -> `log1p(t) / log1p(20)`
+  Each input has its own MLP (`in_mlps.<name>.<i>`), concatenated in order
+  into the GRU (input width `n_inputs * H`); `out_mlp` takes
+  `G + n_inputs` (the scaled inputs appended, in order).
+- `inharmonicity`: 128 floats, the stiffness coefficient B per MIDI key,
+  linearly interpolated at the note's (fractional) MIDI pitch. Partial k
+  sits at `f0 * k * sqrt(1 + B k^2)`; with the field absent the model is
+  harmonic (`k * f0`). Inharmonic models render with one phase accumulator
+  per partial (`theta_k += 2*pi*f0*m_k/sr`), harmonic models may keep the
+  single-accumulator fast path — the two are numerically equivalent when
+  `m_k = k`.
+- Struck instruments (no `loudness` input) GENERATE their decay from
+  `velocity` + `onset_age`; the runtime feeds ages from its own note clock.
+
 ## Synthesis
 
 Frame rate is `sample_rate / hop` (default 48000 / 512 = 93.75 Hz).

@@ -37,13 +37,22 @@ def harmonic(
     harm_amps: torch.Tensor,  # [B, T, K] frames
     sample_rate: int,
     hop: int,
+    partial_mult: torch.Tensor | None = None,  # [B, T, K] stretch factors, None = harmonic
 ) -> torch.Tensor:
     f0_up = upsample_frames(f0_hz.unsqueeze(-1), hop)[..., 0]  # [B, N]
     amps_up = upsample_frames(harm_amps, hop)  # [B, N, K]
-    rev = angular_cumsum_mod1(f0_up / sample_rate)  # revolutions of the fundamental
-    k = torch.arange(1, harm_amps.shape[-1] + 1, device=f0_hz.device)
-    # frac(k * rev) == frac(k * frac(rev)) for integer k; keeps float32 exact.
-    phase = (rev.unsqueeze(-1) * k) % 1.0
+    if partial_mult is None:
+        rev = angular_cumsum_mod1(f0_up / sample_rate)  # revolutions of the fundamental
+        k = torch.arange(1, harm_amps.shape[-1] + 1, device=f0_hz.device)
+        # frac(k * rev) == frac(k * frac(rev)) for integer k; keeps float32 exact.
+        phase = (rev.unsqueeze(-1) * k) % 1.0
+    else:
+        # inharmonic: every partial owns its phase accumulator (the runtime
+        # mirrors this with K accumulators), frequency = f0 * m_k per sample
+        mult_up = upsample_frames(partial_mult, hop)  # [B, N, K]
+        b, n, kk = mult_up.shape
+        inc = (f0_up.unsqueeze(-1) * mult_up / sample_rate).permute(0, 2, 1).reshape(b * kk, n)
+        phase = angular_cumsum_mod1(inc).reshape(b, kk, n).permute(0, 2, 1)
     return (amps_up * torch.sin(2.0 * math.pi * phase)).sum(dim=-1)
 
 
@@ -87,8 +96,9 @@ def render(
     sample_rate: int,
     hop: int,
     noise: torch.Tensor | None = None,
+    partial_mult: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    return harmonic(f0_hz, harm_amps, sample_rate, hop) + filtered_noise(
+    return harmonic(f0_hz, harm_amps, sample_rate, hop, partial_mult) + filtered_noise(
         noise_mags, hop, noise
     )
 

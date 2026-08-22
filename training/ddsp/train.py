@@ -65,6 +65,8 @@ def main() -> None:
         n_noise=cfg.get("n_noise", 65),
         sample_rate=cfg["sample_rate"],
         hop=cfg["hop"],
+        inputs=tuple(cfg.get("inputs", ["f0", "loudness"])),
+        inharmonic=bool(cfg.get("inharmonic", False)),
     ).to(device)
     reverb = TrainableReverb(cfg.get("reverb_length", cfg["sample_rate"])).to(device)
     params = list(model.parameters()) + list(reverb.parameters())
@@ -120,12 +122,13 @@ def main() -> None:
         for batch in dl:
             if step >= steps:
                 break
-            f0 = batch["f0"].to(device)
-            ld = batch["loudness"].to(device)
+            feats = {n: batch[n].to(device) for n in model.inputs}
+            f0 = feats["f0"]
             target = batch["audio"].to(device)
-            out = model(f0, ld)
+            out = model(feats)
             dry = render(
-                f0, out["harm_amps"], out["noise_mags"], cfg["sample_rate"], cfg["hop"]
+                f0, out["harm_amps"], out["noise_mags"], cfg["sample_rate"], cfg["hop"],
+                partial_mult=out["partial_mult"],
             )
             wet = reverb(dry)
             ld_gap = frame_loudness_mae_db(dry, target, cfg["hop"])
@@ -184,12 +187,13 @@ def evaluate(model: Decoder, reverb: TrainableReverb, eval_ds, cfg: dict, device
     total_ld = 0.0
     for i in range(len(eval_ds)):
         b = eval_ds[i]
-        f0 = b["f0"].unsqueeze(0).to(device)
-        ld = b["loudness"].unsqueeze(0).to(device)
+        feats = {n: b[n].unsqueeze(0).to(device) for n in model.inputs}
+        f0 = feats["f0"]
         target = b["audio"].unsqueeze(0).to(device)
-        out = model(f0, ld)
+        out = model(feats)
         dry = render(
-            f0, out["harm_amps"], out["noise_mags"], cfg["sample_rate"], cfg["hop"]
+            f0, out["harm_amps"], out["noise_mags"], cfg["sample_rate"], cfg["hop"],
+            partial_mult=out["partial_mult"],
         )
         total += float(multiscale_stft_loss(reverb(dry), target))
         total_ld += float(frame_loudness_mae_db(dry, target, cfg["hop"]))

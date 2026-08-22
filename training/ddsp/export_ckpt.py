@@ -31,6 +31,8 @@ def main() -> None:
         n_noise=cfg.get("n_noise", 65),
         sample_rate=cfg["sample_rate"],
         hop=cfg["hop"],
+        inputs=tuple(cfg.get("inputs", ["f0", "loudness"])),
+        inharmonic=bool(cfg.get("inharmonic", False)),
     )
     model.load_state_dict(ck["model"])
     tag = f"-{args.suffix}" if args.suffix else ""

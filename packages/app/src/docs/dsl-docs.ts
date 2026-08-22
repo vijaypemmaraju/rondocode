@@ -379,8 +379,8 @@ const PATTERN_METHODS: DocEntry[] = [
   pm('superimpose', 'superimpose(f: (p) => p)', 'Layer f(pattern) on top of the original: ghost echoes, octave doublings, and -- with `add` on a scaled pattern -- DIATONIC harmony, since `add` counts scale degrees, so `superimpose(x => x.add(2))` is a third that is minor or major depending on where in the key it lands.', '.superimpose(x => x.late(0.25).gain(0.3))'),
   pm('palindrome', 'palindrome()', 'Alternate forward and reversed cycles: there, and back again.', "n('0 3 5 7').palindrome()"),
   pm('ply', 'ply(n: number)', 'Ratchet: repeat each event n times within its own slot.', "note('c5*4').ply(3)"),
-  pm('chop', 'chop(n: number)', 'Slice each event into n consecutive pieces of its own sample, keeping the rhythm: one sample hit becomes an in-order walk through the buffer (sets begin/end per piece). Play the routed sound with sample(gate, name).', "s('break').chop(8)"),
-  pm('striate', 'striate(n: number)', 'Slice into n, interleaved: play the whole pattern n times, pass i taking slice i of every event. chop walks one hit through its slices; striate sweeps one slice across all hits, then the next: the break shuffle.', "s('break*4').striate(4)"),
+  pm('chop', 'chop(n: number | Pattern)', 'Slice each event into n consecutive pieces of its own sample, keeping the rhythm: one sample hit becomes an in-order walk through the buffer (sets begin/end per piece). n may be a pattern, so the slice count can change per cycle. Play the routed sound with sample(gate, name).', "s('break').chop('<4 8>')"),
+  pm('striate', 'striate(n: number | Pattern)', 'Slice into n, interleaved: play the whole pattern n times, pass i taking slice i of every event. chop walks one hit through its slices; striate sweeps one slice across all hits, then the next: the break shuffle. n may be a pattern.', "s('break*4').striate(4)"),
   pm(
     'roll',
     'roll(n: number, accel?: number)',

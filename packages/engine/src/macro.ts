@@ -39,6 +39,10 @@ export const RESERVED_PARAM_NAMES: ReadonlySet<string> = new Set([
   // .scale() alongside the degree itself. Structural like the rest of these —
   // it never reaches a synth, and a synth could never usefully declare it.
   'note', 'n', 'nAcc', 'sound', 'gain', 'pan', 'dur', 'slide', 'loc', 'locs',
+  // `begin`/`end`: the slice of the sample this note plays (fractions 0..1),
+  // what `.chop()` / `.striate()` write. Carried on the noteOn itself and
+  // latched per voice at the gate edge, so they are note data, not params.
+  'begin', 'end',
   // provenance for per-note lanes (see ControlMap.laneKeys) — never a param
   'laneKeys',
 ])

@@ -100,6 +100,10 @@ export class SampleKernel implements Kernel {
 
   private readonly start: number
   private readonly end: number
+  /** The slice actually playing: the per-note `.chop()` window latched on the
+   *  gate edge, defaulting to the config start/end. */
+  private noteStart: number
+  private noteEnd: number
   private readonly reverse: boolean
   private readonly slices: number
   private readonly fadeSec: number
@@ -138,6 +142,8 @@ export class SampleKernel implements Kernel {
     }
     this.start = a
     this.end = b
+    this.noteStart = a
+    this.noteEnd = b
     this.reverse = cfg?.reverse === true
     const n = Math.floor(finite(cfg?.slices, 0))
     this.slices = n >= 1 ? n : 0
@@ -152,6 +158,8 @@ export class SampleKernel implements Kernel {
     const pitch = inputs['pitch'] // may be absent -> slice 0
     const variant = inputs['variant'] // may be absent -> the name's own index
     const nfreq = inputs['nfreq'] // note frequency, for picking a key zone
+    const beginIn = inputs['begin'] // per-note slice start (.chop()); absent -> config window
+    const endIn = inputs['end']     // per-note slice end
 
     /* Resolved from the LATCHED variant, and recomputed below whenever a gate
      * edge selects a different one. Everything here derives from the buffer,
@@ -178,8 +186,12 @@ export class SampleKernel implements Kernel {
       len = data.length
       srcRate = s.sampleRate
       rate = s.sampleRate / ctx.sampleRate
-      f0 = this.start * len
-      f1 = this.end * len
+      // the per-note slice (.chop()) OVERRIDES the config window when set; the
+      // note's begin/end are latched on the gate edge into noteStart/noteEnd
+      const a = this.noteStart
+      const b = this.noteEnd
+      f0 = a * len
+      f1 = b * len
       // A sub-frame window is unplayable — fall back to the whole buffer.
       if (!(f1 - f0 >= 1)) {
         f0 = 0
@@ -194,6 +206,23 @@ export class SampleKernel implements Kernel {
     for (let i = 0; i < n; i++) {
       const g = gate[i]!
       if (g > 0.5 && this.prevGate <= 0.5) {
+        /* Latch the per-note SLICE first — .chop() sets begin/end per note,
+         * and the window everything below derives (zone, slices, fades) must
+         * be this note's. Absent inputs keep the config window. A degenerate
+         * or inverted slice falls back to the config window rather than
+         * playing nothing. */
+        if (beginIn !== undefined || endIn !== undefined) {
+          // the note's begin/end are fractions WITHIN the config window, so
+          // the default [0, 1] reproduces `start`/`end` exactly and a `.chop`
+          // fraction composes with a static window rather than replacing it.
+          const fb = beginIn !== undefined && Number.isFinite(beginIn[i]!) ? clamp01(beginIn[i]!) : 0
+          const fe = endIn !== undefined && Number.isFinite(endIn[i]!) ? clamp01(endIn[i]!) : 1
+          const span = this.end - this.start
+          const nb = this.start + fb * span
+          const ne = this.start + fe * span
+          if (ne > nb) { this.noteStart = nb; this.noteEnd = ne } else { this.noteStart = this.start; this.noteEnd = this.end }
+          resolve()
+        }
         /* Latch the VARIANT on the edge too, and re-resolve immediately if it
          * moved, so round-robin is sample-accurate: the note that triggered
          * plays the sample it asked for, not the one the previous note left
@@ -318,5 +347,7 @@ export class SampleKernel implements Kernel {
     this.w0 = 0
     this.w1 = 0
     this.fadeFrames = 0
+    this.noteStart = this.start
+    this.noteEnd = this.end
   }
 }

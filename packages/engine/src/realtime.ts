@@ -173,6 +173,9 @@ interface QueuedNote {
   synth: string
   note: number
   velocity: number // unused for noteOff
+  /** RANK_ON only: the note's sample slice (see protocol noteOn). */
+  begin: number
+  end: number
   /** RANK_PARAM only: what to set when this fires. Kept in its own field
    *  rather than borrowed from `note`/`velocity`, so a queue dump reads as
    *  what it is. */
@@ -798,7 +801,7 @@ export class RealtimeEngine {
       return
     }
     if (ev.rank === RANK_ON) {
-      ch.pool.noteOn(ev.note, ev.velocity)
+      ch.pool.noteOn(ev.note, ev.velocity, ev.begin, ev.end)
       // Sidechain trigger, sample-accurate: the walk splits the block at this
       // event's frame, so resetting duckLevel here snaps the duck exactly at
       // the source noteOn's sample.
@@ -1130,14 +1133,18 @@ export class RealtimeEngine {
       if (!fin(m['velocity'])) return this.error(`'velocity' must be a finite number`, `${what} '${ch.name}'`)
       velocity = clamp(m['velocity'], 0, 1)
     }
+    // the note's sample slice: fractions, clamped; anything else is the default
+    const frac = (v: unknown, dflt: number): number => (fin(v) ? clamp(v as number, 0, 1) : dflt)
+    const begin = rank === RANK_ON ? frac(m['begin'], 0) : 0
+    const end = rank === RANK_ON ? frac(m['end'], 1) : 1
     const at = m['atFrame']
     if (at !== undefined && !fin(at)) {
       return this.error(`'atFrame' must be a finite number`, `${what} '${ch.name}'`)
     }
     if (at !== undefined && at > this.frames) {
-      this.enqueue(Math.floor(at), rank, ch.name, note, velocity)
+      this.enqueue(Math.floor(at), rank, ch.name, note, velocity, undefined, begin, end)
     } else if (rank === RANK_ON) {
-      ch.pool.noteOn(note, velocity)
+      ch.pool.noteOn(note, velocity, begin, end)
       // Immediate (unqueued) source noteOn: snap the duck at the next block
       // start (offset 0) — this runs on the control plane between blocks.
       if (ch.name === this.scSource) this.duckLevel = 1 - this.scDepth
@@ -1455,6 +1462,8 @@ export class RealtimeEngine {
     note: number,
     velocity: number,
     param?: { name: string; value: number; rampMs: number },
+    begin = 0,
+    end = 1,
   ): void {
     const q = this.queue
     if (this.qHead > 0) {
@@ -1488,8 +1497,8 @@ export class RealtimeEngine {
       else hi = mid
     }
     q.splice(lo, 0, param === undefined
-      ? { frame, rank, synth: synthName, note, velocity }
-      : { frame, rank, synth: synthName, note, velocity, param })
+      ? { frame, rank, synth: synthName, note, velocity, begin, end }
+      : { frame, rank, synth: synthName, note, velocity, begin, end, param })
   }
 
   private rebuildList(): void {

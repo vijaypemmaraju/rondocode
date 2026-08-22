@@ -161,7 +161,10 @@ export function runPatterns(
           list.push({ time: ev.timeSec, type: 'param', name: key, value })
         }
         const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
-        list.push({ time: ev.timeSec, type: 'noteOn', note: midi, velocity })
+        // per-note sample slice (.chop): forwarded onto the noteOn, same as live
+        const begin = typeof ev.controls.begin === 'number' ? ev.controls.begin : undefined
+        const end = typeof ev.controls.end === 'number' ? ev.controls.end : undefined
+        list.push({ time: ev.timeSec, type: 'noteOn', note: midi, velocity, ...(begin !== undefined ? { begin } : {}), ...(end !== undefined ? { end } : {}) })
         const naturalEnd = ev.timeSec + Math.max(GATE_GAP_SEC, ev.durSec - GATE_GAP_SEC)
         const slide = typeof ev.controls.slide === 'number' && ev.controls.slide > 0
         // slide (303): defer this noteOff to the NEXT onset in a post-pass so the

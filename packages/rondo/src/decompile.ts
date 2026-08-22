@@ -1480,7 +1480,13 @@ function chainToPlay(chainNode: Node):
       mods.unshift(`struct ${mv}`)
     } else if (FN_COMB_INV[m.method] !== undefined) {
       const inv = FN_COMB_INV[m.method]!
-      const pre = m.args.slice(0, inv.pre).map(numValue)
+      // a pre-colon count may be a number OR a mini string (`every <2 4>: rev`)
+      const pre = m.args.slice(0, inv.pre).map((a) => {
+        const nv = numValue(a)
+        if (nv !== undefined) return num(nv)
+        const sv = strValue(a)
+        return sv !== undefined && /^[\w~ .!@*<>[\]{}%,-]+$/.test(sv) ? sv : undefined
+      })
       const fn = m.args[inv.pre]
       if (pre.some((x) => x === undefined) || fn === undefined || fn.type !== 'ArrowFunctionExpression') return null
       const body = fn['body'] as Node
@@ -1493,7 +1499,7 @@ function chainToPlay(chainNode: Node):
       })
       if (combArgs.some((x) => x === null)) return null
       const comb = `${bm.method}${combArgs.length > 0 ? ' ' + combArgs.join(' ') : ''}`
-      mods.unshift(`${inv.rname}${pre.length > 0 ? ' ' + pre.map((x) => num(x!)).join(' ') : ''}: ${comb}`)
+      mods.unshift(`${inv.rname}${pre.length > 0 ? ' ' + pre.join(' ') : ''}: ${comb}`)
     } else {
       // a bare combinator with number/word args
       const combArgs = m.args.map((a) => {
@@ -1720,7 +1726,13 @@ function decompileSing(stmt: Node): string | null {
       mods.unshift(`${m.method}: ${cval}`)
     } else if (FN_COMB_INV[m.method] !== undefined) {
       const inv = FN_COMB_INV[m.method]!
-      const pre = m.args.slice(0, inv.pre).map(numValue)
+      // a pre-colon count may be a number OR a mini string (`every <2 4>: rev`)
+      const pre = m.args.slice(0, inv.pre).map((a) => {
+        const nv = numValue(a)
+        if (nv !== undefined) return num(nv)
+        const sv = strValue(a)
+        return sv !== undefined && /^[\w~ .!@*<>[\]{}%,-]+$/.test(sv) ? sv : undefined
+      })
       const fn = m.args[inv.pre]
       if (pre.some((x) => x === undefined) || fn === undefined || fn.type !== 'ArrowFunctionExpression') return null
       const body = fn['body'] as Node
@@ -1733,7 +1745,7 @@ function decompileSing(stmt: Node): string | null {
       })
       if (combArgs.some((x) => x === null)) return null
       const comb = `${bm.method}${combArgs.length > 0 ? ' ' + combArgs.join(' ') : ''}`
-      mods.unshift(`${inv.rname}${pre.length > 0 ? ' ' + pre.map((x) => num(x!)).join(' ') : ''}: ${comb}`)
+      mods.unshift(`${inv.rname}${pre.length > 0 ? ' ' + pre.join(' ') : ''}: ${comb}`)
     } else {
       const combArgs = m.args.map((a) => {
         const nv = numValue(a)

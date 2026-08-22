@@ -797,7 +797,7 @@ function cgMod(m: Mod, errors: RondoError[], macros: ReadonlySet<string>): strin
       if (macroVal === null) checkNumericMini(m.name, m.value, m.pos, errors, macros)
       return `.${m.name}(${macroVal ?? cgCtrlValue(m.value)})`
     case 'fncomb': {
-      const pre = m.pre.map(num)
+      const pre = m.pre.map((a) => (typeof a === 'number' ? num(a) : q(a)))
       return `.${m.name}(${[...pre, `x => x.${cgComb(m.comb)}`].join(', ')})`
     }
     case 'comb': return `.${cgComb(m.comb)}`

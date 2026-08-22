@@ -70,3 +70,8 @@ import './combinators'
 export * from './curve'
 export * from './curvedef'
 export * from './macroval'
+
+// Side-effect import: patternify.ts wraps count combinators so their numeric
+// args accept patterns (fast('<1 2>'), euclid('<3 5>', 8)). MUST be last — it
+// captures the methods controls/chords/combinators install above.
+import './patternify'

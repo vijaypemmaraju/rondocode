@@ -293,8 +293,8 @@ const pm = (name: string, signature: string, summary: string, example?: string):
 
 const PATTERN_METHODS: DocEntry[] = [
   // time
-  pm('fast', 'fast(k: number)', 'Speed up: fit k cycles of the pattern into one.', "n('0 3 5 7').fast(2)"),
-  pm('slow', 'slow(k: number)', 'Slow down: stretch the pattern over k cycles.', 'sine.range(200, 2400).slow(4)'),
+  pm('fast', 'fast(k: number | Pattern)', 'Speed up: fit k cycles of the pattern into one.', "n('0 3 5 7').fast(2)"),
+  pm('slow', 'slow(k: number | Pattern)', 'Slow down: stretch the pattern over k cycles.', 'sine.range(200, 2400).slow(4)'),
   pm('early', 'early(t: number)', 'Nudge everything earlier by t cycles (0.25 = a quarter cycle sooner).', "n('0 3').early(0.125)"),
   pm('late', 'late(t: number)', 'Nudge everything later by t cycles, echoes and laid-back feels.', '.superimpose(x => x.late(0.25).gain(0.3))'),
   pm('rev', 'rev()', 'Play each cycle backwards.', '.every(4, x => x.rev())'),
@@ -315,7 +315,7 @@ const PATTERN_METHODS: DocEntry[] = [
     'Transform only the cycles whose number passes the test, arbitrary song structure.',
     '.whenCycle(c => c % 8 >= 6, x => x.fast(2))',
   ),
-  pm('iter', 'iter(n: number)', 'Rotate the starting point one step later each cycle, coming home after n cycles.', "n('0 3 5 7').iter(4)"),
+  pm('iter', 'iter(n: number | Pattern)', 'Rotate the starting point one step later each cycle, coming home after n cycles.', "n('0 3 5 7').iter(4)"),
   pm('iterBack', 'iterBack(n: number)', 'Like iter but rotating the other way: cycle 1 starts from the last step.', "n('0 3 5 7').iterBack(4)"),
   pm(
     'off',
@@ -378,7 +378,7 @@ const PATTERN_METHODS: DocEntry[] = [
   // layering
   pm('superimpose', 'superimpose(f: (p) => p)', 'Layer f(pattern) on top of the original: ghost echoes, octave doublings, and -- with `add` on a scaled pattern -- DIATONIC harmony, since `add` counts scale degrees, so `superimpose(x => x.add(2))` is a third that is minor or major depending on where in the key it lands.', '.superimpose(x => x.late(0.25).gain(0.3))'),
   pm('palindrome', 'palindrome()', 'Alternate forward and reversed cycles: there, and back again.', "n('0 3 5 7').palindrome()"),
-  pm('ply', 'ply(n: number)', 'Ratchet: repeat each event n times within its own slot.', "note('c5*4').ply(3)"),
+  pm('ply', 'ply(n: number | Pattern)', 'Ratchet: repeat each event n times within its own slot.', "note('c5*4').ply(3)"),
   pm('chop', 'chop(n: number | Pattern)', 'Slice each event into n consecutive pieces of its own sample, keeping the rhythm: one sample hit becomes an in-order walk through the buffer (sets begin/end per piece). n may be a pattern, so the slice count can change per cycle. Play the routed sound with sample(gate, name).', "s('break').chop('<4 8>')"),
   pm('striate', 'striate(n: number | Pattern)', 'Slice into n, interleaved: play the whole pattern n times, pass i taking slice i of every event. chop walks one hit through its slices; striate sweeps one slice across all hits, then the next: the break shuffle. n may be a pattern.', "s('break*4').striate(4)"),
   pm(

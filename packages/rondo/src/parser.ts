@@ -623,11 +623,14 @@ function parseMod(ln: Line, errors: RondoError[]): Mod | null {
   const raw = ln.raw.trim()
   const pos: Pos = { line: ln.line, col: ln.rawCol }
   // function-taking combinators: `every 4: rev`, `jux: rev`, `off .25: gain .3`
-  const fc = /^([a-zA-Z_]\w*)((?:\s+-?\d*\.?\d+)*)\s*:\s*(.+)$/.exec(raw)
+  const fc = /^([a-zA-Z_]\w*)((?:\s+(?:-?\d*\.?\d+|<[^<>]*>|\[[^\][]*\]|\{[^{}]*\}))*)\s*:\s*(.+)$/.exec(raw)
   if (fc) {
     const spec = FN_COMBS[fc[1]!.toLowerCase()]
     if (spec !== undefined) {
-      const pre = (fc[2] ?? '').trim().split(/\s+/).filter(Boolean).map(Number)
+      // a pre-colon count may be a patterned mini token (`every <2 4>: rev`),
+      // so split bracket-aware and keep a mini token as a string; a plain
+      // number stays a number
+      const pre = splitCombArgs(fc[2] ?? '').map((t) => (/^-?\d*\.?\d+$/.test(t) ? Number(t) : t))
       if (pre.length !== spec.pre) {
         errors.push({ message: `\`${fc[1]}\` takes ${spec.pre} argument(s) before the colon`, line: ln.line, col: ln.rawCol })
         return null
@@ -660,9 +663,31 @@ function parseComb(raw: string): Comb {
   const rest = sp < 0 ? '' : s.slice(sp + 1).trim()
   // struct — and chop/striate — take the rest as a single mini string (a
   // patterned count like `chop <2 4>` has spaces the generic split would tear
-  // apart); every other combinator takes space-separated numeric args
+  // apart); every other combinator takes space-separated args, split so a
+  // BRACKETED mini count (`euclid <3 5> 8`, `fast [2 3]`) survives as one token
   if (name === 'struct' || name === 'chop' || name === 'striate') return { name, args: rest ? [rest] : [] }
-  return { name, args: rest ? rest.split(/\s+/) : [] }
+  return { name, args: splitCombArgs(rest) }
+}
+
+/** Split a combinator's argument string on top-level whitespace, keeping any
+ *  `<…>` / `[…]` / `{…}` mini group whole — so a patterned count like
+ *  `euclid <3 5> 8` parses as two args, not `<3`, `5>`, `8`. Backward
+ *  compatible: an argument string with no brackets splits exactly like
+ *  `rest.split(/\s+/)` did. */
+function splitCombArgs(rest: string): string[] {
+  const s = rest.trim()
+  if (s === '') return []
+  const out: string[] = []
+  let depth = 0
+  let cur = ''
+  for (const ch of s) {
+    if (ch === '<' || ch === '[' || ch === '{') { depth++; cur += ch }
+    else if (ch === '>' || ch === ']' || ch === '}') { depth = Math.max(0, depth - 1); cur += ch }
+    else if (/\s/.test(ch) && depth === 0) { if (cur !== '') { out.push(cur); cur = '' } }
+    else cur += ch
+  }
+  if (cur !== '') out.push(cur)
+  return out
 }
 
 /** Combinator words that mark a play-body line as a MODIFIER rather than

@@ -1,0 +1,16 @@
+name: piano
+sample_rate: 48000
+hop: 512
+steps: 100000
+batch: 16
+lr: 3.0e-4
+excerpt_seconds: 2.5
+license: CC-BY-3.0
+provenance: "Salamander Grand Piano v3 by Alexander Holm (CC BY 3.0; see DATA_LICENSES.md)"
+# struck family: no loudness input — the decoder GENERATES the decay from
+# velocity + time since the strike; stiff strings stretch the partials
+inputs: [f0, velocity, onset_age, release_age]
+inharmonic: true
+n_harmonics: 64
+reverb_length: 48000
+prepare: salamander

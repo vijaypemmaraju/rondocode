@@ -44,3 +44,12 @@ attributions (or the .bin headers) intact.
   one recording setup.
 - License of those files: Creative Commons Attribution 3.0 (attributed to
   John Garner; originally commissioned by Musopen).
+
+## Salamander Grand Piano v3 (CC BY 3.0)
+
+- Source: https://github.com/sfzinstruments/SalamanderGrandPiano (Alexander
+  Holm; Yamaha C5, two AKG C414s, 48 kHz/24-bit, 16 velocity layers sampled
+  in minor thirds).
+- Content used: the 480 note samples (A0..C8, v1..v16), ~110 minutes.
+- License: Creative Commons Attribution 3.0 (attributed to Alexander Holm).
+- Used for the piano (struck, inharmonic) model.

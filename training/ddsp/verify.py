@@ -45,12 +45,16 @@ def main(config_path: str) -> None:
             n = min(len(z["f0"]), len(z["loudness"]), len(z["audio"]) // model.hop)
             if n < 32:
                 continue
-            f0 = torch.from_numpy(z["f0"][:n]).float().unsqueeze(0)
-            ld = torch.from_numpy(z["loudness"][:n]).float().unsqueeze(0)
+            feats = {}
+            for name in model.inputs:
+                arr = z[name][:n] if name in z else np.zeros(n, dtype=np.float32)
+                feats[name] = torch.from_numpy(np.asarray(arr)).float().unsqueeze(0)
+            f0 = feats["f0"]
             target = torch.from_numpy(z["audio"][: n * model.hop]).float().unsqueeze(0)
-            out = model(f0, ld)
+            out = model(feats)
             dry = render(
-                f0, out["harm_amps"], out["noise_mags"], model.sample_rate, model.hop
+                f0, out["harm_amps"], out["noise_mags"], model.sample_rate, model.hop,
+                partial_mult=out["partial_mult"],
             )
             losses.append(float(multiscale_stft_loss(dry, target)))
             got_ld = loudness_db(dry[0].numpy(), model.sample_rate, model.hop)[:n]
@@ -70,12 +74,16 @@ def main(config_path: str) -> None:
     t = np.arange(48)
     f0v = 220.0 * 2 ** (t / 47.0)
     ldv = -60.0 + 35.0 * np.sin(t / 5.0) ** 2
+    probe = {
+        "f0": f0v, "loudness": ldv, "velocity": 0.3 + 0.6 * (t % 5) / 4,
+        "onset_age": t * 0.05, "release_age": np.maximum(0, t - 30) * 0.05,
+        "held": (t < 30).astype(np.float32),
+    }
     with torch.no_grad():
-        out = model(
-            torch.from_numpy(f0v).float().unsqueeze(0),
-            torch.from_numpy(ldv).float().unsqueeze(0),
-        )
+        out = model({n: torch.from_numpy(np.asarray(probe[n])).float().unsqueeze(0) for n in model.inputs})
     vec = {
+        "inputs": model.inputs,
+        "features": {n: [round(float(v), 6) for v in probe[n]] for n in model.inputs},
         "f0_hz": [round(float(v), 6) for v in f0v],
         "loudness_db": [round(float(v), 6) for v in ldv],
         "harm_amps": [[round(float(v), 8) for v in row] for row in out["harm_amps"][0]],

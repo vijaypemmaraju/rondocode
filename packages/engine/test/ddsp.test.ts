@@ -641,9 +641,9 @@ function syntheticModel(H: number, L: number, G: number, K: number, J: number): 
     header: {
       name: 'big', license: 'CC0-1.0', provenance: 'synthetic', sampleRate: 48000,
       hop: 512, nHarmonics: K, nNoise: J, hidden: H, layers: L, gru: G, outNorm: 1,
+      inputs: ['f0', 'loudness'], inharmonicity: null,
     },
-    inMlpF0: mlp(1),
-    inMlpLd: mlp(1),
+    inMlps: [mlp(1), mlp(1)],
     outMlp: mlp(G + 2),
     gruWih: arr(3 * G * 2 * H),
     gruWhh: arr(3 * G * G),
@@ -655,3 +655,113 @@ function syntheticModel(H: number, L: number, G: number, K: number, J: number): 
     noiseB: arr(J),
   }
 }
+
+/* ------------------------------------------------------------- format v2 */
+
+const fixtureV2 = new Uint8Array(readFileSync(new URL('./fixtures/ddsp-fixture-v2.bin', import.meta.url)))
+interface GoldenV2 {
+  inputs: string[]
+  features: Record<string, number[]>
+  intermediates: { mlp_concat: number[][]; gru_h: number[][] }
+  outputs: { amp: number[]; harm_amps: number[][]; noise_mags: number[][]; partial_mult: number[][] }
+  harmonic_render: { sample_rate: number; hop: number; samples: number[] }
+}
+const goldenV2 = JSON.parse(readFileSync(new URL('./fixtures/ddsp-golden-v2.json', import.meta.url), 'utf8')) as GoldenV2
+
+describe('format v2: named inputs + inharmonicity', () => {
+  it('a v1 file still parses with the default (f0, loudness) conditioning', () => {
+    const m = parseDdspModel(fixtureBin)
+    expect(m.header.inputs).toEqual(['f0', 'loudness'])
+    expect(m.header.inharmonicity).toBeNull()
+    expect(m.inMlps.length).toBe(2)
+  })
+
+  it('parses the v2 fixture: struck inputs and a 128-key inharmonicity table', () => {
+    const m = parseDdspModel(fixtureV2)
+    expect(m.header.inputs).toEqual(['f0', 'velocity', 'onset_age', 'release_age'])
+    expect(m.header.inharmonicity?.length).toBe(128)
+    expect(m.inMlps.length).toBe(4)
+    expect(m.gruWih.length).toBe(3 * m.header.gru * 4 * m.header.hidden)
+  })
+
+  it('rejects unknown or f0-less input lists', () => {
+    const rebuild = (mut: (h: Record<string, unknown>) => void): Uint8Array => {
+      const dv = new DataView(fixtureV2.buffer, fixtureV2.byteOffset)
+      const hlen = dv.getUint32(8, true)
+      const header = JSON.parse(Buffer.from(fixtureV2.subarray(12, 12 + hlen)).toString('utf8'))
+      mut(header)
+      const hjson = Buffer.from(JSON.stringify(header), 'utf8')
+      const dataStart = 12 + hlen + ((4 - ((12 + hlen) % 4)) % 4)
+      const newDataStart = 12 + hjson.length + ((4 - ((12 + hjson.length) % 4)) % 4)
+      const out = new Uint8Array(newDataStart + (fixtureV2.length - dataStart))
+      out.set(fixtureV2.subarray(0, 8), 0)
+      new DataView(out.buffer).setUint32(8, hjson.length, true)
+      out.set(hjson, 12)
+      out.set(fixtureV2.subarray(dataStart), newDataStart)
+      return out
+    }
+    expect(() => parseDdspModel(rebuild((h) => { h.inputs = ['f0', 'bogus'] }))).toThrow(/unknown/)
+    expect(() => parseDdspModel(rebuild((h) => { h.inputs = ['velocity'] }))).toThrow(/f0/)
+    expect(() => parseDdspModel(rebuild((h) => { h.inharmonicity = [1, 2, 3] }))).toThrow(/128/)
+  })
+
+  it('decoder golden parity on the v2 fixture (gru, amps, noise, partial multipliers)', () => {
+    const m = parseDdspModel(fixtureV2)
+    const dec = new DdspDecoder(m)
+    const T = goldenV2.features['f0']!.length
+    for (let f = 0; f < T; f++) {
+      goldenV2.inputs.forEach((name, i) => {
+        dec.features[i] = goldenV2.features[name]![f]!
+      })
+      dec.stepFeatures()
+      closeAll(dec.gruH, goldenV2.intermediates.gru_h[f]!, 2e-4)
+      closeAll(dec.harmAmps, goldenV2.outputs.harm_amps[f]!, 5e-5)
+      closeAll(dec.noiseMags, goldenV2.outputs.noise_mags[f]!, 2e-4)
+      closeAll(dec.partialMult!, goldenV2.outputs.partial_mult[f]!, 1e-4)
+    }
+  })
+
+  it('inharmonic render golden parity (per-partial phases)', () => {
+    const f0 = Float32Array.from(goldenV2.features['f0']!)
+    const amps = goldenV2.outputs.harm_amps.map((a) => Float32Array.from(a))
+    const mults = goldenV2.outputs.partial_mult.map((a) => Float32Array.from(a))
+    const out = renderHarmonicFrames(f0, amps, goldenV2.harmonic_render.sample_rate, goldenV2.harmonic_render.hop, mults)
+    closeAll(out, goldenV2.harmonic_render.samples, 3e-4, 0)
+  })
+
+  describe('struck kernel', () => {
+    const modelV2 = parseDdspModel(fixtureV2)
+    const ctxV2 = (): DspContext => {
+      const bank = new DdspModelBank()
+      bank.set('piano', modelV2)
+      return { sampleRate: 48000, ddsp: bank }
+    }
+    const sr = 48000
+
+    it('sounds while held, and the damper takes it away on key-up', () => {
+      const k = new DdspKernel({ model: 'piano', release: 0.08 })
+      const out = run(k, ctxV2(), sr, { gate: (i) => (i < sr / 2 ? 1 : 0), air: 0 })
+      expect(rms(out, sr / 8, sr / 4)).toBeGreaterThan(1e-4)
+      expect(rms(out, Math.round(0.9 * sr), sr)).toBeLessThan(rms(out, sr / 8, sr / 4) * 0.05)
+      for (const v of out) expect(Number.isFinite(v)).toBe(true)
+    })
+
+    it('partials are STRETCHED: the 8th partial sits above 8*f0', () => {
+      // the fixture's B table is exaggerated (2e-4..8e-3): at A3 the 8th
+      // partial lands ~10-20% sharp of the harmonic position
+      const k = new DdspKernel({ model: 'piano' })
+      const out = run(k, ctxV2(), sr, { air: 0 })
+      const seg = out.subarray(sr / 4, sr / 2)
+      const B = modelV2.header.inharmonicity![57]! // A3 = midi 57
+      const stretched = 220 * 8 * Math.sqrt(1 + B * 64)
+      expect(stretched / (220 * 8)).toBeGreaterThan(1.05) // the fixture really stretches
+      expect(goertzel(seg, stretched, sr)).toBeGreaterThan(goertzel(seg, 220 * 8, sr) * 3)
+    })
+
+    it('is deterministic and block-split invariant with v2 conditioning', () => {
+      const a = run(new DdspKernel({ model: 'piano' }), ctxV2(), 4096, { gate: (i) => (i < 2500 ? 1 : 0) })
+      const b = run(new DdspKernel({ model: 'piano' }), ctxV2(), 4096, { gate: (i) => (i < 2500 ? 1 : 0) }, [37, 91, 1, 127])
+      expect(b).toEqual(a)
+    })
+  })
+})

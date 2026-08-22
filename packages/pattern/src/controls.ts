@@ -341,7 +341,7 @@ declare module './pattern' {
      * play the routed sound with `sample(gate, name)` (no `slices:` needed —
      * the note carries its window). n must be a positive integer.
      */
-    chop(this: Pattern<ControlMap>, n: number): Pattern<ControlMap>
+    chop(this: Pattern<ControlMap>, n: number | string | Pattern<number>): Pattern<ControlMap>
     /**
      * STRIATE the pattern into `n` slices, INTERLEAVED: the whole pattern is
      * played n times across the cycle, pass i playing slice [i/n,(i+1)/n) of
@@ -351,7 +351,7 @@ declare module './pattern' {
      * Tidal break-shuffle. Sets `begin`/`end` (Strudel's `.striate`). n must
      * be a positive integer.
      */
-    striate(this: Pattern<ControlMap>, n: number): Pattern<ControlMap>
+    striate(this: Pattern<ControlMap>, n: number | string | Pattern<number>): Pattern<ControlMap>
     /** ctrl('cutoff', x): filter cutoff synth param. */
     cutoff(this: Pattern<ControlMap>, x: ControlValue): Pattern<ControlMap>
     /** ctrl('res', x): filter resonance synth param. */
@@ -651,11 +651,19 @@ const withSlice = (v: ControlMap, lo: number, hi: number): ControlMap => {
   return { ...v, begin: b0 + lo * span, end: b0 + hi * span }
 }
 
-Pattern.prototype.chop = function (this: Pattern<ControlMap>, n: number): Pattern<ControlMap> {
-  const k = Math.floor(n)
-  if (!(k >= 1)) throw new Error(`chop: n must be a positive integer, got ${n}`)
-  if (k === 1) return this
-  const src = this
+/** Turn a count argument into a Pattern of positive integers: a plain number
+ *  stays a fast path (handled by the callers); a mini STRING (`'<2 4>'`, what
+ *  rondo emits for `chop <2 4>`) or a Pattern is queried per its own structure,
+ *  so the slice count can change cycle to cycle. Non-integers floor; anything
+ *  below 1 becomes 1 (no slicing) rather than throwing mid-stream. */
+const countPattern = (n: string | Pattern<number>): Pattern<number> =>
+  (typeof n === 'string' ? (mini(n) as Pattern<number>) : reify(n))
+    .withValue((v) => Math.max(1, Math.floor(typeof v === 'number' ? v : Number(v))))
+
+/** The slice core: split every event into k consecutive pieces of its own
+ *  sample. k must already be a positive integer. */
+const chopCore = (src: Pattern<ControlMap>, k: number): Pattern<ControlMap> => {
+  if (k === 1) return src
   return new Pattern<ControlMap>((span) => {
     const out: Hap<ControlMap>[] = []
     for (const h of src.query(span)) {
@@ -673,15 +681,22 @@ Pattern.prototype.chop = function (this: Pattern<ControlMap>, n: number): Patter
   })
 }
 
-Pattern.prototype.striate = function (this: Pattern<ControlMap>, n: number): Pattern<ControlMap> {
-  const k = Math.floor(n)
-  if (!(k >= 1)) throw new Error(`striate: n must be a positive integer, got ${n}`)
-  if (k === 1) return this
+Pattern.prototype.chop = function (this: Pattern<ControlMap>, n: number | string | Pattern<number>): Pattern<ControlMap> {
+  if (typeof n === 'number') {
+    const k = Math.floor(n)
+    if (!(k >= 1)) throw new Error(`chop: n must be a positive integer, got ${n}`)
+    return chopCore(this, k)
+  }
+  // patterned count (`chop <2 4>`): the count pattern drives the structure,
+  // slicing each of its spans by that span's value.
   const src = this
-  // n passes squeezed into the cycle, pass i playing slice i of every event.
-  // _fast(k) then per-pass slice: the cycle index the fast copy came from is
-  // the slice number, so each squeezed copy of the whole pattern reads one
-  // slice across all its events.
+  return countPattern(n).innerBind((k) => chopCore(src, k))
+}
+
+/** The interleave core: play the whole pattern k times in one cycle, pass i
+ *  taking slice i of every event. k must already be a positive integer. */
+const striateCore = (src: Pattern<ControlMap>, k: number): Pattern<ControlMap> => {
+  if (k === 1) return src
   const passes: Pattern<ControlMap>[] = []
   for (let i = 0; i < k; i++) {
     passes.push(src.withValue((v) => withSlice(v, i / k, (i + 1) / k)))
@@ -690,4 +705,14 @@ Pattern.prototype.striate = function (this: Pattern<ControlMap>, n: number): Pat
   // every event) fills the first 1/n, pass 1 the next, and so on — the whole
   // pattern swept n times, one slice per sweep.
   return Pattern.fastcat(...passes)
+}
+
+Pattern.prototype.striate = function (this: Pattern<ControlMap>, n: number | string | Pattern<number>): Pattern<ControlMap> {
+  if (typeof n === 'number') {
+    const k = Math.floor(n)
+    if (!(k >= 1)) throw new Error(`striate: n must be a positive integer, got ${n}`)
+    return striateCore(this, k)
+  }
+  const src = this
+  return countPattern(n).innerBind((k) => striateCore(src, k))
 }

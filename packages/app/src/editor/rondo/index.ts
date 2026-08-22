@@ -260,7 +260,7 @@ export const OPTIONS: RondoOption[] = [
   c('sometimes', 'keyword', 'sometimes: <comb>', 'Apply a combinator to a random half of the cycles (also often / rarely / always).', 'sometimes: fast 2'),
   c('iter', 'keyword', 'iter N', 'Rotate the pattern one step further each cycle, over N cycles.', 'iter 4'),
   c('ply', 'keyword', 'ply N', 'Repeat every event N times in its own slot.', 'ply 2'),
-  c('chop', 'keyword', 'chop N', 'Slice each event into N consecutive pieces of its OWN sample (begin/end per piece), same rhythm: one `sample` hit becomes an N-step walk through the buffer. Needs a synth that plays the sound with `sample name` (no slices: needed).', 'play break\n  0\n  chop 8'),
+  c('chop', 'keyword', 'chop N', 'Slice each event into N consecutive pieces of its OWN sample (begin/end per piece), same rhythm: one `sample` hit becomes an N-step walk through the buffer. N can be a pattern (`chop <4 8>`) to vary the slice count per cycle. Needs a synth that plays the sound with `sample name` (no slices: needed).', 'play break\n  0\n  chop 8'),
   c('striate', 'keyword', 'striate N', 'Slice into N, INTERLEAVED: play the whole line N times, pass i taking slice i of every event. Where chop walks one hit through its slices, striate sweeps one slice across all hits, then the next: the classic break shuffle.', 'play break\n  0 1 2 3\n  striate 4'),
   c('segment', 'keyword', 'segment N', 'Sample a continuous signal into N discrete steps per cycle.', 'segment 16'),
   c('sub', 'keyword', 'sub N', 'Transpose DOWN by N scale degrees -- the companion to add.', 'sub 5'),

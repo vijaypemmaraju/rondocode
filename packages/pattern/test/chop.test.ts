@@ -57,3 +57,24 @@ describe('striate', () => {
     expect(() => s('a').striate(-2)).toThrow(/positive integer/)
   })
 })
+
+describe('patterned counts', () => {
+  it('chop takes a mini-string count that changes per cycle', () => {
+    const p = s('break').chop('<2 4>')
+    expect(q(p, 0, 1).map(([, , v]) => [v.begin, v.end])).toEqual([[0, 0.5], [0.5, 1]])
+    expect(q(p, 1, 2).map(([, , v]) => [v.begin, v.end])).toEqual([
+      [0, 0.25], [0.25, 0.5], [0.5, 0.75], [0.75, 1],
+    ])
+  })
+
+  it('striate takes a patterned count too', () => {
+    // cycle 0: 2 passes over 2 events = 4 haps
+    expect(q(s('a b').striate('<2 3>'), 0, 1).length).toBe(4)
+    // cycle 1: 3 passes over 2 events = 6 haps
+    expect(q(s('a b').striate('<2 3>'), 1, 2).length).toBe(6)
+  })
+
+  it('a patterned value below 1 slices by 1 (no slicing) rather than throwing', () => {
+    expect(q(s('a').chop('<1 0>'), 1, 2).map(([, , v]) => v.sound)).toEqual(['a'])
+  })
+})

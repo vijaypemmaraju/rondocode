@@ -658,8 +658,10 @@ function parseComb(raw: string): Comb {
   const sp = s.indexOf(' ')
   const name = sp < 0 ? s : s.slice(0, sp)
   const rest = sp < 0 ? '' : s.slice(sp + 1).trim()
-  // struct takes the rest as a single mini string; others take numeric args
-  if (name === 'struct') return { name, args: rest ? [rest] : [] }
+  // struct — and chop/striate — take the rest as a single mini string (a
+  // patterned count like `chop <2 4>` has spaces the generic split would tear
+  // apart); every other combinator takes space-separated numeric args
+  if (name === 'struct' || name === 'chop' || name === 'striate') return { name, args: rest ? [rest] : [] }
   return { name, args: rest ? rest.split(/\s+/) : [] }
 }
 

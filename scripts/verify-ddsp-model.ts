@@ -12,7 +12,7 @@
  * midiNote defaults to 57 (A3, 220 Hz) — pass one inside the instrument's
  * trained range (flute 69, bass 45).
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { parseDdspModel, DdspDecoder, renderOffline } from '../packages/engine/src/index'
 import type { GraphSpec } from '../packages/engine/src/index'
 import { goertzel } from '../packages/engine/test/util/goertzel'
@@ -38,14 +38,31 @@ interface Vectors {
   loudness_db: number[]
   harm_amps: number[][]
   noise_mags: number[][]
+  /** v2 exports: named conditioning and per-feature frame values */
+  inputs?: string[]
+  features?: Record<string, number[]>
 }
 const vecPath = binPath.replace(/\.bin$/, '.vectors.json')
+// vectors must come from THIS export: a stale file made parity "fail" once
+// after a re-export and silently "pass" before that when nobody read the
+// full output. Refuse to compare across generations.
+if (statSync(vecPath).mtimeMs < statSync(binPath).mtimeMs) {
+  console.error(`vectors ${vecPath} are older than the model — regenerate with training/ddsp/verify.py first`)
+  process.exit(2)
+}
 const vec = JSON.parse(readFileSync(vecPath, 'utf8')) as Vectors
 const dec = new DdspDecoder(model)
 let worstHarm = 0
 let worstNoise = 0
 for (let f = 0; f < vec.f0_hz.length; f++) {
-  dec.step(vec.f0_hz[f]!, vec.loudness_db[f]!)
+  if (vec.inputs && vec.features) {
+    vec.inputs.forEach((name, i) => {
+      dec.features[i] = vec.features![name]![f]!
+    })
+    dec.stepFeatures()
+  } else {
+    dec.step(vec.f0_hz[f]!, vec.loudness_db[f]!)
+  }
   for (let k = 0; k < model.header.nHarmonics; k++) {
     worstHarm = Math.max(worstHarm, Math.abs(dec.harmAmps[k]! - vec.harm_amps[f]![k]!))
   }
@@ -69,6 +86,7 @@ const spec: GraphSpec = {
 }
 const sr = 48000
 const midi = Number(process.argv[3] ?? 57)
+// struck models get no loudness conditioning; velocity is the dynamic
 const res = renderOffline(
   { graph: spec },
   [

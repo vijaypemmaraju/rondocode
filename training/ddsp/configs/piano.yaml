@@ -14,3 +14,4 @@ inharmonic: true
 n_harmonics: 64
 reverb_length: 48000
 prepare: salamander
+ckpt_every: 500

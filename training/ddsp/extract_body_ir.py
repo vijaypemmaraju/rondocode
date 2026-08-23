@@ -16,7 +16,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-INSTRUMENTS = ["violin", "viola", "cello", "bass", "flute", "trumpet", "tenorsax"]
+INSTRUMENTS = ["violin", "viola", "cello", "bass", "flute", "trumpet", "tenorsax", "piano"]
 SR = 48000
 BODY_MS = 80
 

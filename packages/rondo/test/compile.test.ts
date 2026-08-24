@@ -1388,3 +1388,33 @@ describe('zonedef: a multisample instrument', () => {
     expect(c.errors[0]!.message).toMatch(/needs rows/)
   })
 })
+
+describe('looper: the loop pedal builtin', () => {
+  it('takes the pipe as input, the record gate as the positional, the rest named', () => {
+    const code = ok(`synth pedal
+  mic
+  looper rec feedback:decay clear:wipe
+  rec = knob 0 0..1
+  decay = knob 1 0..1
+  wipe = knob 0 0..1
+
+play pedal
+  0
+
+cps .5
+`)
+    expect(code).toMatch(/looper\(/)
+    expect(code).toContain('feedback: decay')
+    expect(code).toContain('clear: wipe')
+  })
+
+  it('a gate-less `looper feedback:…` still compiles: the gate defaults to 0', () => {
+    const code = ok('synth pedal\n  mic\n  looper feedback:.9\n\nplay pedal\n  0\n\ncps .5\n')
+    expect(code).toContain(', 0, { feedback: 0.9 }')
+  })
+
+  it('maxtime: is a NUMBER (it allocates the buffer), refused as a signal', () => {
+    const e = fails('synth pedal\n  mic\n  looper rec maxtime:k\n  rec = knob 0 0..1\n  k = knob 10 1..60\n\nplay pedal\n  0\n\ncps .5\n')
+    expect(e.message).toMatch(/NUMBER, not a signal/)
+  })
+})

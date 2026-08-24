@@ -71,6 +71,21 @@ export interface DelayOpts {
   mix?: SigIn
 }
 
+export interface LooperOpts {
+  /** Loop memory in SECONDS (buffer size; also the longest possible loop).
+   *  Default 10. */
+  maxTime?: number
+  /** Overdub decay, 0..1 (default 1 = layers hold forever). Applied to the
+   *  existing loop content only while `rec` is high — playback alone never
+   *  erodes the loop. */
+  feedback?: SigIn
+  /** Loop playback level, 0..1 (default 1). The dry input always passes at
+   *  unity — this scales only the loop. */
+  mix?: SigIn
+  /** Rising edge wipes the loop; the next `rec` press starts a fresh one. */
+  clear?: SigIn
+}
+
 /** Handle to a node's output inside a synth() build. Immutable: every method
  *  creates a new node and returns a new Sig. */
 export interface Sig {
@@ -334,6 +349,12 @@ export interface SynthCtx {
    *  cycle) that follows the tempo live. The buffer is sized by `maxTime`
    *  SECONDS either way, so a synced time is clamped to it at slow tempi. */
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig
+  /** LOOP PEDAL: `rec` high records — the FIRST press defines the loop
+   *  length, later presses overdub onto it as it plays. Output is the dry
+   *  input plus `mix` times the loop (the dry path is never attenuated).
+   *  `feedback` (0..1, def 1) fades earlier layers on each overdub pass; a
+   *  rising edge on `clear` wipes the loop; `maxTime` seconds of memory. */
+  looper(inp: SigIn, rec: SigIn, opts?: LooperOpts): Sig
   /** Freeverb-style algorithmic reverb. Output is WET only — mix it back with
    *  the dry signal (e.g. `tone.mix(reverb(tone), 0.3)`). roomSize/damp are
    *  0..1 and are fixed at build time (not per-sample). */
@@ -462,6 +483,7 @@ export interface PostCtx {
   dualsvf(inp: SigIn, cutoff: SigIn, cutoff2: SigIn, opts?: { res?: SigIn; mode?: 'serial' | 'parallel'; a?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass'; b?: 'lp' | 'hp' | 'bp' | 'notch' | 'peak' | 'allpass' }): Sig
   lfo(freq: SigIn, shape?: LfoShapeName | LfoOpts, opts?: LfoOpts): Sig
   delay(inp: SigIn, time: SigIn, feedback?: SigIn, opts?: DelayOpts): Sig
+  looper(inp: SigIn, rec: SigIn, opts?: LooperOpts): Sig
   reverb(inp: SigIn, opts?: { roomSize?: number; damp?: number }): Sig
   chorus(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; mix?: SigIn }): Sig
   comb(inp: SigIn, freq: SigIn, feedback?: SigIn, opts?: { damp?: number }): Sig
@@ -1115,6 +1137,19 @@ const makeShared = (b: Builder) => {
     // LIVE MIC: the device microphone as a signal (silence offline / when no
     // mic is connected). Use headphones — a speaker feeding the mic howls.
     mic: (opts?: { device?: string }): Sig => b.node('mic', {}, definedConfig({ device: opts?.device })),
+    // LOOP PEDAL: record the input while `rec` is high (the first press
+    // defines the loop length), then loop it and overdub later passes.
+    // Output is dry + mix*loop; feedback < 1 fades old layers per overdub.
+    looper: (inp: SigIn, rec: SigIn, opts?: LooperOpts): Sig => {
+      const inputs: Record<string, InputSource> = {
+        in: src(inp, 'looper in'),
+        rec: src(rec, 'looper rec'),
+      }
+      if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'looper feedback')
+      if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'looper mix')
+      if (opts?.clear !== undefined) inputs['clear'] = src(opts.clear, 'looper clear')
+      return b.node('looper', inputs, definedConfig({ maxTime: opts?.maxTime }))
+    },
   }
 }
 
@@ -1164,6 +1199,7 @@ const makeCtx = (b: Builder): SynthCtx => {
     flanger: shared.flanger,
     mix: shared.mix,
     mic: shared.mic,
+    looper: shared.looper,
 
     sine: (freq) => b.node('sine', { freq: src(freq, 'sine freq') }),
     saw: (freq) => b.node('saw', { freq: src(freq, 'saw freq') }),

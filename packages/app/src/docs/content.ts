@@ -1277,6 +1277,21 @@ setCps(0.5)`,
       ),
       p('A LIVE CHANNEL STRIP is the other thing the mic is for: not an effect on your voice, but the chain a stage needs in front of it. `noisegate` first (it removes the bleed and the room tone before anything amplifies them), then `deess`, then `compress`, and `limiter` last if the ceiling matters. Each is documented on its own in the reference; the order is the point.'),
       p('The channel is kept open by a HELD note: `dur: .99` on a one-note pattern. That looks like it should click on every retrigger and it does not: with no envelope on the spine there is nothing to re-attack, and the largest sample-to-sample step across a retrigger measures smaller than the signal\'s own slope.'),
+      p('`looper` is a LOOP PEDAL on any signal, and the mic is where it shines: while `rec` is high the input records, the FIRST press defines the loop length, and every later press overdubs another layer onto the loop as it plays. The dry signal always passes -- a pedal never mutes the player. `feedback:` (0..1, default 1) fades earlier layers a step per overdub pass; `clear:` wipes the loop on a rising edge; `maxtime:` is the memory in seconds (default 10). Drive `rec` from a knob and it is a foot switch; drive it from a pattern or a synced lfo and the loop quantizes itself to the grid. The loop survives retriggers of the held note (and all note traffic in a bus) -- an edit that rebuilds the graph starts it empty.'),
+      rondo(
+        'A mic loop pedal: dial rec to 1 to record, back to 0 to loop, up again to layer.',
+        `synth pedal
+  mic
+  looper rec feedback:decay
+  rec = knob 0 0..1
+  decay = knob 1 0..1
+
+play pedal
+  a2
+  dur: .99
+
+cps .5`,
+      ),
       note('Turn ECHO CANCELLATION on in options when you are playing through a speaker rather than headphones. On a phone it is on by default, because the speaker is a couple of centimetres from the microphone and a live chain would otherwise howl. It costs some latency and may resample, so a take that matters still wants the raw signal and headphones. The options panel shows the measured round trip either way.'),
     ],
   },

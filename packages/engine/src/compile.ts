@@ -21,6 +21,8 @@ import {
 } from './dsp/math'
 import { DelayKernel } from './dsp/delay'
 import type { DelayConfig } from './dsp/delay'
+import { LooperKernel } from './dsp/looper'
+import type { LooperConfig } from './dsp/looper'
 import { ReverbKernel } from './dsp/reverb'
 import { ChorusKernel } from './dsp/chorus'
 import type { ChorusConfig } from './dsp/chorus'
@@ -216,6 +218,7 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   tanh: [{ name: 'in' }],
   mix: [{ name: 'a' }, { name: 'b' }, { name: 't', def: 0.5 }],
   delay: [{ name: 'in' }, { name: 'time', def: 0.25 }, { name: 'feedback', def: 0 }, { name: 'mix', def: 0.35 }],
+  looper: [{ name: 'in' }, { name: 'rec', def: 0 }, { name: 'feedback', def: 1 }, { name: 'mix', def: 1 }, { name: 'clear', def: 0 }],
   reverb: [{ name: 'in' }],
   chorus: [{ name: 'in' }, { name: 'rate', def: 0.6 }, { name: 'depth', def: 0.003 }, { name: 'mix', def: 0.5 }],
   comb: [{ name: 'in' }, { name: 'freq', def: 220 }, { name: 'feedback', def: 0.5 }],
@@ -304,6 +307,8 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   mix: () => new MixKernel(),
   // ctx makes the delay allocate its ring buffer NOW, not on the audio thread
   delay: (c, ctx) => new DelayKernel(c as DelayConfig, ctx),
+  // same eager-allocation contract for the loop pedal's buffer
+  looper: (c, ctx) => new LooperKernel(c as LooperConfig, ctx),
   // ctx makes reverb allocate its comb/allpass buffers NOW, not on the audio
   // thread; only forward config keys that are present (kernel defaults otherwise)
   reverb: (c, ctx) => new ReverbKernel(num(c['roomSize'], c['damp']), ctx),

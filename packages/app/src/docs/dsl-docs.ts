@@ -617,6 +617,12 @@ const SYNTH_CTX: DocEntry[] = [
     'saw(note.freq).mul(env), delay(tone, 0.1875, 0.45, { sync: true, mix: 0.4 })',
   ),
   sc(
+    'looper',
+    'looper(input, rec, opts?: { feedback, mix, clear, maxTime })',
+    "A LOOP PEDAL: while `rec` is high the input records, and the FIRST press defines the loop length -- there is no length setting, the time you hold it IS the loop, which is why a knob makes a foot switch and a pattern- or synced-lfo-driven gate makes a loop that quantizes itself to the grid. On release it plays immediately, sample-exact. Any later `rec` press OVERDUBS onto the loop as it plays: layers sum, and `feedback` (0..1, default 1) is the overdub decay -- at 1 every layer holds forever, lower and each overdub pass fades what came before (the frippertronics move); playback alone never erodes anything. Output is the DRY INPUT PLUS the loop -- a pedal never mutes the player -- and `mix` (0..1, default 1) scales only the loop. A rising edge on `clear` wipes it; `maxTime` SECONDS is the memory (default 10), and a first take that runs past it closes the loop there and starts playing, like a pedal running out of tape. The loop lives in kernel state, so it survives note retriggers on a held-note spine and all note traffic in a post chain or bus; an edit that rebuilds the graph starts it empty. Feed it `mic()` for the classic pedal, or any bus for resampling-style jams -- and it works offline too: whatever `rec` and the input do in the render, the bounce hears.",
+    "looper(mic(), param('rec', 0), { feedback: 0.9 })",
+  ),
+  sc(
     'reverb',
     'reverb(input, opts?: { roomSize, damp })',
     'Freeverb-style algorithmic reverb: a network of comb and allpass delays tuned to sound like a room. It returns the WET TAIL ONLY, which is the thing to know -- put it in a chain unmixed and the dry signal disappears. In rondo `mix` blends it back for you; in JS use `x.mix(reverb(x), 0.3)`. roomSize 0..1 (def 0.7) is the tail length, damp 0..1 (def 0.5) rolls the top off the tail so it sits behind the source instead of hissing over it. It is cheap and it is tweakable while it runs, which is what it has over `convolve`; what it cannot do is BE a particular room, because it is a model rather than a measurement.',

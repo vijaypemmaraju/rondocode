@@ -154,6 +154,17 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     named: { threshold: 'num', range: 'num', attack: 'num', hold: 'num', release: 'num', hysteresis: 'num' },
   },
   flanger: { kind: 'proc', pos: [], named: { rate: 'sig', depth: 'sig', feedback: 'sig', mix: 'sig' } },
+  // LOOP PEDAL on the running signal: the positional is the RECORD gate
+  // (`looper rec` with `rec = knob 0 0..1`) — the first press defines the
+  // loop length, later presses overdub onto it. feedback < 1 fades old
+  // layers per overdub pass; a rising edge on clear: wipes the loop.
+  looper: {
+    kind: 'proc',
+    pos: ['sig'],
+    posDefault: ['0'],
+    named: { feedback: 'sig', mix: 'sig', clear: 'sig', maxtime: 'num' },
+    alias: { maxtime: 'maxTime' },
+  },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },
   ott: { kind: 'proc', pos: [], named: { depth: 'num', low: 'num', high: 'num', makeup: 'num' } },
   // parametric EQ — bands are special-parsed word-then-numbers groups:

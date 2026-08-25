@@ -448,6 +448,74 @@ cps .5`,
     why: '`slices:8` hands the CHOICE to the note. It cuts the window into eight equal pieces, and `root` (c4 by default) plays piece 0 with each semitone up picking the next -- so a note pattern becomes a sequencer for the pieces of a loop, and reordering the notes gives you a new beat out of the same two seconds of audio. Every piece plays at its natural speed whatever note picked it, which is what separates chopping from transposing: the break keeps its own groove and only its ORDER changes.',
   },
   {
+    id: 'striate',
+    group: 'rhythm',
+    title: 'Shuffle a break without rewriting it',
+    tags: ['sample', 'striate', 'chop', 'break', 'sampler'],
+    code: `synth breaks
+  sample break
+  * adsr .001 .3 1 .05
+
+synth sub
+  (sine note) * .55
+  * adsr .004 .12 .7 .12
+
+play breaks
+  c4 c4 c4 c4
+  striate <4 8>
+  dur: .95
+
+play sub
+  <c2 c2 f1 g1>
+  dur: .9
+
+cps .5`,
+    why: "`striate` is chop's interleaved twin, and the difference is the recipe. `chop 8` walks ONE hit through its eight pieces in order, so the loop plays through and stutters. `striate 4` plays the whole LINE four times, pass i taking piece i of every event -- the first pass is all openings, the last all tails, which is the classic break shuffle. Neither needs `slices:` on the synth: the pattern carries each event's begin/end window as note data, so a plain `sample break` plays whatever piece it is handed. And the count is a pattern too, so `<4 8>` shuffles twice as fine every other cycle.",
+  },
+  {
+    id: 'looper',
+    group: 'live & performance',
+    title: 'Loop a riff and layer it live',
+    tags: ['looper', 'live', 'overdub', 'performance'],
+    code: `synth riff
+  saw
+  onepole 1400
+  * env
+  env = adsr .005 .12 .5 .1
+  post
+    looper rec feedback:decay
+    rec = knob 0 0..1
+    decay = knob 1 0..1
+
+play riff
+  0 3 5 <7 10> ~ 5 3 ~
+  scale: a-min
+  dur: .8
+
+cps .5`,
+    why: "The looper lives in the POST chain, and that placement is the recipe: a spine runs once per VOICE, so a looper there would give every note its own empty pedal that dies with the voice. The post chain runs once over the summed synth, so it hears the whole riff and survives every retrigger. Dial `rec` to 1 and the pedal records -- the time it stays up IS the loop length -- back to 0 and the loop plays, up again and you overdub a layer on top. `decay` below 1 fades the older layers a step per overdub pass, so a jam renews itself instead of piling up; parked at 1 every layer holds forever. Editing the code rebuilds the graph and empties the pedal, which is also the escape hatch.",
+  },
+  {
+    id: 'bowing',
+    group: 'instruments',
+    title: 'Bow a violin line like a player',
+    tags: ['ddsp', 'violin', 'slur', 'legato', 'strings'],
+    code: `synth violin mono
+  ddsp violin vib:.25
+  post
+    convolve violinbody mix:.5
+    reverb room:.8 damp:.5 mix:.2
+
+play violin
+  0 2 4 5 4 2 0 ~
+  scale: d-min
+  slur .85
+  dur: .98
+
+cps .4`,
+    why: "Three choices make it a player instead of a preset. `mono` plus `slur` is the bowing: `slur .85` derives slide ties from the notes, tying a boundary only into a note that starts exactly where this one ends AND changes pitch -- rests breathe, repeats re-articulate, like a real slur -- and on a mono synth a tie holds the gate, so the model plays true legato with no re-attack. `dur: .98` is what makes boundaries tieable at all: a note that ends early leaves a gap, and a gap is a bow lift. And the post chain is the BODY: `convolve violinbody` puts back the wood resonances the model cannot make, room reverb after it. The model downloads on first use -- a moment of silence, then it sounds.",
+  },
+  {
     id: 'loudness',
     group: 'mix & space',
     title: 'Make it louder without making it worse',

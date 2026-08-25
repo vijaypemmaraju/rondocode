@@ -472,6 +472,8 @@ setCps(0.5)`,
     blocks: [
       p("ddsp() plays a real instrument a neural model learned from solo recordings: violin, viola, cello, bass, flute, trumpet, tenorsax and piano ship free. The decoder re-decides the full harmonic spectrum and breath noise ~94 times a second from just pitch and loudness, so LOUDNESS CHANGES TIMBRE the way it does on the actual instrument -- a quiet violin loses bow noise and upper partials rather than just getting turned down. Pitch and velocity wire themselves; it is self-enveloping like pluck. The model (~1 MB) downloads on first use and the synth is silent until it lands, then simply starts sounding -- the same live-load contract as samples."),
       p("The expressive input is breath: a dB offset (a signal) into the decoder's loudness while the note holds. An envelope there is a crescendo inside the note; an lfo is a player leaning in and out. vib (semitones) and vibrate (Hz) add a delayed-onset vibrato like a real player's. Each model also ships its BODY resonances as a sample ('violinbody' etc., loaded automatically): mix convolve(input, 'violinbody') into the post chain to put the wood back, then give it room reverb like a real player."),
+      p("PIANO bends the rules: it is a STRUCK model, with no loudness input at all -- the decoder generates each note's decay from velocity and time since the strike, and a learned per-key inharmonicity stretches the partials the way real strings do. So `breath`, `level` and `dyn` do nothing there; velocity IS the dynamic, and key-up engages the damper (`release` is the damper time)."),
+      p("The bowed and blown models play TRUE LEGATO when notes are slide-tied on a mono synth: the gate holds across the tie so nothing re-attacks, and the pitch snaps to the next note like a finger change -- that is a slur, and portamento (`glide`) is a different request. You can write the ties by hand with `.slide()`, or let `.slur(prob)` derive the bowing from the note content the way a player would: a boundary ties only into a note that starts exactly where this one ends AND changes pitch, so rests breathe and repeated notes re-articulate. `prob` (default 0.8) is the chance a tieable boundary ties, drawn deterministically from the boundary's time, so bow lengths vary but re-renders are bit-identical. In rondo it is a modifier line: `slur .85`."),
       code(
         'A violin line with vibrato over a flute drone.',
         `const strings = synth(({ note, gate, ddsp }) =>
@@ -1129,6 +1131,20 @@ setCps(0.3)`,
       p('`slices: N` is the chopper. It divides the window into N equal pieces and hands the choice to the NOTE: `root` (60 by default) plays chop 0, the next semitone up plays chop 1, and it wraps past the last one. Each chop plays at natural speed no matter which note picked it, which is the classic chopped-breakbeat behaviour: a note pattern becomes a sequencer for the pieces of a loop. Reorder the notes and you get a new beat out of the same audio. Set `root: 36` to move the whole chop keyboard down to where your drum notes live.'),
       p('Chops start and stop mid-waveform, which would click, so every sliced voice gets a 3 ms ramp at both edges of the window. Raise it with `fade` (in seconds) for softer, more blended chops, or set `fade: 0` when you want the raw edge. Whole-buffer playback is untouched by all of this.'),
       p("This is the other half of resampling. Bounce a few cycles of your own track into `take1` from the samples popover, then chop the take: `sample(gate, 'take1', { slices: 8 })` in JavaScript, `sample take1 slices:8` in rondo, and your own music becomes the source material for the next layer."),
+      p("`.chop(n)` and `.striate(n)` are the PATTERN-side choppers, and they need no `slices:` on the synth: each event carries its own begin/end window as note data, so a plain `sample break` plays whatever piece the pattern hands it. chop slices ONE hit into n consecutive pieces in its own slot, keeping the rhythm; striate plays the whole line n times, pass i taking piece i of every event -- the classic break shuffle. In rondo they are modifier lines (`chop 8`, `striate 4`), in JS pattern methods (`s('break').chop(8)`). The count is patternable like any combinator argument: `striate <4 8>` shuffles twice as fine every other cycle."),
+      rondo(
+        'striate: the whole line plays n times, one slice deeper each pass.',
+        `synth breaks
+  sample break
+  * adsr .001 .3 1 .05
+
+play breaks
+  c4 c4 c4 c4
+  striate <4 8>
+  dur: .95
+
+cps .5`,
+      ),
       table(
         'Every sample option: `sample(gate, name, { … })` in JavaScript, `sample name key:value` in rondo.',
         ['option', 'what it does', 'default'],
@@ -1534,7 +1550,7 @@ setCps(0.5)`,
       p('MIDI travels both directions. The export button writes the staged notes out as a Standard MIDI File (see "Export"), and a MIDI file from anywhere else can become rondocode.'),
       p('In a MIDI export, custom-tuning notes that fall between semitones are rounded to the nearest one, with a pitch-bend written alongside so bend-aware players still hit the exact pitch. Channels that trigger samples or sing() export their trigger notes.'),
       p('A MIDI file can be turned into an editable rondocode example deterministically: the tempo, time signature, note timing and track split come straight from the file, nothing is guessed. Run the importer from the repo: `pnpm tsx packages/server/scripts/midi-to-rondocode.ts song.mid "my song"`. It picks a synth per track, derives setCps from the tempo, and prints an example you can paste here and edit.'),
-      p('Imported patterns read like anything else you would write: a held note uses an `@` weight (on a 1/16 grid, `@16` is a whole bar), chords become stacked voice lines, and each track routes to its own synth. This is a small hand-written example in that same shape.'),
+      p('Imported patterns read like anything else you would write: a held note uses an `@` weight (on a 1/16 grid, `@16` is a whole bar), chords become stacked voice lines, each track routes to its own synth, and velocities come along as a `.gain()` pattern aligned to the notes, so the dynamics survive the trip. This is a small hand-written example in that same shape.'),
       code(
         'The shape of imported code: held notes with @, chords as stacked voices.',
         `const keys = synth(({ note, gate, adsr, tri, sine, svf }) =>
@@ -1888,6 +1904,7 @@ cps .55`,
       p('Lines under the notation shape the pattern. `gain: dur: pan:` are the note controls. Any other `name: value` drives that synth param through `.ctrl`. Values come in three kinds: a NUMBER (`gain: .8`), a MINI pattern (`depth: <1 2.5>` changes per cycle), or a SIGNAL (`cutoff: sine 200..2400 slow:4` sweeps continuously; `wet: rise 8` ramps a build over 8 bars, `fall 8` drains one).'),
       p('Signal-driven lines apply in ABSOLUTE time no matter where you write them: `every 4: rev` remixes the notes and never runs the sweep backwards. Number and mini values keep their written order, so step-tied accents travel with the notes they decorate.'),
       p('Bare combinators chain directly: `rev`, `fast 2`, `slow 2`, `euclid 3 8`, `struct ~ t ~ t`, `arp updown`, `ply 2`, `swing`, `degradeby .3`, `add -7`, `octave 1`, `linger .25`, `palindrome`, and friends. Function-taking combinators use a colon: `every 4: rev`, `jux: rev` (left dry, right transformed), `off .25: gain .3` (an echoing copy), `superimpose: late .125`, `sometimesby .3: fast 2`, `chunk 4: fast 2`.'),
+      p('Combinator COUNTS are patternable: anywhere a number goes, a mini goes too. `fast <2 3>` doubles one cycle and triples the next, `euclid <3 5> 8` walks between two figures, `ply <1 2>` thickens every other cycle, `chop <4 8>` changes the slice count per cycle. Bracketed counts survive the argument split, so `fast [2 3]` changes speed halfway through the cycle.'),
       rondo(
         'A line that remixes itself.',
         `synth keys

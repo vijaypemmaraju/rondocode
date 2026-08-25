@@ -40,9 +40,11 @@ describe.each(RECIPES.map((r) => [r.id, r] as const))('recipe: %s', (_id, r) => 
     const mix = renderMix(st.synths, evs, 2 / cps, mixOptsFor(st, { cps, sampleRate: 22050 }))
     let peak = 0
     for (const v of mix.left) { const a = Math.abs(v); if (a > peak) peak = a }
-    // the mic recipe has no input in a test process, so it is allowed silence
-    // from its vocoder — but it must still render without throwing
-    if (!r.tags.includes('mic')) expect(peak, 'rendered silence').toBeGreaterThan(0.001)
+    // a recipe whose sound source is an asset absent in a test process is
+    // allowed silence: the mic has no input here, and a ddsp model is a CDN
+    // download the test renderer never performs — but both must still render
+    // without throwing
+    if (!r.tags.includes('mic') && !r.tags.includes('ddsp')) expect(peak, 'rendered silence').toBeGreaterThan(0.001)
   })
 
   it('round-trips to JavaScript and back', () => {

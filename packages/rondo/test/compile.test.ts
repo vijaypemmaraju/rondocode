@@ -424,6 +424,33 @@ describe('rondo → rondocode codegen', () => {
       .toContain(`n('0 3 5').sound('s1').every(4, x => x.rev())`)
   })
 
+  it('the colon before a fn-comb transform is OPTIONAL', () => {
+    // User report: it was confusing that some things use colons and others
+    // don't. The colon that separates a fn-comb's count args from its
+    // transform is now optional; forgetting it used to SILENTLY produce a
+    // stacked notation voice (every/off) or a string arg (jux).
+    const p = (body: string): string => ok(`synth s1\n  saw\n\nplay s1\n  0 3 5\n${body}\n`)
+    for (const [withColon, without] of [
+      ['  every 4: rev', '  every 4 rev'],
+      ['  jux: rev', '  jux rev'],
+      ['  off .25: add 7', '  off .25 add 7'],
+      ['  superimpose: add 7', '  superimpose add 7'],
+      ['  chunk 2: rev', '  chunk 2 rev'],
+      ['  sometimesby .5: fast 2', '  sometimesby .5 fast 2'],
+    ] as [string, string][]) {
+      expect(p(without), `${without} == ${withColon}`).toBe(p(withColon))
+    }
+  })
+
+  it('a fn-comb without a transform errors clearly instead of silently', () => {
+    const err = (body: string): string => {
+      const r = compile(`synth s1\n  saw\n\nplay s1\n  0 3 5\n${body}\n`)
+      return r.ok ? 'NO ERROR' : r.errors[0]!.message
+    }
+    expect(err('  jux')).toMatch(/needs a transform/)
+    expect(err('  every rev')).toMatch(/count arg/) // missing the count
+  })
+
   it('beat NoteSpans strip velocity suffixes and carry buffer-mapping pieces', () => {
     // REGRESSION (user report): the hat row `~ hat:.6 ~ hat …` never flashed —
     // the emitted mini is STRIPPED but the span still held the original text,

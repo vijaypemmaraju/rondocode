@@ -1418,3 +1418,11 @@ cps .5
     expect(e.message).toMatch(/NUMBER, not a signal/)
   })
 })
+
+describe('slur: smart bowing as a modifier line', () => {
+  it('compiles a slur lane to the .slur(...) pattern method', () => {
+    const code = ok('synth v mono\n  ddsp violin\n\nplay v\n  c3 d3 e3 ~\n  slur .85\n\ncps .5\n')
+    expect(code).toMatch(/\.slur\(/)
+    expect(code).toContain('.85')
+  })
+})

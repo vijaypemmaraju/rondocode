@@ -3902,6 +3902,49 @@ master threshold:-9 ratio:2 attack:20 release:150 makeup:1
 bpm 150
 `
 
+/** Trained strings: ddsp violin bowed with slur over a cello line. */
+const stringsRondo = `# trained strings: a ddsp violin, bowed
+# with slur, over a cello line. the models
+# (~1 MB each) download on first use --
+# a moment of silence, then they sound.
+
+# slur derives the bowing from the notes:
+# a boundary ties only into a DIFFERENT
+# pitch that starts exactly where this
+# note ends. rests breathe, repeats
+# re-attack -- like a real slur. mono is
+# what lets a tie hold the gate: true
+# legato, no re-attack.
+
+synth violin mono
+  ddsp violin vib:.22
+  post
+    # the model's own body resonances,
+    # shipped as a sample -- the wood
+    convolve violinbody mix:.5
+    reverb room:.8 damp:.5 mix:.18
+
+synth cello mono
+  ddsp cello vib:.15
+  post
+    convolve cellobody mix:.5
+    reverb room:.8 damp:.5 mix:.15
+
+play violin
+  0 2 4 7 5 4 2 <0 4> ~ 2 4 5 <7 9> 7 4 2
+  scale: d-min
+  slur .85
+  dur: .98
+  gain: .9
+
+play cello
+  <d2 d2 bb1 c2>
+  dur: .95
+  gain: .8
+
+cps .4
+`
+
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
   { name: 'visuals', code: visuals, rondo: visualsRondo },
@@ -3933,6 +3976,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'mic channel strip', code: fromRondo(micStripRondo), rondo: micStripRondo },
   { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
   { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
+  { name: 'strings', code: fromRondo(stringsRondo), rondo: stringsRondo },
   { name: 'real room', code: fromRondo(realRoomRondo), rondo: realRoomRondo },
   { name: 'tape', code: fromRondo(tapeRondo), rondo: tapeRondo },
   { name: 'moving modulation', code: fromRondo(movingModRondo), rondo: movingModRondo },

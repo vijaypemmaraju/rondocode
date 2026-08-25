@@ -59,3 +59,26 @@ describe('a plain number is unchanged (the fast path)', () => {
     expect(count(note(60).roll('<2 4>'), 1, 2)).toBe(4)
   })
 })
+
+/* Count locs: a patterned count is mini-notation the reader wrote and watches,
+ * so the events its transform shaped carry the count atom's source range in
+ * `locs` for the editor's note-flash. The scalar path stays byte-identical. */
+describe('patterned counts carry their atom loc (editor flash)', () => {
+  it("fast('<1 2>') stamps events with the sounding count atom's range", () => {
+    const c0 = q(s('a').fast('<1 2>'), 0, 1).map(([, , v]) => v)
+    expect(c0.length).toBeGreaterThan(0)
+    for (const v of c0) expect(v.locs).toEqual([{ start: 1, end: 2, src: '<1 2>' }])
+    const c1 = q(s('a').fast('<1 2>'), 1, 2).map(([, , v]) => v)
+    for (const v of c1) expect(v.locs).toEqual([{ start: 3, end: 4, src: '<1 2>' }])
+    // scalar counts take the original core: no locs key appears
+    for (const [, , v] of q(s('a b').fast(2), 0, 1)) expect(v.locs).toBeUndefined()
+  })
+
+  it('every patterned count of a multi-count combinator stamps its range', () => {
+    const vals = q(s('x').euclid('<3>', '<8>'), 0, 1).map(([, , v]) => v)
+    expect(vals).toHaveLength(3)
+    for (const v of vals) {
+      expect(new Set(v.locs?.map((l) => l.src))).toEqual(new Set(['<3>', '<8>']))
+    }
+  })
+})

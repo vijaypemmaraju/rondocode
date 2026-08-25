@@ -16,7 +16,8 @@
  */
 import { Pattern } from './pattern'
 import { Fraction } from './fraction'
-import { mini } from './mini'
+import { miniLoc } from './mini'
+import type { Loc } from './mini'
 
 type Proto = Record<string, (this: Pattern<unknown>, ...args: unknown[]) => Pattern<unknown>>
 const proto = Pattern.prototype as unknown as Proto
@@ -24,12 +25,31 @@ const proto = Pattern.prototype as unknown as Proto
 /** A count arg is a scalar (taken as-is) or a pattern/mini-string (queried). */
 const isScalar = (x: unknown): boolean => typeof x === 'number' || x instanceof Fraction
 
-/** A mini string or a Pattern → a Pattern of numbers (non-numeric atoms coerced,
- *  so `<2 4>` and a bare `3` both work). */
-const asNumPat = (x: string | Pattern<unknown>): Pattern<number> =>
-  (typeof x === 'string' ? mini(x) : x).withValue((v) =>
-    Math.floor(typeof v === 'number' ? v : Number(v)),
-  ) as unknown as Pattern<number>
+/** A mini string or a Pattern → a Pattern of {k, loc}: the floored count
+ *  (non-numeric atoms coerced, so `<2 4>` and a bare `3` both work) plus, for
+ *  mini atoms, the atom's source range -- kept so the editor can light the
+ *  count text when its transform fires (see withCountLoc). */
+const asCountPat = (x: string | Pattern<unknown>): Pattern<{ k: number; loc?: Loc }> =>
+  (typeof x === 'string'
+    ? miniLoc(x).withValue((v) => ({ raw: v.value as string | number, loc: v.loc as Loc | undefined }))
+    : x.withValue((v) => ({ raw: v as string | number, loc: undefined as Loc | undefined }))
+  ).withValue(({ raw, loc }) => ({
+    k: Math.floor(typeof raw === 'number' ? raw : Number(raw)),
+    loc,
+  }))
+
+/** Append the count atom's source range to the transformed events, so the
+ *  editor lights the count (`fast [2 3]`, `every <2 4>: ...`) while the
+ *  cycles it shaped are sounding. Only plain-object values (ControlMap and
+ *  friends) can carry `locs`; scalars and class instances pass untouched. */
+const withCountLoc = (p: Pattern<unknown>, loc: Loc | undefined): Pattern<unknown> =>
+  loc === undefined
+    ? p
+    : p.withValue((v) => {
+        if (v === null || typeof v !== 'object' || Object.getPrototypeOf(v) !== Object.prototype) return v
+        const c = v as { locs?: Loc[] }
+        return { ...c, locs: c.locs === undefined ? [loc] : [...c.locs, loc] }
+      })
 
 /**
  * Wrap `Pattern.prototype[name]` so its first `count` args accept a pattern.
@@ -51,7 +71,8 @@ function patternify(name: string, count: number): void {
       if (i === k) return core.apply(self, [...acc, ...rest])
       const a = args[i]
       if (isScalar(a)) return go(i + 1, [...acc, a])
-      return asNumPat(a as string | Pattern<unknown>).innerBind((v) => go(i + 1, [...acc, v]))
+      // `cnt`, not `k`: the enclosing scope's k is the leading-arg count
+      return asCountPat(a as string | Pattern<unknown>).innerBind(({ k: cnt, loc }) => withCountLoc(go(i + 1, [...acc, cnt]), loc))
     }
     return go(0, [])
   }

@@ -1,6 +1,6 @@
 /* rondo compiler entry: source → rondocode DSL text (or errors). */
 
-import type { RondoError } from './ast'
+import type { Comb, RondoError } from './ast'
 import { parse } from './parser'
 import { codegen, scaleArg } from './codegen'
 
@@ -98,7 +98,30 @@ export function compile(src: string): CompileResult {
        * lit up, because nothing ever told the editor those spans existed. The
        * pattern layer carries their locs (ControlMap.locs); this is the other
        * half. */
+      /* A COMBINATOR's mini-looking argument is notation too: `chop [1 2 4]`,
+       * `fast <2 4>`, `every <2 4>: rev`. cgComb emits every non-numeric
+       * argument as a quoted string verbatim, and the pattern layer threads
+       * each count atom's loc into the events it shaped -- this span is the
+       * other half, exactly like the ctrl/method case below. Numeric args
+       * emit as bare numbers (nothing at runtime references their source),
+       * so they carry no span. */
+      const NUMERIC_ARG = /^-?\d*\.?\d+$/
+      const combSpans = (c: Comb): NoteSpan[] =>
+        c.args.flatMap((arg, i) => {
+          const from = c.argFroms?.[i]
+          return from !== undefined && !NUMERIC_ARG.test(arg) ? [{ content: arg, from }] : []
+        })
       const modSpans: NoteSpan[] = p.mods.flatMap((m) => {
+        if (m.kind === 'comb') return combSpans(m.comb)
+        if (m.kind === 'fncomb') {
+          return [
+            ...m.pre.flatMap((a, i) => {
+              const from = m.preFroms?.[i]
+              return typeof a === 'string' && from !== undefined ? [{ content: a, from }] : []
+            }),
+            ...combSpans(m.comb),
+          ]
+        }
         if (m.kind !== 'ctrl' && m.kind !== 'method') return []
         const v = m.value
         return v.kind === 'mini' && v.from !== undefined

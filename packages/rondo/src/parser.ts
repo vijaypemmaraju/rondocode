@@ -630,12 +630,17 @@ function parseMod(ln: Line, errors: RondoError[]): Mod | null {
       // a pre-colon count may be a patterned mini token (`every <2 4>: rev`),
       // so split bracket-aware and keep a mini token as a string; a plain
       // number stays a number
-      const pre = splitCombArgs(fc[2] ?? '').map((t) => (/^-?\d*\.?\d+$/.test(t) ? Number(t) : t))
+      const rawFrom = ln.offset + ln.raw.indexOf(raw)
+      const preToks = splitCombArgs(fc[2] ?? '')
+      const pre = preToks.map((t) => (/^-?\d*\.?\d+$/.test(t.text) ? Number(t.text) : t.text))
       if (pre.length !== spec.pre) {
         errors.push({ message: `\`${fc[1]}\` takes ${spec.pre} argument(s) before the colon`, line: ln.line, col: ln.rawCol })
         return null
       }
-      return { kind: 'fncomb', name: spec.js, pre, comb: parseComb(fc[3]!), pos }
+      // offsets: fc[2] (the pre args) starts right after the name; fc[3] (the
+      // comb) is the greedy tail, so it starts its own length from the end
+      const preFroms = preToks.map((t) => rawFrom + fc[1]!.length + t.at)
+      return { kind: 'fncomb', name: spec.js, pre, preFroms, comb: parseComb(fc[3]!, rawFrom + (raw.length - fc[3]!.length)), pos }
     }
   }
   // NAME: value  (dedicated method for gain/dur/pan, else a .ctrl)
@@ -651,22 +656,32 @@ function parseMod(ln: Line, errors: RondoError[]): Mod | null {
     return { kind: 'ctrl', name, value, pos }
   }
   // bare combinator: rev | fast 2 | struct ~ t ~ t | euclid 3 8
-  if (/^[a-zA-Z_]\w*/.test(raw)) return { kind: 'comb', comb: parseComb(raw), pos }
+  if (/^[a-zA-Z_]\w*/.test(raw)) return { kind: 'comb', comb: parseComb(raw, ln.offset + ln.raw.indexOf(raw)), pos }
   errors.push({ message: `can't parse modifier \`${raw}\``, line: ln.line, col: ln.rawCol })
   return null
 }
 
-function parseComb(raw: string): Comb {
+function parseComb(raw: string, from?: number): Comb {
   const s = raw.trim()
   const sp = s.indexOf(' ')
   const name = sp < 0 ? s : s.slice(0, sp)
-  const rest = sp < 0 ? '' : s.slice(sp + 1).trim()
+  const rawRest = sp < 0 ? '' : s.slice(sp + 1)
+  const rest = rawRest.trim()
+  // buffer offset of `rest`, when the caller knows where `raw` sits: the
+  // editor lights a mini argument on play, so its position must survive
+  const base = from === undefined ? undefined : from + (raw.length - raw.trimStart().length)
+  const restAt = sp + 1 + (rawRest.length - rawRest.trimStart().length)
   // struct — and chop/striate — take the rest as a single mini string (a
   // patterned count like `chop <2 4>` has spaces the generic split would tear
   // apart); every other combinator takes space-separated args, split so a
   // BRACKETED mini count (`euclid <3 5> 8`, `fast [2 3]`) survives as one token
-  if (name === 'struct' || name === 'chop' || name === 'striate') return { name, args: rest ? [rest] : [] }
-  return { name, args: splitCombArgs(rest) }
+  if (name === 'struct' || name === 'chop' || name === 'striate') {
+    if (rest === '') return { name, args: [] }
+    return base === undefined ? { name, args: [rest] } : { name, args: [rest], argFroms: [base + restAt] }
+  }
+  const toks = splitCombArgs(rest)
+  const args = toks.map((t) => t.text)
+  return base === undefined ? { name, args } : { name, args, argFroms: toks.map((t) => base + restAt + t.at) }
 }
 
 /** Split a combinator's argument string on top-level whitespace, keeping any
@@ -674,19 +689,19 @@ function parseComb(raw: string): Comb {
  *  `euclid <3 5> 8` parses as two args, not `<3`, `5>`, `8`. Backward
  *  compatible: an argument string with no brackets splits exactly like
  *  `rest.split(/\s+/)` did. */
-function splitCombArgs(rest: string): string[] {
-  const s = rest.trim()
-  if (s === '') return []
-  const out: string[] = []
+function splitCombArgs(rest: string): { text: string; at: number }[] {
+  const out: { text: string; at: number }[] = []
   let depth = 0
   let cur = ''
-  for (const ch of s) {
-    if (ch === '<' || ch === '[' || ch === '{') { depth++; cur += ch }
-    else if (ch === '>' || ch === ']' || ch === '}') { depth = Math.max(0, depth - 1); cur += ch }
-    else if (/\s/.test(ch) && depth === 0) { if (cur !== '') { out.push(cur); cur = '' } }
-    else cur += ch
+  let curAt = 0
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i]!
+    if (ch === '<' || ch === '[' || ch === '{') { if (cur === '') curAt = i; depth++; cur += ch }
+    else if (ch === '>' || ch === ']' || ch === '}') { if (cur === '') curAt = i; depth = Math.max(0, depth - 1); cur += ch }
+    else if (/\s/.test(ch) && depth === 0) { if (cur !== '') { out.push({ text: cur, at: curAt }); cur = '' } }
+    else { if (cur === '') curAt = i; cur += ch }
   }
-  if (cur !== '') out.push(cur)
+  if (cur !== '') out.push({ text: cur, at: curAt })
   return out
 }
 

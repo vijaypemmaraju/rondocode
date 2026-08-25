@@ -1,5 +1,5 @@
 import { Pattern, reify } from './pattern'
-import { MiniError, miniParse, mini, n as nTag } from './mini'
+import { MiniError, miniParse, mini, miniLoc, n as nTag } from './mini'
 import type { Loc } from './mini'
 import { noteNameToMidi, parseScaleName, scaleDegree } from './scales'
 import { timeHash } from './rand'
@@ -655,10 +655,27 @@ const withSlice = (v: ControlMap, lo: number, hi: number): ControlMap => {
  *  stays a fast path (handled by the callers); a mini STRING (`'<2 4>'`, what
  *  rondo emits for `chop <2 4>`) or a Pattern is queried per its own structure,
  *  so the slice count can change cycle to cycle. Non-integers floor; anything
- *  below 1 becomes 1 (no slicing) rather than throwing mid-stream. */
-const countPattern = (n: string | Pattern<number>): Pattern<number> =>
-  (typeof n === 'string' ? (mini(n) as Pattern<number>) : reify(n))
-    .withValue((v) => Math.max(1, Math.floor(typeof v === 'number' ? v : Number(v))))
+ *  below 1 becomes 1 (no slicing) rather than throwing mid-stream.
+ *
+ *  A mini count keeps each atom's source range (miniLoc, not mini): the count
+ *  is notation the reader wrote and watches, and the rule is that anywhere
+ *  mini-notation is supported, it lights up -- so the atom's loc rides along
+ *  for withCountLoc to stamp onto the events it produced. */
+const countPattern = (n: string | Pattern<number>): Pattern<{ k: number; loc?: Loc }> =>
+  (typeof n === 'string'
+    ? miniLoc(n).withValue((v) => ({ raw: v.value, loc: v.loc as Loc | undefined }))
+    : reify(n).withValue((v) => ({ raw: v as string | number, loc: undefined as Loc | undefined }))
+  ).withValue(({ raw, loc }) => ({
+    k: Math.max(1, Math.floor(typeof raw === 'number' ? raw : Number(raw))),
+    loc,
+  }))
+
+/** Append a count atom's source range to every event its slice pass produced,
+ *  so the editor lights the count text exactly while its slices sound. */
+const withCountLoc = (p: Pattern<ControlMap>, loc: Loc | undefined): Pattern<ControlMap> =>
+  loc === undefined
+    ? p
+    : p.withValue((v) => ({ ...v, locs: v.locs === undefined ? [loc] : [...v.locs, loc] }))
 
 /** The slice core: split every event into k consecutive pieces of its own
  *  sample. k must already be a positive integer. */
@@ -690,7 +707,7 @@ Pattern.prototype.chop = function (this: Pattern<ControlMap>, n: number | string
   // patterned count (`chop <2 4>`): the count pattern drives the structure,
   // slicing each of its spans by that span's value.
   const src = this
-  return countPattern(n).innerBind((k) => chopCore(src, k))
+  return countPattern(n).innerBind(({ k, loc }) => withCountLoc(chopCore(src, k), loc))
 }
 
 /** The interleave core: play the whole pattern k times in one cycle, pass i
@@ -714,5 +731,5 @@ Pattern.prototype.striate = function (this: Pattern<ControlMap>, n: number | str
     return striateCore(this, k)
   }
   const src = this
-  return countPattern(n).innerBind((k) => striateCore(src, k))
+  return countPattern(n).innerBind(({ k, loc }) => withCountLoc(striateCore(src, k), loc))
 }

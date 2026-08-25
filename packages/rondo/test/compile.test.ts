@@ -1431,3 +1431,21 @@ describe('slur: smart bowing as a modifier line', () => {
     expect(code).toContain('.85')
   })
 })
+
+  it('reports combinator-argument spans (patterned counts) at their exact source offsets', () => {
+    // `chop [1 2 4]` used to stay dark on play: the count is mini-notation
+    // the reader wrote and watches, so its span must reach the editor exactly
+    // like a ctrl value's does. Numeric args emit as bare numbers -- nothing
+    // at runtime references their source -- so they carry no span.
+    const src = `synth z\n  saw\n\nplay z\n  0 3 5 7\n  chop [1 2 4]\n  fast 2\n  every <2 4>: iter [2 4]\n`
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const contents = r.notes.map((n) => n.content)
+    expect(contents).toContain('[1 2 4]')  // comb arg (chop keeps rest whole)
+    expect(contents).toContain('<2 4>')    // fncomb pre arg
+    expect(contents).toContain('[2 4]')    // arg of the comb inside a fncomb
+    expect(contents.filter((c) => c === '2')).toHaveLength(0) // numeric: no span
+    // the flash invariant: every span's offset lands exactly on its own text
+    for (const n of r.notes) expect(src.slice(n.from, n.from + n.content.length)).toBe(n.content)
+  })

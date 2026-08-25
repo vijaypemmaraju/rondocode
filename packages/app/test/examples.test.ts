@@ -39,7 +39,10 @@ describe('examples', () => {
         const result = evalCode(c.code, baseScope)
         expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
         expect(result.ok).toBe(true)
-        const span = new TimeSpan(F(0), F(2))
+        // FOUR cycles: one cycle is one bar, and a 4-bar form may hold a
+        // part back until bars 3-4 (hbfs's guitar) — 2 cycles called that
+        // musical choice a silent pattern.
+        const span = new TimeSpan(F(0), F(4))
         for (const [, pat] of result.patterns) {
           const sounding = pat.query(span).filter(hasOnset).filter(
             (h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string',
@@ -94,8 +97,8 @@ describe('examples', () => {
         expect(result.patterns.size).toBeGreaterThanOrEqual(1)
       })
 
-      it('every pattern produces sounding events over 2 cycles', () => {
-        const span = new TimeSpan(F(0), F(2))
+      it('every pattern produces sounding events over 4 cycles (one 4-bar form)', () => {
+        const span = new TimeSpan(F(0), F(4))
         for (const [name, pat] of result.patterns) {
           const sounding = pat
             .query(span)

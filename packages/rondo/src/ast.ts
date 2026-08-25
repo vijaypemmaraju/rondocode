@@ -87,6 +87,10 @@ export interface Comb {
   name: string
   /** raw arguments — numbers, or (for struct) a mini string. */
   args: string[]
+  /** buffer offset of each argument (aligned with `args`), when known: a
+   *  mini-looking argument is notation the editor lights up on play, and the
+   *  offset is what compile.ts's span report needs to anchor it. */
+  argFroms?: (number | undefined)[]
 }
 
 /** A play-block modifier line, applied in order after `.sound()`. */
@@ -95,7 +99,7 @@ export type Mod =
   | { kind: 'method'; name: 'gain' | 'dur' | 'pan'; value: CtrlValue; pos: Pos }
   /** a function-taking combinator: `every 4: rev`, `jux: rev`,
    *  `off .25: gain .3` → .name(...pre, x => x.comb()). */
-  | { kind: 'fncomb'; name: string; pre: (number | string)[]; comb: Comb; pos: Pos }
+  | { kind: 'fncomb'; name: string; pre: (number | string)[]; preFroms?: (number | undefined)[]; comb: Comb; pos: Pos }
   | { kind: 'comb'; comb: Comb; pos: Pos }
 
 export interface PlayBlock {

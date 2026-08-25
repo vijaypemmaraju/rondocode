@@ -26,7 +26,8 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  /* instant jumps on purpose: smooth scroll made every anchor hop and
+     search hit feel slow, and the re-aim passes (docs.ts) fought it */
   /* clears the sticky header AND the route tabs on anchor jumps */
   scroll-padding-top: calc(var(--doc-top-h, 52px) + var(--doc-tabs-h, 44px) + var(--sp-2));
 }
@@ -566,12 +567,6 @@ a:hover {
    * has a play control in its body: drop it on phones */
   .doc-nav .nav-open {
     display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
   }
 }
 

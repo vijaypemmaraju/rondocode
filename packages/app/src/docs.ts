@@ -655,9 +655,9 @@ async function build(): Promise<void> {
    * is not the spy misreading the page. Measured over CDP, a jump to
    * `recipe-one-knob` came to rest about 220px SHORT, with the previous
    * section genuinely filling the band: the code blocks below are rendered
-   * asynchronously, so the document grows while the smooth scroll is
-   * travelling and the position the browser committed to is stale by the time
-   * it arrives. The spy was reporting that honestly. The scroll was wrong.
+   * asynchronously, so the document keeps growing after the jump and the
+   * landing position goes stale almost immediately. The spy was reporting
+   * that honestly. The scroll was wrong.
    *
    * So: light the clicked link immediately, hold it while things settle, and
    * re-aim once layout has stopped moving. The hold is released as soon as the
@@ -696,9 +696,9 @@ async function build(): Promise<void> {
       setActive(id)
       /* Re-aim REPEATEDLY, not once: the document keeps growing for a while
        * (measured, a single correction at 450ms still landed ~116px short, and
-       * the previous section still reached into the band). Each pass snaps
-       * with `auto` rather than fighting the smooth scroll in flight, and the
-       * hold is released only after the last one. */
+       * the previous section still reached into the band). Scrolling is
+       * instant everywhere now (docs.css dropped smooth scroll), so each pass
+       * is a snap; the hold is released only after the last one. */
       for (const at of [450, 900, 1400]) {
         window.setTimeout(() => {
           if (lockedId !== id) return // the reader took over; leave them alone

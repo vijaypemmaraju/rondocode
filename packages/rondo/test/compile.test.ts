@@ -1413,6 +1413,11 @@ cps .5
     expect(code).toContain(', 0, { feedback: 0.9 }')
   })
 
+  it("name: registers the pedal for bouncing, emitted as a string", () => {
+    const code = ok('synth pedal\n  mic\n  looper rec name:jam\n  rec = knob 0 0..1\n\nplay pedal\n  0\n\ncps .5\n')
+    expect(code).toContain("name: 'jam'")
+  })
+
   it('maxtime: is a NUMBER (it allocates the buffer), refused as a signal', () => {
     const e = fails('synth pedal\n  mic\n  looper rec maxtime:k\n  rec = knob 0 0..1\n  k = knob 10 1..60\n\nplay pedal\n  0\n\ncps .5\n')
     expect(e.message).toMatch(/NUMBER, not a signal/)

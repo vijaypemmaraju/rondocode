@@ -162,7 +162,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
     kind: 'proc',
     pos: ['sig'],
     posDefault: ['0'],
-    named: { feedback: 'sig', mix: 'sig', clear: 'sig', maxtime: 'num' },
+    named: { feedback: 'sig', mix: 'sig', clear: 'sig', maxtime: 'num', name: 'enum' },
     alias: { maxtime: 'maxTime' },
   },
   exciter: { kind: 'proc', pos: [], named: { freq: 'num', amount: 'num', drive: 'num' } },

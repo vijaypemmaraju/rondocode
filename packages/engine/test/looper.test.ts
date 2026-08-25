@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { LooperKernel } from '../src/dsp/looper'
 import { synth, renderOffline } from '../src/index'
+import { RealtimeEngine } from '../src/realtime'
 import type { DspContext } from '../src/dsp/types'
 
 const ctx: DspContext = { sampleRate: 48000 }
@@ -202,5 +203,111 @@ describe('looper end to end (mic -> looper in a synth graph)', () => {
     // the mic is silent after 2 s: everything here is the LOOP playing back
     expect(looped).toBeGreaterThan(0.15)
     expect(looped).toBeCloseTo(live, 1)
+  })
+})
+
+/* bounceLoop: the pedal's loop, copied out of a REAL RealtimeEngine through
+ * the message/event protocol. The looper lives in the POST chain — the right
+ * home for a pedal (per-synth, survives voices) and the reason the bounce is
+ * well-defined: a voice-graph looper registers once per voice and only the
+ * last would win. */
+describe('bounceLoop (realtime message -> loopBounced event)', () => {
+  const SR = 48000
+  const rig = () => {
+    const events: import('../src/protocol').EngineEvent[] = []
+    const eng = new RealtimeEngine({ sampleRate: SR })
+    eng.onEvent = (ev) => events.push(ev)
+    const def = synth(
+      ({ mic }: any) => mic(),
+      ({ input, looper, param }: any) => looper(input, param('rec', 0, { max: 1 }), { name: 'jam' }),
+    )
+    eng.handleMessage({ kind: 'defineSynth', name: 'pedal', graph: def.graph, post: def.post })
+    eng.handleMessage({ kind: 'noteOn', synth: 'pedal', note: 60 })
+    return { eng, events }
+  }
+  /** run `blocks` engine blocks, feeding a 440 Hz mic sine of amplitude 0.5. */
+  const run = (eng: RealtimeEngine, blocks: number, from: number): number => {
+    const outL = new Float32Array(128)
+    const outR = new Float32Array(128)
+    const mic = new Float32Array(128)
+    for (let b = 0; b < blocks; b++) {
+      for (let i = 0; i < 128; i++) mic[i] = 0.5 * Math.sin((2 * Math.PI * 440 * (from + b * 128 + i)) / SR)
+      eng.writeMic(mic)
+      eng.process(outL, outR, from + b * 128)
+    }
+    return from + blocks * 128
+  }
+
+  it('bounces exactly the recorded span, and honors a sample-name override', () => {
+    const { eng, events } = rig()
+    let at = run(eng, 4, 0) // pedal idle
+    eng.handleMessage({ kind: 'setParam', synth: 'pedal', name: 'rec', value: 1 })
+    at = run(eng, 8, at) // record 8 blocks
+    eng.handleMessage({ kind: 'setParam', synth: 'pedal', name: 'rec', value: 0 })
+    at = run(eng, 2, at) // play
+    eng.handleMessage({ kind: 'bounceLoop', looper: 'jam', sample: 'take9' })
+    const ev = events.find((e) => e.kind === 'loopBounced')
+    expect(ev, `no loopBounced; errors: ${JSON.stringify(events.filter((e) => e.kind === 'error'))}`).toBeDefined()
+    if (ev?.kind !== 'loopBounced') return
+    expect(ev.looper).toBe('jam')
+    expect(ev.sample).toBe('take9')
+    expect(ev.sampleRate).toBe(SR)
+    expect(ev.frames).toBe(8 * 128) // setParam applies at block edges: exact
+    expect(ev.data.length).toBe(8 * 128)
+    // content: the post chain hears the voice sum (equal-power center pan),
+    // so the loop is the mic sine scaled by ~0.7071 — assert via RMS
+    let sum = 0
+    for (const v of ev.data) sum += v * v
+    const rms = Math.sqrt(sum / ev.data.length)
+    expect(rms).toBeCloseTo(0.5 * Math.SQRT1_2 * Math.SQRT1_2, 2)
+  })
+
+  it('an empty pedal and an unknown name each answer with an error event, not silence', () => {
+    const { eng, events } = rig()
+    run(eng, 2, 0)
+    eng.handleMessage({ kind: 'bounceLoop', looper: 'jam' })
+    eng.handleMessage({ kind: 'bounceLoop', looper: 'nope' })
+    const errs = events.filter((e) => e.kind === 'error').map((e) => (e.kind === 'error' ? e.message : ''))
+    expect(errs.some((m) => m.includes("'jam' is empty")), errs.join(' | ')).toBe(true)
+    expect(errs.some((m) => m.includes("no looper named 'nope'")), errs.join(' | ')).toBe(true)
+    expect(events.some((e) => e.kind === 'loopBounced')).toBe(false)
+  })
+
+  it('defaults the sample name to the looper name, and a re-bounce reflects the loop NOW', () => {
+    const { eng, events } = rig()
+    let at = 0
+    eng.handleMessage({ kind: 'setParam', synth: 'pedal', name: 'rec', value: 1 })
+    at = run(eng, 4, at)
+    eng.handleMessage({ kind: 'setParam', synth: 'pedal', name: 'rec', value: 0 })
+    at = run(eng, 1, at)
+    eng.handleMessage({ kind: 'bounceLoop', looper: 'jam' })
+    // overdub a pass of DC (orthogonal to the sine — a second sine at a later
+    // absolute time lands at arbitrary phase and can partially CANCEL, which
+    // is real pedal behavior but a useless assertion), then bounce again
+    const outL = new Float32Array(128)
+    const outR = new Float32Array(128)
+    const dc = new Float32Array(128).fill(0.4)
+    eng.handleMessage({ kind: 'setParam', synth: 'pedal', name: 'rec', value: 1 })
+    for (let b = 0; b < 4; b++) {
+      eng.writeMic(dc)
+      eng.process(outL, outR, at)
+      at += 128
+    }
+    eng.handleMessage({ kind: 'setParam', synth: 'pedal', name: 'rec', value: 0 })
+    eng.handleMessage({ kind: 'bounceLoop', looper: 'jam' })
+    const evs = events.filter((e) => e.kind === 'loopBounced')
+    expect(evs).toHaveLength(2)
+    if (evs[0]?.kind !== 'loopBounced' || evs[1]?.kind !== 'loopBounced') return
+    expect(evs[0].sample).toBe('jam')
+    const rms = (d: Float32Array): number => {
+      let s = 0
+      for (const v of d) s += v * v
+      return Math.sqrt(s / d.length)
+    }
+    expect(evs[1].data.length).toBe(evs[0].data.length) // same loop length
+    // the difference between the two bounces IS the overdubbed DC layer,
+    // scaled by the voice-sum center pan (0.7071)
+    const diff = evs[1].data.map((v, i) => v - (evs[0].data[i] ?? 0))
+    expect(rms(diff as Float32Array)).toBeCloseTo(0.4 * Math.SQRT1_2, 2)
   })
 })

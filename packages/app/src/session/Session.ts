@@ -313,6 +313,12 @@ export class Session {
         this.reportRuntime('engine', ev.message)
         this.forgetRejectedSynth(ev.context)
       }
+      if (ev.kind === 'loopBounced') {
+        // A pedal's loop coming back from the engine: round-trip it through
+        // the ONE sample-loading path, so the registry, project persistence
+        // and the samples UI all see it — no private bank writes.
+        this.audio.loadSamplePcm?.(ev.sample, ev.data, ev.sampleRate)
+      }
       this.onEngineEvent?.(ev)
     }
   }
@@ -356,6 +362,30 @@ export class Session {
    * front, so it can say the whole thing once: the total, the ceiling, who is
    * spending it, and who loses.
    */
+  /** Names of every NAMED looper in the applied program (voice graphs, post
+   *  chains, buses) — what the samples popover offers to bounce. */
+  namedLoopers(): string[] {
+    const names = new Set<string>()
+    const scan = (g: unknown): void => {
+      const nodes = (g as { nodes?: unknown } | undefined)?.nodes
+      if (!Array.isArray(nodes)) return
+      for (const n of nodes) {
+        const node = n as { type?: unknown; config?: Record<string, unknown> }
+        if (node.type !== 'looper') continue
+        const nm = node.config?.['name']
+        if (typeof nm === 'string' && nm.length > 0) names.add(nm)
+      }
+    }
+    for (const def of this.liveDefs.values()) {
+      scan(def.graph)
+      scan(def.post)
+    }
+    for (const json of this.liveBuses.values()) {
+      try { scan(JSON.parse(json)) } catch { /* fingerprint, not a graph — skip */ }
+    }
+    return [...names].sort()
+  }
+
   private voiceBudgetDiags(synths: ReadonlyMap<string, SynthDef>): Diagnostic[] {
     const plan = planVoiceBudget([...synths].map(([name, def]) => ({ name, voices: def.maxVoices })))
     const rejected = plan.filter((p) => p.rejected)

@@ -5,6 +5,7 @@ import { PostChain } from './post'
 import type { GraphSpec } from './graph'
 import type { DspContext } from './dsp/types'
 import { SampleBank } from './samples'
+import { LooperKernel } from './dsp/looper'
 import { WavetableBank } from './dsp/wavetable'
 import { DdspModelBank, parseDdspModel } from './dsp/ddsp'
 import { gainReductionDb, smoothCoeff } from './dsp/compress'
@@ -329,6 +330,8 @@ export class RealtimeEngine {
   /** Shared sample store; also exposed on ctx.samples so compiled
    *  SampleKernels resolve names against it (and see later loads). */
   private readonly samples: SampleBank
+  /** named looper kernels (see ctx.loopers / bounceLoop). */
+  private readonly loopers: Map<string, object>
   /** Custom wavetable store; also exposed on ctx.wavetables so compiled
    *  WavetableKernels resolve custom names against it (and see re-loads —
    *  they re-resolve per block, same contract as samples). */
@@ -354,6 +357,11 @@ export class RealtimeEngine {
     // DDSP models: same adopt-or-publish as the sample bank.
     this.ddspModels = (ctx.ddsp as DdspModelBank | undefined) ?? new DdspModelBank()
     ctx.ddsp = this.ddspModels
+    // Named loopers: same adopt-or-publish — every looper kernel compiled
+    // with this ctx that carries a `name` config registers itself here, so
+    // bounceLoop can find the pedal to copy.
+    this.loopers = (ctx.loopers as Map<string, object> | undefined) ?? new Map()
+    ctx.loopers = this.loopers
     // LIVE MIC: adopt any block the host already put on the ctx, else create
     // one and publish it back (same pattern as the sample bank) — every graph
     // compiled with this ctx aliases ONE buffer, so writeMic() is one copy
@@ -864,6 +872,8 @@ export class RealtimeEngine {
         return this.msgLoadSample(m)
       case 'clearSample':
         return this.msgClearSample(m)
+      case 'bounceLoop':
+        return this.msgBounceLoop(m)
       case 'loadWavetable':
         return this.msgLoadWavetable(m)
       case 'clearWavetable':
@@ -1342,6 +1352,23 @@ export class RealtimeEngine {
       return this.error(`'sampleRate' must be a positive number`, `loadSample '${name}'`)
     }
     this.samples.set(name, data, sr)
+  }
+
+  private msgBounceLoop(m: Record<string, unknown>): void {
+    const looper = m['looper']
+    if (typeof looper !== 'string' || looper.length === 0) {
+      return this.error(`'looper' must be a non-empty string`, 'bounceLoop')
+    }
+    const k = this.loopers.get(looper)
+    if (!(k instanceof LooperKernel)) {
+      return this.error(`no looper named '${looper}' — name one: looper(..., { name: '${looper}' })`, 'bounceLoop')
+    }
+    const data = k.snapshot()
+    if (data === null) {
+      return this.error(`looper '${looper}' is empty — record a loop first`, 'bounceLoop')
+    }
+    const sample = typeof m['sample'] === 'string' && m['sample'].length > 0 ? m['sample'] : looper
+    this.emit({ kind: 'loopBounced', looper, sample, data, sampleRate: this.ctx.sampleRate, frames: data.length })
   }
 
   private msgClearSample(m: Record<string, unknown>): void {

@@ -622,26 +622,32 @@ function parseCtrlValue(raw: string, from?: number): CtrlValue {
 function parseMod(ln: Line, errors: RondoError[]): Mod | null {
   const raw = ln.raw.trim()
   const pos: Pos = { line: ln.line, col: ln.rawCol }
-  // function-taking combinators: `every 4: rev`, `jux: rev`, `off .25: gain .3`
-  const fc = /^([a-zA-Z_]\w*)((?:\s+(?:-?\d*\.?\d+|<[^<>]*>|\[[^\][]*\]|\{[^{}]*\}))*)\s*:\s*(.+)$/.exec(raw)
-  if (fc) {
-    const spec = FN_COMBS[fc[1]!.toLowerCase()]
-    if (spec !== undefined) {
-      // a pre-colon count may be a patterned mini token (`every <2 4>: rev`),
-      // so split bracket-aware and keep a mini token as a string; a plain
-      // number stays a number
-      const rawFrom = ln.offset + ln.raw.indexOf(raw)
-      const preToks = splitCombArgs(fc[2] ?? '')
-      const pre = preToks.map((t) => (/^-?\d*\.?\d+$/.test(t.text) ? Number(t.text) : t.text))
-      if (pre.length !== spec.pre) {
-        errors.push({ message: `\`${fc[1]}\` takes ${spec.pre} argument(s) before the colon`, line: ln.line, col: ln.rawCol })
-        return null
-      }
-      // offsets: fc[2] (the pre args) starts right after the name; fc[3] (the
-      // comb) is the greedy tail, so it starts its own length from the end
-      const preFroms = preToks.map((t) => rawFrom + fc[1]!.length + t.at)
-      return { kind: 'fncomb', name: spec.js, pre, preFroms, comb: parseComb(fc[3]!, rawFrom + (raw.length - fc[3]!.length)), pos }
+  // function-taking combinators. The colon that separates the combinator's
+  // fixed count args from the transform is OPTIONAL — `jux: rev` and `jux rev`,
+  // `every 4: rev` and `every 4 rev` are the same. (It used to be required, and
+  // forgetting it did not error: `every 4 rev` silently became a stacked
+  // notation voice, `jux rev` passed the STRING 'rev' to jux.) The `pre` count
+  // is a fixed number of leading numeric/mini tokens; everything after is the
+  // transform, so there is no ambiguity about where it starts.
+  const fcName = /^([a-zA-Z_]\w*)/.exec(raw)?.[1]
+  if (fcName !== undefined && FN_COMBS[fcName.toLowerCase()] !== undefined) {
+    const spec = FN_COMBS[fcName.toLowerCase()]!
+    const fc = /^([a-zA-Z_]\w*)((?:\s+(?:-?\d*\.?\d+|<[^<>]*>|\[[^\][]*\]|\{[^{}]*\}))*)\s*:?\s*(.*)$/.exec(raw)!
+    const rawFrom = ln.offset + ln.raw.indexOf(raw)
+    const preToks = splitCombArgs(fc[2] ?? '')
+    const pre = preToks.map((t) => (/^-?\d*\.?\d+$/.test(t.text) ? Number(t.text) : t.text))
+    const transform = fc[3]!.trim()
+    if (pre.length !== spec.pre) {
+      const need = spec.pre === 0 ? 'no count' : `${spec.pre} count arg(s)`
+      errors.push({ message: `\`${fcName}\` takes ${need} then a transform (\`${fcName}${spec.pre ? ' 4' : ''}: rev\`)`, line: ln.line, col: ln.rawCol })
+      return null
     }
+    if (transform === '') {
+      errors.push({ message: `\`${fcName}\` needs a transform after it (\`${fcName}${spec.pre ? ' 4' : ''}: rev\`)`, line: ln.line, col: ln.rawCol })
+      return null
+    }
+    const preFroms = preToks.map((t) => rawFrom + fcName.length + t.at)
+    return { kind: 'fncomb', name: spec.js, pre, preFroms, comb: parseComb(transform, rawFrom + (raw.length - transform.length)), pos }
   }
   // NAME: value  (dedicated method for gain/dur/pan, else a .ctrl)
   const kv = /^([a-zA-Z_]\w*)\s*:\s*(.+)$/.exec(raw)
@@ -736,9 +742,10 @@ export function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolea
   }
   const first = /^([a-zA-Z_]\w*)/.exec(ln.raw)?.[1]
   if (first === undefined) return false
-  // fn-combinators (`every 4: rev`, `off .25: gain .3`) — the colon comes
-  // after the pre-args, so the name:value regex above misses them
-  if (FN_COMBS[first.toLowerCase()] !== undefined && ln.raw.includes(':')) return true
+  // fn-combinators (`every 4: rev`, `jux rev`, `off .25 add 7`) — a line
+  // starting with one is always a modifier, colon or not (the colon before
+  // the transform is optional; parseMod reports a missing transform).
+  if (FN_COMBS[first.toLowerCase()] !== undefined) return true
   return COMB_WORDS.has(first)
 }
 

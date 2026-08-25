@@ -4,6 +4,13 @@ import { clamp } from './util'
 export interface LooperConfig {
   /** Maximum loop length in seconds (sets the buffer size). Default 10. */
   maxTime?: number
+  /** Register this pedal in ctx.loopers under `name`, so the host can BOUNCE
+   *  its loop out (engine message `bounceLoop`) into the sample bank. Name a
+   *  looper in a POST chain or bus: a voice-graph looper constructs once per
+   *  voice and each registration overwrites the last. (A post chain runs two
+   *  mono instances, L then R — the R instance wins, and a bounce is mono
+   *  like every other sample.) */
+  name?: string
 }
 
 /** LOOP PEDAL. Inputs 'in', 'rec' (gate), 'feedback' (clamped to [0, 1],
@@ -75,6 +82,17 @@ export class LooperKernel implements Kernel {
   constructor(config: LooperConfig = {}, ctx?: DspContext) {
     this.maxTime = clamp(config.maxTime ?? 10, 0.1, 60)
     if (ctx) this.buf = new Float32Array(Math.ceil(this.maxTime * ctx.sampleRate))
+    // named pedal: registered so bounceLoop can find it (see LooperConfig.name)
+    if (typeof config.name === 'string' && config.name.length > 0 && ctx?.loopers) {
+      ctx.loopers.set(config.name, this)
+    }
+  }
+
+  /** A copy of the current loop content (exactly the defined length), or null
+   *  while EMPTY. Control-plane use only (bounceLoop) — it allocates. */
+  snapshot(): Float32Array | null {
+    if (this.len === 0 || this.buf === null) return null
+    return this.buf.slice(0, this.len)
   }
 
   process(n: number, inputs: Record<string, Float32Array>, out: Float32Array, ctx: DspContext): void {

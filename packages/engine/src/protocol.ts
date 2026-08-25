@@ -147,6 +147,13 @@ export type EngineMessage = (
   | { kind: 'setMasterComp'; threshold?: number; ratio?: number; attack?: number; release?: number; knee?: number; makeup?: number }
   /** Remove the master glue compressor (no reduction). */
   | { kind: 'clearMasterComp' }
+  /** Copy a NAMED looper's current loop out of the engine: finds the pedal
+   *  registered under `looper` (see the looper node's `name` config) and
+   *  emits a `loopBounced` event carrying the PCM. The engine's own bank is
+   *  NOT written here — the host round-trips the audio through loadSample,
+   *  so the sample registry, persistence and UI all take the one existing
+   *  path. Unknown name or an empty loop → an error event. */
+  | { kind: 'bounceLoop'; looper: string; sample?: string }
 ) & {
   /** Optional correlation id, echoed back on any error event this message
    *  provokes so hosts (MCP bridge, UI) can match failures to requests.
@@ -192,3 +199,8 @@ export type EngineEvent =
    *  voice) or a stale/unknown node reports NaN. Emitted on the meter cadence
    *  only while at least one probe is set. */
   | { kind: 'probe'; frame: number; values: Record<string, Record<number, number>> }
+  /** A bounceLoop result: the named looper's loop as mono PCM at the engine
+   *  rate. `sample` is the name to load it under (the message's override,
+   *  else the looper's own name). Hosts feed it back via loadSample — see
+   *  bounceLoop. */
+  | { kind: 'loopBounced'; looper: string; sample: string; data: Float32Array; sampleRate: number; frames: number }

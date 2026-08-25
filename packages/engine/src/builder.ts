@@ -84,6 +84,12 @@ export interface LooperOpts {
   mix?: SigIn
   /** Rising edge wipes the loop; the next `rec` press starts a fresh one. */
   clear?: SigIn
+  /** Register the pedal under a name so the host can BOUNCE its loop into the
+   *  sample bank (engine message `bounceLoop`) — the take becomes an ordinary
+   *  named sample to chop and layer, and re-bouncing replaces it. Name a
+   *  looper in a POST chain or bus: a voice-graph looper registers once per
+   *  voice and only the last registration wins. */
+  name?: string
 }
 
 /** Handle to a node's output inside a synth() build. Immutable: every method
@@ -1148,7 +1154,7 @@ const makeShared = (b: Builder) => {
       if (opts?.feedback !== undefined) inputs['feedback'] = src(opts.feedback, 'looper feedback')
       if (opts?.mix !== undefined) inputs['mix'] = src(opts.mix, 'looper mix')
       if (opts?.clear !== undefined) inputs['clear'] = src(opts.clear, 'looper clear')
-      return b.node('looper', inputs, definedConfig({ maxTime: opts?.maxTime }))
+      return b.node('looper', inputs, definedConfig({ maxTime: opts?.maxTime, name: opts?.name }))
     },
   }
 }

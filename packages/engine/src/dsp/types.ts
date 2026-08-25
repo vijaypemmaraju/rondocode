@@ -48,6 +48,12 @@ export interface DspContext {
    *  synth rebuild. Structural type (not WavetableBankRO) to keep this module
    *  import-free of the wavetable module that imports it. */
   wavetables?: { get(name: string): Float32Array[][] | undefined }
+  /** NAMED LOOPER registry: looper kernels whose config carries a `name`
+   *  register themselves here at construction, so a bounceLoop message can
+   *  find the pedal to copy. Same shared-store contract as samples (the
+   *  engine owns one Map on its ctx); typed structurally (object) to keep
+   *  this module import-free of the looper module that imports it. */
+  loopers?: Map<string, object>
   /** Trained DDSP instrument models, resolved by name by DdspKernel. Same
    *  shared-store contract as samples: the engine fills it from loadDdspModel
    *  messages and kernels re-resolve per block, so a model loaded after

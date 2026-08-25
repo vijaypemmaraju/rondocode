@@ -48,10 +48,13 @@ export interface SamplesPopoverOpts {
   /** the last successfully evaluated program (post-transpile JS in rondo
    *  mode), or null before the first good Run — feeds resample-to-loop. */
   getStagedCode?: () => string | null
+  /** names of the applied program's NAMED loopers (looper name:jam) — each
+   *  gets a bounce chip that copies its live loop into the sample bank. */
+  getNamedLoopers?: () => string[]
 }
 
 /** Wire up the samples popover. Returns a disposer. */
-export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, getStagedCode }: SamplesPopoverOpts): () => void {
+export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, getStagedCode, getNamedLoopers }: SamplesPopoverOpts): () => void {
   const pop = el('div', 'samples-pop hidden')
   const list = el('div', 'samples-list')
   const loadBtn = el('button', 'samples-load')
@@ -109,7 +112,32 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, g
   // wave button per row below). Result/confirm line for that action:
   const wtMsg = el('div', 'samples-recmsg')
   wtMsg.hidden = true
-  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg, resRow, resMsg, wtMsg)
+  // BOUNCE LOOP: one chip per NAMED looper (looper name:jam) in the applied
+  // program — a tap copies the pedal's live loop into the bank under that
+  // name (the loopBounced round trip), where it lists like any sample.
+  const bounceRow = el('div', 'samples-resample samples-bounce')
+  const bounceMsg = el('div', 'samples-recmsg')
+  bounceMsg.hidden = true
+  const renderBounce = (): void => {
+    const names = getNamedLoopers?.() ?? []
+    bounceRow.replaceChildren(el('span', 'samples-resample-label', 'bounce loop'))
+    bounceRow.hidden = names.length === 0
+    for (const name of names) {
+      const chip = el('button', 'samples-chip', name)
+      chip.type = 'button'
+      tooltip(chip, `copy looper '${name}' into the sample bank as '${name}'`)
+      chip.addEventListener('click', () => {
+        audio.send({ kind: 'bounceLoop', looper: name })
+        bounceMsg.hidden = false
+        // the sample appearing in the list is the real confirmation (the
+        // engine answers with loopBounced -> loadSamplePcm -> render); an
+        // empty or unknown pedal answers with an engine error instead
+        bounceMsg.textContent = `bouncing '${name}'…`
+      })
+      bounceRow.append(chip)
+    }
+  }
+  pop.append(el('div', 'samples-head', 'samples'), list, loadBtn, recBtn, recMsg, resRow, resMsg, bounceRow, bounceMsg, wtMsg)
   document.body.append(pop)
 
   /** Append `text` as a BLOCK at the end of the doc (blank-line separated),
@@ -267,7 +295,9 @@ export function mountSamplesPopover({ audio, view, anchor, fileInput, getLang, g
 
   const openPop = (): void => {
     render()
+    renderBounce()
     resMsg.hidden = true // stale bounce results don't outlive a close
+    bounceMsg.hidden = true
     wtMsg.hidden = true // same for stale resynthesis results
     syncResample()
     pop.classList.remove('hidden') // must be visible for anchorPopover to measure it

@@ -1062,6 +1062,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     fileInput,
     getLang: () => lang,
     getStagedCode: () => lastStagedJs,
+    getNamedLoopers: () => session.namedLoopers(),
   })
   // Export bounces need EVAL-READY code: the doc itself in JS mode, the
   // transpiled JS in rondo mode (raw rondo source cannot stage offline).

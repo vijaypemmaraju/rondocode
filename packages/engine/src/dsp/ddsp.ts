@@ -495,7 +495,16 @@ for (let i = 0; i <= SINE_N; i++) SINE_TABLE[i] = Math.sin((2 * Math.PI * i) / S
 
 /** sin(2*pi*t) for t in [0, 1), table lookup with linear interpolation. */
 export function sinTurns(t: number): number {
-  const x = t * SINE_N
+  // Wrap into [0, 1) so the table index can never run past the guard entry.
+  // Callers keep their phase in range via `ph -= ph|0`, but a phase that
+  // rounds to EXACTLY 1.0 (float accumulation, seen on the inharmonic piano's
+  // high partials) made i = SINE_N and read SINE_TABLE[SINE_N+1] === undefined,
+  // i.e. `undefined * f = NaN` — one NaN the reverb feedback then latched
+  // across a whole block. `t - floor(t)` also makes sin periodic for any
+  // finite t (negative phases, t > 1); non-finite t still yields NaN, which
+  // is the caller's bug to guard, not this table's.
+  const w = t - Math.floor(t)
+  const x = w * SINE_N
   const i = x | 0
   const f = x - i
   return SINE_TABLE[i]! * (1 - f) + SINE_TABLE[i + 1]! * f

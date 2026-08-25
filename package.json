@@ -33,5 +33,13 @@
     "typescript": "^5.5.0",
     "vitest": "^3.2.6"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "pnpm": {
+    "overrides": {
+      "hono": ">=4.12.34",
+      "fast-uri": ">=3.1.5 <4.0.0",
+      "ip-address": ">=10.3.1",
+      "postcss": ">=8.5.23"
+    }
+  }
 }

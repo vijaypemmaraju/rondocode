@@ -6,6 +6,7 @@ import {
   DdspModelBank,
   DdspKernel,
   renderHarmonicFrames,
+  sinTurns,
   ddspNoiseFir,
   ddspCosBasis,
 } from '../src/dsp/ddsp'
@@ -763,5 +764,38 @@ describe('format v2: named inputs + inharmonicity', () => {
       const b = run(new DdspKernel({ model: 'piano' }), ctxV2(), 4096, { gate: (i) => (i < 2500 ? 1 : 0) }, [37, 91, 1, 127])
       expect(b).toEqual(a)
     })
+  })
+})
+
+/* ------------------------------------------------------------ regression */
+
+describe('sinTurns is safe at the phase-wrap boundary', () => {
+  it('a phase of exactly 1.0 (and beyond) never reads past the table', () => {
+    // t = 1.0 made i = SINE_N and read SINE_TABLE[SINE_N+1] === undefined,
+    // so `undefined * f = NaN`. The inharmonic piano's high partials hit this
+    // exact value through float accumulation; the reverb then latched the NaN.
+    for (const t of [1.0, 2.0, -0.5, 1.5, 0.9999999999999, 1e18, 100.25]) {
+      expect(Number.isFinite(sinTurns(t)), `sinTurns(${t})`).toBe(true)
+    }
+    expect(sinTurns(1.0)).toBeCloseTo(sinTurns(0), 12) // periodic
+    expect(sinTurns(1.25)).toBeCloseTo(sinTurns(0.25), 12)
+  })
+
+  it('the inharmonic piano fixture renders finite audio across the full keyboard', () => {
+    const model = parseDdspModel(fixtureV2)
+    const bank = new DdspModelBank()
+    bank.set('p', model)
+    const ctx: DspContext = { sampleRate: 48000, ddsp: bank }
+    const sr = 48000
+    for (const midi of [0, 1, 12, 24, 60, 108, 127]) {
+      const f = 440 * 2 ** ((midi - 69) / 12)
+      const k = new DdspKernel({ model: 'p' })
+      const n = Math.round(sr * 0.3)
+      const out = new Float32Array(n)
+      const one = (v: number): Float32Array => Float32Array.from({ length: n }, () => v)
+      const gate = Float32Array.from({ length: n }, (_, i) => (i < n * 0.7 ? 1 : 0))
+      k.process(n, { gate, freq: one(f), vel: one(1), breath: one(0), vib: one(0.3), vibrate: one(5.5), air: one(1), bright: one(0), scoop: one(0), fall: one(0) }, out, ctx)
+      for (const v of out) expect(Number.isFinite(v), `midi ${midi}`).toBe(true)
+    }
   })
 })

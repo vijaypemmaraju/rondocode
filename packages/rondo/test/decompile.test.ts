@@ -53,6 +53,31 @@ describe('decompile round-trips', () => {
     expect(second.code).toBe(first.code)
   })
 
+  it('a section holding a sing round-trips (play + vocal in one section)', () => {
+    const src = [
+      'section A 4',
+      '  play q',
+      '    0 2',
+      '  sing vox voice:barbara',
+      '    la la',
+      '    c4 e4',
+      '',
+      'song A',
+      '',
+    ].join('\n')
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    expect(first.code).toContain("sing('barbara', 'la la', 'c4 e4', { name: 'vox' })")
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('sing vox voice:barbara')
+    expect(rondo2, 'no js{ } bail').not.toContain('js{')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   it('env/eq/vocoder sugar survives the round trip', () => {
     const src = [
       'synth talk',

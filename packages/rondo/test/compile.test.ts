@@ -1098,7 +1098,7 @@ describe('positioned diagnostics', () => {
   it('play without notation / section without plays', () => {
     failsAt('synth z\n  saw\n\nplay z\n', "play 'z' has no notation", 4, 1)
     failsAt('synth z\n  saw\n\nsection a 4\n', "section 'a' has no plays", 4, 1)
-    failsAt('synth z\n  saw\n\nsection a 4\n  cutoff: 3\n', 'a section holds `play` and `beat` blocks', 5, 3)
+    failsAt('synth z\n  saw\n\nsection a 4\n  cutoff: 3\n', 'a section holds `play`, `beat` and `sing` blocks', 5, 3)
   })
 
   it('malformed sidechain/master name:number pairs point at the bad pair', () => {
@@ -1546,5 +1546,30 @@ describe('sections: flash spans carry their section + the arrangement', () => {
     expect([...inc['d']!].sort()).toEqual(['d'])
     expect([...inc['m']!].sort()).toEqual(['d', 'm'])
     expect([...inc['full']!].sort()).toEqual(['d', 'full', 'm'])
+  })
+})
+
+/* A `sing` block inside a section: the vocal belongs to ONE part of the song.
+ * It compiles to the same chain a top-level sing wraps in p(), stacked next
+ * to the section's plays — sing() routes itself via opts.name, so nothing
+ * downstream changes. */
+describe('sing blocks inside sections', () => {
+  it('a section stacks its sing next to its plays', () => {
+    const out = ok('section A 4\n  play q\n    0 2\n  sing vox\n    la la\n    c4 e4\n\nsection B 4\n  play q\n    5\n\nsong A B\n')
+    expect(out).toContain("const __sec_A = stack(n('0 2').sound('q'), sing('la la', 'c4 e4', { name: 'vox' }))")
+  })
+
+  it('a sing-only section is a legal section (voice + no stack wrapper)', () => {
+    const out = ok('section A 4\n  sing vox voice:barbara\n    la la\n    c4 e4\n')
+    expect(out).toContain("const __sec_A = sing('barbara', 'la la', 'c4 e4', { name: 'vox' })")
+  })
+
+  it('sing modifiers ride along inside the section (cycles into opts, mods onto the chain)', () => {
+    const out = ok('section A 8\n  sing vox\n    la la\n    c4 e4\n    cycles: 8\n    gain: .8\n')
+    expect(out).toContain("sing('la la', 'c4 e4', { name: 'vox', cycles: 8 }).gain(")
+  })
+
+  it('an unknown line inside a section names all three block kinds', () => {
+    failsAt('section a 4\n  cutoff: 3\n', 'a section holds `play`, `beat` and `sing` blocks', 2, 3)
   })
 })

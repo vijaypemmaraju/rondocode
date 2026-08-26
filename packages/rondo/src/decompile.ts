@@ -1688,7 +1688,12 @@ function sectionPlays(chainNode: Node): { plays: string[]; withs: string[] } | n
     }
     const play = chainToPlay(m)
     if (play === null) return null
-    const header = play.entry === 'sound' ? '  beat' : `  play ${play.sound}`
+    // a hash-named vocal (no opts.name) has no rondo spelling; singEntry
+    // already nulls it, this only keeps the invariant explicit
+    if (play.entry === 'sing' && play.sound === undefined) return null
+    const header = play.entry === 'sound' ? '  beat'
+      : play.entry === 'sing' ? `  sing ${play.sound}${play.header ?? ''}`
+      : `  play ${play.sound}`
     out.push([header, ...play.body.map((l) => `    ${l}`)].join('\n'))
   }
   /* `plays` may be empty only in principle: the parser requires a section to

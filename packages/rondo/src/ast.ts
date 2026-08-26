@@ -313,6 +313,9 @@ export interface SectionBlock {
   name: string
   len: number
   plays: PlayBlock[]
+  /** `sing` blocks in the section body — a vocal phrase that belongs to ONE
+   *  part of the song rather than the whole arrangement. */
+  sings?: SingBlock[]
   /** Sections this one plays ON TOP OF (`section main 8 with drums`).
    *
    *  Measured on a real arrangement: `intro2` repeated 4 of its 8 parts

@@ -1484,6 +1484,7 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       }
       const { body, next } = bodyLines(lines, i + 1)
       const plays: PlayBlock[] = []
+      const sings: SingBlock[] = []
       let j = 0
       while (j < body.length) {
         const bl = body[j]!
@@ -1494,13 +1495,25 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
           const r = parsePlay(lines, abs, errors, bh.v)
           plays.push(r.block)
           j += r.next - abs
+        } else if (bh && bh.k === 'ident' && bh.v === 'sing') {
+          // a vocal that belongs to ONE part of the song — same sub-parse
+          // trick as play, against the absolute line array
+          const abs = lines.indexOf(bl)
+          const r = parseSing(lines, abs, errors)
+          sings.push(r.block)
+          j += r.next - abs
         } else {
-          errors.push({ message: 'a section holds `play` and `beat` blocks', line: bl.line, col: bl.rawCol })
+          errors.push({ message: 'a section holds `play`, `beat` and `sing` blocks', line: bl.line, col: bl.rawCol })
           j++
         }
       }
-      if (plays.length === 0) errors.push({ message: `section '${name}' has no plays`, line: ln.line, col: ln.rawCol })
-      items.push({ t: 'section', name, len, plays, ...(withs.length > 0 ? { with: withs } : {}), pos: head.pos })
+      if (plays.length === 0 && sings.length === 0) errors.push({ message: `section '${name}' has no plays`, line: ln.line, col: ln.rawCol })
+      items.push({
+        t: 'section', name, len, plays,
+        ...(sings.length > 0 ? { sings } : {}),
+        ...(withs.length > 0 ? { with: withs } : {}),
+        pos: head.pos,
+      })
       i = next
     }
     else if (head.v === 'song') {

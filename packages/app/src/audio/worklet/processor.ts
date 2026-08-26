@@ -17,6 +17,9 @@ class RondocodeProcessor extends AudioWorkletProcessor {
   private readonly engine = new RealtimeEngine({ sampleRate })
   /** Discard buffer for the R leg when the output is unexpectedly mono. */
   private readonly scratch = new Float32Array(BLOCK)
+  /** Reused view of output channels 2..N (allocated once, refilled per block
+   *  — the render quantum must not allocate). */
+  private extra: Float32Array[] | null = null
   private blocks = 0
 
   constructor() {
@@ -35,7 +38,17 @@ class RondocodeProcessor extends AudioWorkletProcessor {
     // live mic: the node's input 0 (silent/absent unless the host connected
     // a MediaStreamAudioSource — see AudioSession.setMicEnabled)
     this.engine.writeMic(inputs[0]?.[0] ?? null)
-    this.engine.process(l, r, currentFrame)
+    // Hardware channels beyond the master pair (a multichannel interface):
+    // handed to the engine so routed strips (`out lead 3..4`) land on them.
+    if (out.length > 2) {
+      if (this.extra === null || this.extra.length !== out.length - 2) {
+        this.extra = new Array<Float32Array>(out.length - 2)
+      }
+      for (let k = 2; k < out.length; k++) this.extra[k - 2] = out[k]!
+      this.engine.process(l, r, currentFrame, this.extra)
+    } else {
+      this.engine.process(l, r, currentFrame)
+    }
     if (++this.blocks % METER_EVERY === 0) {
       this.port.postMessage(this.engine.collectMeters())
       const probe = this.engine.collectProbes() // null unless the editor set probes

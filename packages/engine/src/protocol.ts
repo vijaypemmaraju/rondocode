@@ -86,7 +86,15 @@ export type EngineMessage = (
    *  sidechain duck: 1 = full duck (down to 1 - depth), 0 = ignore the duck
    *  entirely. Clamped to [0, 1]; the source channel is never ducked
    *  regardless. Lets some channels pump hard while others stay steady. */
-  | { kind: 'setChannel'; synth: string; gain?: number; pan?: number; sidechain?: number }
+  /** `out` routes the strip to hardware output channels, 0-BASED: {lo:0,hi:1}
+   *  is the master pair (the default); {lo:2,hi:3} is the interface's outputs
+   *  3/4. lo===hi routes MONO (the strip's L+R summed into one channel).
+   *  Routed channels bypass the master stage (gain/comp/width) — they are
+   *  independent feeds — but keep their own strip, duck and sends. When the
+   *  host provides no buffer for a routed channel (device has too few
+   *  outputs), the engine folds the strip back into the master pair so a
+   *  routed part is never silently lost. */
+  | { kind: 'setChannel'; synth: string; gain?: number; pan?: number; sidechain?: number; out?: { lo: number; hi: number } }
   /** Master gain (default 0.8), ramped over one block. */
   | { kind: 'setMaster'; gain: number }
   /** Master-bus stereo stage: side scale, and a mono-below crossover. The one

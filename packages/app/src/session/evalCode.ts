@@ -154,6 +154,11 @@ export interface EvalResult {
   masterGain?: number
   /** Present iff the code called stereo(opts): master-bus mid/side. */
   stereo?: { width?: number; monoBelow?: number }
+  /** Present iff the code called route(): per-synth hardware output routing,
+   *  1-BASED channel pairs as written (`route('click', 3, 4)`). The live
+   *  session converts to the engine's 0-based setChannel `out`; the offline
+   *  render ignores routing by design (the bounce is the stereo master). */
+  routes?: Record<string, { lo: number; hi: number }>
   /** Present iff the code called visual(wgsl): the WGSL fragment source for
    *  the programmable shader visualizer (compiled + swapped live by the GPU
    *  layer, never through this evaluator). Last call wins. */
@@ -171,7 +176,7 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object.
  *  EXPORTED so the docs-coverage test can check itself against this list
  *  instead of keeping a second copy that drifts (docs.test.ts). */
-export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap'])
+export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', 'route', '__rcTap'])
 
 /** DSL sidechain defaults. `release` is MILLISECONDS, like every other
  *  release in the language — it used to be seconds here and only here, so the
@@ -1051,6 +1056,27 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     return (cycles === 1 ? trig : trig.slow(cycles)) as Pattern<ControlMap>
   }
 
+  /** Hardware output routing: route('click', 3, 4) sends that synth's strip
+   *  to interface outputs 3/4 — 1-BASED, like the jacks are numbered, so the
+   *  code reads like the hardware. hi defaults to lo+1 (the adjacent pair);
+   *  hi === lo routes MONO. Staged like every other mix control; the live
+   *  session turns it into setChannel{out} (0-based) after the defines. */
+  const routesCfg: Record<string, { lo: number; hi: number }> = {}
+  const route = (name: unknown, lo: unknown, hi?: unknown): void => {
+    assertOpen('route')
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new TypeError(`route(): first argument is the synth name, got ${JSON.stringify(name)}`)
+    }
+    const h = hi === undefined ? (typeof lo === 'number' ? lo + 1 : lo) : hi
+    if (typeof lo !== 'number' || !Number.isInteger(lo) || typeof h !== 'number' || !Number.isInteger(h)) {
+      throw new TypeError(`route('${name}'): channels are whole numbers, 1-based like the jacks (route('${name}', 3, 4))`)
+    }
+    if (lo < 1 || h < lo || h > lo + 1 || h > 32) {
+      throw new TypeError(`route('${name}'): lo..hi must be one channel or an adjacent pair within 1..32`)
+    }
+    routesCfg[name] = { lo, hi: h }
+  }
+
   const names: string[] = []
   const values: unknown[] = []
   for (const [key, value] of Object.entries(scope)) {
@@ -1061,8 +1087,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', '__rcTap')
-  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, stereo, visual, bus, sing, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', 'route', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, stereo, visual, bus, sing, route, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to
@@ -1186,5 +1212,21 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   if (masterGainDb !== undefined) result.masterGain = masterGainDb
   if (stereoCfg !== undefined) result.stereo = stereoCfg
   if (visualSrc !== undefined) result.visual = visualSrc
+  if (Object.keys(routesCfg).length > 0) {
+    // A typo'd route is the classic silently-does-nothing bug: say so now,
+    // while the synth list of this very eval is in hand.
+    for (const target of Object.keys(routesCfg)) {
+      if (!synths.has(target) && !singNames.has(target)) {
+        diagnostics.push({
+          line: 1,
+          col: 1,
+          message: `route('${target}'): no synth or vocal with that name — the routing does nothing`,
+          severity: 'warning',
+          source: 'eval',
+        })
+      }
+    }
+    result.routes = routesCfg
+  }
   return result
 }

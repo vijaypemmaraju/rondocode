@@ -55,6 +55,7 @@ sidechain('a', { depth: 0.5, release: 200, duck: { b: 0.7 } })
 masterCompress({ threshold: -10, ratio: 3 })
 masterGain(-3)
 stereo({ width: 1.2, monoBelow: 100 })
+route('a', 3, 4)
 visual(\`fn main() {}\`)
 setTimeSig(3, 4)
 setCps(0.7)
@@ -87,6 +88,13 @@ const FATE: Record<string, Fate> = {
   masterComp: { staged: true, mixOpt: 'masterComp', live: 'setMasterComp' },
   masterGain: { staged: true, mixOpt: 'masterGain', live: 'setMaster' },
   stereo: { staged: true, mixOpt: 'stereo', live: 'setStereo' },
+  routes: {
+    staged: true,
+    mixOpt: null,
+    live: 'setChannel',
+    why:
+      'hardware output routing addresses the LIVE device: an offline bounce is the stereo master pair, so renderMix takes no routing by design (the routed feeds are not part of the mix). Live it becomes setChannel{out}',
+  },
   sings: {
     staged: true,
     mixOpt: null,
@@ -142,7 +150,7 @@ describe('staged fields reach both consumers', () => {
   it('exercises every staging call, so the list below is the whole list', () => {
     // Guards the fixture itself: a field only appears if MAXIMAL stages it.
     expect(stagedFields()).toEqual([
-      'buses', 'cps', 'masterComp', 'masterGain', 'patterns', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
+      'buses', 'cps', 'masterComp', 'masterGain', 'patterns', 'routes', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
     ])
   })
 

@@ -390,10 +390,21 @@ export interface CurveDefItem {
   pos: Pos
 }
 
+/** `out SYNTH LO..HI` — route a synth's channel strip to hardware output
+ *  channels, 1-based like the jacks are numbered (`1..2` is the master pair).
+ *  LO === HI routes the strip MONO into that one channel. */
+export interface RouteItem {
+  t: 'route'
+  synth: string
+  lo: number
+  hi: number
+  pos: Pos
+}
+
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
   | SidechainItem | MasterItem
-  | StereoItem | LevelItem | PatDefItem | BusBlock | VisualItem
+  | StereoItem | LevelItem | RouteItem | PatDefItem | BusBlock | VisualItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | ZoneDefItem | MacroItem | CurveDefItem
 
 export interface Program {

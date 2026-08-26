@@ -279,6 +279,12 @@ const GLOBALS: DocEntry[] = [
     'masterGain(-4)',
   ),
   g(
+    'route',
+    'route(synth: string, lo: number, hi?: number)',
+    "Route a synth's channel strip to hardware output channels of a multichannel interface, 1-based like the jacks are numbered: route('click', 3, 4) sends the click to outputs 3/4 (a monitor feed, a stem to FOH). hi defaults to lo+1; lo alone (or hi === lo) routes MONO. Channels 1..2 are the master pair, so that is the default every synth already has. Routed synths keep their own strip, sidechain duck and bus sends, but bypass the master stage (master gain, glue compressor, widener): they are independent feeds. If the current output device does not have the requested channels, the engine folds the synth back into the master pair so a part is never silently lost. Offline bounces are the stereo master and ignore routing.",
+    "route('click', 3, 4)",
+  ),
+  g(
     'bus',
     'bus(name: string, fx: (ctx) => Sig, sends?: Record<string, number>, opts?: { gain?: number })',
     'A shared send bus: one FX chain (written like a synth post-chain) that many synths feed, so a single reverb or delay is shared instead of duplicated per voice. The sends map routes synths in by amount 0..1, tapped pre-fader so a reverb send does not pump with the sidechain. gain (def 1) scales the return; the bus sums into the master before the glue compressor.',

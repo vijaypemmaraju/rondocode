@@ -1025,7 +1025,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
  *  BODY-level words (`post`, `send`) are NOT here: they open nothing at the
  *  top level. See words.ts, which adds them for highlighting. */
 export const BLOCK_KEYWORDS: readonly string[] = [
-  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'patdef',
+  'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'out', 'patdef',
   'bus', 'sidechain', 'master', 'stereo', 'macro', 'switch', 'curvedef', 'scaledef',
   'wavedef', 'zonedef', 'visual', 'js',
 ]
@@ -1036,7 +1036,7 @@ export const BLOCK_KEYWORDS: readonly string[] = [
  *  added to one list and not the other — so it lives HERE, next to the dispatch
  *  that defines it, and the formatter imports it. */
 export const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
-  'cps', 'bpm', 'timesig', 'level', 'song', 'sidechain', 'master', 'stereo', 'macro', 'scaledef', 'wavedef', 'patdef',
+  'cps', 'bpm', 'timesig', 'level', 'out', 'song', 'sidechain', 'master', 'stereo', 'macro', 'scaledef', 'wavedef', 'patdef',
 ])
 
 /** `timesig 3 4` — beats per bar, then the beat unit. The unit must be a power
@@ -1356,6 +1356,43 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
         errors.push({ message: 'level needs a number of dB (`level -4`)', line: ln.line, col: ln.rawCol })
       }
       items.push({ t: 'level', db: v && v.k === 'num' ? v.v : 0, pos: head.pos })
+      i++
+    }
+    /* `out SYNTH LO..HI` / `out SYNTH N` — route a synth to hardware output
+     * channels of a multichannel interface. 1-BASED, like the numbers printed
+     * on the hardware: `1..2` is the master pair, `3..4` the next jack pair.
+     * A single channel routes the strip MONO. */
+    else if (head.v === 'out') {
+      const nameT = ln.toks[1]
+      const loT = ln.toks[2]
+      const sep = ln.toks[3]
+      const hiT = ln.toks[4]
+      const bad = (msg: string): void => {
+        errors.push({ message: msg, line: ln.line, col: ln.rawCol })
+      }
+      if (!nameT || nameT.k !== 'ident' || !loT || loT.k !== 'num') {
+        bad('out routes a synth to hardware outputs (`out lead 3..4`, `out click 5`)')
+      } else {
+        const lo = loT.v
+        let hi = lo
+        let shapeOk = true
+        if (sep !== undefined) {
+          if (sep.k !== 'range' || !hiT || hiT.k !== 'num' || ln.toks.length > 5) {
+            bad('out takes one channel or an adjacent pair (`out lead 3..4`)')
+            shapeOk = false
+          } else hi = hiT.v
+        } else if (ln.toks.length > 3) {
+          bad('out takes one channel or an adjacent pair (`out lead 3..4`)')
+          shapeOk = false
+        }
+        if (shapeOk) {
+          if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi < lo || hi > lo + 1 || hi > 32) {
+            bad('out channels are whole numbers from 1 to 32: one alone, or an adjacent pair like `3..4`')
+          } else {
+            items.push({ t: 'route', synth: nameT.v, lo, hi, pos: head.pos })
+          }
+        }
+      }
       i++
     }
     // `master threshold:-6 ratio:2 …` → masterCompress(opts)

@@ -1389,6 +1389,10 @@ export function codegen(program: Program, errors: RondoError[]): CodegenOut {
     if (item.t === 'master') return cgMaster(item)
     if (item.t === 'stereo') return cgStereo(item)
     if (item.t === 'level') return `masterGain(${num(item.db)})`
+    // `out lead 3..4` → route('lead', 3, 4): hardware output routing, kept in
+    // the 1-based channel numbers the musician wrote (the session layer owns
+    // the 0-based conversion for the engine).
+    if (item.t === 'route') return `route(${q(item.synth)}, ${num(item.lo)}, ${num(item.hi)})`
     if (item.t === 'scaledef') return cgScaleDef(item)
     if (item.t === 'wavedef') return cgWaveDef(item)
     if (item.t === 'curvedef') return cgCurveDef(item)

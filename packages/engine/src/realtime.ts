@@ -238,6 +238,13 @@ interface Channel {
   /** Per-synth send amounts into shared buses (busName -> 0..1). Tapped
    *  pre-strip/pre-duck (raw post-FX), so a reverb send does not pump. */
   sends: Map<string, number>
+  /** Hardware output routing, 0-based: 0/1 = the master pair (the default).
+   *  outLo === outHi routes MONO (both strip legs summed into one channel).
+   *  Channels >= 2 index the host's extra output buffers; when the host
+   *  provides no buffer for them (device has too few outputs) the strip
+   *  folds back into the master pair rather than going silent. */
+  outLo: number
+  outHi: number
 }
 
 /** A shared send bus: an FX chain (like a synth post-chain) fed by the summed
@@ -253,6 +260,11 @@ interface Bus {
 }
 
 const MAX_BUSES = 8
+
+/** Hard cap on addressable hardware output channels (0-based indices stay
+ *  below this). 32 covers any interface this engine will realistically meet;
+ *  the host also caps its worklet output at the same number. */
+export const MAX_OUT_CHANNELS = 32
 
 const isObj = (m: unknown): m is Record<string, unknown> => typeof m === 'object' && m !== null
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -505,11 +517,21 @@ export class RealtimeEngine {
     this.micQuiet = false
   }
 
-  process(outL: Float32Array, outR: Float32Array, startFrame: number): void {
+  process(
+    outL: Float32Array,
+    outR: Float32Array,
+    startFrame: number,
+    /** EXTRA hardware output channels beyond the master pair: extra[k] is
+     *  absolute channel k+2 (a worklet passes outputs[0].slice-of 2..N).
+     *  Optional and sparse-tolerant — a missing/wrong-length buffer simply
+     *  folds any strip routed to it back into the master pair. */
+    extra?: readonly (Float32Array | undefined)[] | null,
+  ): void {
     if (!this.originAdopted && Number.isFinite(startFrame)) {
       this.originAdopted = true
       this.frames = startFrame
     }
+    const outs = extra ?? null
     let start = startFrame
     if (!Number.isFinite(start)) {
       start = this.frames
@@ -519,27 +541,41 @@ export class RealtimeEngine {
       if (outL.length !== BLOCK || outR.length !== BLOCK) {
         outL.fill(0)
         outR.fill(0)
+        this.zeroExtra(outs)
         this.rateLimited(
           'lastProcErrorFrame',
           start,
           `process: buffers must be exactly BLOCK (${BLOCK}) frames, got ${outL.length}/${outR.length}`,
         )
       } else {
-        this.render(outL, outR, start)
+        this.render(outL, outR, start, outs)
       }
     } catch (e) {
       outL.fill(0)
       outR.fill(0)
+      this.zeroExtra(outs)
       this.rateLimited('lastProcErrorFrame', start, `process: ${e instanceof Error ? e.message : String(e)}`)
     }
     this.frames += BLOCK
   }
 
+  /** Silence every usable extra output buffer (error paths). */
+  private zeroExtra(extra: readonly (Float32Array | undefined)[] | null): void {
+    if (extra === null) return
+    for (const b of extra) if (b !== undefined && b.length === BLOCK) b.fill(0)
+  }
+
   /* ----------------------------- audio plane ----------------------------- */
 
-  private render(outL: Float32Array, outR: Float32Array, start: number): void {
+  private render(
+    outL: Float32Array,
+    outR: Float32Array,
+    start: number,
+    extra: readonly (Float32Array | undefined)[] | null,
+  ): void {
     outL.fill(0)
     outR.fill(0)
+    this.zeroExtra(extra)
     // Reap retired pools that have gone fully silent (control-plane rate: only
     // when one actually drains, so process() stays scan-free otherwise).
     if (this.retiring.length > 0) {
@@ -612,7 +648,7 @@ export class RealtimeEngine {
         const ch = list[c]!
         // A channel with scAmount 0 opts out entirely (treat as no duck).
         const ducked = duckActive && ch.name !== this.scSource && ch.scAmount > 0 ? this.duck : null
-        this.mixChannel(ch, outL, outR, cursor, n, ducked, ch.scAmount)
+        this.mixChannel(ch, outL, outR, cursor, n, ducked, ch.scAmount, extra)
       }
       cursor = end
     }
@@ -695,6 +731,28 @@ export class RealtimeEngine {
     if (nan > 0) {
       this.rateLimited('lastNanErrorFrame', start, `master: scrubbed ${nan} non-finite sample(s) this block`)
     }
+    /* Routed (extra) outputs: independent feeds, so they skip the master
+     * stage above — but never the safety net. Same tanh soft clip and
+     * non-finite scrub the master pair gets, per channel. */
+    if (extra !== null) {
+      let nanX = 0
+      for (let k = 0; k < extra.length; k++) {
+        const b = extra[k]
+        if (b === undefined || b.length !== BLOCK) continue
+        for (let i = 0; i < BLOCK; i++) {
+          const v = b[i]!
+          if (Number.isFinite(v)) {
+            b[i] = masterSafety(v)
+          } else {
+            b[i] = 0
+            nanX++
+          }
+        }
+      }
+      if (nanX > 0) {
+        this.rateLimited('lastNanErrorFrame', start, `out: scrubbed ${nanX} non-finite sample(s) on routed channels`)
+      }
+    }
   }
 
   /** Evaluate ch's active param ramps at the block start and push the values
@@ -726,9 +784,32 @@ export class RealtimeEngine {
     n: number,
     duck: Float32Array | null,
     scAmount: number,
+    extra: readonly (Float32Array | undefined)[] | null,
   ): void {
     const bufL = this.busL
     const bufR = this.busR
+    /* DESTINATION: the master pair by default; a routed strip writes into the
+     * host's extra output buffers instead. A route whose buffers the host did
+     * not provide (device has too few outputs) FOLDS BACK to the master pair
+     * — a monitor feed on the wrong laptop must be audible somewhere, never
+     * silently gone. `mono` sums both strip legs into the one channel. */
+    let dL = outL
+    let dR = outR
+    let mono = false
+    if (ch.outLo >= 2) {
+      const bl = extra?.[ch.outLo - 2]
+      const bh = extra?.[ch.outHi - 2]
+      if (bl !== undefined && bl.length === BLOCK && bh !== undefined && bh.length === BLOCK) {
+        dL = bl
+        dR = bh
+        mono = ch.outLo === ch.outHi
+      }
+    } else if (ch.outLo === ch.outHi) {
+      // mono into one side of the master pair (`out lead 1` / `out lead 2`)
+      dL = ch.outLo === 0 ? outL : outR
+      dR = dL
+      mono = true
+    }
     bufL.fill(0, 0, n)
     bufR.fill(0, 0, n)
     ch.pool.process(bufL, bufR, n)
@@ -764,8 +845,12 @@ export class RealtimeEngine {
         const d = duck === null ? 1 : 1 - scAmount * (1 - duck[cursor + i]!)
         const l = bufL[i]! * gl * d
         const r = bufR[i]! * gr * d
-        outL[cursor + i] = outL[cursor + i]! + l
-        outR[cursor + i] = outR[cursor + i]! + r
+        if (mono) {
+          dL[cursor + i] = dL[cursor + i]! + l + r
+        } else {
+          dL[cursor + i] = dL[cursor + i]! + l
+          dR[cursor + i] = dR[cursor + i]! + r
+        }
         ss += l * l + r * r
         const mid = (l + r) * 0.5
         const mag = mid < 0 ? -mid : mid
@@ -782,8 +867,12 @@ export class RealtimeEngine {
         const d = duck === null ? 1 : 1 - scAmount * (1 - duck[cursor + i]!)
         const l = bufL[i]! * g * Math.cos(p * HALF_PI) * d
         const r = bufR[i]! * g * Math.sin(p * HALF_PI) * d
-        outL[cursor + i] = outL[cursor + i]! + l
-        outR[cursor + i] = outR[cursor + i]! + r
+        if (mono) {
+          dL[cursor + i] = dL[cursor + i]! + l + r
+        } else {
+          dL[cursor + i] = dL[cursor + i]! + l
+          dR[cursor + i] = dR[cursor + i]! + r
+        }
         ss += l * l + r * r
         const mid = (l + r) * 0.5
         const mag = mid < 0 ? -mid : mid
@@ -1004,6 +1093,10 @@ export class RealtimeEngine {
       // Preserve send amounts too: a redefine shouldn't drop the synth's
       // routing into shared buses.
       sends: existing?.sends ?? new Map(),
+      // Preserve the hardware output route (like the strip): a live redefine
+      // must not yank a monitor feed back onto the master pair.
+      outLo: existing?.outLo ?? 0,
+      outHi: existing?.outHi ?? 1,
     })
     this.rebuildList()
   }
@@ -1281,9 +1374,31 @@ export class RealtimeEngine {
     if (sidechain !== undefined && !fin(sidechain)) {
       return this.error(`'sidechain' must be a finite number`, `setChannel '${ch.name}'`)
     }
+    const out = m['out']
+    let outLo: number | undefined
+    let outHi: number | undefined
+    if (out !== undefined) {
+      if (!isObj(out) || !fin(out['lo']) || !fin(out['hi'])) {
+        return this.error(`'out' must be { lo, hi } with finite numbers`, `setChannel '${ch.name}'`)
+      }
+      const lo = out['lo'] as number
+      const hi = out['hi'] as number
+      if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < 0 || hi < lo || hi > lo + 1 || hi >= MAX_OUT_CHANNELS) {
+        return this.error(
+          `'out' channels must be whole numbers in 0..${MAX_OUT_CHANNELS - 1}: one alone, or an adjacent pair`,
+          `setChannel '${ch.name}'`,
+        )
+      }
+      outLo = lo
+      outHi = hi
+    }
     if (gain !== undefined) ch.gain = clamp(gain, 0, MAX_GAIN)
     if (pan !== undefined) ch.pan = clamp(pan, 0, 1)
     if (sidechain !== undefined) ch.scAmount = clamp(sidechain, 0, 1)
+    if (outLo !== undefined && outHi !== undefined) {
+      ch.outLo = outLo
+      ch.outHi = outHi
+    }
   }
 
   /** Master mid/side. Non-finite values are rejected with an error rather

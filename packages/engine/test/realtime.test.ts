@@ -1248,3 +1248,85 @@ describe('live mic input', () => {
     expect(errors(events)).toEqual([])
   })
 })
+
+/* Hardware output routing: `setChannel out` moves a strip off the master
+ * pair onto extra output channels the host provides (a multichannel
+ * interface). Routed feeds bypass the master stage but never the safety
+ * net, and a route without host buffers FOLDS BACK rather than going
+ * silent. */
+describe('hardware output routing (setChannel out)', () => {
+  const mk = () => {
+    const { eng, events } = makeEngine()
+    define(eng, 'a', dcGraph())
+    send(eng, { kind: 'noteOn', synth: 'a', note: 60 })
+    const l = new Float32Array(BLOCK)
+    const r = new Float32Array(BLOCK)
+    const extra = [new Float32Array(BLOCK), new Float32Array(BLOCK)]
+    return { eng, events, l, r, extra }
+  }
+
+  it('a routed pair leaves the master pair and lands on its channels, bypassing master gain', () => {
+    const { eng, events, l, r, extra } = mk()
+    send(eng, { kind: 'setChannel', synth: 'a', out: { lo: 2, hi: 3 } })
+    eng.process(l, r, 0, extra)
+    expect(Math.max(...l.map(Math.abs))).toBe(0)
+    expect(Math.max(...r.map(Math.abs))).toBe(0)
+    // per-leg DC without the 0.8 master stage: DC_HALF / 0.8
+    expect(extra[0]![BLOCK - 1]).toBeCloseTo(DC_HALF / 0.8, 3)
+    expect(extra[1]![BLOCK - 1]).toBeCloseTo(DC_HALF / 0.8, 3)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('a route with no host buffers FOLDS BACK to the master pair (never silent)', () => {
+    const { eng, events, l, r } = mk()
+    send(eng, { kind: 'setChannel', synth: 'a', out: { lo: 6, hi: 7 } })
+    eng.process(l, r, 0) // stereo-only host: no extra buffers at all
+    expect(l[BLOCK - 1]).toBeCloseTo(DC_HALF, 3)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('lo === hi routes MONO: both strip legs summed into the one channel', () => {
+    const { eng, events, l, r, extra } = mk()
+    send(eng, { kind: 'setChannel', synth: 'a', out: { lo: 2, hi: 2 } })
+    eng.process(l, r, 0, extra)
+    expect(extra[0]![BLOCK - 1]).toBeCloseTo((2 * DC_HALF) / 0.8, 3)
+    expect(Math.max(...extra[1]!.map(Math.abs))).toBe(0)
+    expect(Math.max(...l.map(Math.abs))).toBe(0)
+    expect(errors(events)).toEqual([])
+  })
+
+  it('routed channels still get the safety stage: a hot signal never leaves ±1', () => {
+    const { eng } = makeEngine()
+    define(eng, 'loud', loudGraph())
+    send(eng, { kind: 'setChannel', synth: 'loud', out: { lo: 2, hi: 3 } })
+    send(eng, { kind: 'noteOn', synth: 'loud', note: 60 })
+    const l = new Float32Array(BLOCK)
+    const r = new Float32Array(BLOCK)
+    const extra = [new Float32Array(BLOCK), new Float32Array(BLOCK)]
+    eng.process(l, r, 0, extra)
+    const peak = Math.max(...extra[0]!.map(Math.abs))
+    expect(peak).toBeGreaterThan(0.5)
+    expect(peak).toBeLessThanOrEqual(1)
+  })
+
+  it('an invalid out is atomic: nothing applies, an error event says why', () => {
+    const { eng, events, l, r, extra } = mk()
+    send(eng, { kind: 'setChannel', synth: 'a', gain: 0, out: { lo: 2, hi: 5 } })
+    expect(errors(events)).toHaveLength(1)
+    eng.process(l, r, 0, extra)
+    // gain 0 must NOT have applied either: still audible, still on the master pair
+    expect(l[BLOCK - 1]).toBeCloseTo(DC_HALF, 3)
+    expect(Math.max(...extra[0]!.map(Math.abs))).toBe(0)
+  })
+
+  it('a live redefine keeps the route, like the rest of the strip', () => {
+    const { eng, events, l, r, extra } = mk()
+    send(eng, { kind: 'setChannel', synth: 'a', out: { lo: 2, hi: 3 } })
+    define(eng, 'a', dcGraph()) // redefine: strip AND route must survive
+    send(eng, { kind: 'noteOn', synth: 'a', note: 61 })
+    eng.process(l, r, 0, extra)
+    expect(Math.max(...extra[0]!.map(Math.abs))).toBeGreaterThan(0)
+    expect(Math.max(...l.map(Math.abs))).toBe(0)
+    expect(errors(events)).toEqual([])
+  })
+})

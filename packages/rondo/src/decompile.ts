@@ -1826,6 +1826,17 @@ function decompileStaging(stmt: Node): string | null {
     const v = numValue(args[0]!)
     return v !== undefined ? `level ${num(v)}` : null
   }
+  // `route('lead', 3, 4)` → `out lead 3..4`; a single channel → `out lead 3`.
+  if (name === 'route' && (args.length === 2 || args.length === 3)) {
+    const sname = strValue(args[0]!)
+    const lo = numValue(args[1]!)
+    // hi omitted means the adjacent pair, matching the DSL default
+    const hi = args.length === 3 ? numValue(args[2]!) : lo === undefined ? undefined : lo + 1
+    if (sname === undefined || !/^[a-zA-Z_]\w*$/.test(sname)) return null
+    if (lo === undefined || hi === undefined || !Number.isInteger(lo) || !Number.isInteger(hi)) return null
+    if (lo < 1 || hi < lo || hi > lo + 1) return null
+    return hi === lo ? `out ${sname} ${num(lo)}` : `out ${sname} ${num(lo)}..${num(hi)}`
+  }
   // `setTimeSig(3, 4)` → `timesig 3 4`. Non-literal arguments stay a js block:
   // there is no rondo spelling for a computed meter.
   if (name === 'setTimeSig' && args.length === 2) {

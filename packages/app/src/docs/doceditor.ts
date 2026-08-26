@@ -78,6 +78,9 @@ export function createDocEditor(
   const rondoExtras = lang === 'rondo' && rondoLive !== undefined
     ? {
         now: () => rondoLive.now(),
+        // live markers (LFO playhead, curve lane) hide unless THIS block is
+        // the one playing — the shared audio clock never stops on its own
+        isPlaying: () => playing,
         holdParam: (sy: string, nm: string, v: number) => rondoLive.holdParam(sy, nm, v),
         releaseParam: (sy: string, nm: string) => rondoLive.releaseParam(sy, nm),
         holdMacro: (nm: string, v: number) => rondoLive.holdMacro(nm, v),

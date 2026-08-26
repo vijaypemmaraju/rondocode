@@ -2,6 +2,7 @@ import { WidgetType } from '@codemirror/view'
 import type { EditorView } from '@codemirror/view'
 import { LiveWriter, attachGesture } from './gesture'
 import type { Drag } from './gesture'
+import { liveTransport } from './transport'
 
 /* ------------------------------------------------------------------------- *
  * THE CURVE LANE: a drawn, draggable picture of `curve` automation.
@@ -309,10 +310,12 @@ export function removePointEdit(lane: CurveLane, i: number): CurveEdit | null {
 const H = 46
 const PAD = 4
 
-/** Hooks the widget needs: the transport clock, and the doc for a drag. */
+/** Hooks the widget needs: the transport clock (and whether it is actually
+ *  running — see transport.ts), and the doc for a drag. */
 export interface CurveHooks {
   now?: () => number
   cycleAt?: (sec: number) => number
+  isPlaying?: () => boolean
 }
 
 /**
@@ -446,10 +449,9 @@ export class CurveLaneWidget extends WidgetType {
      * — and it walks off the end and stays there, which is what the automation
      * does too. */
     const tick = (): void => {
-      const nowFn = this.hooks.now
-      const cycFn = this.hooks.cycleAt
-      const sec = nowFn?.()
-      const cyc = cycFn !== undefined && sec !== undefined ? cycFn(sec) : undefined
+      // through liveTransport, so a STOPPED transport hides the playhead
+      // instead of walking on with the never-stopping clock (transport.ts)
+      const cyc = liveTransport(this.hooks)?.cycle
       if (cyc === undefined || l.cycles <= 0) {
         head.setAttribute('opacity', '0')
       } else {

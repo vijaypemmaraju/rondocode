@@ -1,6 +1,7 @@
 import { EditorView, WidgetType } from '@codemirror/view'
 import type { Hooks } from './widgets'
 import { activate } from './activation'
+import { liveTransport } from './transport'
 
 /* ------------------------------------------------------------------------- *
  * THE LFO, DRAWN.
@@ -268,11 +269,11 @@ export class LfoCurveWidget extends WidgetType {
      * reader could already imagine; with it, it says where the modulation IS,
      * which is the thing you cannot get from the text. */
     const tick = (): void => {
-      const nowFn = this.hooks.now
-      const cycleFn = this.hooks.cycleAt
-      const nowSec = nowFn ? nowFn() : undefined
-      const cyc = cycleFn !== undefined && nowSec !== undefined ? cycleFn(nowSec) : undefined
-      const p = lfoPhase(s, nowSec, cyc)
+      /* Through liveTransport, so a STOPPED transport hides the marker: the
+       * audio clock never stops and cycleAt never freezes, so reading them
+       * raw kept the dot sweeping in a stopped editor (see transport.ts). */
+      const t = liveTransport(this.hooks)
+      const p = t === null ? null : lfoPhase(s, t.sec, t.cycle)
       if (p === null) {
         dot.setAttribute('opacity', '0')
         head.setAttribute('opacity', '0')

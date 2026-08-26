@@ -923,10 +923,11 @@ function cgPlay(block: PlayBlock, errors: RondoError[], macros: ReadonlySet<stri
   return `p('${block.name}', ${cgPlayPat(block, errors, macros)})`
 }
 
-/** `sing NAME [voice:V]` → p(NAME, sing([voice,] lyrics, notes, { name, post? })<mods>).
+/** The pattern EXPRESSION for a sing block (no p() wrapper) — sections stack
+ *  these next to their plays; a top-level sing wraps it in p().
  *  Lyric/melody line pairs join with single spaces — mini treats the joined
  *  strings exactly like the multi-line template literals the JS API uses. */
-function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
+function cgSingPat(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
   const lyrics = block.lyrics.map((l) => l.text).join(' ')
   const notes = block.notes.map((l) => l.text).join(' ')
   const voiceArg = block.voice !== undefined ? `${q(block.voice)}, ` : ''
@@ -952,7 +953,12 @@ function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], ma
   }
   let pat = `sing(${voiceArg}${q(lyrics)}, ${q(notes)}, { ${opts.join(', ')} })`
   for (const m of orderMods(mods)) pat += cgMod(m, errors, macros)
-  return `p(${q(block.name)}, ${pat})`
+  return pat
+}
+
+/** `sing NAME [voice:V]` → p(NAME, sing([voice,] lyrics, notes, { name, post? })<mods>). */
+function cgSing(block: Extract<TopItem, { t: 'sing' }>, errors: RondoError[], macros: ReadonlySet<string>): string {
+  return `p(${q(block.name)}, ${cgSingPat(block, errors, macros)})`
 }
 
 /**
@@ -974,7 +980,12 @@ function cgSection(
   macros: ReadonlySet<string>,
   defined: ReadonlySet<string>,
 ): string {
-  const pats = item.plays.map((pb) => cgPlayPat(pb, errors, macros))
+  const pats = [
+    ...item.plays.map((pb) => cgPlayPat(pb, errors, macros)),
+    // a section's sing is the same chain a top-level sing wraps in p(): the
+    // pattern routes itself (sing() sets .sound(name)), so it simply stacks
+    ...(item.sings ?? []).map((sb) => cgSingPat(sb, errors, macros)),
+  ]
   for (const w of item.with ?? []) {
     if (w === item.name) {
       errors.push({ message: `section '${item.name}' cannot play with itself`, line: item.pos.line, col: item.pos.col })

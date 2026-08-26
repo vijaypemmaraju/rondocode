@@ -1993,7 +1993,7 @@ cps .5`,
     title: 'rondo: sections, song & the mix bus',
     group: 'the rondo language',
     blocks: [
-      p('Full tracks: a `section NAME LEN` holds `play` and `beat` blocks, LEN in cycles; `song intro drop drop intro` sequences the sections (omit `song` to play them in definition order). Note-flash and grids keep working inside sections.'),
+      p('Full tracks: a `section NAME LEN` holds `play`, `beat` and `sing` blocks, LEN in cycles; `song intro drop drop intro` sequences the sections (omit `song` to play them in definition order). Note-flash and grids keep working inside sections.'),
       p('`section main 8 with drums` plays a section ON TOP of another one. The named section’s blocks are stacked under this one’s, so the parts every section shares -- the kit, the bass -- get written once and each section adds only what makes it different. Chain it: a section built `with` another may itself be built on a third.'),
       p('`sidechain kick depth:.8 release:120 sub:.95` is the pump: every kick ducks the other channels, and extra `name:amount` pairs set per-channel duck depth. `master threshold:-6 ratio:2 makeup:1` is the glue compressor on the mix bus.'),
       p('`stereo width:1.3 monobelow:120` is MID/SIDE on the mix bus. `width` scales the SIDES against the middle: 0 folds the mix to mono, 1 leaves it alone, above 1 pushes it wider. `monobelow` collapses everything under that frequency to mono, which is the standard mastering move and the one that matters on a system with a single sub -- stereo bass either cancels or wanders.'),

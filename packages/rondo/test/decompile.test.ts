@@ -78,6 +78,23 @@ describe('decompile round-trips', () => {
     expect(second.code).toBe(first.code)
   })
 
+  it('out routing round-trips (route <-> out), including the mono form', () => {
+    const src = 'play q\n  0 2\n\nout q 3..4\n\nout k 5\n'
+    const first = compile(src)
+    expect(first.ok, JSON.stringify(first.ok ? [] : first.errors)).toBe(true)
+    if (!first.ok) return
+    expect(first.code).toContain("route('q', 3, 4)")
+    expect(first.code).toContain("route('k', 5, 5)")
+    const rondo2 = decompile(first.code)
+    expect(rondo2).toContain('out q 3..4')
+    expect(rondo2).toContain('out k 5')
+    expect(rondo2, 'no js{ } bail').not.toContain('js{')
+    const second = compile(rondo2)
+    expect(second.ok, `re-compile: ${JSON.stringify(second.ok ? [] : second.errors)}\n--- decompiled ---\n${rondo2}`).toBe(true)
+    if (!second.ok) return
+    expect(second.code).toBe(first.code)
+  })
+
   it('env/eq/vocoder sugar survives the round trip', () => {
     const src = [
       'synth talk',

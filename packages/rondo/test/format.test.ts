@@ -128,6 +128,7 @@ describe('one-line statements, every one of them', () => {
       master: ['master    ratio:3', 'master ratio:3'],
       stereo: ['stereo    width:1.3   monobelow:120', 'stereo width:1.3 monobelow:120'],
       level: ['level    -4', 'level -4'],
+      out: ['out    kick   3..4', 'out kick 3..4'],
       // the notation is taken verbatim, so only the header spacing normalizes
       patdef: ['patdef    riff   <[0 ~ 3]>', 'patdef riff <[0 ~ 3]>'],
       macro: ['macro    drums   .5', 'macro drums .5'],

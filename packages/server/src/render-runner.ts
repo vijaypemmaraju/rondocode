@@ -82,6 +82,10 @@ export type StageResult =
       masterGain?: number
       /** Master-bus mid/side from stereo(opts). */
       stereo?: { width?: number; monoBelow?: number }
+      /** Hardware output routing from route() (1-based channel pairs). LIVE
+       *  ONLY: an offline bounce is the stereo master, so renderMix never
+       *  takes it (staged-fields.test records that fate). */
+      routes?: Record<string, { lo: number; hi: number }>
       /** Staged sing() requests: the neural vocals a headless render must
        *  bake before mixing (the browser bakes them into the sample bank; see
        *  sing-headless.ts for the node path). */
@@ -112,6 +116,7 @@ export function stageCode(source: string): StageResult {
   if (r.masterComp !== undefined) out.masterComp = r.masterComp
   if (r.masterGain !== undefined) out.masterGain = r.masterGain
   if (r.stereo !== undefined) out.stereo = r.stereo
+  if (r.routes !== undefined) out.routes = r.routes
   return out
 }
 

@@ -46,6 +46,8 @@ const FIRST_CLASS_GLOBALS = [
   // `stereo width:… monobelow:…` — mid/side on the mix bus
   'stereo',
   'curve', 'curvedef', 'shape',
+  // `out SYNTH N..M` — hardware output routing
+  'route',
   'synth', 'defineSynth', 'defineScale', 'defineWavetable', 'macro', 'p', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'bus',
   'n', 'note', 'chord', 'stack', 'mini', 'arrange',
   'sound', 's', 'irand',

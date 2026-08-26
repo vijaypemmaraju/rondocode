@@ -237,7 +237,7 @@ export const RESERVED_TOP_LEVEL: ReadonlySet<string> = new Set([
   'defineScale', 'defineSynth', 'defineWavetable', 'fall', 'fastcat',
   'irand', 'isaw', 'm', 'macro', 'macroNum', 'macroval', 'masterCompress',
   'masterGain', 'mini', 'n', 'note', 'p', 'perlin', 'pick', 'rand', 'reify',
-  'rise', 's', 'saw', 'saw2', 'setBpm', 'setCps', 'setTimeSig', 'shape',
+  'rise', 'route', 's', 'saw', 'saw2', 'setBpm', 'setCps', 'setTimeSig', 'shape',
   'sidechain', 'silence', 'sine', 'sine2', 'sing', 'slider', 'sound',
   'square', 'square2', 'stack', 'stereo', 'synth', 'timecat', 'toggle',
   'tri', 'tri2', 'visual', 'xy',

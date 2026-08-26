@@ -225,6 +225,11 @@ export class Session {
   /** Per-synth sidechain duck amounts last sent via setChannel — the diff
    *  base so an unchanged amount isn't resent and a dropped one resets to 1. */
   private liveScAmounts = new Map<string, number>()
+  /** Per-synth hardware output routes last SENT ("lo..hi", 1-based) — the
+   *  diff base. Only synths that were live at send time are recorded, so a
+   *  synth removed and later re-added gets its route re-sent instead of
+   *  silently defaulting to the master pair. */
+  private liveRoutes = new Map<string, string>()
   /** JSON fingerprint of the live master-comp config (undefined = none). */
   private liveMasterComp: string | undefined
   /** Live send buses: name → JSON.stringify(BusDef), the diffing fingerprint. */
@@ -624,6 +629,28 @@ export class Session {
       this.liveScAmounts = new Map(Object.entries(newAmounts))
       this.liveSidechain = scJson
     }
+
+    // Hardware output routing: diff-and-send like the duck amounts. The
+    // message carries 0-BASED channels (the language is 1-based, like the
+    // jacks); a dropped route resets its synth to the master pair. The engine
+    // preserves a route across a live redefine, so an unchanged fingerprint
+    // is safe to skip.
+    const newRoutes = result.routes ?? {}
+    const sentRoutes = new Map<string, string>()
+    for (const [synth, r] of Object.entries(newRoutes)) {
+      if (!this.liveSynths.has(synth)) continue // unknown target: warned at eval
+      const fp = `${r.lo}..${r.hi}`
+      if (this.liveRoutes.get(synth) !== fp) {
+        this.audio.send({ kind: 'setChannel', synth, out: { lo: r.lo - 1, hi: r.hi - 1 } })
+      }
+      sentRoutes.set(synth, fp)
+    }
+    for (const synth of this.liveRoutes.keys()) {
+      if (!sentRoutes.has(synth) && this.liveSynths.has(synth)) {
+        this.audio.send({ kind: 'setChannel', synth, out: { lo: 0, hi: 1 } })
+      }
+    }
+    this.liveRoutes = sentRoutes
 
     // Master glue compressor: same diff-and-send discipline — setMasterComp on
     // new/changed config, clearMasterComp when it vanishes.
@@ -1065,6 +1092,7 @@ export class Session {
     this.liveDefs.clear()
     this.liveSidechain = undefined
     this.liveScAmounts.clear()
+    this.liveRoutes.clear()
     this.liveMasterComp = undefined
     this.liveBuses.clear()
     this.liveWavetables.clear()

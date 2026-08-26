@@ -1573,3 +1573,23 @@ describe('sing blocks inside sections', () => {
     failsAt('section a 4\n  cutoff: 3\n', 'a section holds `play`, `beat` and `sing` blocks', 2, 3)
   })
 })
+
+/* `out SYNTH N..M`: route a synth to hardware output channels, 1-based like
+ * the jacks are numbered. Compiles to route(), which the live session turns
+ * into the engine's 0-based setChannel out. */
+describe('out: hardware output routing', () => {
+  it('compiles to route() in the 1-based channels the musician wrote', () => {
+    const outp = ok('synth q\n  saw\n\nplay q\n  0\n\nout q 3..4\n')
+    expect(outp).toContain("route('q', 3, 4)")
+  })
+
+  it('a single channel routes mono', () => {
+    expect(ok('play q\n  0\n\nout q 5\n')).toContain("route('q', 5, 5)")
+  })
+
+  it('rejects a non-adjacent pair, channel zero, and a missing name, each with a position', () => {
+    failsAt('out q 3..7\n', 'adjacent pair', 1, 1)
+    failsAt('out q 0..1\n', 'whole numbers from 1', 1, 1)
+    failsAt('out 3..4\n', 'out routes a synth', 1, 1)
+  })
+})

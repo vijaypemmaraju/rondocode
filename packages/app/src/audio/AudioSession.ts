@@ -53,6 +53,9 @@ export class AudioSession {
   private constructor(
     private readonly context: AudioContext,
     private readonly node: AudioWorkletNode,
+    /** Output channels the worklet actually opened: 2 on plain stereo, up to
+     *  32 on a multichannel interface — what `out SYNTH N..M` can land on. */
+    readonly outputChannels: number,
     analyser: AnalyserNode | null,
     analyserL: AnalyserNode | null = null,
     analyserR: AnalyserNode | null = null,
@@ -73,62 +76,77 @@ export class AudioSession {
     if (import.meta.env.DEV) (window as unknown as { __rcCtx: AudioContext }).__rcCtx = context
     try {
       await context.audioWorklet.addModule(workletUrl)
+      /* MULTICHANNEL OUT: open every channel the device offers (capped at 32,
+       * the engine's MAX_OUT_CHANNELS) so `out lead 3..4` lands on real
+       * jacks. 'discrete' stops the graph from remixing routed stems into the
+       * master pair. Any failure falls back to plain stereo, which is exactly
+       * the pre-multichannel behavior. */
+      let chans = 2
+      try {
+        const want = Math.max(2, Math.min(context.destination.maxChannelCount || 2, 32))
+        if (want > 2) {
+          context.destination.channelCount = want
+          context.destination.channelInterpretation = 'discrete'
+        }
+        chans = want
+      } catch (chErr) {
+        console.warn('[audio] multichannel output unavailable; staying stereo', chErr)
+        chans = 2
+      }
       const node = new AudioWorkletNode(context, 'rondocode-engine', {
         numberOfInputs: 1, // input 0 = the LIVE MIC (connected lazily by setMicEnabled)
         numberOfOutputs: 1,
-        outputChannelCount: [2], // ask for stereo; processor tolerates mono
+        outputChannelCount: [chans], // the master pair + any routed hardware outs
       })
       if (import.meta.env.DEV) (window as unknown as { __rcNode: AudioWorkletNode }).__rcNode = node
       // Visualizer tap: worklet → analyser → destination. FAIL-OPEN: if the
       // analyser can't be created or wired, fall back to a direct
       // worklet → destination connection — audio must NEVER break because a
       // visualizer couldn't attach. (analyser stays null; viz draws nothing.)
+      /* AUDIO PATH: node → destination, direct, all channels. The analysers
+       * below are PURE TAPS (never connected onward). The old wiring ran the
+       * audio THROUGH the mono analyser, which with a multichannel node would
+       * have downmixed every routed stem back into the master pair. */
+      node.connect(context.destination)
       let analyser: AnalyserNode | null = null
       let analyserL: AnalyserNode | null = null
       let analyserR: AnalyserNode | null = null
       try {
+        const split = context.createChannelSplitter(chans)
+        node.connect(split)
+        // Master viz: the MASTER PAIR only (channels 0/1), merged and then
+        // mono-mixed by the analyser — routed stems are independent feeds and
+        // must not color the master picture.
+        const merge = context.createChannelMerger(2)
+        split.connect(merge, 0, 0)
+        split.connect(merge, 1, 1)
         const a = context.createAnalyser()
         a.fftSize = 2048
         a.smoothingTimeConstant = 0.8
-        node.connect(a)
-        a.connect(context.destination)
+        merge.connect(a)
         analyser = a
-        // PER-SIDE taps. An AnalyserNode downmixes to mono, so left/right and
-        // any width measure are impossible from `a` alone. Split off the same
-        // node and leave these analysers UNCONNECTED to the destination — they
-        // are pure taps, and connecting them would sum the signal in twice.
-        // Nested in its own try: a browser without createChannelSplitter still
-        // gets the mono visuals rather than losing the whole tap.
-        try {
-          const split = context.createChannelSplitter(2)
-          node.connect(split)
-          const mk = (): AnalyserNode => {
-            const s = context.createAnalyser()
-            s.fftSize = 1024
-            s.smoothingTimeConstant = 0.7
-            return s
-          }
-          const l = mk()
-          const r = mk()
-          split.connect(l, 0)
-          split.connect(r, 1)
-          analyserL = l
-          analyserR = r
-        } catch (splitError) {
-          console.warn('[audio] stereo tap failed; left/right/width stay mono', splitError)
+        // PER-SIDE taps, same reason as ever: an AnalyserNode downmixes to
+        // mono, so left/right (and any width measure) need their own.
+        const mk = (): AnalyserNode => {
+          const s = context.createAnalyser()
+          s.fftSize = 1024
+          s.smoothingTimeConstant = 0.7
+          return s
         }
+        const l = mk()
+        const r = mk()
+        split.connect(l, 0)
+        split.connect(r, 1)
+        analyserL = l
+        analyserR = r
       } catch (tapError) {
-        console.warn('[audio] analyser tap failed; connecting direct', tapError)
-        try {
-          node.disconnect() // in case node → analyser landed before the throw
-        } catch {
-          // never connected: fine
-        }
-        node.connect(context.destination)
+        // FAIL-OPEN: audio must never break because a visualizer couldn't
+        // attach — the direct node → destination path above already carries it.
+        console.warn('[audio] analyser taps failed; visuals draw nothing', tapError)
       }
       // Do NOT resume here: at page load there's no user gesture yet. The
       // context stays suspended (silent) until the first Run calls resume().
-      return new AudioSession(context, node, analyser, analyserL, analyserR)
+      return new AudioSession(context, node, chans, analyser, analyserL, analyserR)
     } catch (e) {
       context.close().catch(() => {})
       throw e

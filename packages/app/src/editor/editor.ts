@@ -33,6 +33,7 @@ import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
 import { rondoLanguage, rondoAutocomplete, setLiveSampleNames } from './rondo'
+import { setLiveInputDeviceNames } from './complete'
 import { mapToRondo } from './rondomap'
 import { codeWidgets } from './rondo/widgets'
 import { isDesktop, openVirtualMidi } from '../desktop/bridge'
@@ -680,6 +681,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
    * source because that source is a module-level extension shared with the docs
    * pages, which have no audio and correctly fall back to the built-in kit. */
   setLiveSampleNames(() => session.loadedSampleNames())
+  // `mic device:` completion: the connected inputs, live from the audio
+  // session's label cache (blank until the first mic permission grant)
+  setLiveInputDeviceNames(() => audio.inputDeviceLabels())
+  void audio.listDevices() // prime the cache; devicechange keeps it fresh
 
   // Pattern-event fanout: the Session's onPatternEvents is single-consumer, and
   // the flasher already owns it — so we route it through here to also feed the

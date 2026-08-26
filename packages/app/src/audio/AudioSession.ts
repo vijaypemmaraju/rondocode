@@ -65,6 +65,15 @@ export class AudioSession {
     this.analyserL = analyserL
     this.analyserR = analyserR
     node.port.onmessage = (e: MessageEvent) => this.onEvent?.(e.data as EngineEvent)
+    // refresh the device-label cache when hardware comes or goes, so the
+    // `mic device:` completion tracks what is actually plugged in
+    try {
+      globalThis.navigator?.mediaDevices?.addEventListener?.('devicechange', () => {
+        void this.listDevices()
+      })
+    } catch {
+      // no mediaDevices (tests, exotic shells): the cache just stays empty
+    }
   }
 
   /** Create the context + worklet graph. Safe to call at page load: the
@@ -207,7 +216,18 @@ export class AudioSession {
       all.filter((d) => d.kind === kind).map((d) => ({ deviceId: d.deviceId, label: d.label, kind }))
     const inputs = pick('audioinput')
     const outputs = pick('audiooutput')
+    // keep the synchronous label cache fresh: `mic device:` completion reads
+    // it (labels are blank until the first permission grant — privacy rule)
+    this.inputLabels = inputs.map((d) => d.label).filter((l) => l !== '')
     return { inputs, outputs, labelled: [...inputs, ...outputs].some((d) => d.label !== '') }
+  }
+
+  /** Connected INPUT labels, from the last listDevices() — synchronous, for
+   *  the editor's `mic device:` completion. Empty before the first mic
+   *  permission grant (labels are withheld) and refreshed on devicechange. */
+  private inputLabels: string[] = []
+  inputDeviceLabels(): readonly string[] {
+    return this.inputLabels
   }
 
   /** Raw capture or the voice-processing path. Reopens a live capture, since

@@ -459,12 +459,14 @@ export interface SynthCtx {
    *  feedback builds resonant PEAKS between the notches. */
   flanger(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
-  /** The device microphone as a LIVE signal (see the mic docs). Silence when
-   *  no mic is connected and in offline renders. Headphones advised. */
-  /** The live microphone. `device` names which input to open — an id or any
-   *  part of the device's label ('scarlett'), matched by the host. It is
-   *  config the GRAPH never reads: the capture is opened on the main thread,
-   *  so this is how the program tells it what to open. */
+  /** The live microphone as a signal (see the mic docs). Silence when no mic
+   *  is connected and in offline renders. Headphones advised. `device` names
+   *  which input to open — an id or any part of the device's label
+   *  ('scarlett'), matched by the host — and DIFFERENT synths may each name
+   *  their own: every named device gets its own live capture (up to the
+   *  engine's MAX_MIC_INPUTS), while a bare mic() reads the default one.
+   *  The capture itself is opened on the main thread; in the graph a named
+   *  mic reads whichever input slot the host maps that name to, live. */
   mic(opts?: { device?: string }): Sig
 }
 
@@ -578,12 +580,14 @@ export interface PostCtx {
    *  feedback builds resonant PEAKS between the notches. */
   flanger(inp: SigIn, opts?: { rate?: SigIn; depth?: SigIn; feedback?: SigIn; mix?: SigIn }): Sig
   mix(a: SigIn, b: SigIn, t: SigIn): Sig
-  /** The device microphone as a LIVE signal (see the mic docs). Silence when
-   *  no mic is connected and in offline renders. Headphones advised. */
-  /** The live microphone. `device` names which input to open — an id or any
-   *  part of the device's label ('scarlett'), matched by the host. It is
-   *  config the GRAPH never reads: the capture is opened on the main thread,
-   *  so this is how the program tells it what to open. */
+  /** The live microphone as a signal (see the mic docs). Silence when no mic
+   *  is connected and in offline renders. Headphones advised. `device` names
+   *  which input to open — an id or any part of the device's label
+   *  ('scarlett'), matched by the host — and DIFFERENT synths may each name
+   *  their own: every named device gets its own live capture (up to the
+   *  engine's MAX_MIC_INPUTS), while a bare mic() reads the default one.
+   *  The capture itself is opened on the main thread; in the graph a named
+   *  mic reads whichever input slot the host maps that name to, live. */
   mic(opts?: { device?: string }): Sig
 }
 

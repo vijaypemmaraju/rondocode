@@ -30,6 +30,18 @@ export interface DspContext {
    *  it with zero copying. Absent (offline render, tests) a mic node reads a
    *  private zeroed buffer — silence. */
   mic?: Float32Array
+  /** ALL live input blocks, slot-indexed: mics[0] IS `mic` (one buffer, two
+   *  names, so hosts and old graphs keep working untouched); slots 1.. carry
+   *  device-named captures. Device-named mic nodes copy from their mapped
+   *  slot per block (see micMap) instead of aliasing, so captures can open,
+   *  close and remap live without recompiling any graph. Absent offline. */
+  mics?: Float32Array[]
+  /** Device name (exactly as written in `mic device:x`) → input slot.
+   *  MUTABLE AND SHARED like `cps`: the engine owns one object and a
+   *  setMicMap message rewrites its CONTENTS in place; MicInKernel re-reads
+   *  it every block. A name not in the map reads silence (capture not open
+   *  yet, or an offline render). */
+  micMap?: Record<string, number>
   /** Freeverb stereo-spread offset in REFERENCE samples (at 44100 Hz), added to
    *  every comb/allpass length. 0/undefined = the standard tuning. The per-synth
    *  post-chain compiles its RIGHT mono instance with a nonzero spread so the two

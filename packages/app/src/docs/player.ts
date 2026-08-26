@@ -1,6 +1,6 @@
 import { AudioSession } from '../audio/AudioSession'
 import { Session } from '../session'
-import { synthsUseMic } from '../session/evalCode'
+import { synthsMicDevices, synthsUseMic } from '../session/evalCode'
 import { builtInSamples } from '../audio/demo-samples'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
@@ -137,8 +137,10 @@ export class PreviewPlayer {
     this._singSounds = new Set(result.sings.map((s) => s.synthName))
     // LIVE MIC: a snippet that uses mic() gets the microphone for real here
     // too (lazy permission prompt), so the docs demo actually vocodes your
-    // voice. Released again when the snippet stops.
-    void audio.setMicEnabled(synthsUseMic(result.synths))
+    // voice. Released again when the snippet stops. Device-named mics open
+    // their own captures, exactly like the editor.
+    void audio.setCodeInputDevices(synthsMicDevices(result.synths))
+      .then(() => audio.setMicEnabled(synthsUseMic(result.synths)))
     void audio.resume()
     // sing(): if the snippet has a vocal that isn't baked yet, download the
     // models (with first-time consent) and WAIT so it plays in time — the same

@@ -190,7 +190,7 @@ export const OPTIONS: RondoOption[] = [
   c('pulse', 'function', 'pulse [freq] [width]', 'Pulse oscillator with a settable duty width.'),
   c('noise', 'function', 'noise [white|pink|brown]', 'Noise source -- pink/brown are warmer.'),
   c('lfo', 'function', 'lfo rate [sine|tri|square|saw|rand]', 'Low-frequency modulator (wobble: `lfo 4 tri -> 200..3000`).'),
-  c('mic', 'function', 'mic', 'The LIVE microphone as a signal. Vocode it, filter it, granular it. Headphones advised.'),
+  c('mic', 'function', 'mic [device:NAME]', 'The LIVE microphone as a signal. Vocode it, filter it, granular it. device: names which input to open, and different synths may each name their own -- every named device gets its own live capture beside the default. Headphones advised.'),
   c('sample', 'function', 'sample name root:… loop:1 start:… end:… reverse:1 slices:8', 'Play a loaded sample, pitched from its root note. Slice it with start/end, reverse it, or chop it with slices:N and let the note pick the chop.'),
   c('granular', 'function', 'granular name pos:… size:…', 'Grain cloud over a loaded sample.'),
   c('pluck', 'function', 'pluck [freq] decay:…', 'Karplus–Strong plucked string.'),

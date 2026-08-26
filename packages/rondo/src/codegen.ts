@@ -995,6 +995,16 @@ function cgSection(
   return `const __sec_${item.name} = ${body}`
 }
 
+/** The arrangement's slot order: the song line's, or definition order without
+ *  one. ONE rule, shared by the emitted arrange() below AND compile.ts's
+ *  arrangement metadata — a second copy of it would drift. */
+export function sectionOrder(
+  sections: readonly { name: string }[],
+  song: { order: string[] } | undefined,
+): string[] {
+  return song !== undefined ? song.order : sections.map((s) => s.name)
+}
+
 /** A sidechain amount: a literal, or `macroNum('x')` when it follows a macro.
  *  sidechain() takes plain NUMBERS (the duck depth is captured at eval, not
  *  read per sample), so a macro reference resolves at eval time — which is
@@ -1399,7 +1409,7 @@ export function codegen(program: Program, errors: RondoError[]): CodegenOut {
   // order without a song line)
   if (sections.length > 0) {
     const byName = new Map(sections.map((s) => [s.name, s]))
-    const order = song !== undefined ? song.order : sections.map((s) => s.name)
+    const order = sectionOrder(sections, song)
     const entries: string[] = []
     for (const name of order) {
       const sec = byName.get(name)

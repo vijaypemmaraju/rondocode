@@ -1505,12 +1505,18 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
     }
     else if (head.v === 'song') {
       const order: string[] = []
+      const orderFroms: number[] = []
       for (let k = 1; k < ln.toks.length; k++) {
         const t = ln.toks[k]!
-        if (t.k === 'ident') order.push(t.v)
+        if (t.k === 'ident') {
+          order.push(t.v)
+          // token col is 1-based from the line start, same base as rawCol, so
+          // the absolute offset is the line's offset plus the col delta
+          orderFroms.push(ln.offset + (t.pos.col - ln.rawCol))
+        }
         else errors.push({ message: 'song lists section names (`song intro drop drop`)', line: t.pos.line, col: t.pos.col })
       }
-      items.push({ t: 'song', order, pos: head.pos })
+      items.push({ t: 'song', order, orderFroms, pos: head.pos })
       i++
     }
     // `visual` block: raw WGSL, verbatim

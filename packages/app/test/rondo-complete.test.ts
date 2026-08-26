@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { localBindings, macroNames, optionsFor, rondoPositionAt, sampleNames, scaleModeNames, synthNames } from '../src/editor/rondo/complete'
-import { CHORD_OPTIONS } from '../src/editor/complete'
+import { CHORD_OPTIONS, setLiveInputDeviceNames, stringVocab } from '../src/editor/complete'
 import { BUILTINS, KEYWORDS, MODIFIERS, OPTIONS, docBlockFor, withDocPanel } from '../src/editor/rondo'
 import type { Completion } from '@codemirror/autocomplete'
 
@@ -411,5 +411,45 @@ describe('live sample names', () => {
   it('falls back to the built-in kit when nothing is registered', () => {
     // the docs pages have no audio session
     expect(sampleNames('').length).toBeGreaterThan(0)
+  })
+})
+
+/* `mic device:` completes the CONNECTED inputs — a runtime set the editor CAN
+ * answer, registered beside the live sample names. rondo gets one legal WORD
+ * per device (values are bare idents matched as a label substring); the JS
+ * string gets the full label. */
+describe('input device names complete after `mic device:`', () => {
+  const LABELS = ['MacBook Pro Microphone', 'Scarlett 2i2 USB', 'Scarlett Solo']
+
+  it('the device: slot is a named position of mic', () => {
+    const d = 'synth v\n  mic device:'
+    expect(rondoPositionAt(d, d.length)).toEqual({ kind: 'named', builtin: 'mic', arg: 'device' })
+  })
+
+  it('offers one DISTINCTIVE legal word per connected input', () => {
+    const out = optionsFor({ kind: 'named', builtin: 'mic', arg: 'device' }, OPTIONS as readonly Completion[], {
+      locals: [], macros: [], devices: LABELS,
+    })
+    // shared words (scarlett) are skipped in favor of unique ones; `2i2`
+    // would not lex as a rondo word and never appears
+    expect(out.map((o) => String(o.label))).toEqual(['macbook', 'usb', 'solo'])
+    for (const o of out) expect(String(o.label)).toMatch(/^[a-z_]\w*$/)
+  })
+
+  it('offers nothing before permission unlocks labels (honest, not guesses)', () => {
+    const out = optionsFor({ kind: 'named', builtin: 'mic', arg: 'device' }, OPTIONS as readonly Completion[], {
+      locals: [], macros: [],
+    })
+    expect(out).toEqual([])
+  })
+
+  it('the JS spelling completes too: a string inside mic() offers full labels', () => {
+    setLiveInputDeviceNames(() => LABELS)
+    try {
+      const vocab = stringVocab('mic', '')
+      expect(vocab?.options.map((o) => String(o.label))).toEqual(LABELS)
+    } finally {
+      setLiveInputDeviceNames(null)
+    }
   })
 })

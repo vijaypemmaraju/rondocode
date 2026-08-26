@@ -218,9 +218,23 @@ const soundOptions = (doc: string): Completion[] => {
   return [...names].map((label) => ({ label, type: 'variable' }))
 }
 
+/* Which INPUT DEVICES are connected: runtime data, registered by the editor
+ * once an audio session exists (labels are blank until the first mic
+ * permission grant — a privacy rule, so an empty list is honest, not a bug).
+ * ONE registry serves BOTH languages' completion: the JS in-string vocab
+ * below reads it directly, and rondo's `device:` slot imports it from here —
+ * a second copy is how the two would drift. */
+let liveInputDevices: (() => readonly string[]) | null = null
+export function setLiveInputDeviceNames(fn: (() => readonly string[]) | null): void {
+  liveInputDevices = fn
+}
+export const inputDeviceLabels = (): readonly string[] => liveInputDevices?.() ?? []
+
 /** For an in-string completion request, which vocabulary applies here — the
- *  matchBefore regex to find the token, and the option list — or null. */
-const stringVocab = (
+ *  matchBefore regex to find the token, and the option list — or null.
+ *  EXPORTED for tests: the contract is "what is offered inside this call's
+ *  string", which is exactly what should be asserted. */
+export const stringVocab = (
   fn: string,
   doc: string,
 ): { re: RegExp; options: Completion[] } | null => {
@@ -234,6 +248,11 @@ const stringVocab = (
     case 'sound':
     case 's':
       return { re: /[\w]+$/, options: soundOptions(doc) }
+    case 'mic':
+      // the `device:` string — offer every connected input by its full label
+      // (matching is a case-insensitive substring, so the whole label always
+      // works; labels may contain spaces, hence the wider token regex)
+      return { re: /[\w][-\w ().]*$/, options: inputDeviceLabels().map((label) => ({ label, type: 'constant' as const, detail: 'input device' })) }
     default:
       return null
   }

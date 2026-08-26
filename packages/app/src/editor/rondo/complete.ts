@@ -35,7 +35,7 @@ import type { Completion, CompletionContext, CompletionResult } from '@codemirro
 import { BUILTINS, BLOCK_KEYWORDS } from '@rondocode/rondo'
 import { SCALES, SCALE_MODE } from '@rondocode/pattern'
 import { BUILT_IN_SAMPLE_NAMES } from '../../audio/demo-samples'
-import { CHORD_OPTIONS } from '../complete'
+import { CHORD_OPTIONS, inputDeviceLabels } from '../complete'
 import { ENUM_VALUE_TABLE } from './enums'
 
 /** Where the cursor is, as far as completion cares. */
@@ -236,6 +236,30 @@ export function setLiveSampleNames(fn: (() => readonly string[]) | null): void {
   liveSamples = fn
 }
 
+/** One completion per connected input: the word to TYPE after `device:`.
+ *
+ *  rondo device values are bare words matched as a case- and space-
+ *  insensitive SUBSTRING of the device label, so each label is reduced to
+ *  its most DISTINCTIVE legal word: the first word unique to that label
+ *  among the connected inputs, else its first legal word ('Scarlett 2i2
+ *  USB' next to 'Scarlett Solo' offers `usb` and `solo`, not two ambiguous
+ *  `scarlett`s). Words that would not lex as a rondo ident (`2i2` starts
+ *  with a digit) are skipped; a label with no legal word offers nothing.
+ *  Exported for tests. */
+export function deviceWordOptions(labels: readonly string[]): Completion[] {
+  const legal = (l: string): string[] =>
+    l.split(/[^A-Za-z0-9_]+/).filter((w) => /^[a-zA-Z_]\w*$/.test(w)).map((w) => w.toLowerCase())
+  const all = labels.map((label) => ({ label, words: legal(label) }))
+  const out: Completion[] = []
+  for (const d of all) {
+    const unique = d.words.find((w) => all.every((o) => o === d || !o.words.includes(w)))
+    const word = unique ?? d.words[0]
+    if (word === undefined) continue
+    out.push({ label: word, type: 'constant', detail: `device:${word}`, info: `Matches the input '${d.label}'.`, boost: 1 })
+  }
+  return out
+}
+
 const opt = (label: string, type: string, detail: string, info?: string): Completion =>
   info !== undefined ? { label, type, detail, info } : { label, type, detail }
 
@@ -254,7 +278,7 @@ const signatureOf = (name: string): string => {
 export function optionsFor(
   where: RondoPos,
   base: readonly Completion[],
-  ctx: { locals: string[]; macros: string[]; synths?: string[]; samples?: string[]; scales?: string[] },
+  ctx: { locals: string[]; macros: string[]; synths?: string[]; samples?: string[]; scales?: string[]; devices?: string[] },
 ): Completion[] {
   if (where.kind === 'ref') {
     return (ctx.synths ?? []).map((s) => opt(s, 'variable', `synth ${s}`, 'A synth defined in this file.'))
@@ -268,8 +292,14 @@ export function optionsFor(
   if (where.kind === 'chord') return [...CHORD_OPTIONS]
 
   if (where.kind === 'named') {
-    // null = a RUNTIME set (a connected device, a loaded sample): the slot
-    // takes a bare word, but there is no list to offer
+    // `mic device:` is a RUNTIME set the editor CAN answer: the connected
+    // inputs, registered like the live sample names (empty until the first
+    // mic permission grant unlocks device labels)
+    if (where.builtin === 'mic' && where.arg === 'device') {
+      return deviceWordOptions(ctx.devices ?? [])
+    }
+    // null = a RUNTIME set with no registered source (a loaded sample): the
+    // slot takes a bare word, but there is no list to offer
     const values = ENUM_VALUE_TABLE[where.builtin]?.named?.[where.arg]
     if (values === undefined || values === null) return []
     return values.map((v) => opt(v, 'enum', `${where.builtin} ${where.arg}:${v}`))
@@ -353,6 +383,7 @@ export function makeRondoCompletionSource(
       synths: synthNames(text),
       samples: sampleNames(text, liveSamples?.() ?? []),
       scales: scaleModeNames(text),
+      devices: [...inputDeviceLabels()],
     })
     const typed = word !== null ? word.text : ''
     const filtered = typed === '' ? options : options.filter((o) => String(o.label).startsWith(typed))

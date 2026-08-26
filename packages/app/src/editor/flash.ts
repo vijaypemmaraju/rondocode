@@ -105,6 +105,21 @@ export interface StringLit {
    *  names plays — the reader is watching the one line that is not literal
    *  notation, and it is the one line that never moves. */
   refs?: { from: number; to: number; assembledStart: number; assembledEnd: number }[]
+  /** Rondo: the section this notation belongs to. When the flasher knows the
+   *  ARRANGEMENT, a loc lights this literal only while its section is one of
+   *  the ones sounding — two sections playing the same synth often carry the
+   *  exact same text, and content matching alone would light both. */
+  section?: string
+}
+
+/** The compiled song arrangement, as the flasher needs it (structurally the
+ *  rondo compiler's `arrangement`): ordered slots with cycle lengths, looping
+ *  over their total; each slot optionally carries the buffer range of its
+ *  name on the `song` line; `included[s]` is every section sounding while `s`
+ *  plays (itself + its `with` layers, transitively). */
+export interface FlashArrangement {
+  slots: { name: string; len: number; from?: number; to?: number }[]
+  included: Record<string, string[]>
 }
 
 /** If `node` is an escape-free string literal, or a `+` chain of them, return
@@ -222,10 +237,16 @@ export function locToDocRanges(
   literals: StringLit[],
   loc: Loc,
   controls: ControlMap,
+  /** Section names sounding at the event's cycle (from the arrangement).
+   *  undefined = no arrangement known: section-tagged literals light freely. */
+  active?: ReadonlySet<string>,
 ): { from: number; to: number }[] {
   const out: { from: number; to: number }[] = []
   if (!(loc.start >= 0) || !(loc.end > loc.start)) return out
   for (const lit of literals) {
+    // A literal owned by a section lights only while that section sounds:
+    // identical text in another section must stay dark (see StringLit.section).
+    if (active !== undefined && lit.section !== undefined && !active.has(lit.section)) continue
     // The parser stamps each loc with its exact source string, so flash ONLY
     // the originating literal — not every same-looking one (stacked voices like
     // q0/q1/q2 share offsets and would otherwise cross-light a wrong/future
@@ -264,12 +285,13 @@ export function locToDocRanges(
  *  `from` is that string's char offset in the rondo buffer. One single-piece
  *  literal each — a mini Loc offset indexes straight into it. */
 export function rondoNoteLiterals(
-  notes: { content: string; from: number; pieces?: LitPiece[]; refs?: StringLit['refs'] }[],
+  notes: { content: string; from: number; pieces?: LitPiece[]; refs?: StringLit['refs']; section?: string }[],
 ): StringLit[] {
   return notes.map((n) => ({
     contentStart: n.from,
     content: n.content,
     ...(n.refs !== undefined && n.refs.length > 0 ? { refs: n.refs } : {}),
+    ...(n.section !== undefined ? { section: n.section } : {}),
     // a beat line with velocity suffixes compiles to a STRIPPED mini string —
     // the compiler supplies pieces mapping it back around each removed `:v`
     pieces: n.pieces ?? [{ assembledStart: 0, sourceStart: n.from, length: n.content.length }],
@@ -303,6 +325,8 @@ export interface PulseSpan {
   to: number
   /** the channel whose events pulse this span (event controls.sound). */
   sound: string
+  /** the section this line belongs to — same gating rule as StringLit.section. */
+  section?: string
 }
 
 /** Scan JS source for pulse spans: inside each `p('name', CHAIN)`, any
@@ -387,6 +411,13 @@ export interface FlashHost {
 export class EventFlasher {
   private literals: StringLit[] = []
   private pulses: PulseSpan[] = []
+  private arrangement: FlashArrangement | undefined
+  /** Cycles in one pass of the arrangement (0 = no arrangement). */
+  private arrTotal = 0
+  /** Per-slot cache of the sounding-section name sets. */
+  private readonly activeCache = new Map<number, ReadonlySet<string>>()
+  /** The steady mark on the song line's currently playing name. */
+  private songMark: { id: number; slot: number } | undefined
   /** Handles of scheduled-but-not-yet-fired flash timers (NOT the removal
    *  timers — those must run so existing marks get cleaned up). */
   private readonly pendingTimers = new Set<unknown>()
@@ -416,14 +447,24 @@ export class EventFlasher {
   onGoodEval(source: string): void {
     this.literals = collectStringLiterals(source)
     this.pulses = collectPulseSpans(source)
+    this.setArrangement(undefined)
   }
 
   /** rondo mode: set flash literals directly. The eval'd source is transpiled
    *  JS (not the buffer), so we can't scan it here — the rondo compiler supplies
    *  each notation string + its buffer offset (see rondoNoteLiterals). */
-  onGoodEvalLiterals(literals: StringLit[], pulses: PulseSpan[] = []): void {
+  onGoodEvalLiterals(literals: StringLit[], pulses: PulseSpan[] = [], arrangement?: FlashArrangement): void {
     this.literals = literals
     this.pulses = pulses
+    this.setArrangement(arrangement)
+  }
+
+  private setArrangement(arrangement: FlashArrangement | undefined): void {
+    this.arrangement = arrangement !== undefined && arrangement.slots.length > 0 ? arrangement : undefined
+    this.arrTotal = this.arrangement?.slots.reduce((sum, s) => sum + s.len, 0) ?? 0
+    this.activeCache.clear()
+    // a re-eval may have moved the song line: the old mark's offsets are stale
+    this.clearSongMark()
   }
 
   /** Session.onPatternEvents hook. */
@@ -437,10 +478,14 @@ export class EventFlasher {
          * stayed dark while the notes beside it lit up — the rule is that
          * anywhere mini-notation is supported, it lights up. */
         const locs = ev.locs ?? []
+        // which arrangement slot sounds at this event's cycle (undefined
+        // without sections): gates section-owned spans + moves the song mark
+        const slot = this.slotAt(ev.cycle)
+        const active = slot === undefined ? undefined : this.activeAt(slot)
         // loc-less events (patterns built from signals, not mini strings)
         // PULSE their channel's registered span instead of an atom flash
         const pulseRanges = loc === undefined && locs.length === 0
-          ? this.pulseRangesFor(ev.controls)
+          ? this.pulseRangesFor(ev.controls, active)
           : []
         if (loc === undefined && locs.length === 0 && pulseRanges.length === 0) continue
         if (this.pendingTimers.size >= MAX_PENDING_FLASHES) return
@@ -453,6 +498,8 @@ export class EventFlasher {
         let handle: unknown
         handle = this.setT(() => {
           this.pendingTimers.delete(handle)
+          // the song line tracks whichever slot's events are firing NOW
+          if (slot !== undefined) this.updateSongMark(slot)
           if (loc === undefined && locs.length === 0) {
             this.flashRanges(pulseRanges, litMs)
             return
@@ -460,8 +507,8 @@ export class EventFlasher {
           // one dispatch for all of them, so the note and its modifiers light
           // and clear together rather than drifting apart by a frame
           const ranges = [
-            ...(loc !== undefined ? locToDocRanges(this.literals, loc, ev.controls) : []),
-            ...locs.flatMap((l) => locToDocRanges(this.literals, l, ev.controls)),
+            ...(loc !== undefined ? locToDocRanges(this.literals, loc, ev.controls, active) : []),
+            ...locs.flatMap((l) => locToDocRanges(this.literals, l, ev.controls, active)),
           ]
           this.flashRanges(ranges, litMs)
         }, delay)
@@ -485,6 +532,7 @@ export class EventFlasher {
     for (const h of this.pendingTimers) this.clearT(h)
     this.pendingTimers.clear()
     this.clearLit()
+    this.clearSongMark()
   }
 
   /** Remove every currently-visible mark. */
@@ -505,10 +553,75 @@ export class EventFlasher {
     this.clearPending()
   }
 
-  private pulseRangesFor(controls: ControlMap): { from: number; to: number }[] {
+  /** Which arrangement slot is sounding at `cycle`, or undefined without an
+   *  arrangement. Mirrors arrange(): Euclidean mod over the total, then walk
+   *  the slot widths. */
+  private slotAt(cycle: number): number | undefined {
+    const arr = this.arrangement
+    if (arr === undefined || this.arrTotal <= 0) return undefined
+    const pos = ((Math.floor(cycle) % this.arrTotal) + this.arrTotal) % this.arrTotal
+    let offset = 0
+    for (let k = 0; k < arr.slots.length; k++) {
+      offset += arr.slots[k]!.len
+      if (pos < offset) return k
+    }
+    return arr.slots.length - 1
+  }
+
+  /** The section names sounding while `slot` plays: its own section plus
+   *  everything it plays `with`, transitively (precomputed by the compiler). */
+  private activeAt(slot: number): ReadonlySet<string> {
+    const cached = this.activeCache.get(slot)
+    if (cached !== undefined) return cached
+    const name = this.arrangement?.slots[slot]?.name
+    const set: ReadonlySet<string> = new Set(
+      name === undefined ? [] : this.arrangement?.included[name] ?? [name],
+    )
+    this.activeCache.set(slot, set)
+    return set
+  }
+
+  /** Keep the song line's CURRENT section name lit: one steady mark that
+   *  moves when the arrangement advances to another slot (and simply comes
+   *  down when the new slot has no song-line span to light). */
+  private updateSongMark(slot: number): void {
+    try {
+      if (this.disposed || this.isDirty()) return
+      if (this.songMark !== undefined && this.songMark.slot === slot) return
+      const sp = this.arrangement?.slots[slot]
+      const effects: StateEffect<unknown>[] = []
+      if (this.songMark !== undefined) effects.push(removeFlash.of(this.songMark.id))
+      this.songMark = undefined
+      if (sp?.from !== undefined && sp.to !== undefined && sp.from < sp.to && sp.to <= this.view.state.doc.length) {
+        const id = this.nextId++
+        effects.push(addFlash.of({ from: sp.from, to: sp.to, id }))
+        this.songMark = { id, slot }
+      }
+      if (effects.length > 0) this.view.dispatch({ effects })
+    } catch {
+      // flashing must never break the scheduler tick
+    }
+  }
+
+  /** Take the song-line mark down (stop, dispose, re-eval). */
+  private clearSongMark(): void {
+    const mark = this.songMark
+    if (mark === undefined) return
+    this.songMark = undefined
+    try {
+      this.view.dispatch({ effects: [removeFlash.of(mark.id)] })
+    } catch {
+      // view may be gone; nothing to clean up
+    }
+  }
+
+  private pulseRangesFor(controls: ControlMap, active?: ReadonlySet<string>): { from: number; to: number }[] {
     const sound = controls['sound']
     if (typeof sound !== 'string') return []
-    return this.pulses.filter((sp) => sp.sound === sound).map((sp) => ({ from: sp.from, to: sp.to }))
+    return this.pulses
+      .filter((sp) => sp.sound === sound)
+      .filter((sp) => active === undefined || sp.section === undefined || active.has(sp.section))
+      .map((sp) => ({ from: sp.from, to: sp.to }))
   }
 
   private fire(loc: Loc, controls: ControlMap, litMs: number = FLASH_MS): void {

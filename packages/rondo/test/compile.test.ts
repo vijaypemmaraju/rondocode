@@ -1476,3 +1476,75 @@ describe('slur: smart bowing as a modifier line', () => {
     // the flash invariant: every span's offset lands exactly on its own text
     for (const n of r.notes) expect(src.slice(n.from, n.from + n.content.length)).toBe(n.content)
   })
+
+/* SECTION-AWARE FLASH METADATA. Two sections that play the same synth often
+ * carry the exact same notation text, and an event's loc knows only the TEXT
+ * it came from (loc.src) — so every span carries its owning section, and the
+ * compile result carries the ARRANGEMENT (slot order + lengths + `with`
+ * closures) that says which sections are sounding at any cycle. The editor
+ * combines the two to light only what is actually playing, and to keep the
+ * song line's current name lit. */
+describe('sections: flash spans carry their section + the arrangement', () => {
+  const SRC = 'section A 4\n  play q\n    0 2 4\n    dur: <1 .5>\n\nsection B 8\n  play q\n    0 2 4\n\nsong A B A\n'
+
+  it('tags every span inside a section — notes AND modifier lines — with the section name', () => {
+    const r = compile(SRC)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes.map((n) => [n.content, n.section])).toEqual([
+      ['0 2 4', 'A'],
+      ['<1 .5>', 'A'],
+      ['0 2 4', 'B'],
+    ])
+  })
+
+  it('a top-level play carries NO section, and no arrangement exists without sections', () => {
+    const r = compile('play q\n  0 2 4\n\ncps .5\n')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.notes[0]!.section).toBeUndefined()
+    expect(r.arrangement).toBeUndefined()
+  })
+
+  it('the arrangement mirrors the song order, each name OCCURRENCE at its own offset', () => {
+    const r = compile(SRC)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const arr = r.arrangement!
+    expect(arr.slots.map((s) => ({ name: s.name, len: s.len }))).toEqual([
+      { name: 'A', len: 4 },
+      { name: 'B', len: 8 },
+      { name: 'A', len: 4 },
+    ])
+    // every slot's span lands exactly on its own occurrence on the song line…
+    for (const s of arr.slots) {
+      expect(s.from).toBeDefined()
+      expect(SRC.slice(s.from, s.to)).toBe(s.name)
+    }
+    // …three DIFFERENT occurrences, not one offset reused
+    expect(new Set(arr.slots.map((s) => s.from)).size).toBe(3)
+  })
+
+  it('without a song line: definition order, and no name spans to light', () => {
+    const r = compile('section A 4\n  play q\n    0 2 4\n\nsection B 8\n  play q\n    5 7\n')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const arr = r.arrangement!
+    expect(arr.slots.map((s) => ({ name: s.name, len: s.len }))).toEqual([
+      { name: 'A', len: 4 },
+      { name: 'B', len: 8 },
+    ])
+    for (const s of arr.slots) expect(s.from).toBeUndefined()
+  })
+
+  it('`included` closes `with` transitively: a layered section sounds its layers too', () => {
+    const src = 'section d 4\n  play q\n    0\n\nsection m 4 with d\n  play q\n    2\n\nsection full 4 with m\n  play q\n    4\n'
+    const r = compile(src)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const inc = r.arrangement!.included
+    expect([...inc['d']!].sort()).toEqual(['d'])
+    expect([...inc['m']!].sort()).toEqual(['d', 'm'])
+    expect([...inc['full']!].sort()).toEqual(['d', 'full', 'm'])
+  })
+})

@@ -421,6 +421,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     let rondoNotes: NoteSpan[] = []
     let rondoJsRegions: import('@rondocode/rondo').JsRegion[] = []
     let rondoPulses: import('@rondocode/rondo').PulseSpan[] = []
+    let rondoArrangement: import('@rondocode/rondo').Arrangement | undefined
     if (lang === 'rondo') {
       const compiled = compile(source)
       if (!compiled.ok) {
@@ -436,6 +437,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       rondoNotes = compiled.notes
       rondoJsRegions = compiled.jsRegions
       rondoPulses = compiled.pulses
+      rondoArrangement = compiled.arrangement
       rondoLineMap = compiled.lineMap
     }
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
@@ -451,7 +453,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       // build the flash literals from that — same highlighting, either language.
       if (lang === 'rondo') {
         const lits = [...rondoNoteLiterals(rondoNotes), ...jsRegionLiterals(source, rondoJsRegions)]
-        flasher.onGoodEvalLiterals(lits, rondoPulses)
+        flasher.onGoodEvalLiterals(lits, rondoPulses, rondoArrangement)
         restLiterals = lits
       } else {
         flasher.onGoodEval(source)

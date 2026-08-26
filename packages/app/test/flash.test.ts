@@ -11,6 +11,7 @@ import {
   locToDocRanges,
   rondoNoteLiterals,
 } from '../src/editor/flash'
+import type { FlashArrangement, StringLit } from '../src/editor/flash'
 
 /* Pure parts of event flashing: string-literal collection and mini-Loc →
  * doc-range mapping (see src/editor/flash.ts module doc for the policy). */
@@ -479,5 +480,149 @@ describe('a long held note stays lit for as long as it sounds', () => {
     const r = rig()
     r.f.clearPending()
     expect(r.dispatches).toHaveLength(0)
+  })
+})
+
+/* SECTION-AWARE FLASHING. Two sections playing the same synth often carry the
+ * exact same notation text — an event's loc.src matches BOTH copies, and both
+ * lit (the reported bug). With the arrangement known, only the section(s)
+ * actually sounding at the event's cycle may light; and the song line keeps
+ * the currently playing name steadily lit. */
+
+describe('locToDocRanges with an active-section set', () => {
+  // two sections both play `0 2 4` on the same synth: identical content,
+  // different places in the buffer
+  const lits: StringLit[] = [
+    { contentStart: 10, content: '0 2 4', pieces: [{ assembledStart: 0, sourceStart: 10, length: 5 }], section: 'A' },
+    { contentStart: 40, content: '0 2 4', pieces: [{ assembledStart: 0, sourceStart: 40, length: 5 }], section: 'B' },
+  ]
+  const loc = { start: 0, end: 1, src: '0 2 4' }
+
+  it('without an arrangement both copies light (JS mode / no sections)', () => {
+    expect(locToDocRanges(lits, loc, { n: 0 })).toHaveLength(2)
+  })
+
+  it('with one, ONLY the sounding section lights (the multi-section same-synth bug)', () => {
+    expect(locToDocRanges(lits, loc, { n: 0 }, new Set(['B']))).toEqual([{ from: 40, to: 41 }])
+  })
+
+  it('a `with` layer is in the active set, so the layered section lights too', () => {
+    expect(locToDocRanges(lits, loc, { n: 0 }, new Set(['A', 'B']))).toHaveLength(2)
+  })
+
+  it('a sectionless literal (top-level play) lights regardless of the active set', () => {
+    const free: StringLit[] = [
+      { contentStart: 3, content: '0 2 4', pieces: [{ assembledStart: 0, sourceStart: 3, length: 5 }] },
+    ]
+    expect(locToDocRanges(free, loc, { n: 0 }, new Set(['B']))).toHaveLength(1)
+  })
+})
+
+describe('EventFlasher: the arrangement (sections + the song line)', () => {
+  /* doc sketch: "song A B" with A's name at 5..6 and B's at 7..8; section A
+   * runs 1 cycle, B runs 2, so the 3-cycle loop is A:[0,1) B:[1,3).
+   * B plays `with A`, so both names are active while B sounds. */
+  const ARR: FlashArrangement = {
+    slots: [
+      { name: 'A', len: 1, from: 5, to: 6 },
+      { name: 'B', len: 2, from: 7, to: 8 },
+    ],
+    included: { A: ['A'], B: ['B', 'A'] },
+  }
+  // the same synth playing the same text in both sections
+  const LITS: StringLit[] = [
+    { contentStart: 10, content: '0', pieces: [{ assembledStart: 0, sourceStart: 10, length: 1 }], section: 'A' },
+    { contentStart: 20, content: '0', pieces: [{ assembledStart: 0, sourceStart: 20, length: 1 }], section: 'B' },
+  ]
+
+  const makeRig = () => {
+    const timers: { fn: () => void; ms: number; cleared: boolean }[] = []
+    const dispatches: { effects: unknown[] }[] = []
+    const host = {
+      dispatch: (spec: { effects: unknown[] }) => {
+        dispatches.push(spec)
+      },
+      state: { doc: { length: 100 } },
+    }
+    const flasher = new EventFlasher(host, () => 0, () => false, {
+      setTimeoutImpl: (fn, ms) => {
+        const h = { fn, ms, cleared: false }
+        timers.push(h)
+        return h
+      },
+      clearTimeoutImpl: (h) => {
+        ;(h as { cleared: boolean }).cleared = true
+      },
+    })
+    flasher.onGoodEvalLiterals(LITS, [], ARR)
+    const runTimers = (): void => {
+      for (const t of timers.splice(0)) if (!t.cleared) t.fn()
+    }
+    /** the {from,to}/id payloads of dispatch i's effects */
+    const vals = (i: number): unknown[] =>
+      dispatches[i]!.effects.map((e) => (e as { value: unknown }).value)
+    return { timers, dispatches, flasher, runTimers, vals }
+  }
+
+  const ev = (cycle: number): SchedulerEvent => ({
+    timeSec: 0,
+    durSec: 0.1,
+    cycle,
+    controls: { n: 0 },
+    loc: { start: 0, end: 1, src: '0' },
+  })
+
+  it('lights only the sounding section, and the song line lights its name', () => {
+    const r = makeRig()
+    r.flasher.onEvents([ev(0)]) // cycle 0 → slot A
+    r.runTimers()
+    // dispatch 0: the song mark on "A"; dispatch 1: the note flash
+    expect(r.dispatches).toHaveLength(2)
+    expect(r.vals(0)).toMatchObject([{ from: 5, to: 6 }])
+    expect(r.vals(1)).toMatchObject([{ from: 10, to: 11 }]) // A's copy only
+  })
+
+  it("a `with` layer's line lights while the layered section plays", () => {
+    const r = makeRig()
+    r.flasher.onEvents([ev(1)]) // cycle 1 → slot B (which plays with A)
+    r.runTimers()
+    expect(r.vals(1)).toMatchObject([{ from: 10, to: 11 }, { from: 20, to: 21 }])
+  })
+
+  it('the song mark MOVES on a slot change and holds through repeated events', () => {
+    const r = makeRig()
+    r.flasher.onEvents([ev(0)])
+    r.runTimers()
+    r.flasher.onEvents([ev(0)]) // same slot again: no new song-mark dispatch
+    r.runTimers()
+    const before = r.dispatches.length
+    r.flasher.onEvents([ev(2)]) // cycle 2 ∈ [1,3) → slot B
+    r.runTimers()
+    // slot changed: ONE dispatch removes "A"'s mark and adds "B"'s (other
+    // dispatches in the window are the earlier flashes' removal timers)
+    const after = r.dispatches.slice(before).map((d) => d.effects.map((e) => (e as { value: unknown }).value))
+    const moved = after.find((v) => v.some((x) => (x as { from?: number } | number) instanceof Object && (x as { from?: number }).from === 7))
+    expect(moved).toBeDefined()
+    expect(moved).toHaveLength(2) // [removeFlash id, addFlash {7,8}]
+    expect(moved![1]).toMatchObject({ from: 7, to: 8 })
+  })
+
+  it('the arrangement LOOPS: past the total, the first slot lights again', () => {
+    const r = makeRig()
+    r.flasher.onEvents([ev(3)]) // 3 mod 3 = 0 → slot A
+    r.runTimers()
+    expect(r.vals(0)).toMatchObject([{ from: 5, to: 6 }])
+  })
+
+  it('clearPending takes the song mark down with the note marks', () => {
+    const r = makeRig()
+    r.flasher.onEvents([ev(0)])
+    r.runTimers()
+    const before = r.dispatches.length
+    r.flasher.clearPending()
+    // clearLit removes the note mark, clearSongMark removes the song mark
+    expect(r.dispatches.length).toBe(before + 2)
+    r.flasher.clearPending() // idempotent: nothing left to remove
+    expect(r.dispatches.length).toBe(before + 2)
   })
 })

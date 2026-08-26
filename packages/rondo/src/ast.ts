@@ -333,6 +333,10 @@ export interface SectionBlock {
 export interface SongItem {
   t: 'song'
   order: string[]
+  /** Absolute char offset of each name in `order` — the editor highlights the
+   *  currently playing section's name on the song line, so each occurrence
+   *  needs its own place in the buffer. Parallel to `order`. */
+  orderFroms: number[]
   pos: Pos
 }
 

@@ -38,6 +38,7 @@ import { GranularKernel } from './dsp/granular'
 import { PluckKernel, ModalKernel } from './dsp/physical'
 import type { PluckConfig, ModalConfig } from './dsp/physical'
 import { DdspKernel } from './dsp/ddsp'
+import { MicInKernel } from './dsp/micin'
 import type { DdspConfig } from './dsp/ddsp'
 import type { GranularConfig } from './dsp/granular'
 import { CompressKernel } from './dsp/compress'
@@ -278,6 +279,9 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   lfsr: (c) => new LFSRKernel(typeof c['mode'] === 'string' ? c['mode'] : undefined),
   // ctx carries the shared sample bank the kernel resolves `name` against each
   // block (so samples loaded after compile still play).
+  // Only the DEVICE-NAMED form does per-block work (the bare mic's buffer is
+  // aliased at compile and the kernel is a no-op — see dsp/micin.ts).
+  mic: (c) => new MicInKernel(typeof c['device'] === 'string' && c['device'] !== '' ? c['device'] : undefined),
   sample: (c, ctx) => new SampleKernel(String(c['name'] ?? ''), c['loop'] === true, ctx.samples, sampleCfg(c)),
   granular: (c, ctx) => new GranularKernel(String(c['name'] ?? ''), granularCfg(c), ctx.samples),
   // ctx sizes the delay line to the lowest note at the engine rate up front
@@ -673,8 +677,15 @@ function assemble(spec: GraphSpec, ctx: DspContext): CompiledCore {
         nodeOut.set(n.id, input)
         break
       case 'mic':
-        // live input: alias the host's shared block, or silence offline
-        nodeOut.set(n.id, ctx.mic ?? new Float32Array(BLOCK))
+        // BARE live input aliases the host's shared block (or silence
+        // offline); a DEVICE-NAMED mic gets its own buffer, filled per block
+        // by MicInKernel from whichever slot the host has mapped the name to
+        // (see dsp/micin.ts for why the named form cannot alias).
+        if (typeof n.config?.['device'] === 'string' && n.config['device'] !== '') {
+          nodeOut.set(n.id, new Float32Array(BLOCK))
+        } else {
+          nodeOut.set(n.id, ctx.mic ?? new Float32Array(BLOCK))
+        }
         break
       default:
         nodeOut.set(n.id, new Float32Array(BLOCK))

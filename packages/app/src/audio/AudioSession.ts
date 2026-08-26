@@ -1,4 +1,5 @@
 import type { EngineEvent, EngineMessage } from '@rondocode/engine'
+import { MAX_MIC_INPUTS } from '@rondocode/engine'
 import workletUrl from './worklet/processor?worker&url'
 import { explainChoice, latencyReport, resolveDevice, resolveMicProcessing } from './devices'
 import type { DeviceChoice, DeviceInfo, LatencyReport, MicProcessing } from './devices'
@@ -94,7 +95,7 @@ export class AudioSession {
         chans = 2
       }
       const node = new AudioWorkletNode(context, 'rondocode-engine', {
-        numberOfInputs: 1, // input 0 = the LIVE MIC (connected lazily by setMicEnabled)
+        numberOfInputs: MAX_MIC_INPUTS, // 0 = the default LIVE MIC, 1.. = device-named captures (all connected lazily by setMicEnabled)
         numberOfOutputs: 1,
         outputChannelCount: [chans], // the master pair + any routed hardware outs
       })
@@ -162,9 +163,16 @@ export class AudioSession {
    *  TRANSFERRED to the worklet (zero-copy). Returns the frame count loaded.
    *  Throws if decoding fails (unsupported/corrupt file). */
   // ---- live mic ------------------------------------------------------------
-  private micStream: MediaStream | null = null
-  private micSource: MediaStreamAudioSourceNode | null = null
+  /** One live capture per input slot: [0] is the default (what a bare mic()
+   *  reads), [1..] device-named captures in first-seen order. null = that
+   *  slot's device could not be opened. Empty array = mic off. */
+  private captures: ({ stream: MediaStream; source: MediaStreamAudioSourceNode } | null)[] = []
   private micWanted = false
+
+  /** Any capture currently open? (Guards the reopen sites.) */
+  private micOpen(): boolean {
+    return this.captures.some((c) => c !== null)
+  }
 
   /** Connect (or disconnect) the device microphone into the engine's input.
    *  LAZY + idempotent: called after every eval with "does the staged code
@@ -175,7 +183,9 @@ export class AudioSession {
    *  on the last eval. Both are id-or-label; `resolveDevice` owns which wins. */
   private savedInput: string | undefined
   private savedOutput: string | undefined
-  private codeInput: string | undefined
+  /** Every device the CODE names via `mic device:…` — distinct, first-seen
+   *  order, one capture slot each (slot 0 stays the default capture). */
+  private codeInputs: string[] = []
   /** raw / voice / auto — see resolveMicProcessing. Reopens the capture when
    *  it changes, because the constraints are fixed at getUserMedia time. */
   private micProcessing: MicProcessing = 'auto'
@@ -206,7 +216,7 @@ export class AudioSession {
     if (mode === this.micProcessing && isMobile === this.micIsMobile) return
     this.micProcessing = mode
     this.micIsMobile = isMobile
-    if (this.micStream !== null) {
+    if (this.micOpen()) {
       await this.setMicEnabled(false)
       await this.setMicEnabled(true)
     }
@@ -224,19 +234,27 @@ export class AudioSession {
     this.savedInput = input
     this.savedOutput = output
     await this.applyOutputDevice()
-    if (this.micStream !== null) {
-      // reopen the capture on the newly chosen input
+    if (this.micOpen()) {
+      // reopen the captures on the newly chosen input
       await this.setMicEnabled(false)
       await this.setMicEnabled(true)
     }
   }
 
-  /** What the code asked for (`mic device:"…"`), set from the staged program.
-   *  Reopens the capture only when the resolved device actually changes. */
-  async setCodeInputDevice(name: string | undefined): Promise<void> {
-    if (name === this.codeInput) return
-    this.codeInput = name
-    if (this.micStream !== null) {
+  /** What the code asked for (every `mic device:"…"` name, distinct, in
+   *  first-seen order), set from the staged program. Reopens the captures
+   *  only when the set actually changes. */
+  async setCodeInputDevices(names: string[]): Promise<void> {
+    const capped = names.slice(0, MAX_MIC_INPUTS - 1)
+    if (capped.length < names.length) {
+      console.warn(
+        `[mic] ${names.length} devices named; only ${MAX_MIC_INPUTS - 1} named inputs are supported — ignoring: ${names.slice(MAX_MIC_INPUTS - 1).join(', ')}`,
+      )
+    }
+    if (JSON.stringify(capped) === JSON.stringify(this.codeInputs)) return
+    this.codeInputs = capped
+    if (this.micOpen()) {
+      // reopen the captures on the newly named devices
       await this.setMicEnabled(false)
       await this.setMicEnabled(true)
     }
@@ -267,7 +285,8 @@ export class AudioSession {
    *  is 0 in plenty of real contexts, which under-reports rather than lies. */
   latency(): LatencyReport {
     const ctx = this.context as AudioContext & { outputLatency?: number }
-    const track = this.micStream?.getAudioTracks()[0]
+    // the DEFAULT capture's track: slot 0 is the one the latency panel means
+    const track = this.captures[0]?.stream.getAudioTracks()[0]
     const settings = track?.getSettings() as { latency?: number } | undefined
     return latencyReport(
       this.context.sampleRate,
@@ -289,45 +308,69 @@ export class AudioSession {
   async setMicEnabled(on: boolean): Promise<void> {
     this.micWanted = on
     if (!on) {
-      if (this.micSource !== null) {
-        try { this.micSource.disconnect() } catch { /* already gone */ }
-        this.micSource = null
+      for (const c of this.captures) {
+        if (c === null) continue
+        try { c.source.disconnect() } catch { /* already gone */ }
+        for (const t of c.stream.getTracks()) t.stop()
       }
-      if (this.micStream !== null) {
-        for (const t of this.micStream.getTracks()) t.stop()
-        this.micStream = null
-      }
+      this.captures = []
+      this.send({ kind: 'setMicMap', map: {} })
       return
     }
-    if (this.micStream !== null) return // already live
+    if (this.micOpen()) return // already live
     try {
-      /* WHICH input. `resolveDevice` owns the precedence (code → setting → OS)
-       * so this method never re-decides it. Labels are blank before the first
+      /* WHICH inputs. Slot 0 is the DEFAULT capture (what a bare mic() reads;
+       * the options setting wins there); slots 1.. open one capture per
+       * device the code names, in first-seen order — `resolveDevice` owns the
+       * precedence in both cases. Labels are blank before the first
        * permission grant, so the very first open cannot match by name — it
-       * takes the default, and the next open (after `listDevices` can see
+       * takes defaults, and the next open (after `listDevices` can see
        * labels) resolves properly. */
       const { inputs } = await this.listDevices()
-      const choice = resolveDevice(this.codeInput, this.savedInput, inputs)
-      this.lastInputChoice = choice
       /* RAW by default (phone voice-call DSP smears transients and would
        * colour a vocoder badly) — but on a phone the speaker is two
        * centimetres from the mic, and without echo cancellation a live chain
        * simply howls. resolveMicProcessing owns that choice. */
       const processing = resolveMicProcessing(this.micProcessing, this.micIsMobile)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          ...processing,
-          ...(choice.deviceId !== undefined ? { deviceId: { exact: choice.deviceId } } : {}),
-        },
-      })
-      // an eval may have turned mic OFF while the permission prompt was open
-      if (!this.micWanted) {
-        for (const t of stream.getTracks()) t.stop()
-        return
+      const wanted: (string | undefined)[] = [undefined, ...this.codeInputs]
+      const opened: ({ stream: MediaStream; source: MediaStreamAudioSourceNode } | null)[] = []
+      const map: Record<string, number> = {}
+      for (let slot = 0; slot < wanted.length; slot++) {
+        const name = wanted[slot]
+        const choice = name === undefined
+          ? resolveDevice(undefined, this.savedInput, inputs)
+          : resolveDevice(name, undefined, inputs)
+        if (slot === 0) this.lastInputChoice = choice
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              ...processing,
+              ...(choice.deviceId !== undefined ? { deviceId: { exact: choice.deviceId } } : {}),
+            },
+          })
+          // an eval may have turned mic OFF while a permission prompt was open
+          if (!this.micWanted) {
+            for (const t of stream.getTracks()) t.stop()
+            for (const c of opened) {
+              if (c === null) continue
+              try { c.source.disconnect() } catch { /* already gone */ }
+              for (const t of c.stream.getTracks()) t.stop()
+            }
+            return
+          }
+          const source = this.context.createMediaStreamSource(stream)
+          source.connect(this.node, 0, slot)
+          opened.push({ stream, source })
+          if (name !== undefined) map[name] = slot
+        } catch (e) {
+          // one unavailable device must not cost the others their capture
+          console.warn(`[mic] input ${name ?? '(default)'} unavailable`, e)
+          opened.push(null)
+        }
       }
-      this.micStream = stream
-      this.micSource = this.context.createMediaStreamSource(stream)
-      this.micSource.connect(this.node, 0, 0)
+      this.captures = opened
+      // device-named mic kernels resolve through this map, per block
+      this.send({ kind: 'setMicMap', map })
     } catch (e) {
       console.warn('[mic] unavailable (permission denied?)', e)
     }

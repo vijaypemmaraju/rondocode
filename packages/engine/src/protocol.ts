@@ -95,6 +95,12 @@ export type EngineMessage = (
    *  outputs), the engine folds the strip back into the master pair so a
    *  routed part is never silently lost. */
   | { kind: 'setChannel'; synth: string; gain?: number; pan?: number; sidechain?: number; out?: { lo: number; hi: number } }
+  /** Map device names (exactly as written in `mic device:x`) to live input
+   *  slots (0..MAX_MIC_INPUTS-1; slot 0 is the bare-mic default capture).
+   *  REPLACES the whole map. Compiled device-named mic kernels re-read it per
+   *  block, so captures may open, close and remap live without recompiling
+   *  any synth. */
+  | { kind: 'setMicMap'; map: Record<string, number> }
   /** Master gain (default 0.8), ramped over one block. */
   | { kind: 'setMaster'; gain: number }
   /** Master-bus stereo stage: side scale, and a mono-below crossover. The one

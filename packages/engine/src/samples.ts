@@ -136,18 +136,28 @@ export function usesMicIn(graph: { nodes: { type: string }[] }): boolean {
   return graph.nodes.some((n) => n.type === 'mic')
 }
 
-/** The input device a graph's mic() asks for, if any — an id or part of a
- *  label. Lives beside usesMicIn because it is the SAME walk over the same
- *  node type, and two walks are how they drift. First one wins: a program
- *  with two mic() calls naming different devices has asked for something the
- *  hardware cannot do. */
-export function micDeviceIn(
+/** EVERY input device a graph's mic() nodes ask for — ids or label parts —
+ *  in first-appearance order, each once. Lives beside usesMicIn because it
+ *  is the SAME walk over the same node type, and two walks are how they
+ *  drift. Multiple devices are real: each opens its own live capture slot
+ *  (see the engine's MAX_MIC_INPUTS), so two synths can listen to two
+ *  microphones at once. */
+export function micDevicesIn(
   graph: { nodes: { type: string; config?: Record<string, unknown> }[] },
-): string | undefined {
+): string[] {
+  const out: string[] = []
   for (const n of graph.nodes) {
     if (n.type !== 'mic') continue
     const d = n.config?.['device']
-    if (typeof d === 'string' && d !== '') return d
+    if (typeof d === 'string' && d !== '' && !out.includes(d)) out.push(d)
   }
-  return undefined
+  return out
+}
+
+/** The FIRST device a graph's mic() asks for — the single-device view, kept
+ *  for callers that predate multiple inputs. */
+export function micDeviceIn(
+  graph: { nodes: { type: string; config?: Record<string, unknown> }[] },
+): string | undefined {
+  return micDevicesIn(graph)[0]
 }

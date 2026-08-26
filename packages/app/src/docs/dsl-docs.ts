@@ -613,7 +613,7 @@ const SYNTH_CTX: DocEntry[] = [
   sc(
     'mic',
     'mic(opts?: { device })',
-    'The device microphone as a LIVE signal: run your voice through the synth graph in real time. device names which input to open -- an id, or any part of the device label (device:scarlett matches a Scarlett 2i2 USB) -- and beats the input chosen in options; if that device is not connected the app falls back and says so rather than silently opening the wrong one. Feed it to vocoder() as the modulator (a talkbox), filter it, granular-freeze it. It reads silence until the code using it runs (the mic connects lazily, with a permission prompt) and in offline renders/exports. Use headphones: a speaker feeding the mic loops into howling feedback.',
+    'The device microphone as a LIVE signal: run your voice through the synth graph in real time. device names which input to open -- an id, or any part of the device label (device:scarlett matches a Scarlett 2i2 USB) -- and beats the input chosen in options; if that device is not connected the app falls back and says so rather than silently opening the wrong one. DIFFERENT synths may each name their own device, and every named device gets its own live capture (up to three named inputs beside the default), so two microphones can drive two synths at once; a bare mic() always reads the default input. Feed it to vocoder() as the modulator (a talkbox), filter it, granular-freeze it. It reads silence until the code using it runs (the mic connects lazily, with a permission prompt) and in offline renders/exports. Use headphones: a speaker feeding the mic loops into howling feedback.',
     "vocoder(supersaw(note.freq), mic(), { bands: 24 })",
   ),
   sc(

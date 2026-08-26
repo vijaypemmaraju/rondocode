@@ -12,7 +12,7 @@ import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
 import { Session } from '../session/Session'
 import type { SessionState, ProbeTarget } from '../session/Session'
-import { synthsMicDevice, synthsUseMic } from '../session/evalCode'
+import { synthsMicDevices, synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
 import type { AudioSession } from '../audio/AudioSession'
 import { builtInSamples } from '../audio/demo-samples'
@@ -464,7 +464,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
       /* The code may name its own input (`mic device:scarlett`). Set that
        * BEFORE enabling, so the first capture opens on the right device
        * rather than opening the default and immediately reopening. */
-      void audio.setCodeInputDevice(synthsMicDevice(result.synths))
+      void audio.setCodeInputDevices(synthsMicDevices(result.synths))
         .then(() => audio.setMicEnabled(synthsUseMic(result.synths)))
       // Track the current vocals' synth/channel names so karaoke can spot their
       // trigger events even when sing(..., { name }) renames off the singv-hash.

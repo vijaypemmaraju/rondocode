@@ -1,4 +1,4 @@
-import { BLOCK, RealtimeEngine } from '@rondocode/engine'
+import { BLOCK, MAX_MIC_INPUTS, RealtimeEngine } from '@rondocode/engine'
 import type { EngineMessage } from '@rondocode/engine'
 
 /* AudioWorkletGlobalScope globals (sampleRate, currentFrame,
@@ -35,9 +35,9 @@ class RondocodeProcessor extends AudioWorkletProcessor {
     const l = out?.[0]
     if (!l) return true // no output wired yet: keep the processor alive
     const r = out[1] ?? this.scratch // mono fallback: play the L leg only
-    // live mic: the node's input 0 (silent/absent unless the host connected
-    // a MediaStreamAudioSource — see AudioSession.setMicEnabled)
-    this.engine.writeMic(inputs[0]?.[0] ?? null)
+    // live inputs: slot 0 = the default mic, slots 1.. = device-named
+    // captures (silent/absent unless AudioSession connected them)
+    for (let s = 0; s < MAX_MIC_INPUTS; s++) this.engine.writeMic(inputs[s]?.[0] ?? null, s)
     // Hardware channels beyond the master pair (a multichannel interface):
     // handed to the engine so routed strips (`out lead 3..4`) land on them.
     if (out.length > 2) {

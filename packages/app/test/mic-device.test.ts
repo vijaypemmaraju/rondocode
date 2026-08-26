@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { micDeviceIn, synth } from '@rondocode/engine'
 import { compile } from '@rondocode/rondo'
-import { synthsMicDevice } from '../src/session/evalCode'
+import { synthsMicDevices } from '../src/session/evalCode'
 import { evalCode } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
 
@@ -42,16 +42,32 @@ describe('micDeviceIn', () => {
   })
 })
 
-describe('synthsMicDevice (what the app hands the audio session)', () => {
+describe('synthsMicDevices (what the app hands the audio session)', () => {
   it('carries a device named through the JS API into the staged synths', () => {
     const r = evalCode("const v = synth(({ mic, noisegate }) => noisegate(mic({ device: 'scarlett' }), { threshold: -38 }))\np('v', note('c3').sound('v'))\nsetCps(0.5)", baseScope)
     expect(r.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
-    expect(synthsMicDevice(r.synths)).toBe('scarlett')
+    expect(synthsMicDevices(r.synths)).toEqual(['scarlett'])
   })
 
   it('carries a rondo `mic device:` through compile and eval', () => {
     const r = staged('synth v\n  mic device:scarlett\n  noisegate threshold:-38\n\nplay v\n  c3\n  dur: .99\n\ncps .5\n')
-    expect(synthsMicDevice(r.synths)).toBe('scarlett')
+    expect(synthsMicDevices(r.synths)).toEqual(['scarlett'])
+  })
+
+  it('collects EVERY device across synths, once each — in BOTH languages', () => {
+    // JS: three synths, two distinct devices (one repeated)
+    const js = evalCode(
+      "const a = synth(({ mic }) => mic({ device: 'sm58' }))\n" +
+      "const b = synth(({ mic, noisegate }) => noisegate(mic({ device: 'scarlett' }), { threshold: -40 }))\n" +
+      "const c2 = synth(({ mic }) => mic({ device: 'sm58' }))\n" +
+      "p('a', note('c3').sound('a'))\np('b', note('c3').sound('b'))\np('c2', note('c3').sound('c2'))\nsetCps(0.5)",
+      baseScope,
+    )
+    expect(js.diagnostics.filter((d) => d.severity === 'error')).toEqual([])
+    expect(synthsMicDevices(js.synths)).toEqual(['sm58', 'scarlett'])
+    // rondo: two synth blocks, each naming its own device
+    const r = staged('synth a\n  mic device:sm58\n\nsynth b\n  mic device:scarlett\n\nplay a\n  c3\n  dur: .99\n\nplay b\n  c3\n  dur: .99\n\ncps .5\n')
+    expect(synthsMicDevices(r.synths)).toEqual(['sm58', 'scarlett'])
   })
 
   it('does not steal a named arg from the call wrapped around it', () => {
@@ -59,15 +75,15 @@ describe('synthsMicDevice (what the app hands the audio session)', () => {
     // vocoder needs a carrier from the running signal, hence the supersaw line
     const src = 'synth v\n  supersaw detune:.4\n  vocoder mic device:motu bands:24\n\nplay v\n  c3\n\ncps .5\n'
     const r = staged(src)
-    expect(synthsMicDevice(r.synths), 'mic kept its own device').toBe('motu')
+    expect(synthsMicDevices(r.synths), 'mic kept its own device').toEqual(['motu'])
     const c = compile(src)
     expect(c.ok && c.code.includes('{ bands: 24 }'), 'the vocoder kept bands:').toBe(true)
     expect(c.ok && c.code.includes("{ detune: 0.4 }"), 'the supersaw kept detune:').toBe(true)
   })
 
-  it('is undefined when nothing names a device', () => {
+  it('is empty when nothing names a device', () => {
     const r = staged('synth v\n  mic\n\nplay v\n  c3\n\ncps .5\n')
-    expect(synthsMicDevice(r.synths)).toBeUndefined()
+    expect(synthsMicDevices(r.synths)).toEqual([])
   })
 })
 

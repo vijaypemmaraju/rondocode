@@ -3,7 +3,7 @@ import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
 import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
 import type { ControlMap, Hap, TimeSig } from '@rondocode/pattern'
-import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, micDeviceIn, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
+import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, micDevicesIn, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 
@@ -104,16 +104,20 @@ export function synthsUseMic(synths: ReadonlyMap<string, SynthDef>): boolean {
   return [...synths.values()].some((d) => usesMicIn(d.graph) || (d.post !== undefined && usesMicIn(d.post)))
 }
 
-/** The input device the staged program asks for via `mic(device:…)`, if any.
- *  The app hands this to AudioSession, where resolveDevice decides whether it
- *  beats the saved setting (it does) and what to do when it is not plugged in
- *  (fall back, and say so). */
-export function synthsMicDevice(synths: ReadonlyMap<string, SynthDef>): string | undefined {
+/** EVERY input device the staged program asks for via `mic(device:…)`, in
+ *  first-appearance order across voice and post graphs, each once. The app
+ *  hands the list to AudioSession, which opens one live capture per name
+ *  (slots are capped engine-side at MAX_MIC_INPUTS; extras are dropped with
+ *  a console warning). A bare mic() reads the default capture and needs no
+ *  entry here. */
+export function synthsMicDevices(synths: ReadonlyMap<string, SynthDef>): string[] {
+  const out: string[] = []
   for (const d of synths.values()) {
-    const from = micDeviceIn(d.graph) ?? (d.post !== undefined ? micDeviceIn(d.post) : undefined)
-    if (from !== undefined) return from
+    for (const name of [...micDevicesIn(d.graph), ...(d.post !== undefined ? micDevicesIn(d.post) : [])]) {
+      if (!out.includes(name)) out.push(name)
+    }
   }
-  return undefined
+  return out
 }
 
 export interface EvalResult {

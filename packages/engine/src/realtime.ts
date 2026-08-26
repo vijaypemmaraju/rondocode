@@ -266,6 +266,11 @@ const MAX_BUSES = 8
  *  the host also caps its worklet output at the same number. */
 export const MAX_OUT_CHANNELS = 32
 
+/** Live input slots: slot 0 is the default capture (what a bare `mic()`
+ *  reads), slots 1.. carry device-named captures (`mic device:x`). Fixed so
+ *  the worklet wiring and the shared blocks are allocated exactly once. */
+export const MAX_MIC_INPUTS = 4
+
 const isObj = (m: unknown): m is Record<string, unknown> => typeof m === 'object' && m !== null
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 
@@ -352,9 +357,10 @@ export class RealtimeEngine {
    *  DdspKernels resolve model names against it (and see later loads —
    *  they re-resolve per block, same contract as samples). */
   private readonly ddspModels: DdspModelBank
-  /** the shared live-mic block (see ctx.mic aliasing in the constructor). */
-  private readonly micBlock: Float32Array
-  private micQuiet = true
+  /** the shared live-input blocks, slot-indexed; [0] aliases ctx.mic (see
+   *  the constructor) and slots 1.. feed device-named mics via ctx.micMap. */
+  private readonly micBlocks: Float32Array[]
+  private readonly micQuiet: boolean[]
 
   constructor(ctx: DspContext, opts?: { maxSynths?: number }) {
     // Adopt any bank the host supplied on the ctx, else create one and publish
@@ -374,12 +380,19 @@ export class RealtimeEngine {
     // bounceLoop can find the pedal to copy.
     this.loopers = (ctx.loopers as Map<string, object> | undefined) ?? new Map()
     ctx.loopers = this.loopers
-    // LIVE MIC: adopt any block the host already put on the ctx, else create
-    // one and publish it back (same pattern as the sample bank) — every graph
-    // compiled with this ctx aliases ONE buffer, so writeMic() is one copy
-    // per quantum and zero per-graph work. Stays zeroed until fed.
-    this.micBlock = ctx.mic ?? new Float32Array(BLOCK)
-    ctx.mic = this.micBlock
+    // LIVE INPUTS: adopt any slot-0 block the host already put on the ctx,
+    // else create one and publish it back (same pattern as the sample bank).
+    // Every graph's BARE mic aliases that one buffer, so writeMic() is one
+    // copy per quantum and zero per-graph work; device-named mics read the
+    // slot array through ctx.micMap per block (see dsp/micin.ts). All blocks
+    // stay zeroed until fed.
+    const mic0 = ctx.mic ?? new Float32Array(BLOCK)
+    ctx.mic = mic0
+    this.micBlocks = [mic0]
+    for (let i = 1; i < MAX_MIC_INPUTS; i++) this.micBlocks.push(new Float32Array(BLOCK))
+    ctx.mics = this.micBlocks
+    ctx.micMap = ctx.micMap ?? {}
+    this.micQuiet = new Array(MAX_MIC_INPUTS).fill(true) as boolean[]
     // TEMPO: publish a concrete tempo onto the shared ctx so it is never
     // absent for a synced kernel; setCps rewrites this same field in place.
     ctx.cps = ctx.cps ?? DEFAULT_CPS
@@ -458,12 +471,17 @@ export class RealtimeEngine {
     // The duck envelope as APPLIED, not as inferred. A visualizer reading bass
     // energy gets a different shape from the multiplier actually in the path.
     if (this.scSource !== undefined) ev.duck = Number.isFinite(this.duckLevel) ? this.duckLevel : 1
-    if (!this.micQuiet) {
+    // Live-input RMS: the loudest slot — one meter, however many captures.
+    let micRms: number | undefined
+    for (let k = 0; k < this.micBlocks.length; k++) {
+      if (this.micQuiet[k]) continue
+      const b = this.micBlocks[k]!
       let s = 0
-      for (let i = 0; i < BLOCK; i++) s += this.micBlock[i]! * this.micBlock[i]!
+      for (let i = 0; i < BLOCK; i++) s += b[i]! * b[i]!
       const m = Math.sqrt(s / BLOCK)
-      ev.mic = Number.isFinite(m) ? m : 0
+      if (Number.isFinite(m) && (micRms === undefined || m > micRms)) micRms = m
     }
+    if (micRms !== undefined) ev.mic = micRms
     return ev
   }
 
@@ -502,19 +520,23 @@ export class RealtimeEngine {
    *  stopping audio for. The whole body is wrapped in one try/catch (never
    *  per-sample): a crash zeroes the block and emits a rate-limited error
    *  event. */
-  /** Feed one live-mic block (the worklet's input) before process(). Pass
-   *  null/short blocks to go silent — zeroing is skipped once already quiet,
-   *  so an unconnected input costs nothing per quantum. */
-  writeMic(block: Float32Array | null): void {
+  /** Feed one live-input block before process(). `slot` 0 (the default) is
+   *  the bare-mic capture; 1..MAX_MIC_INPUTS-1 carry device-named captures
+   *  (ctx.micMap says which name reads which slot). Pass null/short blocks to
+   *  go silent — zeroing is skipped once already quiet, so an unconnected
+   *  input costs nothing per quantum. */
+  writeMic(block: Float32Array | null, slot = 0): void {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= MAX_MIC_INPUTS) return
+    const buf = this.micBlocks[slot]!
     if (block === null || block.length < BLOCK) {
-      if (!this.micQuiet) {
-        this.micBlock.fill(0)
-        this.micQuiet = true
+      if (!this.micQuiet[slot]) {
+        buf.fill(0)
+        this.micQuiet[slot] = true
       }
       return
     }
-    this.micBlock.set(block.subarray(0, BLOCK))
-    this.micQuiet = false
+    buf.set(block.subarray(0, BLOCK))
+    this.micQuiet[slot] = false
   }
 
   process(
@@ -947,6 +969,8 @@ export class RealtimeEngine {
         return this.msgSetParam(m)
       case 'setChannel':
         return this.msgSetChannel(m)
+      case 'setMicMap':
+        return this.msgSetMicMap(m)
       case 'setMaster':
         return this.msgSetMaster(m)
       case 'setStereo':
@@ -1399,6 +1423,23 @@ export class RealtimeEngine {
       ch.outLo = outLo
       ch.outHi = outHi
     }
+  }
+
+  /** Replace the device→slot map IN PLACE: compiled device-named mic kernels
+   *  hold the same object and re-read it per block (the setCps contract), so
+   *  a remap is heard on the next block without recompiling anything.
+   *  Validated whole-or-nothing like setChannel. */
+  private msgSetMicMap(m: Record<string, unknown>): void {
+    const map = m['map']
+    if (!isObj(map)) return this.error(`'map' must be an object of device → slot`, 'setMicMap')
+    for (const [k, v] of Object.entries(map)) {
+      if (!fin(v) || !Number.isInteger(v) || v < 0 || v >= MAX_MIC_INPUTS) {
+        return this.error(`'${k}' must map to a whole slot in 0..${MAX_MIC_INPUTS - 1}`, 'setMicMap')
+      }
+    }
+    const live = this.ctx.micMap!
+    for (const k of Object.keys(live)) delete live[k]
+    for (const [k, v] of Object.entries(map)) live[k] = v as number
   }
 
   /** Master mid/side. Non-finite values are rejected with an error rather

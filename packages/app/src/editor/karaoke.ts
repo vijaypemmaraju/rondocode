@@ -189,14 +189,22 @@ export function parseSingBlocksRondo(source: string): SingCall[] {
   for (const ln of lines) { starts.push(off); off += ln.length + 1 }
 
   for (let i = 0; i < lines.length; i++) {
-    if (!/^sing[ \t]+[A-Za-z_]\w*/.test(lines[i]!)) continue
+    /* A sing header may be TOP-LEVEL or NESTED IN A SECTION (indent 2), so
+     * the block boundary is a dedent to the header's own indent — the same
+     * rule the parser's bodyLines uses — not "column 0". Anchoring at column
+     * 0 was the bug that left a section's vocal without karaoke. A lyric
+     * line that happens to start with the word `sing` cannot re-trigger
+     * here: its own block was found first and `i = j - 1` skips its body. */
+    const head = /^([ \t]*)sing[ \t]+[A-Za-z_]\w*/.exec(lines[i]!)
+    if (head === null) continue
+    const headIndent = head[1]!.length
     const body: { text: string; start: number }[] = []
     let cycles = 1
     let j = i + 1
     for (; j < lines.length; j++) {
       const ln = lines[j]!
       if (ln.trim() === '') continue
-      if (/^\S/.test(ln)) break // dedent: block over
+      if (/^[ \t]*/.exec(ln)![0].length <= headIndent) break // dedent: block over
       if (/^[ \t]+post[ \t]*$/.test(ln)) break // post sub-block: no lyrics past here
       // the COMPILER's comment rule: '#' only starts a comment at line start
       // or after whitespace, so a sharp (`a#4`) survives

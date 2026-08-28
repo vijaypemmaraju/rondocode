@@ -118,6 +118,54 @@ describe('parseSingBlocksRondo', () => {
   })
 })
 
+describe('a sing block INSIDE A SECTION still gets karaoke (regression)', () => {
+  it('finds a section-nested block (header at indent 2, body at 4)', () => {
+    // the scanner anchored `sing` at COLUMN 0, so the vocal a section owns
+    // played without its lyrics ever lighting up
+    const d = [
+      'section chorus 4',
+      '  play keys',
+      '    0 3 5',
+      '  sing vox',
+      '    la dan ny',
+      '    c4 e4 g4',
+      '',
+      'song chorus',
+    ].join('\n')
+    const [c] = parseSingBlocksRondo(d)
+    expect(c, 'the column-0 anchor missed nested sings').toBeDefined()
+    expect(c!.lyr).toHaveLength(3)
+    expect(d.slice(c!.lyr[1]!.from, c!.lyr[1]!.to)).toBe('dan')
+    expect(d.slice(c!.notes[2]!.from, c!.notes[2]!.to)).toBe('g4')
+  })
+
+  it('the block ends at a section SIBLING dedent, not only at column 0', () => {
+    const d = [
+      'section a 4',
+      '  sing vox',
+      '    la la',
+      '    c4 e4',
+      '  play keys',
+      '    0 3',
+      '',
+      'sing outro',
+      '  da da',
+      '  g4 a4',
+    ].join('\n')
+    const calls = parseSingBlocksRondo(d)
+    expect(calls).toHaveLength(2) // the nested vocal AND the top-level one
+    expect(calls[0]!.lyr).toHaveLength(2) // play lines never read as lyrics
+    expect(d.slice(calls[1]!.lyr[0]!.from, calls[1]!.lyr[0]!.to)).toBe('da')
+  })
+
+  it('a lyric line starting with the word `sing` does not open a phantom block', () => {
+    const d = ['sing v', '  sing along now', '  c4 e4 g4'].join('\n')
+    const calls = parseSingBlocksRondo(d)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.lyr).toHaveLength(3)
+  })
+})
+
 describe('sharps are notes, not comments (regression)', () => {
   it('a melody containing a#4 keeps every note', () => {
     // a naive `#` strip ate the rest of the line and silently killed the

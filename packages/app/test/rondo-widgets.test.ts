@@ -89,6 +89,22 @@ describe('scanPlays (piano-roll)', () => {
   it('represents rests as null', () => {
     expect(scanPlays('play z\n  0 ~ 3 ~\n')[0]!.steps).toEqual([0, null, 3, null])
   })
+
+  it('EVERY harmony line of a play gets its own grid, not just the first', () => {
+    const src = 'play z\n  0 3 5\n  -2 0 3\n  dur: .9\n'
+    const rolls = scanPlays(src)
+    expect(rolls).toHaveLength(2)
+    expect(rolls[0]!.steps).toEqual([0, 3, 5])
+    expect(rolls[1]!.steps).toEqual([-2, 0, 3])
+    expect(src.slice(rolls[1]!.from, rolls[1]!.to)).toBe('-2 0 3')
+  })
+
+  it('a voice with an inline synth: keeps its grid and routes preview to it', () => {
+    const rolls = scanPlays('play z\n  0 3 5 synth:pad\n')
+    expect(rolls).toHaveLength(1)
+    expect(rolls[0]!.steps).toEqual([0, 3, 5])
+    expect(rolls[0]!.synth).toBe('pad')
+  })
   it('leaves richer notation as plain text (note names, brackets, alternation)', () => {
     expect(scanPlays('play z\n  c4 e4 g4\n')).toHaveLength(0)
     expect(scanPlays('play z\n  <0 3> [5 7]\n')).toHaveLength(0)

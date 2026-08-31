@@ -47,6 +47,30 @@ describe('one figure, moving harmony', () => {
   })
 })
 
+describe('the chord atom lights up (locs for the editor flash)', () => {
+  it('threads the sounding chord atom loc into each mapped event', () => {
+    // an `overchord:` line is mini-notation the reader wrote and watches;
+    // without this it stayed dark while the degrees beside it flashed
+    const p = n('0 1').overChord(chord('<Am F>'))
+    const vals = q(p, 0, 1).map(
+      (t) => t[2] as { note: number; loc?: { start: number }; locs?: { start: number; end: number }[] },
+    )
+    expect(vals.length).toBeGreaterThan(0)
+    for (const v of vals) {
+      // the degree atom keeps its own primary loc…
+      expect(v.loc).toBeDefined()
+      // …and the chord atom rides along in locs:
+      // cycle 0 sounds Am, the atom at offset 1..3 of '<Am F>'
+      const last = v.locs![v.locs!.length - 1]!
+      expect(last.start).toBe(1)
+      expect(last.end).toBe(3)
+    }
+    // cycle 1 sounds F: the loc moves to its atom
+    const c1 = q(p, 1, 2).map((t) => t[2] as { locs?: { start: number }[] })
+    expect(c1[0]!.locs![c1[0]!.locs!.length - 1]!.start).toBe(4)
+  })
+})
+
 describe('honest failure', () => {
   it('drops events with no chord under them rather than inventing a pitch', () => {
     // a rest in the chord pattern means no harmony for the second half

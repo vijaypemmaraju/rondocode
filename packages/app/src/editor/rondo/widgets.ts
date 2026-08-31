@@ -478,9 +478,46 @@ export function stepStarts(notation: string): number[] {
   return out
 }
 
-/** Find each `play` block's notation line when it's a SIMPLE flat sequence of
- *  degrees / rests (`0 0 3 5 ~ 7`) — the grid-editable case. Notation with
- *  richer mini-notation (`<> [] * @`, note names) is left as plain text. Pure. */
+/** EVERY notation line of a play block's body — stacked harmony lines are
+ *  VOICES of one play, and each deserves its own roll. Comments are stripped
+ *  and the inline `scale:` / `synth:` options sliced off (they are options,
+ *  not steps — a voice may route itself). Modifier lines are not filtered
+ *  here: they self-reject at each scanner's own charset gate. ONE walk shared
+ *  by the editable grid and the rich read-only roll — each scanner kept its
+ *  own first-line-only copy of it, which is exactly how a play with harmony
+ *  lines showed only its top voice in the piano roll. */
+function playBodyLines(
+  lines: readonly string[],
+  offs: readonly number[],
+  headerIdx: number,
+  playIndent: number,
+): { notation: string; lineFrom: number; scale?: string; synth?: string }[] {
+  const out: { notation: string; lineFrom: number; scale?: string; synth?: string }[] = []
+  for (let j = headerIdx + 1; j < lines.length; j++) {
+    const nx = lines[j]!
+    if (nx.trim() === '') continue // a kept interior blank does not end a body
+    const indent = /^[ \t]*/.exec(nx)![0].length
+    if (indent <= playIndent) break // dedent: block over
+    const cm = /(^|\s)#/.exec(nx)
+    const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
+    const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
+    const synthOpt = /\bsynth:([a-zA-Z_]\w*)/.exec(noComment)
+    const cut = Math.min(scale ? scale.index : noComment.length, synthOpt ? synthOpt.index : noComment.length)
+    const entry: { notation: string; lineFrom: number; scale?: string; synth?: string } = {
+      notation: noComment.slice(indent, cut).replace(/\s+$/, ''),
+      lineFrom: offs[j]! + indent,
+    }
+    if (scale) entry.scale = scale[0]!.slice('scale:'.length)
+    if (synthOpt) entry.synth = synthOpt[1]!
+    out.push(entry)
+  }
+  return out
+}
+
+/** Find each `play` block's notation lines that are SIMPLE flat sequences of
+ *  degrees / rests (`0 0 3 5 ~ 7`) — the grid-editable case, one roll per
+ *  voice line. Notation with richer mini-notation (`<> [] * @`, note names)
+ *  is left as plain text. Pure. */
 export function scanPlays(text: string): PlayRoll[] {
   const out: PlayRoll[] = []
   const lines = text.split('\n')
@@ -490,62 +527,54 @@ export function scanPlays(text: string): PlayRoll[] {
   for (let i = 0; i < lines.length; i++) {
     const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)(?:\s+synth:([a-zA-Z_]\w*))?/.exec(lines[i]!)
     if (!ph) continue // a play header (top-level OR nested in a section)
-    const playIndent = ph[1]!.length
-    const nx = lines[i + 1]
-    if (nx === undefined) continue
-    const indent = /^[ \t]*/.exec(nx)![0].length
-    if (indent <= playIndent) continue // next line isn't a body line
-    // strip a trailing `# comment`, then an inline `scale:…`
-    const cm = /(^|\s)#/.exec(nx)
-    const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
-    const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
-    const notation = noComment.slice(indent, scale ? scale.index : noComment.length).replace(/\s+$/, '')
-    const lineFrom = offs[i + 1]! + indent
-    // a PURE POLYMETER figure `{0 3 5}%8` is a flat sequence inside braces —
-    // it gets the full editable grid, scoped to the braces' interior (the
-    // stepping %n stays a scrubbable number in the text)
-    const pm = /^\{([-0-9~ \t]+)\}%\d+$/.exec(notation)
-    if (pm) {
-      const inner = pm[1]!.replace(/\s+$/, '')
-      const innerStart = notation.indexOf(inner)
-      const ptoks = inner.trim().split(/\s+/).filter(Boolean)
-      if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || STEP_RE.test(tk))) {
-        const roll: PlayRoll = {
-          from: lineFrom + innerStart,
-          to: lineFrom + innerStart + inner.length,
-          content: inner,
-          steps: ptoks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
-          accs: ptoks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
-          exprs: ptoks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
-          lanes: ptoks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
-          srcFull: notation,
-          srcOffset: innerStart,
+    for (const bl of playBodyLines(lines, offs, i, ph[1]!.length)) {
+      const { notation, lineFrom } = bl
+      // a PURE POLYMETER figure `{0 3 5}%8` is a flat sequence inside braces —
+      // it gets the full editable grid, scoped to the braces' interior (the
+      // stepping %n stays a scrubbable number in the text)
+      const pm = /^\{([-0-9~ \t]+)\}%\d+$/.exec(notation)
+      if (pm) {
+        const inner = pm[1]!.replace(/\s+$/, '')
+        const innerStart = notation.indexOf(inner)
+        const ptoks = inner.trim().split(/\s+/).filter(Boolean)
+        if (ptoks.length > 0 && ptoks.every((tk) => tk === '~' || STEP_RE.test(tk))) {
+          const roll: PlayRoll = {
+            from: lineFrom + innerStart,
+            to: lineFrom + innerStart + inner.length,
+            content: inner,
+            steps: ptoks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
+            accs: ptoks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+            exprs: ptoks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+            lanes: ptoks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
+            srcFull: notation,
+            srcOffset: innerStart,
+          }
+          roll.synth = bl.synth ?? ph[3] ?? ph[2]!
+          if (bl.scale !== undefined) roll.scale = bl.scale
+          out.push(roll)
+          continue
         }
-        roll.synth = ph[3] ?? ph[2]!
-        if (scale) roll.scale = scale[0]!.slice('scale:'.length)
-        out.push(roll)
-        continue
       }
+      const toks = notation.trim().split(/\s+/).filter(Boolean)
+      if (toks.length === 0) continue
+      // NEGATIVE degrees are legal — they reach below the scale root, and
+      // .overChord documents them reaching below the chord. Rejecting them made
+      // the whole widget vanish from a line that was perfectly valid.
+      if (!toks.every((tk) => tk === '~' || STEP_RE.test(tk))) continue // simple degrees/rests only
+      const from = lineFrom
+      const roll: PlayRoll = {
+        from,
+        to: from + notation.length,
+        content: notation,
+        steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
+        accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
+        exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
+        lanes: toks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
+      }
+      roll.synth = bl.synth ?? ph[3] ?? ph[2]!
+      if (bl.scale !== undefined) roll.scale = bl.scale
+      out.push(roll)
     }
-    const toks = notation.trim().split(/\s+/).filter(Boolean)
-    if (toks.length === 0) continue
-    // NEGATIVE degrees are legal — they reach below the scale root, and
-    // .overChord documents them reaching below the chord. Rejecting them made
-    // the whole widget vanish from a line that was perfectly valid.
-    if (!toks.every((tk) => tk === '~' || STEP_RE.test(tk))) continue // simple degrees/rests only
-    const from = lineFrom
-    const roll: PlayRoll = {
-      from,
-      to: from + notation.length,
-      content: notation,
-      steps: toks.map((tk) => (tk === '~' ? null : Number(STEP_RE.exec(tk)![1]))),
-      accs: toks.map((tk) => (tk === '~' ? undefined : accValue(STEP_RE.exec(tk)![2]))),
-      exprs: toks.map((tk) => (tk === '~' ? undefined : exprValue(STEP_RE.exec(tk)![3]))),
-      lanes: toks.map((tk) => (tk === '~' ? undefined : laneValues(STEP_RE.exec(tk)![3]))),
-    }
-    roll.synth = ph[3] ?? ph[2]!
-    if (scale) roll.scale = scale[0]!.slice('scale:'.length)
-    out.push(roll)
   }
   return out
 }
@@ -864,27 +893,22 @@ export function scanRichPlays(text: string): RichPlay[] {
   for (let i = 0; i < lines.length; i++) {
     const ph = /^([ \t]*)play\s+([a-zA-Z_]\w*)(?:\s+synth:([a-zA-Z_]\w*))?/.exec(lines[i]!)
     if (!ph) continue
-    const nx = lines[i + 1]
-    if (nx === undefined) continue
-    const indent = /^[ \t]*/.exec(nx)![0].length
-    if (indent <= ph[1]!.length) continue
-    const cm = /(^|\s)#/.exec(nx)
-    const noComment = cm ? nx.slice(0, cm.index + (cm[1] ? cm[1].length : 0)) : nx
-    const scale = /\bscale:[a-gA-G][a-z0-9#-]*/.exec(noComment)
-    const notation = noComment.slice(indent, scale ? scale.index : noComment.length).replace(/\s+$/, '')
-    if (notation.length === 0) continue
-    // pure degree-mini with structure: digits + mini punctuation, at least one
-    // structural char (otherwise the editable flat grid already handles it)
-    // `#`/`b` are accidentals on a degree (`-4#`, `3b`), not note names — a
-    // read-only roll that refuses them would vanish from a line the compiler
-    // and the scheduler both accept. Lanes are stripped before the test for
-    // the same reason: their letters are controls, not note names.
-    const bare = stripNoteLanes(notation)
-    if (!/^[0-9~\s<>[\]{}%*/!@?,.()#b-]+$/.test(bare)) continue
-    if (!/[<>[\]{}%*/!@?,()]/.test(bare)) continue
-    if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
-    const from = offs[i + 1]! + indent
-    out.push({ content: notation, from, to: from + notation.length, synth: ph[3] ?? ph[2]! })
+    for (const bl of playBodyLines(lines, offs, i, ph[1]!.length)) {
+      const notation = bl.notation
+      if (notation.length === 0) continue
+      // pure degree-mini with structure: digits + mini punctuation, at least one
+      // structural char (otherwise the editable flat grid already handles it)
+      // `#`/`b` are accidentals on a degree (`-4#`, `3b`), not note names — a
+      // read-only roll that refuses them would vanish from a line the compiler
+      // and the scheduler both accept. Lanes are stripped before the test for
+      // the same reason: their letters are controls, not note names.
+      const bare = stripNoteLanes(notation)
+      if (!/^[0-9~\s<>[\]{}%*/!@?,.()#b-]+$/.test(bare)) continue
+      if (!/[<>[\]{}%*/!@?,()]/.test(bare)) continue
+      if (/^\{[0-9~ \t]+\}%\d+$/.test(notation)) continue // editable polymeter grid owns it
+      const from = bl.lineFrom
+      out.push({ content: notation, from, to: from + notation.length, synth: bl.synth ?? ph[3] ?? ph[2]! })
+    }
   }
   return out
 }

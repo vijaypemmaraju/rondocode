@@ -483,17 +483,33 @@ Pattern.prototype.overChord = function <T>(this: Pattern<T>, chords: Pattern<unk
       // the chord SOUNDING at this event's onset. A zero-width span finds a
       // held chord whether or not it began inside this query window.
       const at = h.whole?.begin ?? h.part.begin
-      const notes = chordNotesOf(chords.query(new TimeSpan(at, at.add(Fraction.of(1, 1000000)))))
+      const chordHaps = chords.query(new TimeSpan(at, at.add(Fraction.of(1, 1000000))))
+      const notes = chordNotesOf(chordHaps)
       const mapped = chordDegree(notes, Math.round(deg))
       if (mapped === null) continue // no chord under it: drop rather than guess
+      /* The chord ATOM's source range rides along in `locs`, so an
+       * `overchord: <Am7 F>` line lights each name as its chord takes a
+       * turn — the rule is that anywhere mini-notation is supported, it
+       * lights up. chord() stamps one loc per chord tone; any of them names
+       * the same atom, so the first is enough. */
+      let chordLoc: Loc | undefined
+      for (const ch of chordHaps) {
+        const cv = ch.value
+        if (cv !== null && typeof cv === 'object' && (cv as { loc?: Loc }).loc !== undefined) {
+          chordLoc = (cv as { loc?: Loc }).loc
+          break
+        }
+      }
       const v = h.value
-      out.push(
-        typeof v === 'number'
-          ? { ...h, value: mapped as unknown as T }
-          // write `note` and drop `n`: downstream this is a pitch now, not a
-          // scale degree waiting on a .scale()
-          : { ...h, value: { ...(v as object), note: mapped, n: undefined } as unknown as T },
-      )
+      if (typeof v === 'number') {
+        out.push({ ...h, value: mapped as unknown as T })
+        continue
+      }
+      // write `note` and drop `n`: downstream this is a pitch now, not a
+      // scale degree waiting on a .scale()
+      const value = { ...(v as object), note: mapped, n: undefined } as { locs?: Loc[] }
+      if (chordLoc !== undefined) value.locs = [...(value.locs ?? []), chordLoc]
+      out.push({ ...h, value: value as unknown as T })
     }
     return out
   })

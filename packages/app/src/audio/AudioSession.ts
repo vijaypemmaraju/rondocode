@@ -328,6 +328,9 @@ export class AudioSession {
   async setMicEnabled(on: boolean): Promise<void> {
     this.micWanted = on
     if (!on) {
+      // every live re-eval lands here for code with no mic; nothing to close
+      // and the engine's map is already empty (it is set only with a capture)
+      if (this.captures.length === 0) return
       for (const c of this.captures) {
         if (c === null) continue
         try { c.source.disconnect() } catch { /* already gone */ }

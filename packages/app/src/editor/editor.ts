@@ -24,6 +24,7 @@ import { getSetting } from '../ui/settings'
 import { EXAMPLES } from '../examples'
 import { readLangPref } from '../ui/onboarding'
 import { EventFlasher, FLASH_MS, collectStringLiterals, jsRegionLiterals, rondoNoteLiterals } from './flash'
+import { EVAL_PACE_MIN_MS, nextEvalInterval } from './evalpace'
 import { restHighlight } from './restview'
 import type { RestSource } from './rests'
 import { karaokeExtension, mountKaraoke } from './karaoke'
@@ -92,13 +93,6 @@ const initialLang = (): EditorLang => {
  *  share one timer, so the LATEST doc always wins. */
 const SAVE_ON_EVAL_MS = 250
 const SAVE_ON_CHANGE_MS = 500
-/** Throttle interval for widget-drag / scrub re-evals. The value must apply
- *  WHILE dragging (not only on release), so this is a throttle (leading edge +
- *  trailing), not a pure trailing debounce: during a drag we re-eval at most
- *  every WIDGET_EVAL_MS, so the sound follows the slider continuously. Session
- *  diffs staged synths/patterns, so these evals never redefine an unchanged
- *  synth — audio keeps running seamlessly. */
-const WIDGET_EVAL_MS = 70
 /** LIVE TYPING settle: apply a typed edit this long after the last keystroke
  *  (opt-in setting; only while the transport is playing). */
 const LIVE_TYPE_SETTLE_MS = 700
@@ -525,28 +519,34 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Widgets/scrub hand every literal rewrite to the editor as a normal
   // transaction, then ask for a re-eval here: immediate for discrete changes
   // (toggle/pick), throttled for drags so the value applies AS YOU DRAG (a
-  // leading-edge eval, then at most one per WIDGET_EVAL_MS, plus a trailing
-  // eval that lands the exact release value).
+  // leading-edge eval, then at most one per interval, plus a trailing eval
+  // that lands the exact release value). The interval is PACED by the cost of
+  // the last eval (see evalpace.ts): the value must apply while dragging, and
+  // a fixed interval was the lag a scrubbed number had over a knob. Session
+  // diffs staged synths/patterns, so these evals never redefine an unchanged
+  // synth; audio keeps running seamlessly.
   let widgetEvalTimer: ReturnType<typeof setTimeout> | undefined
   let lastWidgetEval = 0
+  let widgetEvalInterval = EVAL_PACE_MIN_MS
+  const applyLive = (): void => {
+    const t0 = performance.now()
+    applyDoc(false)
+    lastWidgetEval = Date.now()
+    widgetEvalInterval = nextEvalInterval(performance.now() - t0)
+  }
   const requestEval = (immediate: boolean): void => {
     clearTimeout(widgetEvalTimer)
     widgetEvalTimer = undefined
     if (immediate) {
-      applyDoc(false)
-      lastWidgetEval = Date.now()
+      applyLive()
       return
     }
     const since = Date.now() - lastWidgetEval
-    if (since >= WIDGET_EVAL_MS) {
-      applyDoc(false) // leading edge: apply now, mid-drag
-      lastWidgetEval = Date.now()
+    if (since >= widgetEvalInterval) {
+      applyLive() // leading edge: apply now, mid-drag
     } else {
-      // too soon — schedule the trailing eval to land the latest value
-      widgetEvalTimer = setTimeout(() => {
-        applyDoc(false)
-        lastWidgetEval = Date.now()
-      }, WIDGET_EVAL_MS - since)
+      // too soon: schedule the trailing eval to land the latest value
+      widgetEvalTimer = setTimeout(applyLive, widgetEvalInterval - since)
     }
   }
 

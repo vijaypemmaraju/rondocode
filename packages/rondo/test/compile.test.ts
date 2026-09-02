@@ -538,6 +538,22 @@ describe('rondo → rondocode codegen', () => {
     if (!sc.ok) expect(sc.errors[0]!.message).toContain("doesn't apply")
   })
 
+  it('sing block: an effect line without `post` says so, instead of "lines come in pairs"', () => {
+    // in the lyric slot, with arguments
+    failsAt('sing v\n  la la\n  c4 e4\n  reverb mix:.22\n', '`reverb` is an effect: put it under a `post` line', 4, 3)
+    // in the melody slot, even bare
+    failsAt('sing v\n  la la\n  chorus\n', '`chorus` is an effect', 3, 3)
+    // and it is the ONLY error: the pairs cascade is silenced
+    const r = compile('sing v\n  la la\n  c4 e4\n  onepole 4200\n')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.errors.map((e) => e.message)).toEqual([expect.stringContaining('`onepole` is an effect')])
+    // a lyric that merely STARTS with an effect word still sings
+    expect(ok('sing v\n  reverb of the hall\n  c4 e4 g4\n')).toContain("sing('reverb of the hall'")
+    expect(ok('sing v\n  delay\n  c4\n')).toContain("sing('delay'")
+    // and the real thing, under `post`, is untouched
+    expect(ok('sing v\n  la la\n  c4 e4\n  post\n    reverb mix:.22\n')).toContain('post: ({ input, reverb })')
+  })
+
   it('play synth: routes a channel to a different synth (two patterns, one synth)', () => {
     const out = ok('synth keys\n  saw\n\nplay pad synth:keys\n  <Dm7 G7>\n\nplay arp synth:keys\n  <Dm7 G7>\n  arp updown\n')
     expect(out).toContain("p('pad', chord('<Dm7 G7>').sound('keys'))")

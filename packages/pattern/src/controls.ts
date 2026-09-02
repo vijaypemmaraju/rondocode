@@ -290,6 +290,37 @@ export function sound(x: string | Pattern<string>): Pattern<ControlMap> {
 /** Short alias for {@link sound}. */
 export const s = sound
 
+/**
+ * An AUTOMATION event names a synth and carries no note: at its time it sets
+ * the synth's params (every numeric control on it) and opens no gate.
+ *
+ * Every other event is a note, and a param on a note lands once, when the
+ * note does. That is the right thing for a synth line, where a note is the
+ * unit of expression, and the wrong thing for a vocal: sing() plays one
+ * note per phrase, so `reverb mix: <.2 .8>` on a 4-bar phrase moved once
+ * every 4 bars. An automation pattern under the trigger keeps the value
+ * moving through the phrase.
+ */
+export const isAutomation = (c: ControlMap): boolean =>
+  typeof c.sound === 'string' && typeof c.note !== 'number'
+
+/** Automation events for `synth`, `perCycle` of them a cycle: an even grid
+ *  that opens no gate, for `.ctrl()` to write moving values on.
+ *
+ *  stack(note('c2').sound('bass'), automation('bass', 16).ctrl('cutoff', sine.range(200, 2000)))
+ *
+ *  A param sampled at each grid point holds until the next, so the grid is
+ *  the automation's resolution. sing() stacks one under its trigger. */
+export function automation(synth: string, perCycle = 16): Pattern<ControlMap> {
+  if (typeof synth !== 'string' || synth.length === 0) {
+    throw new TypeError(`automation(): first argument is the synth name, got ${JSON.stringify(synth)}`)
+  }
+  if (!Number.isInteger(perCycle) || perCycle < 1) {
+    throw new RangeError(`automation('${synth}'): events per cycle must be a whole number >= 1, got ${perCycle}`)
+  }
+  return Pattern.pure<ControlMap>({ sound: synth }).segment(perCycle)
+}
+
 // ------------------------------------------------------- prototype methods
 
 declare module './pattern' {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MiniError, Pattern, clearCustomScales, defineScale, mini, n, note, s, sine, sound } from '../src/index'
+import { MiniError, Pattern, automation, clearCustomScales, defineScale, isAutomation, mini, n, note, s, sine, sound } from '../src/index'
 import type { ControlMap } from '../src/index'
 import { q, qw } from './helpers'
 
@@ -92,6 +92,40 @@ describe('sound() / s()', () => {
 
   it('s is an alias of sound', () => {
     expect(s).toBe(sound)
+  })
+})
+
+describe('automation()', () => {
+  it('is an even grid of note-less events on the synth', () => {
+    expect(q(automation('vox', 4), 0, 1)).toEqual([
+      [0, 0.25, { sound: 'vox' }],
+      [0.25, 0.5, { sound: 'vox' }],
+      [0.5, 0.75, { sound: 'vox' }],
+      [0.75, 1, { sound: 'vox' }],
+    ])
+    expect(q(automation('vox'), 0, 1)).toHaveLength(16) // the default grid
+  })
+
+  it('takes .ctrl() values like any event, sampled at each step', () => {
+    const haps = qw(automation('vox', 4).ctrl('cutoff', '300 600 [900 1200]'), 0, 1)
+    // the scheduler fires ONSETS: a step sends the value at its own start,
+    // so the [900 1200] pair, finer than the grid, only ever sends 900
+    const onsets = haps.filter((h) => h.whole !== null && h.whole[0] === h.part[0])
+    expect(onsets.map((h) => [h.whole![0], h.value.cutoff])).toEqual([[0, 300], [0.25, 300], [0.5, 600], [0.75, 900]])
+  })
+
+  it('isAutomation: a sound and no note; a note or a sound-less event is not', () => {
+    expect(isAutomation({ sound: 'vox' })).toBe(true)
+    expect(isAutomation({ sound: 'vox', cutoff: 500 })).toBe(true)
+    expect(isAutomation({ sound: 'vox', note: 60 })).toBe(false)
+    expect(isAutomation({ note: 60 })).toBe(false)
+    expect(isAutomation({})).toBe(false)
+  })
+
+  it('rejects a missing name or a non-integer grid', () => {
+    expect(() => automation('')).toThrow(TypeError)
+    expect(() => automation('vox', 0)).toThrow(RangeError)
+    expect(() => automation('vox', 1.5)).toThrow(RangeError)
   })
 })
 

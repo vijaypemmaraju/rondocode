@@ -615,7 +615,9 @@ export function createShaderRenderer(canvas: HTMLCanvasElement, opts: ShaderRend
         const amp = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
         const note = typeof ev.controls.note === 'number' ? ev.controls.note : NaN
         const cycle = typeof ev.cycle === 'number' ? ev.cycle : -1
-        if (name !== '') pending.push({ at: ev.timeSec, amp, name, note, cycle })
+        // a hit is a NOTE: automation (a sound, no note) opens no gate and
+        // would otherwise pulse the vocal's channel sixteen times a cycle
+        if (name !== '' && !Number.isNaN(note)) pending.push({ at: ev.timeSec, amp, name, note, cycle })
       }
       if (pending.length > 512) pending.splice(0, pending.length - 512)
     },

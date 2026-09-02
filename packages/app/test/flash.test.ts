@@ -308,6 +308,21 @@ describe('EventFlasher', () => {
     expect(rig.timers).toHaveLength(0)
   })
 
+  it('a loc-less NOTE pulses its channel span; loc-less automation does not', () => {
+    const rig = makeRig()
+    // the vocal's channel has a pulse span (a loc-less expression under p())
+    rig.flasher.onGoodEval(`p('vox', n(irand(8).segment(8)).sound('vox'))`)
+    const at = (controls: Record<string, unknown>): SchedulerEvent => ({ timeSec: 0, durSec: 0.1, cycle: 0, controls })
+    rig.flasher.onEvents([at({ sound: 'vox', note: 60 })])
+    expect(rig.timers).toHaveLength(1)
+    // sixteen automation steps a cycle would otherwise keep the span lit
+    rig.flasher.onEvents(Array.from({ length: 16 }, () => at({ sound: 'vox', mix: 0.3 })))
+    expect(rig.timers).toHaveLength(1)
+    // but the notation an automation step sampled still lights up
+    rig.flasher.onEvents([{ ...at({ sound: 'vox', mix: 0.3 }), locs: [{ start: 0, end: 1 }] }])
+    expect(rig.timers).toHaveLength(2)
+  })
+
   it('caps concurrently pending flashes at MAX_PENDING_FLASHES', () => {
     const rig = makeRig()
     const evs = Array.from({ length: MAX_PENDING_FLASHES + 40 }, () =>

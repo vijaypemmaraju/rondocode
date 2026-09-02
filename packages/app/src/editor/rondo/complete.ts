@@ -42,7 +42,9 @@ import { ENUM_VALUE_TABLE } from './enums'
 export type RondoPos =
   | { kind: 'top' }
   | { kind: 'synth'; block: string }
-  | { kind: 'play' }
+  /** a pattern body; `block` is the header word, since a `sing` body also
+   *  takes a trailing `post` sub-block and a `play` body does not */
+  | { kind: 'play'; block: 'play' | 'beat' | 'sing' | 'section' }
   | { kind: 'named'; builtin: string; arg: string }
   | { kind: 'args'; builtin: string; block: string }
   /** the name slot of a `play`/`beat` header — a synth in this document */
@@ -129,7 +131,7 @@ export function rondoPositionAt(text: string, pos: number): RondoPos {
   if (indent === 0 && /^(?:play|beat)[ \t]+[a-zA-Z_]*\w*$/.test(body)) return { kind: 'ref', what: 'synth' }
   if (indent === 0) return { kind: 'top' }
   if (block === 'play' || block === 'beat' || block === 'sing' || block === 'section') {
-    return { kind: 'play' }
+    return { kind: 'play', block }
   }
 
   // inside a signal block: is there already a call on this line?
@@ -337,7 +339,11 @@ export function optionsFor(
   if (where.kind === 'play') {
     // pattern modifiers only — an oscillator on a play line is a syntax error,
     // and offering one is how the old list sent people there
-    return base.filter((o) => o.type === 'keyword' && !BLOCK_HEADERS.includes(String(o.label)))
+    // `post` is a body word too, but only a SING body takes it among the
+    // pattern blocks (the vocal is a channel with its own FX chain); on a play
+    // line it is a syntax error, and the flat keyword filter offered it there
+    return base.filter((o) => o.type === 'keyword' && !BLOCK_HEADERS.includes(String(o.label))
+      && (o.label !== 'post' || where.block === 'sing'))
       .concat(opt('overchord:', 'keyword', 'overchord: <Am7 F>', 'Read the degrees as CHORD degrees.'))
   }
 

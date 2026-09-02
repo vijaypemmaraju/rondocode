@@ -103,6 +103,23 @@ describe('runPatterns', () => {
     }
   })
 
+  it('automation (a sound, no note) yields param events and no gate, like live', () => {
+    const staged = stageCode(`
+const buzz = synth(({ note, gate, param, saw, svf }) => svf(saw(note.freq), param('cutoff', 900, { min: 100, max: 8000 })).mul(gate))
+p('sweep', automation('buzz', 4).ctrl('cutoff', '<300 600>'))
+setCps(1)`)
+    if (!staged.ok) throw new Error('stage failed')
+    const evs = runPatterns(staged.patterns, { cycles: 2, cps: 1 })
+    expect([...evs.keys()]).toEqual(['buzz'])
+    const buzz = evs.get('buzz')!
+    expect(buzz.filter((e) => e.type === 'noteOn')).toHaveLength(0)
+    expect(buzz.filter((e) => e.type === 'noteOff')).toHaveLength(0)
+    expect(buzz.map((e) => [e.time, e.name, e.value])).toEqual([
+      [0, 'cutoff', 300], [0.25, 'cutoff', 300], [0.5, 'cutoff', 300], [0.75, 'cutoff', 300],
+      [1, 'cutoff', 600], [1.25, 'cutoff', 600], [1.5, 'cutoff', 600], [1.75, 'cutoff', 600],
+    ])
+  })
+
   it('cuts events at the cycle boundary', () => {
     const staged = stageCode("p('a', n('0 1 2 3').scale('c major').sound('s'))")
     if (!staged.ok) throw new Error('stage failed')

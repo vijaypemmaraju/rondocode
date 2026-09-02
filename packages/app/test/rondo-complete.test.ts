@@ -51,7 +51,7 @@ describe('where the cursor is', () => {
   })
 
   it('a play block body is a pattern, not a signal chain', () => {
-    expect(rondoPositionAt(DOC, endOf('  0 3 5\n  '))).toEqual({ kind: 'play' })
+    expect(rondoPositionAt(DOC, endOf('  0 3 5\n  '))).toEqual({ kind: 'play', block: 'play' })
   })
 
   it('a bare indented line in a synth is signal position', () => {
@@ -98,11 +98,26 @@ describe('what is offered there', () => {
   })
 
   it('in a play body: modifiers, and not oscillators', () => {
-    const got = labels({ kind: 'play' })
+    const got = labels({ kind: 'play', block: 'play' })
     expect(got).toEqual(expect.arrayContaining(['scale', 'gain', 'dur', 'every', 'rev']))
     expect(got).toContain('overchord:')
     expect(got).not.toContain('saw')
     expect(got).not.toContain('ladder')
+    // a play body has no post sub-block, so the word is not offered here
+    expect(got).not.toContain('post')
+  })
+
+  it('in a sing body: the modifiers, plus `post`, which only the vocal takes among pattern blocks', () => {
+    const doc = 'sing vox voice:barbara\n  la la\n  c4 e4\n  '
+    const where = rondoPositionAt(doc, doc.length)
+    expect(where).toEqual({ kind: 'play', block: 'sing' })
+    const got = labels(where, doc, doc.length)
+    expect(got).toContain('post')
+    expect(got).toEqual(expect.arrayContaining(['gain', 'every']))
+    expect(got).not.toContain('saw')
+    // and under that `post`, the signal vocabulary, as in a synth
+    const under = doc + 'post\n    '
+    expect(labels(rondoPositionAt(under, under.length), under, under.length)).toEqual(expect.arrayContaining(['reverb', 'chorus', 'svf']))
   })
 
   it('in a synth body: builtins plus what this document defines', () => {
@@ -333,7 +348,7 @@ describe('the positions that name a thing', () => {
 
   it('a play line is still a play line, not a synth reference', () => {
     // the header names a synth; the BODY is notation
-    expect(rondoPositionAt('play lead\n  0 3 ', 16)).toEqual({ kind: 'play' })
+    expect(rondoPositionAt('play lead\n  0 3 ', 16)).toEqual({ kind: 'play', block: 'play' })
   })
 
   it('`sample ` offers samples, and the named args after them', () => {

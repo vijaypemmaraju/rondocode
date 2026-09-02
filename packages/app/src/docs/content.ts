@@ -1253,6 +1253,20 @@ sing vox voice:barbara
 
 cps .34`,
       ),
+      p('The FX act on the finished clip (the voice is baked first, then played back like a sample), so a `post` shapes the sound of the vocal, not how it is sung. Its knobs move continuously: a vocal has one note per phrase, and a param written on a note lands when the note does, so `sing` stacks an automation grid under its trigger, sixteen steps a cycle, that carries every patterned modifier through the phrase. Declare the knob in the chain, then pattern it as a modifier like any other.'),
+      rondo(
+        'A reverb send that opens over the phrase: the knob is declared under `post` and patterned above it.',
+        `sing vox voice:barbara
+  lo-ver come and sing with me
+  e4 e4 g4 g4 a4 g4 e4
+  wet: <.1 .25 .4 .6>
+  post
+    reverb mix:wet
+    wet = knob .2 0..1
+
+cps .34`,
+      ),
+      p("In JavaScript the same grid is `automation(name, perCycle)`: note-less events that set params and open no gate. `sing()` stacks one for you; `stack(note('c2').sound('bass'), automation('bass').ctrl('cutoff', sine.range(200, 2000)))` gives any synth a knob that moves between its notes."),
     ],
   },
   {

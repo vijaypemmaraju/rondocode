@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { F, TimeSpan, hasOnset } from '@rondocode/pattern'
+import { F, TimeSpan, hasOnset, isAutomation } from '@rondocode/pattern'
 import { compile } from '../src/compile'
 import { renderOffline } from '../../engine/src/render'
 // Deep source imports across packages are the established pattern here (see
@@ -120,8 +120,11 @@ describe('rondo end-to-end: source → transpile → evalCode → sound', () => 
     expect(result.synths.has('vox')).toBe(true) // the sampler (with the post chain)
     const trig = result.patterns.get('vox')!
     const evs = trig.query(new TimeSpan(F(0), F(1))).filter(hasOnset)
-    expect(evs).toHaveLength(1) // one clip trigger per cycle
-    expect(evs[0]!.value.sound).toBe('vox')
+    const notes = evs.filter((h) => !isAutomation(h.value))
+    expect(notes).toHaveLength(1) // one clip trigger per cycle
+    expect(notes[0]!.value.sound).toBe('vox')
+    // under it, the automation grid that carries patterned post params
+    expect(evs.filter((h) => isAutomation(h.value))).toHaveLength(16)
   })
 
   it('the pad example (post chain + drivable post param) evals clean', () => {

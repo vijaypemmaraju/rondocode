@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ChannelMap, NoteOut, noteByte, velocityByte } from '../src/desktop/midiout'
+import { ChannelMap, NoteOut, noteByte, toOutEvents, velocityByte } from '../src/desktop/midiout'
 import type { OutEvent } from '../src/desktop/midiout'
 
 /* Notes going OUT to a DAW. The failure modes here are all silent-but-wrong —
@@ -129,5 +129,23 @@ describe('stop', () => {
     out.stop()
     // only the per-channel all-notes-off backstop, no phantom note-offs
     expect(sink.sent.every((m) => (m[0]! & 0xf0) === 0xb0)).toBe(true)
+  })
+})
+
+describe('toOutEvents', () => {
+  it('maps note/sound/gain onto the out event, defaulting nothing it does not have', () => {
+    expect(toOutEvents([
+      { timeSec: 1, durSec: 0.5, controls: { note: 60, sound: 'a', gain: 0.5 } },
+      { timeSec: 2, durSec: 0.25, controls: { note: 62 } },
+    ])).toEqual([
+      { note: 60, timeSec: 1, durSec: 0.5, sound: 'a', velocity: 0.5 },
+      { note: 62, timeSec: 2, durSec: 0.25 },
+    ])
+  })
+
+  it('drops automation (a sound, no note): a param step is not a note', () => {
+    // sing() stacks sixteen of these a cycle under its trigger; each used to
+    // go out as a note 60
+    expect(toOutEvents([{ timeSec: 0, durSec: 0.125, controls: { sound: 'vox', mix: 0.3 } }])).toEqual([])
   })
 })

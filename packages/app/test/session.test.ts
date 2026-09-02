@@ -533,14 +533,54 @@ describe('Session: scheduler events → engine messages', () => {
     expect(resumed.filter((m) => (m as { name?: string }).name === 'cutoff').length).toBeGreaterThan(0)
   })
 
-  it('events without sound or note are skipped silently', () => {
+  it('events without a sound are skipped silently; a sound with no note opens no gate', () => {
     const { session, audio, tick, ofKind } = rig()
     session.evalCode(`p('nosound', note('60'))\np('nonote', n('0 1').sound('a'))`)
     audio.currentTimeFrames = 0
     session.transport('play', { cps: 1 })
     tick()
     expect(ofKind('noteOn')).toHaveLength(0)
-    expect(ofKind('setParam')).toHaveLength(0)
+    expect(ofKind('setParam')).toHaveLength(0) // `n` is structural, so nothing to send
+  })
+
+  it('automation (a sound, no note) sends its params at their frames and no gate', () => {
+    const { session, audio, tick, ofKind } = rig()
+    session.evalCode(
+      `const a = synth(({ sine, note, gate, param, svf }) => svf(sine(note.freq), param('cutoff', 500)).mul(gate))
+p('sweep', automation('a', 4).ctrl('cutoff', '<300 600 900 1200>'))`,
+    )
+    audio.currentTimeFrames = 0
+    session.transport('play', { cps: 1 })
+    // walk the clock a quarter cycle at a time through the first two cycles
+    for (let t = 0; t <= 1.25; t += 0.25) {
+      audio.currentTimeFrames = Math.round(t * 48000)
+      tick()
+    }
+    expect(ofKind('noteOn')).toHaveLength(0)
+    expect(ofKind('noteOff')).toHaveLength(0)
+    const params = ofKind('setParam') as { synth: string; name: string; value: number; atFrame: number }[]
+    // one step a quarter cycle (12000 frames at cps 1), holding the cycle's value
+    expect(params.slice(0, 5)).toEqual([
+      { kind: 'setParam', synth: 'a', name: 'cutoff', value: 300, atFrame: 0 },
+      { kind: 'setParam', synth: 'a', name: 'cutoff', value: 300, atFrame: 12000 },
+      { kind: 'setParam', synth: 'a', name: 'cutoff', value: 300, atFrame: 24000 },
+      { kind: 'setParam', synth: 'a', name: 'cutoff', value: 300, atFrame: 36000 },
+      { kind: 'setParam', synth: 'a', name: 'cutoff', value: 600, atFrame: 48000 },
+    ])
+  })
+
+  it('automation respects a held knob like a note does', () => {
+    const { session, audio, tick, ofKind } = rig()
+    session.evalCode(
+      `const a = synth(({ sine, note, gate, param, svf }) => svf(sine(note.freq), param('cutoff', 500)).mul(gate))
+p('sweep', automation('a', 4).ctrl('cutoff', 900))`,
+    )
+    audio.currentTimeFrames = 0
+    session.transport('play', { cps: 1 })
+    session.holdParam('a', 'cutoff', 1234)
+    const before = ofKind('setParam').length
+    tick()
+    expect(ofKind('setParam').slice(before)).toHaveLength(0)
   })
 
   it('a pattern that throws at query time surfaces on the diagnostics channel', () => {

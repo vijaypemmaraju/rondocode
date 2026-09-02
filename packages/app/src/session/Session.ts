@@ -1,6 +1,6 @@
 import { Scheduler, setMacroValue } from '@rondocode/pattern'
 import { DEFAULT_TIME_SIG } from '@rondocode/pattern'
-import type { SchedulerEvent, TimeSig } from '@rondocode/pattern'
+import type { ControlMap, SchedulerEvent, TimeSig } from '@rondocode/pattern'
 import { DEFAULT_MASTER_GAIN, MAX_TOTAL_VOICES, RESERVED_PARAM_NAMES, diffGraphConstants, diffParamDefaults, graphShape, getCustomWavetables, parseSampleRef, planVoiceBudget, sampleNamesIn } from '@rondocode/engine'
 import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
 
@@ -37,8 +37,10 @@ import { baseScope } from './scope'
  *   on its own patterned values. (Until #334 setParam carried no atFrame and
  *   applied on arrival, up to one lookahead early — automation landed on the
  *   previous note, and live disagreed with an offline bounce.)
- *   Events lacking a `sound` or a numeric `note` are skipped silently
- *   (nothing to route — continuous/param-only patterns are normal).
+ *   An event with a `sound` but no numeric `note` is AUTOMATION: its params
+ *   are sent and no gate opens (what sing() stacks under its trigger so a
+ *   patterned post param moves through the phrase). An event with no
+ *   `sound` is skipped silently (nothing to route).
  * - Diagnostics: the Session maintains ONE merged current-diagnostics set
  *   and every onDiagnostics call carries the FULL set. It has two parts:
  *   the eval subset (replaced wholesale by each eval's diagnostics) and
@@ -1108,8 +1110,15 @@ export class Session {
     for (const ev of evs) {
       const sound = ev.controls.sound
       const note = ev.controls.note
-      if (typeof sound !== 'string' || typeof note !== 'number') continue
+      if (typeof sound !== 'string') continue
       const atFrame = Math.round(ev.timeSec * sr)
+      if (typeof note !== 'number') {
+        // AUTOMATION (see pattern's isAutomation): params only, no gate. What
+        // sing() stacks under its once-per-phrase trigger so a patterned post
+        // param keeps moving through the phrase.
+        this.sendParams(sound, ev.controls, atFrame)
+        continue
+      }
       // ADAPTIVE SLIDE: if a slide note is pending for this synth, release it
       // JUST as this note's gate opens (+overlap) so the still-held gate makes a
       // mono+glide synth portamento into this note. Because live events arrive
@@ -1120,17 +1129,7 @@ export class Session {
         this.audio.send({ kind: 'noteOff', synth: sound, note: pending.note, atFrame: atFrame + overlap })
         this.pendingSlide.delete(sound)
       }
-      for (const [key, value] of Object.entries(ev.controls)) {
-        if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
-        if (this.heldParams.has(`${sound}.${key}`)) continue // a hand holds this knob
-        /* SAME FRAME AS THE NOTE. Without atFrame the engine applied the value
-         * when the message arrived, which is up to one lookahead ahead of the
-         * note it belongs to (measured at a steady 75ms) — and since a param
-         * reaches every voice of the synth, the change was heard on the
-         * PREVIOUS note's tail. At equal frames the engine fires params before
-         * noteOn, so the note opens on its own value. */
-        this.audio.send({ kind: 'setParam', synth: sound, name: key, value, atFrame })
-      }
+      this.sendParams(sound, ev.controls, atFrame)
       const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
       // per-note sample slice (.chop): begin/end ride the noteOn, latched by
       // any sampler in the voice at the gate edge (a plain synth ignores them)
@@ -1166,6 +1165,22 @@ export class Session {
         const gateSec = Math.max(GATE_GAP_SEC, ev.durSec - GATE_GAP_SEC)
         this.audio.send({ kind: 'noteOff', synth: sound, note, atFrame: Math.round((ev.timeSec + gateSec) * sr) })
       }
+    }
+  }
+
+  /** Every numeric, non-structural control on an event → setParam at its
+   *  frame (a knob a hand is holding is left alone). */
+  private sendParams(sound: string, controls: ControlMap, atFrame: number): void {
+    for (const [key, value] of Object.entries(controls)) {
+      if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
+      if (this.heldParams.has(`${sound}.${key}`)) continue // a hand holds this knob
+      /* SAME FRAME AS THE NOTE. Without atFrame the engine applied the value
+       * when the message arrived, which is up to one lookahead ahead of the
+       * note it belongs to (measured at a steady 75ms) — and since a param
+       * reaches every voice of the synth, the change was heard on the
+       * PREVIOUS note's tail. At equal frames the engine fires params before
+       * noteOn, so the note opens on its own value. */
+      this.audio.send({ kind: 'setParam', synth: sound, name: key, value, atFrame })
     }
   }
 

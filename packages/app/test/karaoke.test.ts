@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSingCalls } from '../src/editor/karaoke'
+import { isSingTrigger, parseSingCalls } from '../src/editor/karaoke'
 
 /* Pure parsing for karaoke highlighting: find each sing(voice, lyrics, notes)
  * call, tokenize the lyrics into per-syllable doc ranges and the notes into
@@ -51,5 +51,20 @@ describe('parseSingCalls', () => {
   it('ignores non-string-literal args (dynamic text is not highlightable)', () => {
     const src = "sing('v', lyricsVar, 'c4 c4')"
     expect(parseSingCalls(src)).toEqual([])
+  })
+})
+
+describe('isSingTrigger', () => {
+  const isSing = (s: string) => s === 'vox'
+  const ev = (controls: Record<string, unknown>, durSec = 2) => ({ timeSec: 0, durSec, cycle: 0, controls })
+
+  it('the phrase trigger: a note on a sing sound with a duration', () => {
+    expect(isSingTrigger(ev({ sound: 'vox', note: 60 }), isSing)).toBe(true)
+  })
+
+  it('NOT the automation grid under it (same sound, no note), nor another synth, nor a zero-length event', () => {
+    expect(isSingTrigger(ev({ sound: 'vox', mix: 0.3 }), isSing)).toBe(false)
+    expect(isSingTrigger(ev({ sound: 'bass', note: 60 }), isSing)).toBe(false)
+    expect(isSingTrigger(ev({ sound: 'vox', note: 60 }, 0), isSing)).toBe(false)
   })
 })

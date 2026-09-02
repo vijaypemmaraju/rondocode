@@ -1798,6 +1798,15 @@ body.shaderviz-on .cm-content {
   }
 }
 
+/* LED mask button (editor/mask.ts): lit while a mask is connected */
+.mask-btn.connected {
+  color: var(--c-accent);
+}
+.mask-error {
+  font-size: var(--fs-meta);
+  color: var(--c-error);
+}
+
 /* MIDI input popover (editor/midi.ts) — shares the export popover styles */
 .midi-pop {
   position: fixed;

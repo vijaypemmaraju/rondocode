@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUILTINS, compile } from '@rondocode/rondo'
+import { BLOCK_KEYWORDS, BUILTINS, compile } from '@rondocode/rondo'
 import { OPTIONS } from '../src/editor/rondo'
 
 /* ------------------------------------------------------------------------- *
@@ -41,7 +41,9 @@ describe('every named argument the table shows is real', () => {
 })
 
 describe('every example the table shows compiles', () => {
-  const BLOCK = /^(synth|play|beat|post|bus|sing|section|zonedef|wavedef|scaledef|curvedef|macro|bpm|cps|timesig|sidechain|master|stereo|level|song|patdef|visual|js|with)\b/
+  // the parser's own list, plus the body-level headers: this was a retyped
+  // copy, and `mask` arrived in BLOCK_KEYWORDS without arriving here
+  const BLOCK = new RegExp(`^(${[...BLOCK_KEYWORDS, 'post', 'with'].join('|')})\\b`)
   /* Fragments that cannot stand alone whatever you wrap them in: a nested
    * block header, or a line that needs siblings this test cannot invent. */
   const FRAGMENTS = new Set(['post', 'input', 'with', 'song', 'mini', 'note'])

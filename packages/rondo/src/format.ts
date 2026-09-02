@@ -3,14 +3,14 @@
  * The contract (pinned by test/format.test.ts):
  *   1. compile(format(src)).code === compile(src).code for every valid program
  *   2. format(format(src)) === format(src)  (idempotence)
- *   3. js escape hatches (js{ … } inline spans, js/visual block bodies) are
+ *   3. js escape hatches (js{ … } inline spans, js/visual/mask block bodies) are
  *      byte-preserved — the compiler treats them (near-)verbatim, so the
  *      formatter never touches a byte inside them.
  *
  * To guarantee (1) the formatter only rewrites whitespace the COMPILER also
  * treats as insignificant. Everything the compiler reads from raw line text
  * (play/beat notation, sing lyric/melody pairs, modifier values, bare
- * combinator lines, js/visual bodies) is left byte-for-byte alone; only
+ * combinator lines, js/visual/mask bodies) is left byte-for-byte alone; only
  * token-parsed lines (synth spines, bindings, headers, top-level statements)
  * get their interior spacing tidied, and only in ways that cannot change the
  * token stream. Line CLASSIFICATION reuses the real lexer + the parser's own
@@ -21,7 +21,7 @@
  *   - block indentation: 2 per level (synth/play/beat/bus/sing bodies at 2;
  *     section-nested play/beat headers at 2, their bodies at 4; a synth/sing
  *     `post` sub-block body nests +2 under the `post` line)
- *   - trailing whitespace stripped everywhere except js/visual block bodies
+ *   - trailing whitespace stripped everywhere except js/visual/mask block bodies
  *   - exactly one blank line between top-level blocks (inserted when missing,
  *     runs collapsed), none at file start, single trailing newline; a comment
  *     group directly above a block sticks to it (the blank goes above the
@@ -64,7 +64,7 @@ type Role = 'expr' | 'binding' | 'mod' | 'notation' | 'raw'
 type Plan =
   | { kind: 'blank' }
   | { kind: 'comment' }
-  | { kind: 'keep' } // js/visual block body: byte-identical, not even a trim
+  | { kind: 'keep' } // js/visual/mask block body: byte-identical, not even a trim
   | { kind: 'code'; role: Role; indent: number | null } // null = keep original
 
 /** Imported, not retyped: a one-line statement the parser accepts but the
@@ -159,7 +159,8 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
     }
     const isBlock =
       kw === 'synth' || kw === 'sing' || kw === 'play' || kw === 'beat' || kw === 'bus' ||
-      kw === 'section' || ((kw === 'js' || kw === 'visual') && ln.toks.length === 1)
+      kw === 'section' || ((kw === 'js' || kw === 'visual') && ln.toks.length === 1) ||
+      (kw === 'mask' && ln.toks.length === 2)
     if (!isBlock) {
       k++ // unknown block keyword — leave the line (and its body) alone
       continue
@@ -170,7 +171,7 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
     const body = LL.slice(k + 1, j)
     setPlan(ln, 'expr', 0)
 
-    if (kw === 'js' || kw === 'visual') {
+    if (kw === 'js' || kw === 'visual' || kw === 'mask') {
       // escape hatches are verbatim-with-indent in the compiler; the formatter
       // goes one further and keeps every byte, blank lines included
       if (body.length > 0) {
@@ -369,7 +370,7 @@ export function formatRondo(src: string): string {
 
 /** Format ONE line of a rondo document — the format-on-newline path. Returns
  *  the formatted text for line `lineNumber` (1-based), or null when the line
- *  is out of range or must not be touched (js/visual block bodies). Never
+ *  is out of range or must not be touched (js/visual/mask block bodies). Never
  *  requires the doc to compile; unclassifiable lines only lose trailing
  *  whitespace. Blank-line structure is untouched (this is strictly local). */
 export function formatRondoLine(src: string, lineNumber: number): string | null {

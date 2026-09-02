@@ -306,6 +306,15 @@ export interface VisualItem {
   pos: Pos
 }
 
+/** A `mask N` block: the painter body for LED-mask picture slot N, raw
+ *  JavaScript passed verbatim as the body of maskFrame(N, (x, y, w, h) => {…}). */
+export interface MaskItem {
+  t: 'mask'
+  slot: number
+  body: string
+  pos: Pos
+}
+
 /** `section NAME LEN` — a named block of nested plays, LEN cycles long.
  *  Sections stack their plays and sequence via arrange() (see SongItem). */
 export interface SectionBlock {
@@ -404,7 +413,7 @@ export interface RouteItem {
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
   | SidechainItem | MasterItem
-  | StereoItem | LevelItem | RouteItem | PatDefItem | BusBlock | VisualItem
+  | StereoItem | LevelItem | RouteItem | PatDefItem | BusBlock | VisualItem | MaskItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | ZoneDefItem | MacroItem | CurveDefItem
 
 export interface Program {

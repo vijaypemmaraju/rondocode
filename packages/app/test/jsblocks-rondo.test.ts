@@ -80,6 +80,11 @@ bpm 120
     expect(jsOf(doc)).not.toContain('bpm')
   })
 
+  it('finds the body of a `mask N` block, which is a JavaScript painter', () => {
+    const src = "synth z\n  saw\n\nmask 4\n  const r = Math.hypot(x, y)\n  return r < 9 ? '#f40' : null\n\nplay mask\n  4\n"
+    expect(jsOf(src)).toBe("  const r = Math.hypot(x, y)\n  return r < 9 ? '#f40' : null")
+  })
+
   it('is not opened by `js` used as anything but a header or a js{ span', () => {
     expect(jsRegionRanges('play js\n  0 3 5\n')).toEqual([])
     expect(jsRegionRanges('synth jsx\n  saw\n')).toEqual([])

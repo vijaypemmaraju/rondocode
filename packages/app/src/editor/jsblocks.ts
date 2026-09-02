@@ -11,7 +11,8 @@ import { visualHeaderIndent, inVisualBody } from './wgsl'
 
 /* ------------------------------------------------------------------------- *
  * JavaScript highlighting inside rondo's escape hatches: the body of a lone
- * `js` block and the inside of an inline `js{ … }` span are raw JavaScript,
+ * `js` block, of a `mask N` painter block, and the inside of an inline
+ * `js{ … }` span are raw JavaScript,
  * but the rondo tokenizer painted them by rondo's rules. That is worse than
  * colourless — `sample`, `gain`, `note` and `mix` are rondo vocabulary too, so
  * escaped JS came out coloured as though it were music (the same bug wgsl.ts
@@ -26,11 +27,12 @@ import { visualHeaderIndent, inVisualBody } from './wgsl'
 
 // ---- where the JavaScript is ---------------------------------------------
 
-/** The indent of a lone `js` header, or null for any other line. The parser
- *  opens the block form on exactly this (`js` alone on a line); `js{ … }` on
- *  the same line is the inline form, handled separately below. */
+/** The indent of a header that opens a raw-JavaScript body, or null for any
+ *  other line: a lone `js` (the parser opens the block form on exactly that;
+ *  `js{ … }` on the same line is the inline form, handled separately below),
+ *  or `mask N`, whose body is the LED mask painter for slot N. */
 export const jsHeaderIndent = (line: string): number | null =>
-  line.trim() === 'js' ? /^[ \t]*/.exec(line)![0].length : null
+  /^[ \t]*(?:js|mask[ \t]+\d+)[ \t]*$/.test(line) ? /^[ \t]*/.exec(line)![0].length : null
 
 /** Whether `line` is still inside a `js` block opened at `headerIndent`.
  *  A blank line does NOT close it, matching the parser's bodyLines. */

@@ -42,6 +42,8 @@ const ICONS: Record<string, string> = {
   dots: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
   // midi — a little keyboard
   midi: '<rect x="3" y="7" width="18" height="10" rx="1.5"/><path d="M8 7v6M12 7v6M16 7v6"/>',
+  // mask — the LED face (editor/mask.ts)
+  mask: '<path d="M4 8.5C4 5.5 7.5 4 12 4s8 1.5 8 4.5V13c0 4.5-4 7.5-8 7.5S4 17.5 4 13z"/><path d="M8 11h2.5M13.5 11H16"/><path d="M9 15.5c1.5 1.2 4.5 1.2 6 0"/>',
   // padlock — performance lock (text frozen, widgets live)
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   // gear — settings / options (lucide "settings" cog)

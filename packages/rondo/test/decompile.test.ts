@@ -295,6 +295,23 @@ describe('decompile round-trips (audit additions)', () => {
     expect(rondo2).toContain('    return vec4f(uv, 0.0, 1.0);') // nested indent kept
   })
 
+  it('mask blocks survive the round trip (the painter body verbatim, dedented)', () => {
+    const { rondo2 } = fixedPoint(
+      "synth z\n  saw\n\nmask 2\n  const r = Math.hypot(x - w / 2, y - h / 2)\n  if (r > 9) {\n    return null\n  }\n  return '#ff4400'\n\nplay mask\n  2\n",
+    )
+    expect(rondo2).toContain("mask 2\n  const r = Math.hypot(x - w / 2, y - h / 2)\n  if (r > 9) {\n    return null\n  }\n  return '#ff4400'\n")
+    expect(rondo2).not.toContain('js')
+  })
+
+  it('maskFrame with an expression body becomes a return line; other parameter names stay JavaScript', () => {
+    expect(decompile("maskFrame(3, (x, y) => x > y ? '#fff' : null)")).toBe("mask 3\n  return x > y ? '#fff' : null\n")
+    // the block compiles back to an arrow over exactly x, y, w, h: a painter
+    // written over other names would change meaning, so it is left as JS
+    expect(decompile("maskFrame(3, (a, b) => a > b ? '#fff' : null)")).toContain('js\n')
+    expect(decompile("maskFrame(0, (x, y) => null)")).toContain('js\n')
+    expect(decompile("maskFrame(slot, (x, y) => null)")).toContain('js\n')
+  })
+
   it('fast: ctrl values and pan: method modifiers round-trip', () => {
     const { rondo2 } = fixedPoint(
       'synth z\n  saw\n\nplay z\n  0 2\n  cutoff: sine 200..2400 fast:2\n  pan: sine slow:4\n',

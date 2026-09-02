@@ -1112,6 +1112,13 @@ function cgMacro(item: Extract<TopItem, { t: 'macro' }>): string {
   return `macro('${item.name}', ${num(item.def)}${parts.length > 0 ? `, { ${parts.join(', ')} }` : ''})`
 }
 
+function cgMask(item: Extract<TopItem, { t: 'mask' }>): string {
+  // the body is the painter's function body, verbatim: it returns a colour
+  // for (x, y) on a w×h panel, or null for off
+  const body = item.body.split('\n').map((l) => (l.length > 0 ? `  ${l}` : '')).join('\n')
+  return `maskFrame(${item.slot}, (x, y, w, h) => {\n${body}\n})`
+}
+
 function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
   // WGSL has no backticks/template holes, but escape defensively
   const body = item.wgsl.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
@@ -1399,6 +1406,7 @@ export function codegen(program: Program, errors: RondoError[]): CodegenOut {
     if (item.t === 'bus') return cgBus(item, errors, macroNames)
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
+    if (item.t === 'mask') return cgMask(item)
     if (item.t === 'section') {
       const out = cgSection(item, errors, macroNames, sectionsSoFar)
       sectionsSoFar.add(item.name)

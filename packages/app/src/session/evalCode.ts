@@ -6,6 +6,18 @@ import type { ControlMap, Hap, TimeSig } from '@rondocode/pattern'
 import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, micDevicesIn, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
+import { MASK_SLOT_MAX, MASK_SLOT_MIN, paintFrame } from '../mask/frame'
+import type { MaskFrame, MaskPainter } from '../mask/frame'
+import { MASK_SOUND } from '../mask/protocol'
+
+/** Sounds that are OUTPUTS OUTSIDE THE ENGINE. A pattern routed to one still
+ *  runs through the scheduler and reaches onPatternEvents (where the mask
+ *  module picks it up, mask/output.ts), but Session.dispatchEvents never turns
+ *  it into engine messages: there is no synth by that name, and every step
+ *  would otherwise log `unknown synth`. The same set is why defineSynth
+ *  refuses these names: a synth called `mask` would compile and never be
+ *  heard. */
+export const EXTERNAL_OUTPUTS: ReadonlySet<string> = new Set([MASK_SOUND])
 
 /* ------------------------------------------------------------------------- *
  * evalCode: source text in, STAGED registrations out. This is the pure core
@@ -176,6 +188,10 @@ export interface EvalResult {
    *  loadSamplePcm's it under sampleName; the sampler synth + trigger pattern are
    *  already in `synths`/`patterns`, so the clip plays once loaded. */
   sings: SingRequest[]
+  /** Staged maskFrame() pictures by DIY slot, for the LED mask (mask/). Not
+   *  audio: the offline render never sees them, the live mask module diffs
+   *  them against what the connected mask holds and uploads the changes. */
+  maskFrames: Map<number, MaskFrame>
 }
 
 /** Tempo bounds shared with the Session (setCps and transport clamp alike). */
@@ -185,7 +201,7 @@ const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 /** Names injected per-eval; never taken from the caller's scope object.
  *  EXPORTED so the docs-coverage test can check itself against this list
  *  instead of keeping a second copy that drifts (docs.test.ts). */
-export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', 'route', '__rcTap'])
+export const STAGING_NAMES = new Set(['p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', 'route', 'maskFrame', '__rcTap'])
 
 /** DSL sidechain defaults. `release` is MILLISECONDS, like every other
  *  release in the language — it used to be seconds here and only here, so the
@@ -678,7 +694,7 @@ const detectMonoChords = (
 export function evalCode(source: string, scope: Record<string, unknown>): EvalResult {
   const parsed = parseSource(source)
   if ('error' in parsed) {
-    return { ok: false, diagnostics: [parsed.error], synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
+    return { ok: false, diagnostics: [parsed.error], synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [], maskFrames: new Map() }
   }
   const { program } = parsed
   const { transformed, warnings } = transformSynthDecls(source, program)
@@ -702,6 +718,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
   let masterGainDb: number | undefined
   let stereoCfg: { width?: number; monoBelow?: number } | undefined
   let visualSrc: string | undefined
+  const maskFrames = new Map<number, MaskFrame>()
 
   // Staging is SEALED once the synchronous eval returns: a p() reached from
   // a timer/promise would otherwise silently vanish (its eval's maps are
@@ -756,6 +773,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
     if (singNames.has(name)) {
       throw new TypeError(`synth '${name}' collides with a sing() vocal of the same name — rename one`)
+    }
+    if (EXTERNAL_OUTPUTS.has(name)) {
+      throw new TypeError(`'${name}' is the sound name of the LED mask output, so a synth called '${name}' would never be heard — rename it`)
     }
     synths.set(name, def as SynthDef)
   }
@@ -925,6 +945,20 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
       throw new TypeError('visual(): shader source must be a string (a WGSL template literal)')
     }
     visualSrc = wgsl
+  }
+
+  /** Paint a picture for a DIY slot on the LED mask (see docs 'LED mask').
+   *  The painter runs NOW, once per pixel, so a bad colour fails on this line
+   *  rather than five seconds into an upload. Last call per slot wins. */
+  const maskFrame = (slot: unknown, paint: unknown): void => {
+    assertOpen('maskFrame')
+    if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < MASK_SLOT_MIN || slot > MASK_SLOT_MAX) {
+      throw new RangeError(`maskFrame(): slot must be a whole number ${MASK_SLOT_MIN}..${MASK_SLOT_MAX}, got ${JSON.stringify(slot)}`)
+    }
+    if (typeof paint !== 'function') {
+      throw new TypeError('maskFrame(): second argument must be a painter, (x, y) => colour')
+    }
+    maskFrames.set(slot, paintFrame(paint as MaskPainter))
   }
 
   /** Declare a shared send bus: a named FX chain that synths feed. `fxFn` is a
@@ -1103,8 +1137,8 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     names.push(key)
     values.push(value)
   }
-  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', 'route', '__rcTap')
-  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, stereo, visual, bus, sing, route, tapLoc)
+  names.push('p', 'defineSynth', 'setCps', 'setBpm', 'setTimeSig', 'sidechain', 'masterCompress', 'masterGain', 'stereo', 'visual', 'bus', 'sing', 'route', 'maskFrame', '__rcTap')
+  values.push(p, defineSynth, setCps, setBpm, setTimeSig, sidechain, masterCompress, masterGain, stereo, visual, bus, sing, route, maskFrame, tapLoc)
 
   // Custom-scale registry lifecycle. defineScale (from the scope) writes a
   // MODULE-GLOBAL registry in the pattern package, the one exception to
@@ -1150,7 +1184,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     restoreCustomWavetables(priorWavetables)
     restoreMacros(priorMacros)
     restoreCurveShapes(priorShapes)
-    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
+    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [], maskFrames: new Map() }
   } finally {
     sealed = true
   }
@@ -1178,7 +1212,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     restoreCustomWavetables(priorWavetables) // ...and the wavetables with them
     restoreMacros(priorMacros) // ...and the macros
     restoreCurveShapes(priorShapes) // ...and the named curve shapes
-    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [] }
+    return { ok: false, diagnostics, synths: new Map(), patterns: new Map(), buses: new Map(), sends: [], sings: [], maskFrames: new Map() }
   }
   // Non-fatal: warn about a chord routed to a mono synth (plays, but collapses).
   diagnostics.push(...detectMonoChords(synths, scanned))
@@ -1210,7 +1244,7 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
   }
 
-  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings: keptSings }
+  const result: EvalResult = { ok: true, diagnostics, synths, patterns, buses, sends, sings: keptSings, maskFrames }
   // Resolve the tempo LAST, now that the meter is known however it was
   // ordered: `bpm 120` under `timesig 3 4` is 0.667 cps, not 0.5.
   if (tempo !== undefined) {

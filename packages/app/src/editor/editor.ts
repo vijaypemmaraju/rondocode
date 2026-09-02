@@ -48,6 +48,7 @@ import { synthScopes } from './rondo/scope'
 import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import { tabGet, tabSet } from '../session/tabstore'
+import type { MaskFrame } from '../mask/frame'
 
 /* ------------------------------------------------------------------------- *
  * The live-coding editor shell: header (logo, example picker, master
@@ -189,6 +190,10 @@ export interface EditorHandle {
    *  hit_<name> channels). Replays immediately on subscribe. Returns
    *  an unsubscribe function. */
   onVisual(fn: (wgsl: string | null, synths: string[]) => void): () => void
+  /** Subscribe to the LED mask pictures: the maskFrame() slots from the last
+   *  good eval. Replays immediately on subscribe. Returns an unsubscribe
+   *  function. */
+  onMaskFrames(fn: (frames: ReadonlyMap<number, MaskFrame>) => void): () => void
   /** Subscribe to value-probe targets: every modulation expression the last
    *  good eval tagged (synth + node id + source char-range). The live-readout
    *  feature picks which to show and calls session.setProbes. Replays the last
@@ -921,6 +926,15 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     return () => visualListeners.delete(fn)
   }
 
+  // Mask pictures fanout: the Session fires onMaskFrames on each good eval.
+  const maskFrameListeners = new Set<(frames: ReadonlyMap<number, MaskFrame>) => void>()
+  let lastMaskFrames: ReadonlyMap<number, MaskFrame> = new Map()
+  const subscribeMaskFrames = (fn: (frames: ReadonlyMap<number, MaskFrame>) => void): (() => void) => {
+    maskFrameListeners.add(fn)
+    fn(lastMaskFrames)
+    return () => maskFrameListeners.delete(fn)
+  }
+
   // Value-probe targets fanout: the Session fires onProbes on each good eval
   // with every tagged modulation expression; the live-readout feature subscribes.
   const probeListeners = new Set<(targets: ProbeTarget[]) => void>()
@@ -1004,6 +1018,16 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
           fn(wgsl, synths)
         } catch (e) {
           console.warn('[editor] visual listener failed', e)
+        }
+      }
+    },
+    onMaskFrames: (frames) => {
+      lastMaskFrames = frames
+      for (const fn of maskFrameListeners) {
+        try {
+          fn(frames)
+        } catch (e) {
+          console.warn('[editor] mask-frames listener failed', e)
         }
       }
     },
@@ -1127,6 +1151,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     onState: subscribeState,
     onPatternEvents: subscribePatternEvents,
     onVisual: subscribeVisual,
+    onMaskFrames: subscribeMaskFrames,
     onProbeTargets: subscribeProbes,
     getDoc: () => view.state.doc.toString(),
     loadCode,

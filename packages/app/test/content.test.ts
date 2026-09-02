@@ -6,6 +6,7 @@ import { compile } from '@rondocode/rondo'
 import { SECTIONS } from '../src/docs/content'
 import { evalCode } from '../src/session/evalCode'
 import { baseScope } from '../src/session/scope'
+import { EXTERNAL_OUTPUTS } from '../src/session/Session'
 
 /* The guide claims every code block is a COMPLETE, copy-paste-ready program
  * (content.ts header). Pin that: every kind:'code' block must eval clean
@@ -67,10 +68,11 @@ describe('docs guide snippets', () => {
       // the examples bar: sounding events routed to synths this snippet defines
       const span = new TimeSpan(F(0), F(2))
       for (const [name, pat] of result.patterns) {
-        const sounding = pat
-          .query(span)
-          .filter(hasOnset)
-          .filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
+        const onsets = pat.query(span).filter(hasOnset)
+        // a pattern routed to an output outside the engine (the LED mask)
+        // does not sound; it has to have events, and every one must go there
+        if (onsets.length > 0 && onsets.every((h) => EXTERNAL_OUTPUTS.has(h.value.sound as string))) continue
+        const sounding = onsets.filter((h) => typeof h.value.note === 'number' && typeof h.value.sound === 'string')
         expect(sounding.length, `pattern '${name}' produces no sounding events`).toBeGreaterThanOrEqual(1)
         for (const h of sounding) {
           expect(result.synths.has(h.value.sound as string), `pattern '${name}' routes to undefined sound '${String(h.value.sound)}'`).toBe(true)

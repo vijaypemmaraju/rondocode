@@ -130,13 +130,15 @@ export interface RunOpts {
 /**
  * Drive a virtual-clock Scheduler over `cycles` whole cycles and route every
  * onset to its synth's RenderEvent list (keyed by controls.sound — events
- * lacking a string `sound` or numeric `note` are skipped, exactly like the
- * browser Session). Includes sounds with no staged synth — the caller
- * decides whether that's an error worth reporting.
+ * lacking a string `sound` are skipped, exactly like the browser Session).
+ * Includes sounds with no staged synth — the caller decides whether that's
+ * an error worth reporting.
  *
  * Per event: one noteOn (velocity = gain, default 1), one noteOff shortened
  * by the gate gap (see GATE_GAP_SEC), and one param event per numeric
- * non-transport control sampled at the onset.
+ * non-transport control sampled at the onset. An event with no numeric
+ * `note` is AUTOMATION (what sing() stacks under its trigger): its params
+ * only, no gate.
  */
 export function runPatterns(
   patterns: Map<string, Pattern<ControlMap>>,
@@ -155,7 +157,7 @@ export function runPatterns(
         if (ev.cycle >= cycles) continue
         const sound = ev.controls.sound
         const midi = ev.controls.note
-        if (typeof sound !== 'string' || typeof midi !== 'number') continue
+        if (typeof sound !== 'string') continue
         let list = bySynth.get(sound)
         if (list === undefined) {
           list = []
@@ -165,6 +167,8 @@ export function runPatterns(
           if (NON_PARAM_KEYS.has(key) || typeof value !== 'number') continue
           list.push({ time: ev.timeSec, type: 'param', name: key, value })
         }
+        // automation (a sound, no note): params only, no gate, same as live
+        if (typeof midi !== 'number') continue
         const velocity = typeof ev.controls.gain === 'number' ? ev.controls.gain : 1
         // per-note sample slice (.chop): forwarded onto the noteOn, same as live
         const begin = typeof ev.controls.begin === 'number' ? ev.controls.begin : undefined

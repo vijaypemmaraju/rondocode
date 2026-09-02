@@ -103,6 +103,32 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
       }
     }
   }
+  /** A synth or sing body at `base`: its lines at `base`, an optional trailing
+   *  `post` sub-block with the keyword at `base` and its lines at `base + 2`. */
+  const planVoiceBody = (body: Line[], kw: 'synth' | 'sing', base: number): void => {
+    const pIdx = body.findIndex(isPostLine)
+    const voice = pIdx >= 0 ? body.slice(0, pIdx) : body
+    const post = pIdx >= 0 ? body.slice(pIdx + 1) : []
+    // `post must be the last section` — anything at or above its indent
+    // after it is a parse error; leave such a block's body untouched
+    if (pIdx >= 0 && post.some((b) => b.indent <= body[pIdx]!.indent)) return
+    if (kw === 'synth') {
+      for (const b of voice) setPlan(b, isBinding(b) ? 'binding' : 'expr', base)
+    } else {
+      let inMods = false
+      for (const b of voice) {
+        if (!inMods && !isModifierLine(b)) setPlan(b, 'raw', base) // lyric/melody pair
+        else {
+          inMods = true
+          setPlan(b, 'mod', base)
+        }
+      }
+    }
+    if (pIdx >= 0) {
+      setPlan(body[pIdx]!, 'expr', base)
+      for (const b of post) setPlan(b, isBinding(b) ? 'binding' : 'expr', base + 2)
+    }
+  }
 
   let k = 0
   while (k < LL.length) {
@@ -152,42 +178,20 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
         for (let s = ln.line; s <= lastSrc; s++) plans[s] = { kind: 'keep' }
       }
     } else if (kw === 'synth' || kw === 'sing') {
-      const pIdx = body.findIndex(isPostLine)
-      const voice = pIdx >= 0 ? body.slice(0, pIdx) : body
-      const post = pIdx >= 0 ? body.slice(pIdx + 1) : []
-      // `post must be the last section` — anything at or above its indent
-      // after it is a parse error; leave such a block's body untouched
-      if (pIdx >= 0 && post.some((b) => b.indent <= body[pIdx]!.indent)) {
-        k = j
-        continue
-      }
-      if (kw === 'synth') {
-        for (const b of voice) setPlan(b, isBinding(b) ? 'binding' : 'expr', 2)
-      } else {
-        let inMods = false
-        for (const b of voice) {
-          if (!inMods && !isModifierLine(b)) setPlan(b, 'raw', 2) // lyric/melody pair
-          else {
-            inMods = true
-            setPlan(b, 'mod', 2)
-          }
-        }
-      }
-      if (pIdx >= 0) {
-        setPlan(body[pIdx]!, 'expr', 2)
-        for (const b of post) setPlan(b, isBinding(b) ? 'binding' : 'expr', 4)
-      }
+      planVoiceBody(body, kw, 2)
     } else if (kw === 'play' || kw === 'beat') {
       planPlayBody(body, kw, 2)
     } else if (kw === 'bus') {
       for (const b of body) setPlan(b, isBinding(b) ? 'binding' : 'expr', 2)
     } else {
-      // section: nested play/beat headers at 2, their bodies at 4
+      // section: nested play/beat/sing headers at 2, their bodies at 4 (a
+      // nested sing's `post` line at 4 and ITS lines at 6, as planVoiceBody
+      // lays out from the base)
       let m = 0
       while (m < body.length) {
         const bl = body[m]!
         const bh = bl.toks[0]
-        if (bh !== undefined && bh.k === 'ident' && (bh.v === 'play' || bh.v === 'beat')) {
+        if (bh !== undefined && bh.k === 'ident' && (bh.v === 'play' || bh.v === 'beat' || bh.v === 'sing')) {
           setPlan(bl, 'expr', 2)
           const nb: Line[] = []
           let q = m + 1
@@ -195,16 +199,18 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
             nb.push(body[q]!)
             q++
           }
-          planPlayBody(nb, bh.v, 4)
+          if (bh.v === 'sing') planVoiceBody(nb, 'sing', 4)
+          else planPlayBody(nb, bh.v, 4)
           m = q
         } else {
-          m++ // not a play/beat (parse error) — leave it alone
+          m++ // not a nested block (parse error) — leave it alone
         }
       }
     }
     k = j
   }
   return { lines, plans }
+
 }
 
 /* ---- interior transforms ---------------------------------------------------- */

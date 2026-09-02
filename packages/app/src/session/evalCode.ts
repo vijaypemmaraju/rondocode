@@ -1,7 +1,7 @@
 import { parse } from 'acorn'
 import type { Expression, Program } from 'acorn'
 import { simple as walkSimple } from 'acorn-walk'
-import { MiniError, Pattern, note, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
+import { MiniError, Pattern, note, automation, TimeSpan, F, hasOnset, bpmToCps, quartersPerBar, DEFAULT_TIME_SIG, clearCustomScales, snapshotCustomScales, restoreCustomScales, setMacroValue, clearMacroValues, clearCurveShapes, snapshotCurveShapes, restoreCurveShapes } from '@rondocode/pattern'
 import type { ControlMap, Hap, TimeSig } from '@rondocode/pattern'
 import { RESERVED_PARAM_NAMES, busGraph, tapLoc, synth, micDevicesIn, usesMicIn, clearCustomWavetables, snapshotCustomWavetables, restoreCustomWavetables, clearMacros, snapshotMacros, restoreMacros, getMacros } from '@rondocode/engine'
 import type { SynthDef, GraphSpec } from '@rondocode/engine'
@@ -87,6 +87,11 @@ export interface SingRequest {
    *  clip is that long, and the trigger fires once per `cycles`. */
   cycles: number
 }
+
+/** Automation steps per cycle under a sing() trigger: a 16th grid, so a
+ *  patterned post param moves at the same resolution a `<a b c d>` value
+ *  pattern is usually written in. A step holds until the next one. */
+export const SING_AUTOMATION_RATE = 16
 
 /** djb2 string hash → short stable id (for the per-sing sample/synth names). */
 function singId(s: string): string {
@@ -1057,7 +1062,14 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     // 16 bars, not every bar. Returned (not auto-registered) — the caller
     // wraps it in p(...).
     const trig = note('c4').sound(synthName) as unknown as Pattern<ControlMap>
-    return (cycles === 1 ? trig : trig.slow(cycles)) as Pattern<ControlMap>
+    /* CONTINUOUS PARAMS. A param on a note lands when the note does, and a
+     * vocal has one note per phrase: `.ctrl('mix', '<.2 .8>')` on a 4-bar
+     * phrase moved once every 4 bars, which read as automation that does not
+     * work. The automation grid under the trigger carries the same .ctrl()
+     * values (a method on the stack reaches both) at SING_AUTOMATION_RATE
+     * steps a cycle, whatever the phrase length. */
+    const auto = automation(synthName, SING_AUTOMATION_RATE)
+    return Pattern.stack(cycles === 1 ? trig : trig.slow(cycles), auto) as Pattern<ControlMap>
   }
 
   /** Hardware output routing: route('click', 3, 4) sends that synth's strip

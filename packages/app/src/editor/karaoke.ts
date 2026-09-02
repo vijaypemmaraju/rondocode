@@ -275,6 +275,14 @@ export const karaokeField: StateField<DecorationSet> = StateField.define<Decorat
 
 export const karaokeExtension: Extension = karaokeField
 
+/** The vocal's TRIGGER: the one event per phrase karaoke times against. The
+ *  automation grid sing() stacks under it names the same sound sixteen times
+ *  a cycle with no note, and none of those is where the phrase starts. */
+export const isSingTrigger = (ev: SchedulerEvent, isSing: (sound: string) => boolean): boolean => {
+  const c = ev.controls as { sound?: unknown; note?: unknown }
+  return typeof c.sound === 'string' && isSing(c.sound) && typeof c.note === 'number' && ev.durSec > 0
+}
+
 /** Drive the highlight: subscribe to pattern events for the sing trigger's
  *  timing, and each animation frame map the audio-clock phase to a syllable/note.
  *  Returns a disposer. `opts` supplies the doc text, play state, an event
@@ -302,8 +310,7 @@ export function mountKaraoke(
   let haveTrig = false
   const unsubEv = opts.subscribeEvents((evs) => {
     for (const ev of evs) {
-      const snd = (ev.controls as { sound?: unknown }).sound
-      if (typeof snd === 'string' && isSing(snd) && ev.durSec > 0) {
+      if (isSingTrigger(ev, isSing)) {
         trigTime = ev.timeSec
         trigDur = ev.durSec
         haveTrig = true

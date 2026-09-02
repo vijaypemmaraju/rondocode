@@ -9,6 +9,7 @@ import {
   chord,
   sound,
   s,
+  automation,
   sine,
   sine2,
   cosine,
@@ -86,6 +87,10 @@ export const baseScope: Readonly<Record<string, unknown>> = Object.freeze({
   s,
   mini,
   m,
+  // automation(synth, perCycle): a grid of note-less events that set params
+  // and open no gate, for a .ctrl() to move a synth's knob between notes.
+  // sing() stacks one under its trigger (see evalCode).
+  automation,
   // pattern constructors
   cat: <T>(...args: (T | Pattern<T>)[]) => Pattern.cat(...args),
   fastcat: <T>(...args: (T | Pattern<T>)[]) => Pattern.fastcat(...args),

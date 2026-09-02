@@ -76,6 +76,12 @@ const GLOBALS: DocEntry[] = [
   ),
   g('s', 's(name: string | Pattern<string>)', 'Short alias for sound().', "s('kick hat')"),
   g(
+    'automation',
+    'automation(synth: string, perCycle = 16)',
+    'A grid of note-less events on a synth: each sets the params written on it (by .ctrl) and opens no gate, so a knob can move between notes instead of once per note. sing() stacks one under its trigger, which is how a patterned post param moves through a phrase.',
+    "stack(note('c2').sound('bass'), automation('bass', 16).ctrl('cutoff', sine.range(200, 2000)))",
+  ),
+  g(
     'mini',
     'mini(src: string)',
     'Parse a mini-notation string into a bare value pattern (no controls attached).',

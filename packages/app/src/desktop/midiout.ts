@@ -34,6 +34,29 @@ export interface OutEvent {
   velocity?: number
 }
 
+/** Scheduler events → the notes to send. A note-less event with a sound is
+ *  AUTOMATION (it sets params and opens no gate; sing() stacks a grid of them
+ *  under its trigger), which a MIDI note stream has no place for. */
+export function toOutEvents(
+  evs: readonly { timeSec: number; durSec: number; controls: Record<string, unknown> }[],
+): OutEvent[] {
+  const out: OutEvent[] = []
+  for (const ev of evs) {
+    const note = ev.controls['note']
+    if (typeof note !== 'number') continue
+    const sound = ev.controls['sound']
+    const gain = ev.controls['gain']
+    out.push({
+      note,
+      timeSec: ev.timeSec,
+      durSec: ev.durSec,
+      ...(typeof sound === 'string' ? { sound } : {}),
+      ...(typeof gain === 'number' ? { velocity: gain } : {}),
+    })
+  }
+  return out
+}
+
 const NOTE_ON = 0x90
 const NOTE_OFF = 0x80
 /** MIDI has 16 channels; a 17th sound wraps rather than vanishing. */

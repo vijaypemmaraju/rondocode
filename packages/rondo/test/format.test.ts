@@ -37,6 +37,16 @@ describe('indentation', () => {
     const src = 'synth k\n  sine\n\nsection drop 4\n   beat\n     k ~ k ~\n'
     expect(fmt(src)).toBe('synth k\n  sine\n\nsection drop 4\n  beat\n    k ~ k ~\n')
   })
+
+  it('a sing block nested in a section: header at 2, pairs and mods at 4, post at 4 with its lines at 6', () => {
+    // sing blocks became legal inside sections (#415); the section branch only
+    // knew play/beat, so this whole block used to be left as typed
+    const src = 'section verse 4\n      sing vox voice:barbara\n            la   la\n            c4   e4\n            gain: .9\n         post\n                reverb  mix:.22\n'
+    const out = fmt(src)
+    expect(out).toBe('section verse 4\n  sing vox voice:barbara\n    la   la\n    c4   e4\n    gain: .9\n    post\n      reverb  mix:.22\n')
+    // and the result still means the same thing
+    expect(compile(out).ok).toBe(true)
+  })
 })
 
 describe('blank lines and trailing whitespace', () => {

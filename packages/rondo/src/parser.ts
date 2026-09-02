@@ -749,6 +749,21 @@ export function isModifierLine(ln: Line, kind: 'play' | 'beat' = 'play'): boolea
   return COMB_WORDS.has(first)
 }
 
+/** Does this sing-body line read as an EFFECT (`reverb mix:.22`, `lowpass
+ *  4200`) rather than a lyric or a melody? A processor name in the melody slot
+ *  is never a note; in the lyric slot it needs arguments after it, so a lyric
+ *  that happens to start with "echo" or "delay" still sings. */
+export function looksLikeFxLine(ln: Line, melodySlot: boolean): boolean {
+  const m = /^([a-zA-Z_]\w*)(.*)$/.exec(ln.raw)
+  if (m === null) return false
+  const kind = BUILTINS[m[1]!]?.kind
+  if (kind !== 'proc' && kind !== 'sigop') return false
+  if (melodySlot) return true
+  const rest = m[2]!.trim()
+  // arguments only: numbers, `name:value` pairs, ranges (`80..8000`)
+  return rest !== '' && /^((-?[\d.]+(\.\.-?[\d.]+)?|[a-zA-Z_]\w*:\S+)([ \t]+|$))+$/.test(rest)
+}
+
 /** Extract notation text (before an inline `scale:`) from a body line.
  *  The name char class includes uppercase + underscore so long mode names
  *  (`minorPentatonic`) and `scaledef` names round-trip whole. */
@@ -973,7 +988,17 @@ function parseSing(lines: Line[], i: number, errors: RondoError[]): { block: Sin
     if (modLines.length === 0 && !isModifierLine(ln)) pairLines.push(ln)
     else modLines.push(ln)
   }
-  if (pairLines.length === 0) {
+  // An effect written straight into the body (`reverb mix:.22` without the
+  // `post` keyword) is not a modifier, so it used to land here as a lyric or a
+  // melody line and surface as the unrelated "lines come in pairs" error. Say
+  // what it looks like and where it goes instead.
+  const fxLine = pairLines.findIndex((ln, k) => looksLikeFxLine(ln, k % 2 === 1))
+  if (fxLine >= 0) {
+    const ln = pairLines[fxLine]!
+    const word = /^[a-zA-Z_]\w*/.exec(ln.raw)![0]
+    errors.push({ message: `\`${word}\` is an effect: put it under a \`post\` line at the end of the sing block`, line: ln.line, col: ln.rawCol })
+    pairLines.splice(fxLine)
+  } else if (pairLines.length === 0) {
     errors.push({ message: 'sing needs lyric/melody line pairs (lyrics above, notes below)', line: header.line, col: header.rawCol })
   } else if (pairLines.length % 2 !== 0) {
     errors.push({ message: 'sing lines come in pairs — each LYRIC line needs a MELODY line under it', line: pairLines[pairLines.length - 1]!.line, col: pairLines[pairLines.length - 1]!.rawCol })

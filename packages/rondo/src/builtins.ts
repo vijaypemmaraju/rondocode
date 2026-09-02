@@ -233,7 +233,7 @@ export const isReservedBinding = (name: string): boolean =>
  * a cache; a copy that is not is the bug this repo keeps finding.
  * ------------------------------------------------------------------------- */
 export const RESERVED_TOP_LEVEL: ReadonlySet<string> = new Set([
-  'arrange', 'bus', 'cat', 'chord', 'cosine', 'curve', 'curvedef',
+  'arrange', 'automation', 'bus', 'cat', 'chord', 'cosine', 'curve', 'curvedef',
   'defineScale', 'defineSynth', 'defineWavetable', 'fall', 'fastcat',
   'irand', 'isaw', 'm', 'macro', 'macroNum', 'macroval', 'masterCompress',
   'masterGain', 'mini', 'n', 'note', 'p', 'perlin', 'pick', 'rand', 'reify',

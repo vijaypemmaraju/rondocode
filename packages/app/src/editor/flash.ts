@@ -483,8 +483,9 @@ export class EventFlasher {
         const slot = this.slotAt(ev.cycle)
         const active = slot === undefined ? undefined : this.activeAt(slot)
         // loc-less events (patterns built from signals, not mini strings)
-        // PULSE their channel's registered span instead of an atom flash
-        const pulseRanges = loc === undefined && locs.length === 0
+        // PULSE their channel's registered span instead of an atom flash;
+        // automation (a sound, no note) lights only the notation it sampled
+        const pulseRanges = loc === undefined && locs.length === 0 && typeof ev.controls.note === 'number'
           ? this.pulseRangesFor(ev.controls, active)
           : []
         if (loc === undefined && locs.length === 0 && pulseRanges.length === 0) continue

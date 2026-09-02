@@ -1555,7 +1555,7 @@ cps .5`,
           ['`0` or a note name', 'a beat with no picture of its own', 'for a `face:` or `anim:` lane to land on'],
         ],
       ),
-      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, and a face over an animation. Give a face lane its own grid with `0 0 0 0` and it steps cleanly.'),
+      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, and a face over an animation. Give a face lane its own grid with `0 0 0 0` and it steps cleanly. The name is taken: a synth called `mask` would compile and never be heard, so the run refuses it and says so.'),
       p('Pictures are painted in code. A `mask N` block is the painter for slot N: its body is JavaScript, called once per pixel with `x`, `y` and the panel size `w`, `h`, and it returns a colour, a grey level 0 to 1, an `[r, g, b]` triple 0 to 1, a `#hex` string, or null for off. In JavaScript the same painter is `maskFrame(slot, (x, y, w, h) => ...)`.'),
       code(
         'The same two rings, in JavaScript.',

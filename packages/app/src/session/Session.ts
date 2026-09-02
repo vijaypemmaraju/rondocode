@@ -11,11 +11,12 @@ import type { EngineEvent, EngineMessage, SynthDef } from '@rondocode/engine'
  *  bypass this entirely (patchConstants, applied immediately/continuously). */
 export const REBUILD_DEBOUNCE_MS = 120
 import { ensureDdspModels, ddspModelNamesInGraph } from '../audio/ddspModels'
-import { clampCps, evalCode } from './evalCode'
+import { EXTERNAL_OUTPUTS, clampCps, evalCode } from './evalCode'
 import type { Diagnostic, EvalResult } from './evalCode'
 import { baseScope } from './scope'
 import type { MaskFrame } from '../mask/frame'
-import { MASK_SOUND } from '../mask/protocol'
+
+export { EXTERNAL_OUTPUTS }
 
 /* ------------------------------------------------------------------------- *
  * Session: the stateful command layer between code text and live sound.
@@ -184,13 +185,6 @@ export interface SessionOpts {
  *  working patch logged `unknown param 'nAcc'` on exactly the notes that
  *  carried one — which reads as random. */
 const NON_PARAM_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
-
-/** Sounds that are OUTPUTS OUTSIDE THE ENGINE. A pattern routed to one still
- *  runs through the scheduler and reaches onPatternEvents (where the mask
- *  module picks it up, mask/output.ts), but dispatchEvents never turns it into
- *  engine messages: there is no synth by that name, and every step would
- *  otherwise log `unknown synth`. */
-export const EXTERNAL_OUTPUTS: ReadonlySet<string> = new Set([MASK_SOUND])
 
 /** See dispatchEvents: guaranteed low-gate window between back-to-back
  *  same-note events so envelopes re-attack. */

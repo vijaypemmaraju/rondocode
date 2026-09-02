@@ -8,6 +8,16 @@ import type { SynthDef, GraphSpec } from '@rondocode/engine'
 import { parseMelodyMini } from '../sing/warp'
 import { MASK_SLOT_MAX, MASK_SLOT_MIN, paintFrame } from '../mask/frame'
 import type { MaskFrame, MaskPainter } from '../mask/frame'
+import { MASK_SOUND } from '../mask/protocol'
+
+/** Sounds that are OUTPUTS OUTSIDE THE ENGINE. A pattern routed to one still
+ *  runs through the scheduler and reaches onPatternEvents (where the mask
+ *  module picks it up, mask/output.ts), but Session.dispatchEvents never turns
+ *  it into engine messages: there is no synth by that name, and every step
+ *  would otherwise log `unknown synth`. The same set is why defineSynth
+ *  refuses these names: a synth called `mask` would compile and never be
+ *  heard. */
+export const EXTERNAL_OUTPUTS: ReadonlySet<string> = new Set([MASK_SOUND])
 
 /* ------------------------------------------------------------------------- *
  * evalCode: source text in, STAGED registrations out. This is the pure core
@@ -763,6 +773,9 @@ export function evalCode(source: string, scope: Record<string, unknown>): EvalRe
     }
     if (singNames.has(name)) {
       throw new TypeError(`synth '${name}' collides with a sing() vocal of the same name — rename one`)
+    }
+    if (EXTERNAL_OUTPUTS.has(name)) {
+      throw new TypeError(`'${name}' is the sound name of the LED mask output, so a synth called '${name}' would never be heard — rename it`)
     }
     synths.set(name, def as SynthDef)
   }

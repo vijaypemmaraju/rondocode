@@ -14,6 +14,8 @@ import { ensureDdspModels, ddspModelNamesInGraph } from '../audio/ddspModels'
 import { clampCps, evalCode } from './evalCode'
 import type { Diagnostic, EvalResult } from './evalCode'
 import { baseScope } from './scope'
+import type { MaskFrame } from '../mask/frame'
+import { MASK_SOUND } from '../mask/protocol'
 
 /* ------------------------------------------------------------------------- *
  * Session: the stateful command layer between code text and live sound.
@@ -154,6 +156,11 @@ export interface SessionOpts {
    *  — the GPU visualizer generates per-synth hit_<name> channels from them and
    *  recompiles live. Not fired on a failed eval (last-good). */
   onVisual?: (wgsl: string | null, synths: string[]) => void
+  /** Fired on every SUCCESSFUL eval with the pictures the program staged for
+   *  the LED mask (maskFrame(slot, painter)), by slot; an empty map when it
+   *  staged none. The mask output diffs them against what the device holds.
+   *  Not fired on a failed eval (last-good). */
+  onMaskFrames?: (frames: ReadonlyMap<number, MaskFrame>) => void
   /** Fired on every SUCCESSFUL eval with the value-probe targets: every
    *  modulation expression the evaluator tagged (synth + voice-graph node id +
    *  source char-range). The editor picks which to show as live readouts and
@@ -177,6 +184,13 @@ export interface SessionOpts {
  *  working patch logged `unknown param 'nAcc'` on exactly the notes that
  *  carried one — which reads as random. */
 const NON_PARAM_KEYS: ReadonlySet<string> = RESERVED_PARAM_NAMES
+
+/** Sounds that are OUTPUTS OUTSIDE THE ENGINE. A pattern routed to one still
+ *  runs through the scheduler and reaches onPatternEvents (where the mask
+ *  module picks it up, mask/output.ts), but dispatchEvents never turns it into
+ *  engine messages: there is no synth by that name, and every step would
+ *  otherwise log `unknown synth`. */
+export const EXTERNAL_OUTPUTS: ReadonlySet<string> = new Set([MASK_SOUND])
 
 /** See dispatchEvents: guaranteed low-gate window between back-to-back
  *  same-note events so envelopes re-attack. */
@@ -209,6 +223,7 @@ export class Session {
   private readonly onEngineEvent: ((ev: EngineEvent) => void) | undefined
   private readonly onPatternEvents: ((evs: SchedulerEvent[]) => void) | undefined
   private readonly onVisual: ((wgsl: string | null, synths: string[]) => void) | undefined
+  private readonly onMaskFrames: ((frames: ReadonlyMap<number, MaskFrame>) => void) | undefined
   private readonly onProbes: ((targets: ProbeTarget[]) => void) | undefined
   private readonly setIntervalImpl: SetIntervalImpl | undefined
   private readonly clearIntervalImpl: ClearIntervalImpl | undefined
@@ -285,6 +300,7 @@ export class Session {
     this.onEngineEvent = opts.onEngineEvent
     this.onPatternEvents = opts.onPatternEvents
     this.onVisual = opts.onVisual
+    this.onMaskFrames = opts.onMaskFrames
     this.onProbes = opts.onProbes
     this.setIntervalImpl = opts.setIntervalImpl
     this.clearIntervalImpl = opts.clearIntervalImpl
@@ -497,6 +513,10 @@ export class Session {
     // when the effective shader changed, so firing on every successful eval
     // (including live widget scrubs) is safe.
     this.onVisual?.(result.visual ?? null, [...result.synths.keys()])
+
+    // Pictures for the LED mask. The mask output diffs against what it has
+    // uploaded, so firing the whole map on every eval is safe.
+    this.onMaskFrames?.(result.maskFrames)
 
     // Value-probe targets: every modulation expression the evaluator tagged
     // (SynthDef.nodeLocs). The editor filters these to the ones worth a live
@@ -1110,7 +1130,7 @@ export class Session {
     for (const ev of evs) {
       const sound = ev.controls.sound
       const note = ev.controls.note
-      if (typeof sound !== 'string') continue
+      if (typeof sound !== 'string' || EXTERNAL_OUTPUTS.has(sound)) continue
       const atFrame = Math.round(ev.timeSec * sr)
       if (typeof note !== 'number') {
         // AUTOMATION (see pattern's isAutomation): params only, no gate. What

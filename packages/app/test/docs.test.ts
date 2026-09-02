@@ -43,10 +43,12 @@ describe('docs coverage: globals', () => {
     // a second copy, and a new staging name could be added to the evaluator
     // and simply never noticed here.
     const NOT_A_GLOBAL_ENTRY = new Set([
-      // Documented by the guide sections that own them (visuals, singing)
-      // rather than as one-line global entries: each needs a whole page.
+      // Documented by the guide sections that own them (visuals, singing,
+      // the LED mask) rather than as one-line global entries: each needs a
+      // whole page.
       'visual',
       'sing',
+      'maskFrame',
       // Internal: the probe-location hook the evaluator injects for inline
       // live values. Not vocabulary anyone writes.
       '__rcTap',

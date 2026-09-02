@@ -378,6 +378,23 @@ describe('Session: scheduler events → engine messages', () => {
     expect(ofKind('noteOn').at(-1)).toMatchObject({ synth: 'a', note: 62, atFrame: 24000 })
   })
 
+  it('a pattern routed to an external output (the LED mask) reaches onPatternEvents but never the engine', () => {
+    // `mask` is not a synth; the mask module listens on onPatternEvents. If the
+    // Session forwarded it the engine would warn "unknown synth" on every step.
+    const { session, audio, tick, sent, patternEvents } = rig()
+    // face:3 is a plain ctrl, which for a synth would be a setParam; a note
+    // would be a noteOn. Neither may leave for a sound that is not a synth.
+    session.evalCode(`${GOOD_SRC}\np('face', n('1 2').sound('mask').gain(.5).ctrl('face', 3))\np('blink', note('60').sound('mask'))`)
+    audio.currentTimeFrames = 0
+    session.transport('play', { cps: 1 })
+    tick()
+    expect(sent.filter((m) => 'synth' in m && m.synth === 'mask')).toEqual([])
+    expect(sent.some((m) => m.kind === 'noteOn' && m.synth === 'a')).toBe(true)
+    const maskEvs = patternEvents.flat().filter((e) => e.controls.sound === 'mask')
+    expect(maskEvs.length).toBeGreaterThan(0)
+    expect(maskEvs[0]!.controls).toMatchObject({ n: 1, gain: 0.5, face: 3 })
+  })
+
   it('a slide does NOT bridge a rest: it releases at the end of its own step', () => {
     /* REVERSES A DELIBERATE DECISION. This test used to assert the opposite —
      * that note 60 held across all three rests until 67 landed at 0.75s,

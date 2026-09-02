@@ -60,6 +60,8 @@ visual(\`fn main() {}\`)
 setTimeSig(3, 4)
 setCps(0.7)
 p('vox', sing('la la', 'c4 e4'))
+maskFrame(1, (x, y) => (x + y) % 2 ? '#f00' : null)
+p('face', n('1').sound('mask'))
 `
 
 /** Not staged data — the result envelope. */
@@ -114,6 +116,13 @@ const FATE: Record<string, Fate> = {
     live: 'callback',
     why: 'a WGSL fragment shader has no audio to render, and the GPU layer compiles it straight from the live result',
   },
+  maskFrames: {
+    staged: false,
+    mixOpt: null,
+    live: 'callback',
+    why:
+      'pictures for the Bluetooth LED mask have no audio to render; the live session hands them to the mask output (onMaskFrames), which uploads them to the connected device. The pattern that shows them is routed to the sound `mask`, which the live session keeps away from the engine (EXTERNAL_OUTPUTS) and the offline render skips as an undefined synth',
+  },
 }
 
 const stagedFields = (): string[] => {
@@ -150,7 +159,7 @@ describe('staged fields reach both consumers', () => {
   it('exercises every staging call, so the list below is the whole list', () => {
     // Guards the fixture itself: a field only appears if MAXIMAL stages it.
     expect(stagedFields()).toEqual([
-      'buses', 'cps', 'masterComp', 'masterGain', 'patterns', 'routes', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
+      'buses', 'cps', 'maskFrames', 'masterComp', 'masterGain', 'patterns', 'routes', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
     ])
   })
 

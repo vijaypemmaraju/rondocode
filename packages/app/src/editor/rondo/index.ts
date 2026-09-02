@@ -30,7 +30,7 @@ import type { Hooks as RondoWidgetHooks } from './widgets'
 export type { Hooks as RondoWidgetHooks } from './widgets'
 
 
-const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; js?: number; jsInline?: boolean }>({
+const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; js?: number; jsNext?: number; jsInline?: boolean }>({
   name: 'rondo',
   // Mod-/ toggle comment (the defaultKeymap binding) needs to know rondo's
   // line-comment token; without this the command silently no-ops in rondo.
@@ -46,6 +46,12 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; 
     // line over whole.
     if (stream.sol()) {
       if (state.wgsl !== undefined && !inVisualBody(state.wgsl, stream.string)) state.wgsl = undefined
+      // a `mask N` header opens its JS body from the NEXT line: the slot
+      // number on the header itself is still rondo
+      if (state.jsNext !== undefined) {
+        state.js = state.jsNext
+        state.jsNext = undefined
+      }
       if (state.js !== undefined && !inJsBody(state.js, stream.string)) state.js = undefined
     }
     if (state.wgsl !== undefined || state.js !== undefined) {
@@ -93,6 +99,10 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; 
         const header = jsHeaderIndent(stream.string)
         if (header !== null) state.js = header
         else if (/^\s*\{/.test(stream.string.slice(stream.pos))) state.jsInline = true
+      }
+      if (w === 'mask') {
+        const header = jsHeaderIndent(stream.string)
+        if (header !== null) state.jsNext = header
       }
       if (KEYWORDS.has(w)) return 'kw'
       if (BUILTINS.has(w)) return 'builtin'
@@ -173,6 +183,7 @@ export const OPTIONS: RondoOption[] = [
   c('bus', 'keyword', 'bus space', 'A shared FX bus: effect lines fold from `input`; `send SYNTH AMT` routes synths in.'),
   c('send', 'keyword', 'send lead .35', 'Route a synth into this bus (0..1, pre-fader).'),
   c('visual', 'keyword', 'visual', 'A WGSL fragment shader block, rendered behind the code.'),
+  c('mask', 'keyword', 'mask N', "A picture for slot N of the Bluetooth LED mask: the indented body is a JavaScript painter given `x`, `y`, `w`, `h` that returns a colour ('#f40', [r, g, b], a grey 0..1) or null for off. `play mask` then shows slots by number.", "mask 1\n  return x < w / 2 ? '#ff4400' : null"),
   c('js', 'keyword', 'js{ … } / js block', 'Escape hatch: raw JavaScript, verbatim -- total parity with the JS API.'),
   c('saw', 'function', 'saw [freq]', 'Sawtooth oscillator. Default freq = the note.'),
   c('square', 'function', 'square [freq]', 'Square oscillator. Default freq = the note.'),

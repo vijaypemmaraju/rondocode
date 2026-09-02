@@ -27,6 +27,13 @@ interface Node {
 const src = { text: '' } // module-local source for slicing (set per decompile call)
 const slice = (n: Node): string => src.text.slice(n.start, n.end)
 
+/** Strip the common leading indent from a block of source lines. */
+const dedent = (lines: string[]): string[] => {
+  const indents = lines.filter((l) => l.trim() !== '').map((l) => /^[ \t]*/.exec(l)![0].length)
+  const min = indents.length > 0 ? Math.min(...indents) : 0
+  return lines.map((l) => (l.trim() === '' ? '' : l.slice(min)))
+}
+
 /* ---- tiny AST helpers ----------------------------------------------------- */
 
 const isIdent = (n: Node | undefined, name?: string): boolean =>
@@ -2031,6 +2038,29 @@ function decompileStaging(stmt: Node): string | null {
       }
     }
     return out.join('\n')
+  }
+  /* `maskFrame(N, (x, y, w, h) => { … })` → `mask N` + the painter body
+   *  verbatim. The parameter names are part of the block's contract (the body
+   *  is compiled back into exactly that arrow), so a painter written over
+   *  other names, or with fewer than it uses, stays JavaScript. An expression
+   *  body becomes its `return` line. */
+  if (name === 'maskFrame' && args.length === 2) {
+    const slot = numValue(args[0]!)
+    const fn = args[1]!
+    if (slot === undefined || !Number.isInteger(slot) || slot < 1 || fn.type !== 'ArrowFunctionExpression' || fn['async'] === true) return null
+    const params = fn['params'] as Node[]
+    const names = ['x', 'y', 'w', 'h']
+    if (params.length > 4 || params.some((p, i) => !isIdent(p, names[i]))) return null
+    const body = fn['body'] as Node
+    let lines: string[]
+    if (body.type === 'BlockStatement') {
+      const inner = src.text.slice(body.start + 1, body.end - 1).replace(/^[ \t]*\n/, '').replace(/\n[ \t]*$/, '')
+      if (inner.trim() === '') return null
+      lines = dedent(inner.split('\n'))
+    } else {
+      lines = [`return ${slice(body)}`]
+    }
+    return [`mask ${slot}`, ...lines.map((l) => (l.length > 0 ? `  ${l}` : ''))].join('\n')
   }
   if (name === 'visual' && args.length === 1) {
     const a = args[0]!

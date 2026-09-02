@@ -235,7 +235,7 @@ export const isReservedBinding = (name: string): boolean =>
 export const RESERVED_TOP_LEVEL: ReadonlySet<string> = new Set([
   'arrange', 'automation', 'bus', 'cat', 'chord', 'cosine', 'curve', 'curvedef',
   'defineScale', 'defineSynth', 'defineWavetable', 'fall', 'fastcat',
-  'irand', 'isaw', 'm', 'macro', 'macroNum', 'macroval', 'masterCompress',
+  'irand', 'isaw', 'm', 'macro', 'macroNum', 'macroval', 'maskFrame', 'masterCompress',
   'masterGain', 'mini', 'n', 'note', 'p', 'perlin', 'pick', 'rand', 'reify',
   'rise', 'route', 's', 'saw', 'saw2', 'setBpm', 'setCps', 'setTimeSig', 'shape',
   'sidechain', 'silence', 'sine', 'sine2', 'sing', 'slider', 'sound',

@@ -941,6 +941,29 @@ describe('rondo → rondocode codegen', () => {
     expect(out).toContain('  return vec4f(uv, 0.0, 1.0);') // nested indent kept
   })
 
+  it('mask block: the body becomes maskFrame(N, (x, y, w, h) => { … }) verbatim, indented', () => {
+    const src = "synth z\n  saw\n\nmask 3\n  if (y % 2) return null\n  return x < w / 2 ? '#f40' : [0, 1, 0]\n\nplay mask\n  3 3\n"
+    const out = ok(src)
+    expect(out).toContain("maskFrame(3, (x, y, w, h) => {\n  if (y % 2) return null\n  return x < w / 2 ? '#f40' : [0, 1, 0]\n})")
+    expect(out).toContain("n('3 3').sound('mask')")
+    // the body is a JS region, like a js block: the editor paints it as JavaScript
+    const r = compile(src)
+    if (!r.ok) throw new Error('unreachable')
+    expect(r.jsRegions.map((g) => src.slice(g.from, g.to))).toEqual(["  if (y % 2) return null\n  return x < w / 2 ? '#f40' : [0, 1, 0]"])
+  })
+
+  it('mask block: the header needs a whole slot number ≥ 1 and the block a body, at the header line', () => {
+    for (const header of ['mask', 'mask 0', 'mask 1.5', 'mask one', 'mask 1 2']) {
+      const e = fails(`synth z\n  saw\n\n${header}\n  return null\n`)
+      expect(e.message, header).toMatch(/slot number/)
+      expect(e.line, header).toBe(4)
+      expect(e.col, header).toBe(1)
+    }
+    const empty = fails('synth z\n  saw\n\nmask 2\n\ncps .5\n')
+    expect(empty.message).toMatch(/no painter body/)
+    expect(empty.line).toBe(4)
+  })
+
   it('chord names (uppercase root) pick chord(); stacked lines pick stack()', () => {
     const out = ok(`synth pad\n  saw\n\nplay pad\n  <Am F C G>\n  dur: .95\n`)
     expect(out).toContain("chord('<Am F C G>')")

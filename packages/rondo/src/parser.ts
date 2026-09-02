@@ -1052,7 +1052,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
 export const BLOCK_KEYWORDS: readonly string[] = [
   'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'out', 'patdef',
   'bus', 'sidechain', 'master', 'stereo', 'macro', 'switch', 'curvedef', 'scaledef',
-  'wavedef', 'zonedef', 'visual', 'js',
+  'wavedef', 'zonedef', 'visual', 'mask', 'js',
 ]
 
 /** The top-level items that are ONE LINE rather than a block with an indented
@@ -1600,25 +1600,47 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       items.push({ t: 'visual', wgsl: verbatimBody(src, body), pos: head.pos })
       i = next
     }
+    // `mask N` block: the painter for LED-mask slot N, raw JavaScript verbatim
+    // (the body of maskFrame's `(x, y, w, h) => { … }`). Same JS-region
+    // bookkeeping as a `js` block, so the editor colours it as JavaScript.
+    else if (head.v === 'mask') {
+      const t = ln.toks[1]
+      // a whole number ≥ 1; the top of the range is the mask's (the runtime
+      // maskFrame() refuses a slot it does not have), not the language's
+      if (ln.toks.length !== 2 || t === undefined || t.k !== 'num' || !Number.isInteger(t.v) || t.v < 1) {
+        errors.push({ message: 'mask takes a picture slot number (`mask 1`)', line: ln.line, col: ln.rawCol })
+        i = bodyLines(lines, i + 1).next
+        continue
+      }
+      const { body, next } = bodyLines(lines, i + 1)
+      if (body.length === 0) errors.push({ message: 'mask block has no painter body (return a colour, or null for off)', line: ln.line, col: ln.rawCol })
+      items.push({ t: 'mask', slot: t.v, body: verbatimBody(src, body), pos: head.pos })
+      pushJsRegion(src, body, jsRegions)
+      i = next
+    }
     // escape hatch, block: a lone `js` header + indented body → raw verbatim JS
     else if (head.v === 'js' && ln.toks.length === 1) {
       const { body, next } = bodyLines(lines, i + 1)
       items.push({ t: 'raw', code: verbatimBody(src, body), pos: head.pos })
       // the whole body is ONE js region (note-flash scans it for mini
       // strings; one region keeps multi-line statements parseable)
-      if (body.length > 0) {
-        const first = body[0]!
-        const last = body[body.length - 1]!
-        const lastStart = last.offset - last.indent
-        const nl = src.indexOf('\n', lastStart)
-        const full = src.slice(lastStart, nl === -1 ? src.length : nl).replace(/\s+$/, '')
-        jsRegions.push({ from: first.offset - first.indent, to: lastStart + full.length })
-      }
+      pushJsRegion(src, body, jsRegions)
       i = next
     }
     else { errors.push({ message: `unknown block \`${head.v}\` (expected ${BLOCK_KEYWORDS.join(' / ')})`, line: ln.line, col: ln.rawCol }); i++ }
   }
   return { program: { items }, errors, jsRegions }
+}
+
+/** Record a raw-JavaScript block body as one js region. */
+function pushJsRegion(src: string, body: Line[], jsRegions: { from: number; to: number }[]): void {
+  if (body.length === 0) return
+  const first = body[0]!
+  const last = body[body.length - 1]!
+  const lastStart = last.offset - last.indent
+  const nl = src.indexOf('\n', lastStart)
+  const full = src.slice(lastStart, nl === -1 ? src.length : nl).replace(/\s+$/, '')
+  jsRegions.push({ from: first.offset - first.indent, to: lastStart + full.length })
 }
 
 /** Reconstruct a block body VERBATIM from the original source (Line.raw has

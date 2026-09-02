@@ -1516,6 +1516,70 @@ setCps(0.5)`,
     ],
   },
   {
+    id: 'led-mask',
+    group: 'voice, midi & files',
+    title: 'Playing an LED mask',
+    blocks: [
+      p('The mask button in the header connects one of the Bluetooth LED face masks (the ones that advertise as `MASK-` followed by six characters, sold under a dozen names) over Web Bluetooth. Once it is connected, a pattern routed to the sound `mask` plays it instead of a synth: the steps are moments the face changes, timed against the audio clock like every other event, so the mask lands on the beat with the kick it is patterned next to.'),
+      rondo(
+        'Two painted pictures, stepped with a kick. The mask sound needs no synth.',
+        `synth kick
+  sine 55 * env
+  env = adsr .002 .12 0 .1
+
+mask 1
+  const r = Math.hypot(x - w / 2, y - h / 2)
+  return r > 8 && r < 11 ? '#ff4400' : null
+
+mask 2
+  const r = Math.hypot(x - w / 2, y - h / 2)
+  return r > 16 && r < 19 ? '#ff4400' : null
+
+play kick
+  c2 c2 c2 c2
+
+play mask
+  1 1 2 2
+  gain: <.4 1>
+
+cps .5`,
+      ),
+      table(
+        'What a step on the mask pattern says.',
+        ['control', 'the mask does', 'notes'],
+        [
+          ['a number `1` to `20`', 'shows the picture you uploaded to that slot', 'what `play mask` notation gives; the `frame` control means the same'],
+          ['`face: n`', 'shows built-in picture n', 'the faces the mask ships with, the same numbers its own app uses'],
+          ['`anim: n`', 'runs built-in animation n', 'the animation keeps running until the next change'],
+          ['`gain`', 'sets the brightness, 0 to 1', 'the same word as everywhere else, so a `<.4 1>` lane pulses it'],
+          ['`0` or a note name', 'a beat with no picture of its own', 'for a `face:` or `anim:` lane to land on'],
+        ],
+      ),
+      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, and a face over an animation. Give a face lane its own grid with `0 0 0 0` and it steps cleanly.'),
+      p('Pictures are painted in code. A `mask N` block is the painter for slot N: its body is JavaScript, called once per pixel with `x`, `y` and the panel size `w`, `h`, and it returns a colour, a grey level 0 to 1, an `[r, g, b]` triple 0 to 1, a `#hex` string, or null for off. In JavaScript the same painter is `maskFrame(slot, (x, y, w, h) => ...)`.'),
+      code(
+        'The same two rings, in JavaScript.',
+        `maskFrame(1, (x, y, w, h) => {
+  const r = Math.hypot(x - w / 2, y - h / 2)
+  return r > 8 && r < 11 ? '#ff4400' : null
+})
+maskFrame(2, (x, y, w, h) => {
+  const r = Math.hypot(x - w / 2, y - h / 2)
+  return r > 16 && r < 19 ? '#ff4400' : null
+})
+
+const kick = synth(({ sine, gate, adsr }) => sine(55).mul(adsr(gate, { a: 0.002, d: 0.12, s: 0, r: 0.1 })))
+p('kick', note('c2*4').sound('kick'))
+p('mask', n('1 1 2 2').sound('mask').gain('<.4 1>'))
+setCps(0.5)`,
+      ),
+      p('The panel is 46 pixels wide and 58 tall, with x running from the left as someone facing the wearer sees it, so a painter can think in ordinary picture coordinates. It is not a full rectangle of LEDs: the two eye cut-outs carry none, and the corners sit under the oval bezel, so a shape drawn across those areas is broken by them. That is the mask, not a bug in the frame.'),
+      note('A picture takes about five seconds to upload. The mask acknowledges every 98-byte chunk of the 8004 and drops the ones sent before it has answered, so the upload is paced to its replies rather than streamed, and a picture is baked into a slot ahead of time and switched to with a single command, never redrawn live. Every run diffs the pictures the program declares against the ones already on the mask, so a run that changes only the pattern uploads nothing, and one that repaints slot 3 uploads slot 3. Pattern changes that happen during an upload are folded into one send when it ends, so the mask ends up where the pattern is, not five seconds behind it.'),
+      p('Only a change is sent. `1 1 2 2` sends two commands a cycle, not four, and a brightness lane that holds a value costs nothing while it holds. The radio manages about twenty commands a second, which is plenty for a face per beat and a pulse on the off-beats, and not enough for a face per sixteenth at a fast tempo: the mask would fall behind and catch up in a rush.'),
+      note('Web Bluetooth is a Chrome and Edge feature, on desktop and Android. Safari, Firefox and the desktop app do not have it, and the button says so. The chooser the browser opens is its own dialog, which is why the button asks for a click: a page cannot pair with a device on its own. A mask that is switched off and on again comes back as a new device as far as the browser can tell, so after a power cycle the button asks you to pick it in the chooser once more.'),
+    ],
+  },
+  {
     id: 'export',
     group: 'voice, midi & files',
     title: 'Export: WAV, stems, loudness',
@@ -2026,7 +2090,7 @@ cps .5`,
           ['`bpm 174`', '`cps .725`', 'drum and bass'],
         ],
       ),
-      p('A `visual` block holds a WGSL fragment shader, verbatim, the same contract as the JS `visual(...)`: audio-reactive uniforms (`level`, `bass`, `spectrum(x)`, per-synth `hit_*`) drive a shader behind the code.'),
+      p('A `visual` block holds a WGSL fragment shader, verbatim, the same contract as the JS `visual(...)`: audio-reactive uniforms (`level`, `bass`, `spectrum(x)`, per-synth `hit_*`) drive a shader behind the code. A `mask N` block holds a JavaScript painter the same way, for the Bluetooth LED mask (see its own section).'),
       rondo(
         'A miniature arrangement: intro, drop, out.',
         `synth kick
@@ -2225,6 +2289,7 @@ cps .5`,
           ['`zonedef NAME`', 'a multisample: rows of `lo..hi SAMPLE root:NOTE`, played by `sample NAME`'],
           ['`curvedef NAME t v t v …`', 'a named breakpoint shape, usable wherever a curve is'],
           ['`visual`', 'a WGSL fragment shader behind the code'],
+          ['`mask N`', 'a picture for slot N of the Bluetooth LED mask: a JavaScript painter over `x`, `y`, `w`, `h`, shown by `play mask`'],
           ['`js{ … }` and `js`', 'the escape hatch: a raw JavaScript expression, or raw statements'],
           ['`cps N` and `bpm N`', 'the tempo: cycles per second, or beats per minute (one cycle is one 4-beat bar)'],
           ['`timesig N D`', 'the meter: beats per bar, then the beat unit. A cycle is still one bar'],

@@ -14,6 +14,7 @@ import { getSetting } from './ui/settings'
 import { looksMobile } from './audio/devices'
 import { mountTour } from './ui/tour'
 import { mountMidi } from './editor/midi'
+import { mountMask } from './editor/mask'
 import { mountHeaderOverflow } from './ui/header-overflow'
 import { BridgeClient } from './session/bridge-client'
 import { applyPalette } from './ui/palette'
@@ -136,6 +137,7 @@ AudioSession.start().then(
       },
     }) // user settings popover (gear)
     mountMidi(editor, audio)
+    mountMask(editor) // the Bluetooth LED mask as a pattern output
     mountHeaderOverflow(editor.topbar) // after every module has added its button
     startBridge(editor)
     // DEV-only: singing-engine console hook for bring-up (window.__rcSing).

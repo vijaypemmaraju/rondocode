@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { MaskDevice } from '../src/mask/device'
 import type { MaskLink } from '../src/mask/device'
 import { decryptBlock } from '../src/mask/aes'
-import { FRAME_BYTES, MASK_KEY } from '../src/mask/protocol'
+import { FRAME_BYTES, MASK_KEY, RHYTHM_BANDS, encodeRhythm } from '../src/mask/protocol'
 
 /* The radio discipline, against a scripted mask.
  *
@@ -84,6 +84,11 @@ const makeRig = (o: RigOpts = {}): Rig => {
     name: 'MASK-TEST',
     writeCommand: (b) => write('cmd', b),
     writeUpload: (b) => write('up', b),
+    // a rhythm frame has no reply: the write settles and that is all
+    writeRhythm: (b) => {
+      writes.push(`rhy:${decryptBlock(MASK_KEY, b)[1]}`)
+      return Promise.resolve()
+    },
     onReply: (fn) => {
       replyFns.add(fn)
     },
@@ -241,6 +246,30 @@ describe('MaskDevice queue', () => {
     await settle(rig, cmd)
     expect(rig.writes[rig.writes.length - 1]).toBe('cmd:PLAY')
     expect(rig.writes.indexOf('cmd:PLAY')).toBeGreaterThan(rig.writes.indexOf('cmd:DATCP'))
+  })
+
+  it('sends rhythm frames through the same queue, without waiting for a reply', async () => {
+    const rig = makeRig({ auto: 'none' })
+    const zeros = new Array<number>(RHYTHM_BANDS).fill(0)
+    // a frame queued behind a command goes out after it, and the command's
+    // missing reply does not hold it: nothing waits for a reply on a frame
+    const cmd = rig.dev.command(encReply('PLAY'))
+    const frame = rig.dev.rhythm(encodeRhythm(2, zeros))
+    await tick()
+    expect(rig.writes).toEqual(['cmd:PLAY', 'rhy:2'])
+    await expect(frame).resolves.toBeUndefined()
+    rig.reply('PLAYOK')
+    await cmd
+    // an upload owns the queue: a frame sent during it is dropped, not
+    // queued five seconds behind the chunks
+    const up = rig.dev.uploadFrame(1, packed())
+    await tick()
+    expect(rig.dev.uploading).toBe(true)
+    await expect(rig.dev.rhythm(encodeRhythm(2, zeros))).resolves.toBeUndefined()
+    expect(rig.writes.filter((w) => w.startsWith('rhy:')).length).toBe(1)
+    rig.drop()
+    await settle(rig, up)
+    await expect(rig.dev.rhythm(encodeRhythm(2, zeros))).rejects.toThrow(/disconnected/)
   })
 
   it('keeps going after a failed write instead of poisoning the queue', async () => {

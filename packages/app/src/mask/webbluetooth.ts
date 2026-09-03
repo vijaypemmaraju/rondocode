@@ -9,7 +9,7 @@
  * ------------------------------------------------------------------------- */
 
 import type { MaskLink } from './device'
-import { MASK_CHAR_COMMAND, MASK_CHAR_NOTIFY, MASK_CHAR_UPLOAD, MASK_NAME_PREFIX, MASK_SERVICE } from './protocol'
+import { MASK_CHAR_COMMAND, MASK_CHAR_NOTIFY, MASK_CHAR_RHYTHM, MASK_CHAR_UPLOAD, MASK_NAME_PREFIX, MASK_SERVICE } from './protocol'
 
 export const hasWebBluetooth = (): boolean =>
   typeof navigator !== 'undefined' && navigator.bluetooth !== undefined
@@ -107,6 +107,8 @@ export async function openMaskLink(dev: BluetoothDevice): Promise<MaskLink> {
   const cmd = await svc.getCharacteristic(MASK_CHAR_COMMAND)
   const up = await svc.getCharacteristic(MASK_CHAR_UPLOAD)
   const notify = await svc.getCharacteristic(MASK_CHAR_NOTIFY)
+  // the live spectrum; a firmware without it still gets pictures
+  const rhythm = await svc.getCharacteristic(MASK_CHAR_RHYTHM).catch(() => null)
   const replyListeners = new Set<(bytes: Uint8Array) => void>()
   const closeListeners = new Set<() => void>()
   await notify.startNotifications()
@@ -123,6 +125,8 @@ export async function openMaskLink(dev: BluetoothDevice): Promise<MaskLink> {
     name: dev.name ?? 'mask',
     writeCommand: (bytes) => cmd.writeValueWithResponse(bytes),
     writeUpload: (bytes) => up.writeValueWithResponse(bytes),
+    writeRhythm: (bytes) =>
+      rhythm === null ? Promise.reject(new Error('this mask has no live spectrum characteristic')) : rhythm.writeValueWithoutResponse(bytes),
     onReply: (fn) => {
       replyListeners.add(fn)
     },

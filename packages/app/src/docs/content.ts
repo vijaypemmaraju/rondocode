@@ -1524,7 +1524,8 @@ setCps(0.5)`,
       rondo(
         'Two painted pictures, stepped with a kick. The mask sound needs no synth.',
         `synth kick
-  sine 55 * env
+  sine 55
+  * env
   env = adsr .002 .12 0 .1
 
 mask 1
@@ -1551,11 +1552,32 @@ cps .5`,
           ['a number `1` to `20`', 'shows the picture you uploaded to that slot', 'what `play mask` notation gives; the `frame` control means the same'],
           ['`face: n`', 'shows built-in picture n', 'the faces the mask ships with, the same numbers its own app uses'],
           ['`anim: n`', 'runs built-in animation n', 'the animation keeps running until the next change'],
+          ['`viz: n`', 'draws the music live with built-in visualizer n, 0 to 4', 'bars, butterfly, rainbow columns, rows, hourglass; fed from the master at 25 frames a second'],
           ['`gain`', 'sets the brightness, 0 to 1', 'the same word as everywhere else, so a `<.4 1>` lane pulses it'],
-          ['`0` or a note name', 'a beat with no picture of its own', 'for a `face:` or `anim:` lane to land on'],
+          ['`0` or a note name', 'a beat with no picture of its own', 'for a `face:`, `anim:` or `viz:` lane to land on'],
         ],
       ),
-      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, and a face over an animation. Give a face lane its own grid with `0 0 0 0` and it steps cleanly. The name is taken: a synth called `mask` would compile and never be heard, so the run refuses it and says so.'),
+      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, a face over an animation, and any of them over the visualizer. Give a face lane its own grid with `0 0 0 0` and it steps cleanly. The name is taken: a synth called `mask` would compile and never be heard, so the run refuses it and says so.'),
+      p('`viz:` is the live path. While it is what the mask shows, the app reads the master spectrum 25 times a second, folds it into 24 bands from 40 Hz to 16 kHz and streams them to the mask, which draws them with one of its own five visualizers, so the panel moves with the music at once and nothing is uploaded. The loudest band of the last few seconds fills its bar and the others sit in proportion, with silence dark, so it reads the same at any master level. A picture step ends it, a transport stop darkens it, and the next `viz:` step brings it back. The mode is a lane like any other: `viz: <0 2 4>` changes visualizer every cycle, and `0 0 0 1` with a `viz: 0` lane shows the spectrum for three beats and picture 1 on the fourth.'),
+      rondo(
+        'The spectrum for a bar, a painted picture on the downbeat.',
+        `synth kick
+  sine 55
+  * env
+  env = adsr .002 .12 0 .1
+
+mask 1
+  return Math.abs(x - w / 2) < 3 || Math.abs(y - h / 2) < 3 ? '#ffffff' : null
+
+play kick
+  c2 c2 c2 c2
+
+play mask
+  1 0 0 0
+  viz: <0 2>
+
+cps .5`,
+      ),
       p('Pictures are painted in code. A `mask N` block is the painter for slot N: its body is JavaScript, called once per pixel with `x`, `y` and the panel size `w`, `h`, and it returns a colour, a grey level 0 to 1, an `[r, g, b]` triple 0 to 1, a `#hex` string, or null for off. In JavaScript the same painter is `maskFrame(slot, (x, y, w, h) => ...)`.'),
       code(
         'The same two rings, in JavaScript.',
@@ -1575,7 +1597,7 @@ setCps(0.5)`,
       ),
       p('The panel is 46 pixels wide and 58 tall, with x running from the left as someone facing the wearer sees it, so a painter can think in ordinary picture coordinates. It is not a full rectangle of LEDs: the two eye cut-outs carry none, and the corners sit under the oval bezel, so a shape drawn across those areas is broken by them. That is the mask, not a bug in the frame.'),
       note('A picture takes about five seconds to upload. The mask acknowledges every 98-byte chunk of the 8004 and drops the ones sent before it has answered, so the upload is paced to its replies rather than streamed, and a picture is baked into a slot ahead of time and switched to with a single command, never redrawn live. Every run diffs the pictures the program declares against the ones already on the mask, so a run that changes only the pattern uploads nothing, and one that repaints slot 3 uploads slot 3. Pattern changes that happen during an upload are folded into one send when it ends, so the mask ends up where the pattern is, not five seconds behind it.'),
-      p('Only a change is sent. `1 1 2 2` sends two commands a cycle, not four, and a brightness lane that holds a value costs nothing while it holds. The radio manages about twenty commands a second, which is plenty for a face per beat and a pulse on the off-beats, and not enough for a face per sixteenth at a fast tempo: the mask would fall behind and catch up in a rush.'),
+      p('Only a change is sent. `1 1 2 2` sends two commands a cycle, not four, and a brightness lane that holds a value costs nothing while it holds. The radio manages about twenty commands a second, which is plenty for a face per beat and a pulse on the off-beats, and not enough for a face per sixteenth at a fast tempo: the mask would fall behind and catch up in a rush. The visualizer frames are the exception: they go out without waiting for an answer, which is how twenty-five of them a second fit, and a frame identical to the last is not sent at all.'),
       note('Web Bluetooth is a Chrome and Edge feature, on desktop and Android. Safari, Firefox and the desktop app do not have it, and the button says so. The chooser the browser opens is its own dialog, which is why the button asks for a click: a page cannot pair with a device on its own. A mask that is switched off and on again comes back as a new device as far as the browser can tell, so after a power cycle the button asks you to pick it in the chooser once more.'),
       note('Reloading the page drops the connection. Chrome can hand a page the devices it was already allowed to use, but only with chrome://flags/#enable-web-bluetooth-new-permissions-backend switched on; with the flag on, the app reconnects to the mask it used last time as the page loads, and the popover says it is looking. Without the flag, or when the mask is off, the button asks for a click as before.'),
     ],

@@ -41,6 +41,10 @@ interface Rig {
   errors: string[]
   /** stop auto-acking uploads (the rig acks everything by default) */
   ackUploads: boolean
+  /** what the analyser reads right now: 24 levels 0..9, or null for "no analyser" */
+  levels: number[] | null
+  /** make the mask one without the rhythm characteristic */
+  rhythmFails: boolean
   drop: () => void
 }
 
@@ -50,7 +54,7 @@ const makeRig = (): Rig => {
   const replyFns = new Set<(b: Uint8Array) => void>()
   const closeFns = new Set<() => void>()
   const timers: { fn: () => void; ms: number }[] = []
-  const rig = { chunks: 0, ackUploads: true } as Rig
+  const rig = { chunks: 0, ackUploads: true, levels: null, rhythmFails: false } as Rig
   const reply = (word: string): void => {
     for (const fn of replyFns) fn(encReply(word))
   }
@@ -71,6 +75,14 @@ const makeRig = (): Rig => {
       return Promise.resolve().then(() => {
         if (rig.ackUploads) reply('REOK')
       })
+    },
+    // a rhythm frame is [15][mode][24 nibbles]: recorded as 'RHY mode 900000...'
+    writeRhythm: (bytes) => {
+      if (rig.rhythmFails) return Promise.reject(new Error('no such characteristic'))
+      const plain = decryptBlock(MASK_KEY, bytes)
+      const nib = Array.from(plain.subarray(2, 14), (b) => `${b >> 4}${b & 15}`).join('')
+      sent.push(`RHY ${plain[1]} ${nib}`)
+      return Promise.resolve()
     },
     onReply: (fn) => {
       replyFns.add(fn)
@@ -109,6 +121,7 @@ const makeRig = (): Rig => {
     },
     onStatus: (s) => statuses.push(s),
     onError: (m) => errors.push(m),
+    levels: () => (rig.levels === null ? null : Uint8Array.from(rig.levels)),
   })
   Object.assign(rig, {
     out,
@@ -148,6 +161,17 @@ describe('eventState', () => {
     expect(eventState({ n: 0, face: 2 })).toEqual({ picture: { kind: 'face', n: 2 } })
     expect(eventState({ n: 0 })).toEqual({})
     expect(eventState({ n: 99, anim: 1 })).toEqual({ picture: { kind: 'anim', n: 1 } })
+  })
+
+  it('reads viz as the live spectrum, below every picture', () => {
+    expect(eventState({ viz: 2 })).toEqual({ picture: { kind: 'viz', n: 2 } })
+    expect(eventState({ viz: 2.4, gain: 1 })).toEqual({ picture: { kind: 'viz', n: 2 }, light: 255 })
+    expect(eventState({ n: 0, viz: 0 })).toEqual({ picture: { kind: 'viz', n: 0 } })
+    expect(eventState({ n: 1, viz: 0 })).toEqual({ picture: { kind: 'slot', n: 1 } })
+    expect(eventState({ anim: 1, viz: 0 })).toEqual({ picture: { kind: 'anim', n: 1 } })
+    // the mask has five visualizers; anything else is not one
+    expect(eventState({ viz: 5 })).toEqual({})
+    expect(eventState({ viz: -1 })).toEqual({})
   })
 })
 
@@ -264,6 +288,105 @@ describe('MaskOutput', () => {
     expect(rig.sent).toEqual(['DATS', 'DATCP', 'LIGHT 128', 'PLAY 1 3'])
     expect(rig.out.status().torn.length).toBe(1)
     expect(rig.out.status().torn[0]).toMatchObject({ slot: 1, acked: 0, chunks: 82 })
+  })
+
+  it('a viz step starts the live spectrum and streams changes at 25 fps', async () => {
+    const rig = makeRig()
+    rig.out.attach(rig.dev)
+    rig.levels = [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    rig.out.send([ev(0, { viz: 1 })])
+    await tick()
+    // the first frame goes at once; no picture command, the frames ARE the picture
+    expect(rig.sent).toEqual(['RHY 1 900000000000000000000000'])
+    expect(rig.out.status().shown).toEqual({ picture: { kind: 'viz', n: 1 } })
+    // a frame that has not changed is not sent again
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent.length).toBe(1)
+    rig.levels[0] = 4
+    rig.levels[23] = 7
+    rig.fireDue(39) // not yet: 40 ms between frames
+    await tick()
+    expect(rig.sent.length).toBe(1)
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent[1]).toBe('RHY 1 400000000000000000000007')
+    // a mode change rides the next frame, the stream never stops for it
+    rig.out.send([ev(0, { viz: 3 })])
+    await tick()
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent.slice(2)).toEqual(['RHY 3 400000000000000000000007'])
+    expect(rig.errors).toEqual([])
+  })
+
+  it('a picture ends the stream, stop() darkens it, and the next viz step brings it back', async () => {
+    const rig = makeRig()
+    rig.out.attach(rig.dev)
+    rig.levels = new Array<number>(24).fill(5)
+    rig.out.send([ev(0, { viz: 0 })])
+    await tick()
+    expect(rig.sent).toEqual(['RHY 0 555555555555555555555555'])
+    // a slot: PLAY replaces the visualizer on the mask, so nothing else is needed
+    rig.out.send([ev(0, { n: 2 })])
+    await tick()
+    rig.fireDue(1000)
+    await tick()
+    expect(rig.sent.slice(1)).toEqual(['PLAY 1 2'])
+    // back to the spectrum, then the transport stops: one dark frame, then quiet
+    rig.out.send([ev(0, { viz: 0 })])
+    await tick()
+    rig.out.stop()
+    rig.fireDue(1000)
+    await tick()
+    expect(rig.sent.slice(2)).toEqual(['RHY 0 555555555555555555555555', 'RHY 0 000000000000000000000000'])
+    // play again: the pattern's first viz step restarts it
+    rig.out.send([ev(0, { viz: 0 })])
+    await tick()
+    expect(rig.sent.slice(4)).toEqual(['RHY 0 555555555555555555555555'])
+    // and a mask that goes away takes the stream with it, silently
+    rig.drop()
+    rig.fireDue(1000)
+    await tick()
+    expect(rig.sent.length).toBe(5)
+    expect(rig.errors).toEqual([])
+  })
+
+  it('sends dark frames with no analyser, and waits out an upload', async () => {
+    const rig = makeRig()
+    rig.out.attach(rig.dev)
+    rig.out.send([ev(0, { viz: 4 })])
+    await tick()
+    expect(rig.sent).toEqual(['RHY 4 000000000000000000000000'])
+    rig.levels = new Array<number>(24).fill(3)
+    // an upload starts: frames are held, not queued behind the chunks
+    rig.ackUploads = false
+    rig.out.setFrames(new Map([[1, paintFrame(() => 0.1)]]))
+    await tick()
+    expect(rig.sent.slice(1)).toEqual(['DATS'])
+    for (let i = 0; i < 200 && rig.dev.uploading; i++) {
+      await tick()
+      rig.fireDue(400) // the device's ack timeouts and the stream's ticks alike
+    }
+    await tick()
+    expect(rig.sent.slice(1, 3)).toEqual(['DATS', 'DATCP'])
+    // then the stream picks up where the music is
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent.slice(3)).toEqual(['RHY 4 333333333333333333333333'])
+  })
+
+  it('a mask without the rhythm characteristic says so once and stays quiet', async () => {
+    const rig = makeRig()
+    rig.rhythmFails = true
+    rig.out.attach(rig.dev)
+    rig.out.send([ev(0, { viz: 1 }), ev(0, { viz: 2 })])
+    await tick()
+    rig.fireDue(1000)
+    await tick()
+    expect(rig.errors.length).toBe(1)
+    expect(rig.errors[0]).toMatch(/spectrum/)
+    expect(rig.sent).toEqual([])
   })
 
   it('reports a failed write to onError rather than throwing into the scheduler', async () => {

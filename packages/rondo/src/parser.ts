@@ -1052,7 +1052,7 @@ function parseCps(lines: Line[], i: number, errors: RondoError[], unit: 'cps' | 
 export const BLOCK_KEYWORDS: readonly string[] = [
   'synth', 'play', 'beat', 'sing', 'section', 'song', 'cps', 'bpm', 'timesig', 'level', 'out', 'patdef',
   'bus', 'sidechain', 'master', 'stereo', 'macro', 'switch', 'curvedef', 'scaledef',
-  'wavedef', 'zonedef', 'visual', 'mask', 'js',
+  'wavedef', 'zonedef', 'visual', 'mask', 'draw', 'js',
 ]
 
 /** The top-level items that are ONE LINE rather than a block with an indented
@@ -1615,6 +1615,22 @@ export function parse(src: string): { program: Program; errors: RondoError[]; js
       const { body, next } = bodyLines(lines, i + 1)
       if (body.length === 0) errors.push({ message: 'mask block has no painter body (return a colour, or null for off)', line: ln.line, col: ln.rawCol })
       items.push({ t: 'mask', slot: t.v, body: verbatimBody(src, body), pos: head.pos })
+      pushJsRegion(src, body, jsRegions)
+      i = next
+    }
+    // `draw N` block: painter N for the mask's live visualizer, raw JavaScript
+    // verbatim (the body of maskDraw's `(i, n, m) => { … }`, after the music
+    // prelude). The same JS-region bookkeeping as `mask`.
+    else if (head.v === 'draw') {
+      const t = ln.toks[1]
+      if (ln.toks.length !== 2 || t === undefined || t.k !== 'num' || !Number.isInteger(t.v) || t.v < 1) {
+        errors.push({ message: 'draw takes a painter number (`draw 1`)', line: ln.line, col: ln.rawCol })
+        i = bodyLines(lines, i + 1).next
+        continue
+      }
+      const { body, next } = bodyLines(lines, i + 1)
+      if (body.length === 0) errors.push({ message: 'draw block has no painter body (return a level 0 to 1 for band i)', line: ln.line, col: ln.rawCol })
+      items.push({ t: 'draw', n: t.v, body: verbatimBody(src, body), pos: head.pos })
       pushJsRegion(src, body, jsRegions)
       i = next
     }

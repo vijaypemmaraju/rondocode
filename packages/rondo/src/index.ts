@@ -16,5 +16,5 @@ export type { CompileResult, NoteSpan, JsRegion, PulseSpan, Arrangement, SongSlo
 export { isComposablePatDefName } from './codegen'
 export type { Program, TopItem, SynthBlock, PlayBlock, Expr, RondoError } from './ast'
 export { stripComment, scanBalanced } from './lexer'
-export { KNOWN_CTX } from './codegen'
+export { KNOWN_CTX, MASK_DRAW_INPUTS } from './codegen'
 export { BLOCK_KEYWORDS, STATEMENT_KEYWORDS, VOICE_FLAGS, VOICE_OPTS, EQ_BAND_TYPES as RONDO_EQ_BAND_TYPES } from './parser'

@@ -303,6 +303,28 @@ describe('decompile round-trips (audit additions)', () => {
     expect(rondo2).not.toContain('js')
   })
 
+  it('draw blocks survive the round trip (the body after the prelude, verbatim, dedented)', () => {
+    const { rondo2 } = fixedPoint(
+      "synth kick\n  saw\n\ndraw 1\n  const x = i / n\n  if (x > 0.5) {\n    return beat\n  }\n  return hit.kick\n\nplay mask\n  0\n  draw: 1\n",
+    )
+    expect(rondo2).toContain('draw 1\n  const x = i / n\n  if (x > 0.5) {\n    return beat\n  }\n  return hit.kick\n')
+    expect(rondo2).not.toContain('js')
+    expect(rondo2).not.toContain('= m')
+  })
+
+  it('maskDraw without the block\'s own prelude, or over other names, stays JavaScript', () => {
+    const prelude = 'const { t, phase, cycle, cps, beat, duck, level, spec, hit, lvl } = m'
+    expect(decompile(`maskDraw(4, (i, n, m) => {\n  ${prelude}\n  return m.beat\n})`)).toBe('draw 4\n  return m.beat\n')
+    // a painter that reads `m` directly would gain ten names it never had
+    expect(decompile('maskDraw(4, (i, n, m) => {\n  return m.beat\n})')).toContain('js\n')
+    // an expression body has no prelude either
+    expect(decompile('maskDraw(4, (i, n, m) => m.beat)')).toContain('js\n')
+    expect(decompile(`maskDraw(4, (a, b, c) => {\n  ${prelude}\n  return beat\n})`)).toContain('js\n')
+    expect(decompile(`maskDraw(0, (i, n, m) => {\n  ${prelude}\n  return beat\n})`)).toContain('js\n')
+    // the prelude alone is a block with no body, which does not parse back
+    expect(decompile(`maskDraw(4, (i, n, m) => {\n  ${prelude}\n})`)).toContain('js\n')
+  })
+
   it('maskFrame with an expression body becomes a return line; other parameter names stay JavaScript', () => {
     expect(decompile("maskFrame(3, (x, y) => x > y ? '#fff' : null)")).toBe("mask 3\n  return x > y ? '#fff' : null\n")
     // the block compiles back to an arrow over exactly x, y, w, h: a painter

@@ -160,7 +160,7 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
     const isBlock =
       kw === 'synth' || kw === 'sing' || kw === 'play' || kw === 'beat' || kw === 'bus' ||
       kw === 'section' || ((kw === 'js' || kw === 'visual') && ln.toks.length === 1) ||
-      (kw === 'mask' && ln.toks.length === 2)
+      ((kw === 'mask' || kw === 'draw') && ln.toks.length === 2)
     if (!isBlock) {
       k++ // unknown block keyword — leave the line (and its body) alone
       continue
@@ -171,7 +171,7 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
     const body = LL.slice(k + 1, j)
     setPlan(ln, 'expr', 0)
 
-    if (kw === 'js' || kw === 'visual' || kw === 'mask') {
+    if (kw === 'js' || kw === 'visual' || kw === 'mask' || kw === 'draw') {
       // escape hatches are verbatim-with-indent in the compiler; the formatter
       // goes one further and keeps every byte, blank lines included
       if (body.length > 0) {

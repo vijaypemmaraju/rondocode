@@ -61,6 +61,7 @@ setTimeSig(3, 4)
 setCps(0.7)
 p('vox', sing('la la', 'c4 e4'))
 maskFrame(1, (x, y) => (x + y) % 2 ? '#f00' : null)
+maskDraw(1, (i, n, m) => m.beat * (1 - i / n))
 p('face', n('1').sound('mask'))
 `
 
@@ -123,6 +124,13 @@ const FATE: Record<string, Fate> = {
     why:
       'pictures for the Bluetooth LED mask have no audio to render; the live session hands them to the mask output (onMaskFrames), which uploads them to the connected device. The pattern that shows them is routed to the sound `mask`, which the live session keeps away from the engine (EXTERNAL_OUTPUTS) and the offline render skips as an undefined synth',
   },
+  maskDraws: {
+    staged: false,
+    mixOpt: null,
+    live: 'callback',
+    why:
+      'live painters for the LED mask read the music as it plays (meters, hits, the spectrum) and have no audio of their own; the live session hands them to the mask output alongside the pictures (onMaskFrames), which runs the chosen one per frame while a `draw:` step is showing. Nothing to render offline',
+  },
 }
 
 const stagedFields = (): string[] => {
@@ -159,7 +167,7 @@ describe('staged fields reach both consumers', () => {
   it('exercises every staging call, so the list below is the whole list', () => {
     // Guards the fixture itself: a field only appears if MAXIMAL stages it.
     expect(stagedFields()).toEqual([
-      'buses', 'cps', 'maskFrames', 'masterComp', 'masterGain', 'patterns', 'routes', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
+      'buses', 'cps', 'maskDraws', 'maskFrames', 'masterComp', 'masterGain', 'patterns', 'routes', 'sends', 'sidechain', 'sings', 'stereo', 'synths', 'timeSig', 'visual',
     ])
   })
 

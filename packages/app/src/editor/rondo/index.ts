@@ -46,8 +46,8 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; 
     // line over whole.
     if (stream.sol()) {
       if (state.wgsl !== undefined && !inVisualBody(state.wgsl, stream.string)) state.wgsl = undefined
-      // a `mask N` header opens its JS body from the NEXT line: the slot
-      // number on the header itself is still rondo
+      // a `mask N` / `draw N` header opens its JS body from the NEXT line:
+      // the number on the header itself is still rondo
       if (state.jsNext !== undefined) {
         state.js = state.jsNext
         state.jsNext = undefined
@@ -100,7 +100,7 @@ const rondoStreamLang = StreamLanguage.define<{ curve?: boolean; wgsl?: number; 
         if (header !== null) state.js = header
         else if (/^\s*\{/.test(stream.string.slice(stream.pos))) state.jsInline = true
       }
-      if (w === 'mask') {
+      if (w === 'mask' || w === 'draw') {
         const header = jsHeaderIndent(stream.string)
         if (header !== null) state.jsNext = header
       }
@@ -184,6 +184,7 @@ export const OPTIONS: RondoOption[] = [
   c('send', 'keyword', 'send lead .35', 'Route a synth into this bus (0..1, pre-fader).'),
   c('visual', 'keyword', 'visual', 'A WGSL fragment shader block, rendered behind the code.'),
   c('mask', 'keyword', 'mask N', "A picture for slot N of the Bluetooth LED mask: the indented body is a JavaScript painter given `x`, `y`, `w`, `h` that returns a colour ('#f40', [r, g, b], a grey 0..1) or null for off. `play mask` then shows slots by number.", "mask 1\n  return x < w / 2 ? '#ff4400' : null"),
+  c('draw', 'keyword', 'draw N', "A live visualizer for the Bluetooth LED mask: the indented body is a JavaScript painter called once per band with `i` (0 to 23), `n` (24) and the music: `t`, `phase`, `cycle`, `beat`, `level`, `spec`, `hit.<synth>`, `lvl.<synth>`. It returns the band's height 0 to 1. `play mask` shows it with `draw: N`, in the shape `viz:` names.", "draw 1\n  return hit.kick * (1 - i / n)"),
   c('js', 'keyword', 'js{ … } / js block', 'Escape hatch: raw JavaScript, verbatim -- total parity with the JS API.'),
   c('saw', 'function', 'saw [freq]', 'Sawtooth oscillator. Default freq = the note.'),
   c('square', 'function', 'square [freq]', 'Square oscillator. Default freq = the note.'),

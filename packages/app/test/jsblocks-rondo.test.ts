@@ -85,6 +85,11 @@ bpm 120
     expect(jsOf(src)).toBe("  const r = Math.hypot(x, y)\n  return r < 9 ? '#f40' : null")
   })
 
+  it('finds the body of a `draw N` block, which is a JavaScript painter too', () => {
+    const src = "synth z\n  saw\n\ndraw 2\n  const x = i / n\n  return x < beat ? 1 : 0\n\nplay mask\n  0\n  draw: 2\n"
+    expect(jsOf(src)).toBe('  const x = i / n\n  return x < beat ? 1 : 0')
+  })
+
   it('is not opened by `js` used as anything but a header or a js{ span', () => {
     expect(jsRegionRanges('play js\n  0 3 5\n')).toEqual([])
     expect(jsRegionRanges('synth jsx\n  saw\n')).toEqual([])

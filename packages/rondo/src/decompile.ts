@@ -14,7 +14,7 @@
 
 import { parse } from 'acorn'
 import { BUILTINS, isReservedBinding } from './builtins'
-import { SCALE_MODE } from './codegen'
+import { SCALE_MODE, maskDrawPrelude } from './codegen'
 
 /* acorn's nodes, loosely typed — we only touch a small surface. */
 interface Node {
@@ -2061,6 +2061,27 @@ function decompileStaging(stmt: Node): string | null {
       lines = [`return ${slice(body)}`]
     }
     return [`mask ${slot}`, ...lines.map((l) => (l.length > 0 ? `  ${l}` : ''))].join('\n')
+  }
+  /* `maskDraw(N, (i, n, m) => { const { … } = m; … })` → `draw N` + the body
+   *  after the prelude. The prelude is the block's own (cgDraw writes it), so
+   *  it is dropped when it is exactly that line; a painter without it, or
+   *  over other parameter names, stays JavaScript, since `draw` would give it
+   *  names it did not have. */
+  if (name === 'maskDraw' && args.length === 2) {
+    const n = numValue(args[0]!)
+    const fn = args[1]!
+    if (n === undefined || !Number.isInteger(n) || n < 1 || fn.type !== 'ArrowFunctionExpression' || fn['async'] === true) return null
+    const params = fn['params'] as Node[]
+    const names = ['i', 'n', 'm']
+    if (params.length !== 3 || params.some((p, i) => !isIdent(p, names[i]))) return null
+    const body = fn['body'] as Node
+    if (body.type !== 'BlockStatement') return null
+    const inner = src.text.slice(body.start + 1, body.end - 1).replace(/^[ \t]*\n/, '').replace(/\n[ \t]*$/, '')
+    const lines = dedent(inner.split('\n'))
+    if (lines[0]?.trim() !== maskDrawPrelude()) return null
+    const rest = lines.slice(1)
+    if (rest.join('').trim() === '') return null
+    return [`draw ${n}`, ...rest.map((l) => (l.length > 0 ? `  ${l}` : ''))].join('\n')
   }
   if (name === 'visual' && args.length === 1) {
     const a = args[0]!

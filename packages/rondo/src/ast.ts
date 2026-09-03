@@ -308,6 +308,16 @@ export interface VisualItem {
 
 /** A `mask N` block: the painter body for LED-mask picture slot N, raw
  *  JavaScript passed verbatim as the body of maskFrame(N, (x, y, w, h) => {…}). */
+/** A `draw N` block: painter N for the LED mask's live visualizer, raw
+ *  JavaScript passed verbatim as the body of maskDraw(N, (i, n, m) => {…})
+ *  after the prelude that unpacks the music (see MASK_DRAW_INPUTS). */
+export interface DrawItem {
+  t: 'draw'
+  n: number
+  body: string
+  pos: Pos
+}
+
 export interface MaskItem {
   t: 'mask'
   slot: number
@@ -413,7 +423,7 @@ export interface RouteItem {
 export type TopItem =
   | SynthBlock | PlayBlock | CpsItem | TimeSigItem | RawItem
   | SidechainItem | MasterItem
-  | StereoItem | LevelItem | RouteItem | PatDefItem | BusBlock | VisualItem | MaskItem
+  | StereoItem | LevelItem | RouteItem | PatDefItem | BusBlock | VisualItem | MaskItem | DrawItem
   | SectionBlock | SongItem | SingBlock | ScaleDefItem | WaveDefItem | ZoneDefItem | MacroItem | CurveDefItem
 
 export interface Program {

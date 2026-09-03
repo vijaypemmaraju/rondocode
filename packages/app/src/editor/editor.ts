@@ -49,6 +49,7 @@ import * as singMgr from '../sing/singMgr'
 import { mountSingDialog, confirmSingDownload } from '../ui/singDialog'
 import { tabGet, tabSet } from '../session/tabstore'
 import type { MaskFrame } from '../mask/frame'
+import type { MaskDrawFn } from '../mask/music'
 
 /* ------------------------------------------------------------------------- *
  * The live-coding editor shell: header (logo, example picker, master
@@ -190,10 +191,10 @@ export interface EditorHandle {
    *  hit_<name> channels). Replays immediately on subscribe. Returns
    *  an unsubscribe function. */
   onVisual(fn: (wgsl: string | null, synths: string[]) => void): () => void
-  /** Subscribe to the LED mask pictures: the maskFrame() slots from the last
-   *  good eval. Replays immediately on subscribe. Returns an unsubscribe
-   *  function. */
-  onMaskFrames(fn: (frames: ReadonlyMap<number, MaskFrame>) => void): () => void
+  /** Subscribe to the LED mask pictures and live painters: the maskFrame()
+   *  slots and maskDraw() numbers from the last good eval. Replays
+   *  immediately on subscribe. Returns an unsubscribe function. */
+  onMaskFrames(fn: (frames: ReadonlyMap<number, MaskFrame>, draws: ReadonlyMap<number, MaskDrawFn>) => void): () => void
   /** Subscribe to value-probe targets: every modulation expression the last
    *  good eval tagged (synth + node id + source char-range). The live-readout
    *  feature picks which to show and calls session.setProbes. Replays the last
@@ -927,11 +928,13 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   }
 
   // Mask pictures fanout: the Session fires onMaskFrames on each good eval.
-  const maskFrameListeners = new Set<(frames: ReadonlyMap<number, MaskFrame>) => void>()
+  type MaskListener = (frames: ReadonlyMap<number, MaskFrame>, draws: ReadonlyMap<number, MaskDrawFn>) => void
+  const maskFrameListeners = new Set<MaskListener>()
   let lastMaskFrames: ReadonlyMap<number, MaskFrame> = new Map()
-  const subscribeMaskFrames = (fn: (frames: ReadonlyMap<number, MaskFrame>) => void): (() => void) => {
+  let lastMaskDraws: ReadonlyMap<number, MaskDrawFn> = new Map()
+  const subscribeMaskFrames = (fn: MaskListener): (() => void) => {
     maskFrameListeners.add(fn)
-    fn(lastMaskFrames)
+    fn(lastMaskFrames, lastMaskDraws)
     return () => maskFrameListeners.delete(fn)
   }
 
@@ -1021,11 +1024,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         }
       }
     },
-    onMaskFrames: (frames) => {
+    onMaskFrames: (frames, draws) => {
       lastMaskFrames = frames
+      lastMaskDraws = draws
       for (const fn of maskFrameListeners) {
         try {
-          fn(frames)
+          fn(frames, draws)
         } catch (e) {
           console.warn('[editor] mask-frames listener failed', e)
         }

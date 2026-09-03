@@ -10,14 +10,16 @@
  *   face        show built-in picture n
  *   anim        run built-in animation n
  *   viz         draw the music live with built-in visualizer n (0..4)
+ *   draw        draw what the program's `draw n` painter says, in the shape
+ *               `viz` names on the same event (0 when it names none)
  *   gain        brightness 0..1, the same word the rest of a pattern uses
  *
  * A picture control wins over an animation on the same event, a slot over a
  * face, and any of them over the visualizer, because the mask can only show
  * one thing. A slot outside 1..MASK_SLOT_MAX is not a slot: `0 0 0 0` is four
- * beats with no picture of their own, for a `face:`, `anim:` or `viz:` lane
- * to land on. An event with none of them (a `gain` sweep) changes only the
- * brightness.
+ * beats with no picture of their own, for a `face:`, `anim:`, `viz:` or
+ * `draw:` lane to land on. An event with none of them (a `gain` sweep)
+ * changes only the brightness.
  *
  * Three consequences of "state, not trigger", all deliberate:
  *
@@ -40,24 +42,35 @@
  * at a time, and a slot that is showing is re-shown when its picture lands.
  *
  * THE VISUALIZER is the one state that keeps the radio busy. While it is
- * what the mask shows, a loop reads the master analyser (opts.levels) every
- * 40 ms and writes a rhythm frame, skipping frames that repeat the last one
- * (a silent bar costs nothing) and frames that fall inside an upload. A
- * picture command ends it, since the mask draws whichever came last. A
- * transport stop sends one dark frame and stops the loop: the music it was
- * drawing has stopped, and a frozen spectrum would be a lie. The next viz
- * step brings it back.
+ * what the mask shows, a loop reads the music (opts.music, mask/music.ts)
+ * every 40 ms and writes a rhythm frame, skipping frames that repeat the
+ * last one (a silent bar costs nothing) and frames that fall inside an
+ * upload. `viz` sends the spectrum as it is; `draw` runs the program's
+ * painter over the same music and sends what it answers. A picture command
+ * ends the loop, since the mask draws whichever came last. A transport stop
+ * sends one dark frame and stops it: the music it was drawing has stopped,
+ * and a frozen spectrum would be a lie. The next viz or draw step brings it
+ * back.
+ *
+ * A painter that misbehaves (a `draw:` step with no `draw n` block, a body
+ * that throws or returns a string) is reported once per eval and draws dark
+ * until the next run fixes it, the way a bad `visual` shader falls back to
+ * the default rather than taking the page down every frame.
  * ------------------------------------------------------------------------- */
 
 import type { SchedulerEvent } from '@rondocode/pattern'
 import type { MaskDevice, UploadReport } from './device'
 import { MASK_SLOT_MAX, MASK_SLOT_MIN, sameFrame } from './frame'
 import type { MaskFrame } from './frame'
+import { levelsOf, runDraw, silentFrame } from './music'
+import type { MaskDrawFn, MusicFrame } from './music'
 import { MASK_SOUND, MASK_VIZ_MAX, RHYTHM_BANDS, cmdAnim, cmdImage, cmdLight, cmdPlaySlot, encodeRhythm, lightByte, packFrame } from './protocol'
 
-/** What the mask is showing: a picture of one of three kinds, or the live
- *  visualizer n. */
-export type MaskPicture = { kind: 'slot' | 'face' | 'anim' | 'viz'; n: number }
+/** What the mask is showing: a picture of one of three kinds, the live
+ *  visualizer n, or the program's painter n drawn in visualizer shape `mode`. */
+export type MaskPicture =
+  | { kind: 'slot' | 'face' | 'anim' | 'viz'; n: number }
+  | { kind: 'draw'; n: number; mode: number }
 
 /** Frames a second the visualizer is fed. The mask takes far more (a hundred
  *  frames went in a quarter of a second); 25 is smooth to the eye and leaves
@@ -84,9 +97,12 @@ export function eventState(controls: Record<string, unknown>): MaskState {
   const anim = num('anim')
   const rawViz = num('viz')
   const viz = rawViz !== undefined && Math.round(rawViz) >= 0 && Math.round(rawViz) <= MASK_VIZ_MAX ? Math.round(rawViz) : undefined
+  const rawDraw = num('draw')
+  const draw = rawDraw !== undefined && Math.round(rawDraw) >= 1 ? Math.round(rawDraw) : undefined
   if (slot !== undefined) st.picture = { kind: 'slot', n: slot }
   else if (face !== undefined) st.picture = { kind: 'face', n: Math.round(face) }
   else if (anim !== undefined) st.picture = { kind: 'anim', n: Math.round(anim) }
+  else if (draw !== undefined) st.picture = { kind: 'draw', n: draw, mode: viz ?? 0 }
   else if (viz !== undefined) st.picture = { kind: 'viz', n: viz }
   const gain = num('gain')
   if (gain !== undefined) st.light = lightByte(gain)
@@ -94,7 +110,13 @@ export function eventState(controls: Record<string, unknown>): MaskState {
 }
 
 const samePicture = (a: MaskPicture | undefined, b: MaskPicture | undefined): boolean =>
-  a === b || (a !== undefined && b !== undefined && a.kind === b.kind && a.n === b.n)
+  a === b
+  || (a !== undefined && b !== undefined && a.kind === b.kind && a.n === b.n
+    && (a.kind !== 'draw' || a.mode === (b as { mode: number }).mode))
+
+/** The visualizer shape a picture streams in, or null for a still picture. */
+const streamMode = (p: MaskPicture | undefined): number | null =>
+  p === undefined ? null : p.kind === 'viz' ? p.n : p.kind === 'draw' ? p.mode : null
 
 export interface UploadProgress {
   slot: number
@@ -122,12 +144,13 @@ export interface MaskOutputOpts {
   onStatus?: (s: MaskStatus) => void
   /** something went wrong talking to the mask; the UI shows it */
   onError?: (message: string) => void
-  /** the music right now as 24 levels 0..9 (mask/spectrum.ts), or null when
-   *  there is no analyser; read once per visualizer frame */
-  levels?: () => Uint8Array | null
+  /** the music right now (mask/music.ts); read once per visualizer frame.
+   *  Without it the visualizer draws silence and painters see a still frame. */
+  music?: () => MusicFrame
 }
 
 const DARK = new Uint8Array(RHYTHM_BANDS)
+const SILENCE = silentFrame()
 
 export class MaskOutput {
   private device: MaskDevice | null = null
@@ -153,6 +176,12 @@ export class MaskOutput {
   /** this device rejected a rhythm frame (no characteristic): said once,
    *  then viz steps are noted and not streamed */
   private rhythmBroken = false
+  /** the program's painters, by number; from each good eval */
+  private draws = new Map<number, MaskDrawFn>()
+  /** painters (by number) already reported this eval: said once, then dark */
+  private readonly drawFailed = new Set<number>()
+  /** the levels buffer the loop reuses */
+  private readonly levels = new Uint8Array(RHYTHM_BANDS)
 
   constructor(private readonly opts: MaskOutputOpts) {
     this.setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
@@ -186,6 +215,15 @@ export class MaskOutput {
     void this.syncFrames()
   }
 
+  /** The painters the program declares, by number; from each good eval. A
+   *  new set gets a fresh chance: what failed last time is reported again if
+   *  it still fails. */
+  setDraws(draws: ReadonlyMap<number, MaskDrawFn>): void {
+    this.draws = new Map(draws)
+    this.drawFailed.clear()
+    this.lastRhythm = '' // a new painter for the shown number draws at once
+  }
+
   /** Scheduler events; anything not routed to the mask is ignored. */
   send(evs: readonly SchedulerEvent[]): void {
     for (const ev of evs) {
@@ -207,7 +245,7 @@ export class MaskOutput {
     for (const h of this.timers) this.clearTimer(h)
     this.timers.clear()
     if (this.rhythmTimer !== null) {
-      const mode = this.sent.picture?.kind === 'viz' ? this.sent.picture.n : 0
+      const mode = streamMode(this.sent.picture) ?? 0
       this.stopRhythm()
       const dev = this.device
       if (dev !== null && dev.connected && !dev.uploading) this.fire(dev.rhythm(encodeRhythm(mode, DARK)), 'spectrum')
@@ -238,7 +276,7 @@ export class MaskOutput {
     if (want.picture !== undefined && !samePicture(want.picture, this.sent.picture)) {
       const p = want.picture
       this.sent.picture = p
-      if (p.kind === 'viz') {
+      if (p.kind === 'viz' || p.kind === 'draw') {
         // a mode change rides the next frame; only a fresh start needs a kick
         if (this.rhythmTimer === null && !this.rhythmBroken) this.startRhythm()
       } else {
@@ -267,17 +305,18 @@ export class MaskOutput {
     this.rhythmTimer = this.setTimer(() => this.rhythmTick(), RHYTHM_INTERVAL_MS)
     const dev = this.device
     const p = this.sent.picture
-    if (dev === null || !dev.connected || p?.kind !== 'viz') {
+    const mode = streamMode(p)
+    if (dev === null || !dev.connected || p === undefined || mode === null) {
       this.stopRhythm()
       return
     }
     if (dev.uploading || this.rhythmInFlight) return
-    const levels = this.opts.levels?.() ?? DARK
-    const key = `${p.n}:${String.fromCharCode(...levels)}`
+    const levels = this.frameLevels(p)
+    const key = `${mode}:${String.fromCharCode(...levels)}`
     if (key === this.lastRhythm) return
     this.lastRhythm = key
     this.rhythmInFlight = true
-    dev.rhythm(encodeRhythm(p.n, levels)).then(
+    dev.rhythm(encodeRhythm(mode, levels)).then(
       () => {
         this.rhythmInFlight = false
       },
@@ -288,6 +327,24 @@ export class MaskOutput {
         this.opts.onError?.(`live spectrum: ${e instanceof Error ? e.message : String(e)}`)
       },
     )
+  }
+
+  /** This frame's 24 levels for what is showing: the spectrum for `viz`,
+   *  the painter's answer for `draw`. A painter's mistake is reported once
+   *  and draws dark, see the header. */
+  private frameLevels(p: MaskPicture): Uint8Array {
+    const music = this.opts.music?.() ?? SILENCE
+    if (p.kind !== 'draw') return levelsOf(music.spec, this.levels)
+    if (this.drawFailed.has(p.n)) return DARK
+    const fn = this.draws.get(p.n)
+    try {
+      if (fn === undefined) throw new Error('the program has no `draw ' + p.n + '` block')
+      return runDraw(fn, music, this.levels)
+    } catch (e) {
+      this.drawFailed.add(p.n)
+      this.opts.onError?.(`draw ${p.n}: ${e instanceof Error ? e.message : String(e)}`)
+      return DARK
+    }
   }
 
   private async syncFrames(): Promise<void> {

@@ -1553,11 +1553,12 @@ cps .5`,
           ['`face: n`', 'shows built-in picture n', 'the faces the mask ships with, the same numbers its own app uses'],
           ['`anim: n`', 'runs built-in animation n', 'the animation keeps running until the next change'],
           ['`viz: n`', 'draws the music live with built-in visualizer n, 0 to 4', 'bars, butterfly, rainbow columns, rows, hourglass; fed from the master at 25 frames a second'],
+          ['`draw: n`', 'draws what your `draw n` painter says, live, in the shape `viz:` names', 'your own 24 bands a frame, from the music: hits, meters, the beat, the spectrum'],
           ['`gain`', 'sets the brightness, 0 to 1', 'the same word as everywhere else, so a `<.4 1>` lane pulses it'],
-          ['`0` or a note name', 'a beat with no picture of its own', 'for a `face:`, `anim:` or `viz:` lane to land on'],
+          ['`0` or a note name', 'a beat with no picture of its own', 'for a `face:`, `anim:`, `viz:` or `draw:` lane to land on'],
         ],
       ),
-      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, a face over an animation, and any of them over the visualizer. Give a face lane its own grid with `0 0 0 0` and it steps cleanly. The name is taken: a synth called `mask` would compile and never be heard, so the run refuses it and says so.'),
+      p('A step that names a picture slot shows that slot even when a `face:` lane is set on the same step, because the mask can only show one thing: a slot wins over a face, a face over an animation, any of them over a `draw:`, and a `draw:` over the plain `viz:`. Give a face lane its own grid with `0 0 0 0` and it steps cleanly. The name is taken: a synth called `mask` would compile and never be heard, so the run refuses it and says so.'),
       p('`viz:` is the live path. While it is what the mask shows, the app reads the master spectrum 25 times a second, folds it into 24 bands from 40 Hz to 16 kHz and streams them to the mask, which draws them with one of its own five visualizers, so the panel moves with the music at once and nothing is uploaded. The loudest band of the last few seconds fills its bar and the others sit in proportion, with silence dark, so it reads the same at any master level. A picture step ends it, a transport stop darkens it, and the next `viz:` step brings it back. The mode is a lane like any other: `viz: <0 2 4>` changes visualizer every cycle, and `0 0 0 1` with a `viz: 0` lane shows the spectrum for three beats and picture 1 on the fourth.'),
       rondo(
         'The spectrum for a bar, a painted picture on the downbeat.',
@@ -1578,6 +1579,38 @@ play mask
 
 cps .5`,
       ),
+      p('`draw:` is the live path with your own numbers in it. The mask draws 24 bands, each 0 to 9 tall, in one of its five shapes, and `viz:` fills them with the spectrum; a `draw N` block fills them with whatever you compute. Its body is JavaScript, called once per band per frame with the band index `i` (0 to 23), the band count `n` (24) and the music, and it returns the band\'s height 0 to 1 (`true` and `false` are full and empty, nothing is dark). The music is unpacked for it by name: `t` is a clock in seconds, `phase` runs 0 to 1 through each cycle and `cycle` counts them, `cps` is the tempo, `beat` is a bass onset envelope, `level` the master meter, `duck` the sidechain, `spec` the 24 spectrum bands 0 to 1, and `hit` and `lvl` are per synth: `hit.kick` is 1 the moment a kick sounds and fades over about a tenth of a second, `lvl.bass` follows the bass channel\'s meter. `draw: N` shows painter N; `viz:` on the same step picks the shape it is drawn in, 0 when there is none. In JavaScript the same painter is `maskDraw(n, (i, n, m) => ...)` reading `m.beat`, `m.hit.kick` and so on.'),
+      rondo(
+        'A kick that lights the mask from the centre out, a hat that flickers the edges.',
+        `synth kick
+  sine 55
+  * env
+  env = adsr .002 .12 0 .1
+
+synth hat
+  noise
+  svf 8200 mode:hp
+  * env
+  env = adsr .001 .04 0 .02
+
+draw 1
+  const edge = Math.abs(i - 11.5) / 11.5
+  return hit.kick * (1 - edge) + hit.hat * edge
+
+play kick
+  c2 c2 c2 c2
+
+play hat
+  ~ c5 ~ c5
+
+play mask
+  0 0 0 0
+  draw: 1
+  viz: <0 1>
+
+cps .5`,
+      ),
+      p('A painter that throws, returns something other than a number, or is named by a `draw:` step the program has no block for, is reported once in the mask popover and draws dark until the next run. A painter that is slow costs every frame: it runs 24 times, 25 times a second.'),
       p('Pictures are painted in code. A `mask N` block is the painter for slot N: its body is JavaScript, called once per pixel with `x`, `y` and the panel size `w`, `h`, and it returns a colour, a grey level 0 to 1, an `[r, g, b]` triple 0 to 1, a `#hex` string, or null for off. In JavaScript the same painter is `maskFrame(slot, (x, y, w, h) => ...)`.'),
       code(
         'The same two rings, in JavaScript.',
@@ -2113,7 +2146,7 @@ cps .5`,
           ['`bpm 174`', '`cps .725`', 'drum and bass'],
         ],
       ),
-      p('A `visual` block holds a WGSL fragment shader, verbatim, the same contract as the JS `visual(...)`: audio-reactive uniforms (`level`, `bass`, `spectrum(x)`, per-synth `hit_*`) drive a shader behind the code. A `mask N` block holds a JavaScript painter the same way, for the Bluetooth LED mask (see its own section).'),
+      p('A `visual` block holds a WGSL fragment shader, verbatim, the same contract as the JS `visual(...)`: audio-reactive uniforms (`level`, `bass`, `spectrum(x)`, per-synth `hit_*`) drive a shader behind the code. A `mask N` block holds a JavaScript painter the same way, for the Bluetooth LED mask, and a `draw N` block a live one for its visualizer (see its own section).'),
       rondo(
         'A miniature arrangement: intro, drop, out.',
         `synth kick
@@ -2313,6 +2346,7 @@ cps .5`,
           ['`curvedef NAME t v t v …`', 'a named breakpoint shape, usable wherever a curve is'],
           ['`visual`', 'a WGSL fragment shader behind the code'],
           ['`mask N`', 'a picture for slot N of the Bluetooth LED mask: a JavaScript painter over `x`, `y`, `w`, `h`, shown by `play mask`'],
+          ['`draw N`', 'a live visualizer N for the LED mask: a JavaScript painter over the band `i` of `n` and the music (`beat`, `hit.kick`, `spec`), shown by `draw: N`'],
           ['`js{ … }` and `js`', 'the escape hatch: a raw JavaScript expression, or raw statements'],
           ['`cps N` and `bpm N`', 'the tempo: cycles per second, or beats per minute (one cycle is one 4-beat bar)'],
           ['`timesig N D`', 'the meter: beats per bar, then the beat unit. A cycle is still one bar'],

@@ -2,6 +2,7 @@ import type { EditorHandle } from './editor'
 import { MaskDevice } from '../mask/device'
 import { MaskOutput } from '../mask/output'
 import type { MaskStatus } from '../mask/output'
+import { MaskMusic } from '../mask/music'
 import { MaskSpectrum } from '../mask/spectrum'
 import {
   hasWebBluetooth, openMaskLink, pickRememberedMask, recallMaskId, rememberMaskId,
@@ -34,8 +35,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 const describeShown = (s: MaskStatus['shown']): string => {
   const parts: string[] = []
   if (s.picture !== undefined) {
-    const kind = s.picture.kind === 'slot' ? 'picture' : s.picture.kind === 'viz' ? 'live spectrum' : s.picture.kind
-    parts.push(`${kind} ${s.picture.n}`)
+    const p = s.picture
+    if (p.kind === 'draw') parts.push(`draw ${p.n} in shape ${p.mode}`)
+    else parts.push(`${p.kind === 'slot' ? 'picture' : p.kind === 'viz' ? 'live spectrum' : p.kind} ${p.n}`)
   }
   if (s.light !== undefined) parts.push(`brightness ${Math.round((s.light / 255) * 100)}%`)
   return parts.length === 0 ? 'nothing sent yet' : parts.join(', ')
@@ -61,7 +63,7 @@ export function mountMask(editor: EditorHandle): () => void {
   const hint = el(
     'div',
     'export-hint',
-    'route a pattern to the sound `mask`: the notation picks a picture slot, `face:` a built-in face, `anim:` an animation, `viz:` (0 to 4) draws the music live and `gain:` sets the brightness. Pictures come from maskFrame() and upload when you run; each takes about five seconds.',
+    'route a pattern to the sound `mask`: the notation picks a picture slot, `face:` a built-in face, `anim:` an animation, `viz:` (0 to 4) draws the music live, `draw:` runs one of your own `draw N` painters and `gain:` sets the brightness. Pictures come from `mask N` blocks and upload when you run; each takes about five seconds.',
   )
   pop.append(status, shown, progress, errLine, connectBtn, hint)
   document.body.append(pop)
@@ -105,14 +107,21 @@ export function mountMask(editor: EditorHandle): () => void {
     connectBtn.disabled = busy
   }
 
-  // the master tap the panel's spectrum draws from; null means the visualizer
-  // gets dark frames, and the picture path is unaffected
+  // the music the visualizer draws: the master tap's spectrum (null means the
+  // spectrum stays dark, and the picture path is unaffected), plus the
+  // engine's meters and the scheduler's events for the `draw` painters
+  const now = (): number => audio.currentTimeFrames / audio.sampleRate
   const spectrum = audio.analyser !== null ? new MaskSpectrum(audio.analyser, audio.sampleRate) : null
+  const music = new MaskMusic({ now, spectrum })
+  const state0 = editor.session.getState()
+  music.setCps(state0.cps)
+  music.setSynths(state0.synths)
+  music.setPlaying(state0.playing)
   const output = new MaskOutput({
-    now: () => audio.currentTimeFrames / audio.sampleRate,
+    now,
     onStatus: render,
     onError: (m) => showError(m),
-    levels: () => spectrum?.levels() ?? null,
+    music: () => music.frame(),
   })
 
   const attach = async (dev: BluetoothDevice): Promise<void> => {
@@ -193,10 +202,23 @@ export function mountMask(editor: EditorHandle): () => void {
 
   if (supported) void reconnectRemembered()
 
-  const offEvents = editor.onPatternEvents((evs) => output.send(evs))
-  const offFrames = editor.onMaskFrames((frames) => output.setFrames(frames))
+  const offEvents = editor.onPatternEvents((evs) => {
+    output.send(evs)
+    music.pushEvents(evs)
+  })
+  const offFrames = editor.onMaskFrames((frames, draws) => {
+    output.setFrames(frames)
+    output.setDraws(draws)
+  })
   const offState = editor.onState((s) => {
+    music.setCps(s.cps)
+    music.setSynths(s.synths)
+    music.setPlaying(s.playing)
     if (!s.playing) output.stop()
+  })
+  const offEngine = editor.onEngineEvent((ev) => {
+    if (ev.kind !== 'meters') return
+    music.setMeters({ channels: ev.channels, master: ev.master, ...(typeof ev.duck === 'number' ? { duck: ev.duck } : {}) })
   })
 
   // popover open/close under the button
@@ -230,6 +252,7 @@ export function mountMask(editor: EditorHandle): () => void {
     offEvents()
     offFrames()
     offState()
+    offEngine()
     output.stop()
     device?.disconnect()
     document.removeEventListener('click', onDocClick)

@@ -15,6 +15,7 @@ import { EXTERNAL_OUTPUTS, clampCps, evalCode } from './evalCode'
 import type { Diagnostic, EvalResult } from './evalCode'
 import { baseScope } from './scope'
 import type { MaskFrame } from '../mask/frame'
+import type { MaskDrawFn } from '../mask/music'
 
 export { EXTERNAL_OUTPUTS }
 
@@ -158,10 +159,12 @@ export interface SessionOpts {
    *  recompiles live. Not fired on a failed eval (last-good). */
   onVisual?: (wgsl: string | null, synths: string[]) => void
   /** Fired on every SUCCESSFUL eval with the pictures the program staged for
-   *  the LED mask (maskFrame(slot, painter)), by slot; an empty map when it
-   *  staged none. The mask output diffs them against what the device holds.
-   *  Not fired on a failed eval (last-good). */
-  onMaskFrames?: (frames: ReadonlyMap<number, MaskFrame>) => void
+   *  the LED mask (maskFrame(slot, painter)), by slot, and its live painters
+   *  (maskDraw(n, painter)), by number; empty maps when it staged none. The
+   *  mask output diffs the pictures against what the device holds and runs
+   *  the painters while one is showing. Not fired on a failed eval
+   *  (last-good). */
+  onMaskFrames?: (frames: ReadonlyMap<number, MaskFrame>, draws: ReadonlyMap<number, MaskDrawFn>) => void
   /** Fired on every SUCCESSFUL eval with the value-probe targets: every
    *  modulation expression the evaluator tagged (synth + voice-graph node id +
    *  source char-range). The editor picks which to show as live readouts and
@@ -217,7 +220,7 @@ export class Session {
   private readonly onEngineEvent: ((ev: EngineEvent) => void) | undefined
   private readonly onPatternEvents: ((evs: SchedulerEvent[]) => void) | undefined
   private readonly onVisual: ((wgsl: string | null, synths: string[]) => void) | undefined
-  private readonly onMaskFrames: ((frames: ReadonlyMap<number, MaskFrame>) => void) | undefined
+  private readonly onMaskFrames: ((frames: ReadonlyMap<number, MaskFrame>, draws: ReadonlyMap<number, MaskDrawFn>) => void) | undefined
   private readonly onProbes: ((targets: ProbeTarget[]) => void) | undefined
   private readonly setIntervalImpl: SetIntervalImpl | undefined
   private readonly clearIntervalImpl: ClearIntervalImpl | undefined
@@ -508,9 +511,10 @@ export class Session {
     // (including live widget scrubs) is safe.
     this.onVisual?.(result.visual ?? null, [...result.synths.keys()])
 
-    // Pictures for the LED mask. The mask output diffs against what it has
-    // uploaded, so firing the whole map on every eval is safe.
-    this.onMaskFrames?.(result.maskFrames)
+    // Pictures and live painters for the LED mask. The mask output diffs the
+    // pictures against what it has uploaded, so firing the whole map on every
+    // eval is safe.
+    this.onMaskFrames?.(result.maskFrames, result.maskDraws)
 
     // Value-probe targets: every modulation expression the evaluator tagged
     // (SynthDef.nodeLocs). The editor filters these to the ones worth a live

@@ -228,6 +228,12 @@ describe('escape hatches are byte-preserved', () => {
     expect(fmt(src)).toContain(body)
   })
 
+  it('never touches a draw block body either', () => {
+    const body = "  const  x =   i / n;\n     return x < 0.5 ?   hit.kick : beat"
+    const src = `draw 1\n${body}\n\ncps .5\n`
+    expect(fmt(src)).toContain(body)
+  })
+
   it('collapses spaces outside an inline js{ … } span but not inside', () => {
     const src = 'synth a\n  saw\n  mo = js{ a  +    b }    *     2\n'
     expect(fmt(src)).toBe('synth a\n  saw\n  mo = js{ a  +    b } * 2\n')

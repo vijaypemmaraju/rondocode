@@ -964,6 +964,31 @@ describe('rondo → rondocode codegen', () => {
     expect(empty.line).toBe(4)
   })
 
+  it('draw block: the body becomes maskDraw(N, (i, n, m) => { … }) after the music prelude, verbatim', () => {
+    const src = "synth kick\n  saw\n\ndraw 2\n  if (i > 12) return null\n  return hit.kick * (1 - i / n)\n\nplay mask\n  0 0\n  draw: 2\n  viz: <0 3>\n"
+    const out = ok(src)
+    expect(out).toContain(
+      'maskDraw(2, (i, n, m) => {\n  const { t, phase, cycle, cps, beat, duck, level, spec, hit, lvl } = m\n  if (i > 12) return null\n  return hit.kick * (1 - i / n)\n})',
+    )
+    expect(out).toContain("n('0 0').sound('mask').ctrl('draw', 2).ctrl('viz', '<0 3>')")
+    // the body is a JS region, like a mask block: the editor paints it as JavaScript
+    const r = compile(src)
+    if (!r.ok) throw new Error('unreachable')
+    expect(r.jsRegions.map((g) => src.slice(g.from, g.to))).toEqual(['  if (i > 12) return null\n  return hit.kick * (1 - i / n)'])
+  })
+
+  it('draw block: the header needs a whole painter number ≥ 1 and the block a body, at the header line', () => {
+    for (const header of ['draw', 'draw 0', 'draw 1.5', 'draw one', 'draw 1 2']) {
+      const e = fails(`synth z\n  saw\n\n${header}\n  return 1\n`)
+      expect(e.message, header).toMatch(/painter number/)
+      expect(e.line, header).toBe(4)
+      expect(e.col, header).toBe(1)
+    }
+    const empty = fails('synth z\n  saw\n\ndraw 2\n\ncps .5\n')
+    expect(empty.message).toMatch(/no painter body/)
+    expect(empty.line).toBe(4)
+  })
+
   it('chord names (uppercase root) pick chord(); stacked lines pick stack()', () => {
     const out = ok(`synth pad\n  saw\n\nplay pad\n  <Am F C G>\n  dur: .95\n`)
     expect(out).toContain("chord('<Am F C G>')")

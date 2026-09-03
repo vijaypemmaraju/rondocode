@@ -1119,6 +1119,20 @@ function cgMask(item: Extract<TopItem, { t: 'mask' }>): string {
   return `maskFrame(${item.slot}, (x, y, w, h) => {\n${body}\n})`
 }
 
+/** What a `draw` body can read by name: the fields of the music frame the
+ *  mask output hands each painter (app: mask/music.ts, MusicFrame), unpacked
+ *  by the prelude line cgDraw writes and the decompiler strips. */
+export const MASK_DRAW_INPUTS = ['t', 'phase', 'cycle', 'cps', 'beat', 'duck', 'level', 'spec', 'hit', 'lvl'] as const
+
+export const maskDrawPrelude = (): string => `const { ${MASK_DRAW_INPUTS.join(', ')} } = m`
+
+function cgDraw(item: Extract<TopItem, { t: 'draw' }>): string {
+  // the body is the painter's function body, verbatim, after the music is
+  // unpacked: it returns band i's level 0..1 (of n bands) for this frame
+  const body = item.body.split('\n').map((l) => (l.length > 0 ? `  ${l}` : '')).join('\n')
+  return `maskDraw(${item.n}, (i, n, m) => {\n  ${maskDrawPrelude()}\n${body}\n})`
+}
+
 function cgVisual(item: Extract<TopItem, { t: 'visual' }>): string {
   // WGSL has no backticks/template holes, but escape defensively
   const body = item.wgsl.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
@@ -1407,6 +1421,7 @@ export function codegen(program: Program, errors: RondoError[]): CodegenOut {
     if (item.t === 'macro') return cgMacro(item)
     if (item.t === 'visual') return cgVisual(item)
     if (item.t === 'mask') return cgMask(item)
+    if (item.t === 'draw') return cgDraw(item)
     if (item.t === 'section') {
       const out = cgSection(item, errors, macroNames, sectionsSoFar)
       sectionsSoFar.add(item.name)

@@ -6,6 +6,8 @@ import type { MaskLink } from '../src/mask/device'
 import { paintFrame } from '../src/mask/frame'
 import { MaskOutput, eventState } from '../src/mask/output'
 import type { MaskStatus } from '../src/mask/output'
+import { silentFrame } from '../src/mask/music'
+import type { MusicFrame } from '../src/mask/music'
 import { decryptBlock } from '../src/mask/aes'
 import { MASK_KEY } from '../src/mask/protocol'
 
@@ -43,6 +45,8 @@ interface Rig {
   ackUploads: boolean
   /** what the analyser reads right now: 24 levels 0..9, or null for "no analyser" */
   levels: number[] | null
+  /** the rest of the music a `draw` painter sees this frame */
+  music: Partial<MusicFrame>
   /** make the mask one without the rhythm characteristic */
   rhythmFails: boolean
   drop: () => void
@@ -54,7 +58,7 @@ const makeRig = (): Rig => {
   const replyFns = new Set<(b: Uint8Array) => void>()
   const closeFns = new Set<() => void>()
   const timers: { fn: () => void; ms: number }[] = []
-  const rig = { chunks: 0, ackUploads: true, levels: null, rhythmFails: false } as Rig
+  const rig = { chunks: 0, ackUploads: true, levels: null, music: {}, rhythmFails: false } as Rig
   const reply = (word: string): void => {
     for (const fn of replyFns) fn(encReply(word))
   }
@@ -121,7 +125,11 @@ const makeRig = (): Rig => {
     },
     onStatus: (s) => statuses.push(s),
     onError: (m) => errors.push(m),
-    levels: () => (rig.levels === null ? null : Uint8Array.from(rig.levels)),
+    music: () => {
+      const m = { ...silentFrame(), ...rig.music }
+      if (rig.levels !== null) m.spec = Float32Array.from(rig.levels, (v) => v / 9)
+      return m
+    },
   })
   Object.assign(rig, {
     out,
@@ -172,6 +180,18 @@ describe('eventState', () => {
     // the mask has five visualizers; anything else is not one
     expect(eventState({ viz: 5 })).toEqual({})
     expect(eventState({ viz: -1 })).toEqual({})
+  })
+
+  it('reads draw as the painter, in the shape viz names, above viz and below every picture', () => {
+    expect(eventState({ draw: 1 })).toEqual({ picture: { kind: 'draw', n: 1, mode: 0 } })
+    expect(eventState({ draw: 2.4, viz: 3 })).toEqual({ picture: { kind: 'draw', n: 2, mode: 3 } })
+    expect(eventState({ n: 0, draw: 1, viz: 1 })).toEqual({ picture: { kind: 'draw', n: 1, mode: 1 } })
+    expect(eventState({ n: 1, draw: 1 })).toEqual({ picture: { kind: 'slot', n: 1 } })
+    expect(eventState({ face: 1, draw: 1 })).toEqual({ picture: { kind: 'face', n: 1 } })
+    expect(eventState({ anim: 1, draw: 1 })).toEqual({ picture: { kind: 'anim', n: 1 } })
+    // painters are numbered from 1; a shape out of range falls back to 0
+    expect(eventState({ draw: 0 })).toEqual({})
+    expect(eventState({ draw: 1, viz: 7 })).toEqual({ picture: { kind: 'draw', n: 1, mode: 0 } })
   })
 })
 
@@ -374,6 +394,70 @@ describe('MaskOutput', () => {
     rig.fireDue(40)
     await tick()
     expect(rig.sent.slice(3)).toEqual(['RHY 4 333333333333333333333333'])
+  })
+
+  it('a draw step streams what the painter answers, per band, in the shape viz names', async () => {
+    const rig = makeRig()
+    rig.out.attach(rig.dev)
+    rig.music = { hit: { kick: 1 }, beat: 0.5 }
+    rig.out.setDraws(new Map([[1, (i, n, m) => (i < 4 ? m.hit['kick'] : i === 23 ? m.beat : i === 22 ? true : null)]]))
+    rig.out.send([ev(0, { draw: 1, viz: 2 })])
+    await tick()
+    expect(rig.sent).toEqual(['RHY 2 999900000000000000000095'])
+    expect(rig.out.status().shown).toEqual({ picture: { kind: 'draw', n: 1, mode: 2 } })
+    // the music moves, the frame follows; a still frame is not resent
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent.length).toBe(1)
+    rig.music = { hit: { kick: 0.5 }, beat: 0 }
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent[1]).toBe('RHY 2 555500000000000000000090')
+    // a new shape for the same painter rides the next frame
+    rig.out.send([ev(0, { draw: 1, viz: 0 })])
+    await tick()
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent[2]).toBe('RHY 0 555500000000000000000090')
+    // a new painter from the next run draws at once, even to the same picture
+    rig.out.setDraws(new Map([[1, () => 0.2]]))
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent[3]).toBe('RHY 0 222222222222222222222222')
+    expect(rig.errors).toEqual([])
+  })
+
+  it('a painter that is missing or misbehaves is reported once and draws dark until the next run', async () => {
+    const rig = makeRig()
+    rig.out.attach(rig.dev)
+    rig.out.send([ev(0, { draw: 3 })])
+    await tick()
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent).toEqual(['RHY 0 000000000000000000000000'])
+    expect(rig.errors).toEqual(['draw 3: the program has no `draw 3` block'])
+    // a run that adds it: drawn from the next frame, no error
+    rig.out.setDraws(new Map([[3, (i) => i / 23]]))
+    rig.fireDue(40)
+    await tick()
+    expect(rig.sent[1]).toBe('RHY 0 001122233444555667778899')
+    // a body that throws, then one that answers a string: one line each
+    rig.out.setDraws(new Map([[3, () => { throw new Error('boom') }]]))
+    rig.fireDue(40)
+    await tick()
+    rig.fireDue(40)
+    await tick()
+    rig.out.setDraws(new Map([[3, () => 'tall']]))
+    rig.fireDue(40)
+    await tick()
+    rig.fireDue(40)
+    await tick()
+    expect(rig.errors.slice(1)).toEqual([
+      'draw 3: boom',
+      'draw 3: band 0 returned a string; a band is a number 0..1, true/false or nothing',
+    ])
+    // dark once per run, then quiet: the frame does not change
+    expect(rig.sent.slice(2)).toEqual(['RHY 0 000000000000000000000000', 'RHY 0 000000000000000000000000'])
   })
 
   it('a mask without the rhythm characteristic says so once and stays quiet', async () => {

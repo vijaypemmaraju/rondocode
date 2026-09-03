@@ -49,6 +49,7 @@ describe('docs coverage: globals', () => {
       'visual',
       'sing',
       'maskFrame',
+      'maskDraw',
       // Internal: the probe-location hook the evaluator injects for inline
       // live values. Not vocabulary anyone writes.
       '__rcTap',

@@ -25,6 +25,20 @@
  *
  * Single commands answer in 30 to 50 ms, so face and slot switches keep up
  * with a pattern.
+ *
+ * THE RHYTHM STREAM is the live path, on a characteristic of its own. It came
+ * out of the official app's decompiled source (ConnectActivity.sendRhythmData
+ * and VisualizerView): a 16-byte frame `[0x0F][mode][12 bytes][0][0]`,
+ * encrypted like a command but with no command word and no reply. The mask
+ * draws it at once with one of five built-in visualizers, chosen by `mode`
+ * (0 bars mirrored from the centre with peak dots, 1 butterfly, 2 rainbow
+ * columns, 3 rows from the centre, 4 hourglass), from 24 band levels of 0..9
+ * packed two to a byte, high nibble first. It is written WITHOUT response:
+ * measured, the mask took a hundred frames in a quarter of a second and
+ * tracked a 20 fps sweep frame for frame, where the app itself sends ten a
+ * second. There is no command to enter or leave the mode: the first frame
+ * takes the panel over and any picture command (`PLAY`, `IMAG`, `ANIM`)
+ * takes it back.
  * ------------------------------------------------------------------------- */
 
 import { decryptBlock, encryptBlock } from './aes'
@@ -40,6 +54,8 @@ export const MASK_SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb'
 export const MASK_CHAR_COMMAND = 'd44bc439-abfd-45a2-b575-925416129600'
 export const MASK_CHAR_NOTIFY = 'd44bc439-abfd-45a2-b575-925416129601'
 export const MASK_CHAR_UPLOAD = 'd44bc439-abfd-45a2-b575-92541612960a'
+/** The live spectrum: written without response, never answered. */
+export const MASK_CHAR_RHYTHM = 'd44bc439-abfd-45a2-b575-92541612960b'
 /** What the mask advertises as. */
 export const MASK_NAME_PREFIX = 'MASK'
 
@@ -52,6 +68,11 @@ export const MASK_KEY = Uint8Array.from([
 export const FRAME_BYTES = MASK_W * MASK_H * 3
 /** Payload bytes per upload packet. */
 export const UPLOAD_CHUNK = 98
+/** Bands in one rhythm frame, and how high each goes. */
+export const RHYTHM_BANDS = 24
+export const RHYTHM_LEVEL_MAX = 9
+/** The visualizers built into the mask are numbered 0..MASK_VIZ_MAX. */
+export const MASK_VIZ_MAX = 4
 
 const isByte = (v: number): boolean => Number.isInteger(v) && v >= 0 && v <= 255
 
@@ -110,6 +131,22 @@ export const cmdUploadStart = (length: number, slot: number): Uint8Array => {
 }
 /** Finish an upload. */
 export const cmdUploadEnd = (): Uint8Array => encodeCommand('DATCP')
+
+/** One rhythm frame: visualizer `mode` drawing `bands` (24 levels, 0..9). */
+export function encodeRhythm(mode: number, bands: ArrayLike<number>): Uint8Array {
+  if (!Number.isInteger(mode) || mode < 0 || mode > MASK_VIZ_MAX) throw new RangeError(`mask viz mode must be 0..${MASK_VIZ_MAX}, got ${mode}`)
+  if (bands.length !== RHYTHM_BANDS) throw new RangeError(`mask rhythm frame takes ${RHYTHM_BANDS} bands, got ${bands.length}`)
+  const block = new Uint8Array(16)
+  block[0] = 0x0f
+  block[1] = mode
+  for (let i = 0; i < RHYTHM_BANDS; i++) {
+    const v = bands[i]!
+    if (!Number.isInteger(v) || v < 0 || v > RHYTHM_LEVEL_MAX) throw new RangeError(`mask rhythm band ${i} must be 0..${RHYTHM_LEVEL_MAX}, got ${v}`)
+    const at = 2 + (i >> 1)
+    block[at] = block[at]! | (i % 2 === 0 ? v << 4 : v)
+  }
+  return encryptBlock(MASK_KEY, block)
+}
 
 function clampByte(v: number): number {
   if (!Number.isFinite(v)) return 0

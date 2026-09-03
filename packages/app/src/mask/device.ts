@@ -15,12 +15,15 @@
 
 import { cmdUploadEnd, cmdUploadStart, decodeReply, uploadPackets } from './protocol'
 
-/** The transport the device drives. Both writes are WITH response. */
+/** The transport the device drives. Command and upload writes are WITH
+ *  response; a rhythm frame is written WITHOUT, the mask never answers it. */
 export interface MaskLink {
   /** the advertised name, for the UI */
   name: string
   writeCommand(bytes: Uint8Array): Promise<void>
   writeUpload(bytes: Uint8Array): Promise<void>
+  /** rejects on a mask without the characteristic */
+  writeRhythm(bytes: Uint8Array): Promise<void>
   /** every notification the mask sends, raw (still encrypted) */
   onReply(fn: (bytes: Uint8Array) => void): void
   onDisconnect(fn: () => void): void
@@ -97,6 +100,15 @@ export class MaskDevice {
   /** Send one encrypted command block, after everything already queued. */
   command(bytes: Uint8Array): Promise<void> {
     return this.run(() => this.link.writeCommand(bytes))
+  }
+
+  /** Send one rhythm frame (protocol.encodeRhythm). Same queue as the
+   *  commands, since the radio takes one GATT operation at a time, but it
+   *  waits for no reply, and a frame that arrives while an upload owns the
+   *  queue is DROPPED: a spectrum five seconds late is worse than none. */
+  rhythm(bytes: Uint8Array): Promise<void> {
+    if (this.uploading) return this.closed ? Promise.reject(new Error('mask disconnected')) : Promise.resolve()
+    return this.run(() => this.link.writeRhythm(bytes))
   }
 
   /** Upload a PACKED picture (see protocol.packFrame) into a DIY slot, one

@@ -2,6 +2,7 @@ import type { EditorHandle } from './editor'
 import { MaskDevice } from '../mask/device'
 import { MaskOutput } from '../mask/output'
 import type { MaskStatus } from '../mask/output'
+import { MaskSpectrum } from '../mask/spectrum'
 import {
   hasWebBluetooth, openMaskLink, pickRememberedMask, recallMaskId, rememberMaskId,
   rememberedMaskDevices, requestMaskDevice, waitForMaskInRange,
@@ -32,7 +33,10 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 
 const describeShown = (s: MaskStatus['shown']): string => {
   const parts: string[] = []
-  if (s.picture !== undefined) parts.push(`${s.picture.kind === 'slot' ? 'picture' : s.picture.kind} ${s.picture.n}`)
+  if (s.picture !== undefined) {
+    const kind = s.picture.kind === 'slot' ? 'picture' : s.picture.kind === 'viz' ? 'live spectrum' : s.picture.kind
+    parts.push(`${kind} ${s.picture.n}`)
+  }
   if (s.light !== undefined) parts.push(`brightness ${Math.round((s.light / 255) * 100)}%`)
   return parts.length === 0 ? 'nothing sent yet' : parts.join(', ')
 }
@@ -57,7 +61,7 @@ export function mountMask(editor: EditorHandle): () => void {
   const hint = el(
     'div',
     'export-hint',
-    'route a pattern to the sound `mask`: the notation picks a picture slot, `face:` a built-in face, `anim:` an animation and `gain:` the brightness. Pictures come from maskFrame() and upload when you run; each takes about five seconds.',
+    'route a pattern to the sound `mask`: the notation picks a picture slot, `face:` a built-in face, `anim:` an animation, `viz:` (0 to 4) draws the music live and `gain:` sets the brightness. Pictures come from maskFrame() and upload when you run; each takes about five seconds.',
   )
   pop.append(status, shown, progress, errLine, connectBtn, hint)
   document.body.append(pop)
@@ -101,10 +105,14 @@ export function mountMask(editor: EditorHandle): () => void {
     connectBtn.disabled = busy
   }
 
+  // the master tap the panel's spectrum draws from; null means the visualizer
+  // gets dark frames, and the picture path is unaffected
+  const spectrum = audio.analyser !== null ? new MaskSpectrum(audio.analyser, audio.sampleRate) : null
   const output = new MaskOutput({
     now: () => audio.currentTimeFrames / audio.sampleRate,
     onStatus: render,
     onError: (m) => showError(m),
+    levels: () => spectrum?.levels() ?? null,
   })
 
   const attach = async (dev: BluetoothDevice): Promise<void> => {

@@ -4,7 +4,11 @@ import { decryptBlock, encryptBlock } from '../src/mask/aes'
 import { MASK_H, MASK_SLOT_MAX, MASK_SLOT_MIN, MASK_W, colorBytes, paintFrame, sameFrame } from '../src/mask/frame'
 import {
   FRAME_BYTES,
+  MASK_CHAR_RHYTHM,
   MASK_KEY,
+  MASK_VIZ_MAX,
+  RHYTHM_BANDS,
+  RHYTHM_LEVEL_MAX,
   UPLOAD_CHUNK,
   cmdAnim,
   cmdImage,
@@ -14,6 +18,7 @@ import {
   cmdUploadStart,
   decodeReply,
   encodeCommand,
+  encodeRhythm,
   lightByte,
   packFrame,
   uploadPackets,
@@ -130,6 +135,39 @@ describe('commands', () => {
     const tooLong = new Uint8Array(16)
     tooLong[0] = 40
     expect(decodeReply(oracleEncrypt(tooLong)).word).toBe('')
+  })
+})
+
+describe('rhythm stream', () => {
+  const plain = (bytes: Uint8Array): Uint8Array => decryptBlock(MASK_KEY, bytes)
+
+  it('is its own characteristic, next to the upload one', () => {
+    expect(MASK_CHAR_RHYTHM).toBe('d44bc439-abfd-45a2-b575-92541612960b')
+  })
+
+  it('packs [0x0F][mode][24 bands as nibbles, high first][0 0]', () => {
+    // the packet the official app builds (ConnectActivity.sendRhythmData):
+    // no command word, 15 is the frame tag, then the visualizer mode, then
+    // two bands per byte
+    const bands = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 9, 9, 0]
+    expect(hex(plain(encodeRhythm(3, bands)))).toBe('0f03' + '123456789098765432100990' + '0000')
+    // encrypted like everything else on the radio
+    const b = new Uint8Array(16)
+    b.set([15, 0, 0x90], 0)
+    expect(hex(encodeRhythm(0, [9, 0, ...new Array(22).fill(0)]))).toBe(hex(oracleEncrypt(b)))
+  })
+
+  it('refuses what the mask would misread rather than wrapping it', () => {
+    const zeros = new Array<number>(RHYTHM_BANDS).fill(0)
+    expect(() => encodeRhythm(5, zeros)).toThrow(/mode/)
+    expect(() => encodeRhythm(-1, zeros)).toThrow(/mode/)
+    expect(() => encodeRhythm(1.5, zeros)).toThrow(/mode/)
+    expect(() => encodeRhythm(0, zeros.slice(1))).toThrow(/24/)
+    expect(() => encodeRhythm(0, [10, ...zeros.slice(1)])).toThrow(/0\.\.9/)
+    expect(() => encodeRhythm(0, [2.5, ...zeros.slice(1)])).toThrow(/0\.\.9/)
+    expect(RHYTHM_BANDS).toBe(24)
+    expect(RHYTHM_LEVEL_MAX).toBe(9)
+    expect(MASK_VIZ_MAX).toBe(4)
   })
 })
 

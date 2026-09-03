@@ -2,7 +2,10 @@ import type { EditorHandle } from './editor'
 import { MaskDevice } from '../mask/device'
 import { MaskOutput } from '../mask/output'
 import type { MaskStatus } from '../mask/output'
-import { hasWebBluetooth, openMaskLink, requestMaskDevice } from '../mask/webbluetooth'
+import {
+  hasWebBluetooth, openMaskLink, pickRememberedMask, recallMaskId, rememberMaskId,
+  rememberedMaskDevices, requestMaskDevice, waitForMaskInRange,
+} from '../mask/webbluetooth'
 import { iconEl } from '../ui/icons'
 import { tooltip } from '../ui/tooltip'
 import { anchorPopover } from '../ui/viewport'
@@ -14,6 +17,11 @@ import { anchorPopover } from '../ui/viewport'
  * dedupe, coalescing behind uploads, the slot diff), mask/device.ts owns the
  * radio discipline, and this file is DOM plus the one thing only a click can
  * do, which is open the browser's device chooser. */
+
+/** How long a load waits to hear the remembered mask advertise before giving
+ *  up quietly. Long enough for a mask that is on (they advertise about once a
+ *  second), short enough that a mask left at home costs nothing visible. */
+const RECONNECT_WAIT_MS = 4000
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] => {
   const n = document.createElement(tag)
@@ -64,6 +72,8 @@ export function mountMask(editor: EditorHandle): () => void {
   let device: MaskDevice | null = null
   let chosen: BluetoothDevice | null = null // kept so a reconnect skips the chooser
   let busy = false
+  let seeking = false // the load-time reconnect is running
+  let disposed = false
 
   const showError = (msg: string | null): void => {
     errLine.hidden = msg === null
@@ -74,7 +84,10 @@ export function mountMask(editor: EditorHandle): () => void {
     if (!supported) return
     anchor.classList.toggle('connected', s.device !== null)
     tooltip(anchor, s.device === null ? 'LED mask (not connected)' : `LED mask: ${s.device}`)
-    status.textContent = s.device === null ? (chosen === null ? 'not connected' : `disconnected from ${chosen.name ?? 'mask'}`) : `connected to ${s.device}`
+    status.textContent = s.device !== null ? `connected to ${s.device}`
+      : chosen === null ? 'not connected'
+      : seeking ? `looking for ${chosen.name ?? 'the mask'}...`
+      : `disconnected from ${chosen.name ?? 'mask'}`
     shown.textContent = s.device === null ? '' : `showing: ${describeShown(s.shown)}`
     if (s.upload !== null) {
       const more = s.upload.remaining > 0 ? `, ${s.upload.remaining} more to go` : ''
@@ -94,6 +107,21 @@ export function mountMask(editor: EditorHandle): () => void {
     onError: (m) => showError(m),
   })
 
+  const attach = async (dev: BluetoothDevice): Promise<void> => {
+    const link = await openMaskLink(dev)
+    if (disposed) { // unmounted while the radio was still connecting
+      link.disconnect()
+      return
+    }
+    device = new MaskDevice(link)
+    device.onClose(() => {
+      if (device !== null && !device.connected) device = null
+      render(output.status())
+    })
+    output.attach(device)
+    rememberMaskId(dev.id)
+  }
+
   const connect = async (): Promise<void> => {
     busy = true
     showError(null)
@@ -102,9 +130,8 @@ export function mountMask(editor: EditorHandle): () => void {
       // the chooser needs the gesture we are inside of: nothing awaits before it
       const remembered = chosen
       if (chosen === null) chosen = await requestMaskDevice()
-      let link
       try {
-        link = await openMaskLink(chosen)
+        await attach(chosen)
       } catch (e) {
         // a mask that was switched off and on again comes back under a new
         // address, so the remembered handle is "no longer in range" for good:
@@ -113,18 +140,35 @@ export function mountMask(editor: EditorHandle): () => void {
         chosen = null
         throw new Error(`${(e as Error).message ?? String(e)} (the mask may have restarted: press connect mask to pick it again)`)
       }
-      device = new MaskDevice(link)
-      device.onClose(() => {
-        if (device !== null && !device.connected) device = null
-        render(output.status())
-      })
-      output.attach(device)
     } catch (e) {
       const err = e as { name?: string; message?: string }
       // cancelling the chooser is not an error worth a red line
       if (err.name !== 'NotFoundError') showError(err.message ?? String(e))
     } finally {
       busy = false
+      render(output.status())
+    }
+  }
+
+  /* On load, the mask this origin used last time, if the browser can name it
+   * (see rememberedMaskDevices). Quiet by design: a mask that is off, or has
+   * restarted under a new address, ends as "not connected" with the button
+   * ready to open the chooser, never as a red line nobody asked for. */
+  const reconnectRemembered = async (): Promise<void> => {
+    const dev = pickRememberedMask(await rememberedMaskDevices(), recallMaskId())
+    if (dev === null || device !== null || busy) return
+    chosen = dev
+    busy = true
+    seeking = true
+    render(output.status())
+    try {
+      await waitForMaskInRange(dev, RECONNECT_WAIT_MS)
+      await attach(dev)
+    } catch {
+      chosen = null
+    } finally {
+      busy = false
+      seeking = false
       render(output.status())
     }
   }
@@ -138,6 +182,8 @@ export function mountMask(editor: EditorHandle): () => void {
     }
     void connect()
   })
+
+  if (supported) void reconnectRemembered()
 
   const offEvents = editor.onPatternEvents((evs) => output.send(evs))
   const offFrames = editor.onMaskFrames((frames) => output.setFrames(frames))
@@ -172,6 +218,7 @@ export function mountMask(editor: EditorHandle): () => void {
   tooltip(anchor, supported ? 'LED mask (not connected)' : 'LED mask (needs Web Bluetooth)')
 
   return () => {
+    disposed = true
     offEvents()
     offFrames()
     offState()

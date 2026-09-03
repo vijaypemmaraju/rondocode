@@ -23,10 +23,17 @@ interface BluetoothRemoteGATTServer {
   getPrimaryService(uuid: string): Promise<BluetoothRemoteGATTService>
 }
 
+interface WatchAdvertisementsOptions {
+  signal?: AbortSignal
+}
+
 interface BluetoothDevice extends EventTarget {
   readonly id: string
   readonly name?: string
   readonly gatt?: BluetoothRemoteGATTServer
+  /** Behind the same Chrome flag as getDevices(): a permitted device is not
+   *  connectable until it has been seen advertising again. */
+  watchAdvertisements?(options?: WatchAdvertisementsOptions): Promise<void>
 }
 
 interface BluetoothLEScanFilter {
@@ -43,6 +50,10 @@ interface RequestDeviceOptions {
 
 interface Bluetooth {
   requestDevice(options?: RequestDeviceOptions): Promise<BluetoothDevice>
+  /** The devices this origin was already allowed to use. Chrome ships it
+   *  behind chrome://flags/#enable-web-bluetooth-new-permissions-backend, so
+   *  it is optional here and absent by default. */
+  getDevices?(): Promise<BluetoothDevice[]>
 }
 
 interface Navigator {

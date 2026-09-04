@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { parseSingCalls, parseSingBlocksRondo } from '../src/editor/karaoke'
+import { compile, sectionAt, sectionRanges, soundsAt } from '@rondocode/rondo'
+import type { Arrangement } from '@rondocode/rondo'
+import { karaokeRanges, parseSingCalls, parseSingBlocksRondo } from '../src/editor/karaoke'
 
 /* Karaoke alignment reads the melody with the REAL mini parser (brackets,
  * rests, alternations, @weights all change which tokens sound and for how
@@ -180,5 +182,50 @@ describe('sharps are notes, not comments (regression)', () => {
   it('a REAL trailing comment is still stripped', () => {
     const d = ['sing v', '  la la', '  c4 e4  # the hook', '  gain: .9'].join('\n')
     expect(parseSingBlocksRondo(d)[0]!.notes).toHaveLength(2)
+  })
+})
+
+describe('a vocal in a section that is not playing stays dark (regression)', () => {
+  // two sections, the same sing block in each: the trigger event is the
+  // same sound either way, so only WHERE each block is written can tell
+  // them apart. Each call carries its position, and the ranges are gated
+  // by whether that position sounds at the trigger's cycle.
+  const doc = [
+    'section verse 4',
+    '  sing vox',
+    '    la la',
+    '    c4 e4',
+    '',
+    'section chorus 4',
+    '  sing vox',
+    '    la la',
+    '    c4 e4',
+    '',
+    'song verse chorus',
+  ].join('\n')
+  const ranges = sectionRanges(doc)
+  const arr = compile(doc).ok ? (compile(doc) as { arrangement?: Arrangement }).arrangement : undefined
+
+  it('each block knows where it starts', () => {
+    const calls = parseSingBlocksRondo(doc)
+    expect(calls.map((c) => c.from)).toEqual([doc.indexOf('sing vox'), doc.lastIndexOf('sing vox')])
+    expect(calls.map((c) => sectionAt(ranges, c.from))).toEqual(['verse', 'chorus'])
+    // and a sing() call in a rondocode document the same
+    const js = `p('a', 1)\nsing('la la', 'c4 e4')`
+    expect(parseSingCalls(js)[0]!.from).toBe(js.indexOf('sing('))
+  })
+
+  it('lights only the block whose section sounds at the trigger cycle', () => {
+    expect(arr).toBeDefined()
+    const calls = parseSingBlocksRondo(doc)
+    const lit = (cycle: number): string[] =>
+      karaokeRanges(calls, 0.1, doc.length, (from) => soundsAt(ranges, arr, from, cycle))
+        .filter((r) => r.cls === 'cm-karaoke-syllable')
+        .map((r) => sectionAt(ranges, r.from)!)
+    expect(lit(0)).toEqual(['verse'])
+    expect(lit(4)).toEqual(['chorus'])
+    expect(lit(8)).toEqual(['verse'])
+    // without a song (or a gate) both light, as before
+    expect(karaokeRanges(calls, 0.1, doc.length, () => true).filter((r) => r.cls === 'cm-karaoke-syllable')).toHaveLength(2)
   })
 })

@@ -32,6 +32,10 @@ interface Range {
   to: number
 }
 interface SingCall {
+  /** where the call (or the `sing` header) starts in the document: what
+   *  places it in a section, so a vocal in a part that is not playing stays
+   *  dark while the same phrase in another part lights */
+  from: number
   lyr: Range[]
   notes: Range[]
   /** normalized [start,end) of each note within the whole phrase (0..1). */
@@ -162,7 +166,7 @@ export function parseSingCalls(source: string): SingCall[] {
           const slots = lyricSlots(lyr.text, lyr.docStart)
           const notes = melodyNotes(nt.text, cycles, (pos) => nt.docStart + pos)
           if (slots.length === notes.length && slots.length > 0) {
-            out.push({ lyr: slots, notes: notes.map((x) => x.range), spans: notes.map((x) => ({ start: x.start, end: x.end })) })
+            out.push({ from: n['start'] as number, lyr: slots, notes: notes.map((x) => x.range), spans: notes.map((x) => ({ start: x.start, end: x.end })) })
           }
         }
       }
@@ -236,7 +240,7 @@ export function parseSingBlocksRondo(source: string): SingCall[] {
     }
     const notes = melodyNotes(joined, cycles, offsetOf)
     if (slots.length === notes.length && slots.length > 0) {
-      out.push({ lyr: slots, notes: notes.map((x) => x.range), spans: notes.map((x) => ({ start: x.start, end: x.end })) })
+      out.push({ from: starts[i]! + headIndent, lyr: slots, notes: notes.map((x) => x.range), spans: notes.map((x) => ({ start: x.start, end: x.end })) })
     }
     i = j - 1
   }
@@ -283,6 +287,28 @@ export const isSingTrigger = (ev: SchedulerEvent, isSing: (sound: string) => boo
   return typeof c.sound === 'string' && isSing(c.sound) && typeof c.note === 'number' && ev.durSec > 0
 }
 
+/** The syllable + note to light at phase `p` of the phrase, for every call
+ *  that `sounds` (by the position it is written at). Ranges past the end of
+ *  the document (a stale scan mid-edit) are dropped. */
+export function karaokeRanges(
+  calls: readonly SingCall[],
+  p: number,
+  docLen: number,
+  sounds: (from: number) => boolean,
+): { from: number; to: number; cls: string }[] {
+  const ranges: { from: number; to: number; cls: string }[] = []
+  for (const c of calls) {
+    if (!sounds(c.from)) continue
+    const i = indexAt(c, p)
+    if (i < 0) continue
+    const s = c.lyr[i]!
+    const nn = c.notes[i]!
+    if (s.to <= docLen) ranges.push({ from: s.from, to: s.to, cls: 'cm-karaoke-syllable' })
+    if (nn.to <= docLen) ranges.push({ from: nn.from, to: nn.to, cls: 'cm-karaoke-note' })
+  }
+  return ranges
+}
+
 /** Drive the highlight: subscribe to pattern events for the sing trigger's
  *  timing, and each animation frame map the audio-clock phase to a syllable/note.
  *  Returns a disposer. `opts` supplies the doc text, play state, an event
@@ -302,17 +328,24 @@ export function mountKaraoke(
     /** 'rondo' scans sing BLOCKS instead of sing() calls. Read per parse, so
      *  toggling the language re-scans without a remount. */
     getLang?: () => 'rondocode' | 'rondo'
+    /** Does the sing block at document position `pos` sound during `cycle`?
+     *  The editor answers from the song's arrangement (rondo's soundsAt); a
+     *  sing block in a section that is not playing then stays dark even when
+     *  another section's identical vocal is what triggered. Default: yes. */
+    soundsAt?: (pos: number, cycle: number) => boolean
   },
 ): () => void {
   const isSing = opts.isSingSound ?? ((s: string) => s.startsWith('singv'))
   let trigTime = 0
   let trigDur = 0
+  let trigCycle = 0
   let haveTrig = false
   const unsubEv = opts.subscribeEvents((evs) => {
     for (const ev of evs) {
       if (isSingTrigger(ev, isSing)) {
         trigTime = ev.timeSec
         trigDur = ev.durSec
+        trigCycle = ev.cycle
         haveTrig = true
       }
     }
@@ -334,16 +367,7 @@ export function mountKaraoke(
       const phase = (opts.audio.currentTime - trigTime) / trigDur
       if (phase < -0.05 || phase >= 1.05) { return } // between cycles / event just ahead: hold last
       const p = Math.max(0, Math.min(0.99999, phase))
-      const ranges: { from: number; to: number; cls: string }[] = []
-      const docLen = view.state.doc.length
-      for (const c of calls) {
-        const i = indexAt(c, p)
-        if (i < 0) continue
-        const s = c.lyr[i]!
-        const nn = c.notes[i]!
-        if (s.to <= docLen) ranges.push({ from: s.from, to: s.to, cls: 'cm-karaoke-syllable' })
-        if (nn.to <= docLen) ranges.push({ from: nn.from, to: nn.to, cls: 'cm-karaoke-note' })
-      }
+      const ranges = karaokeRanges(calls, p, view.state.doc.length, (from) => opts.soundsAt?.(from, trigCycle) ?? true)
       const key = ranges.map((r) => `${r.from}:${r.to}`).join(',')
       if (key !== lastKey) { view.dispatch({ effects: setKaraoke.of(ranges) }); lastKey = key }
     } catch {

@@ -507,7 +507,7 @@ export class WavetableRibbonWidget extends WidgetType {
           this.timers.at((ev.timeSec - now()) * 1000, () => sweep(ev.durSec))
           break // one sweep per batch — the cursor is monophonic
         }
-      })
+      }, wrap)
     }
     return wrap
   }

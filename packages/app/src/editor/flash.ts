@@ -5,6 +5,7 @@ import type { DecorationSet } from '@codemirror/view'
 import { parse } from 'acorn'
 import { noteNameToMidi, parseChord } from '@rondocode/pattern'
 import type { ControlMap, Loc, SchedulerEvent } from '@rondocode/pattern'
+import { slotAt, soundingAt } from '@rondocode/rondo'
 
 /* ------------------------------------------------------------------------- *
  * Event flashing: when the scheduler fires an event whose controls carry a
@@ -412,10 +413,6 @@ export class EventFlasher {
   private literals: StringLit[] = []
   private pulses: PulseSpan[] = []
   private arrangement: FlashArrangement | undefined
-  /** Cycles in one pass of the arrangement (0 = no arrangement). */
-  private arrTotal = 0
-  /** Per-slot cache of the sounding-section name sets. */
-  private readonly activeCache = new Map<number, ReadonlySet<string>>()
   /** The steady mark on the song line's currently playing name. */
   private songMark: { id: number; slot: number } | undefined
   /** Handles of scheduled-but-not-yet-fired flash timers (NOT the removal
@@ -461,8 +458,6 @@ export class EventFlasher {
 
   private setArrangement(arrangement: FlashArrangement | undefined): void {
     this.arrangement = arrangement !== undefined && arrangement.slots.length > 0 ? arrangement : undefined
-    this.arrTotal = this.arrangement?.slots.reduce((sum, s) => sum + s.len, 0) ?? 0
-    this.activeCache.clear()
     // a re-eval may have moved the song line: the old mark's offsets are stale
     this.clearSongMark()
   }
@@ -479,9 +474,11 @@ export class EventFlasher {
          * anywhere mini-notation is supported, it lights up. */
         const locs = ev.locs ?? []
         // which arrangement slot sounds at this event's cycle (undefined
-        // without sections): gates section-owned spans + moves the song mark
-        const slot = this.slotAt(ev.cycle)
-        const active = slot === undefined ? undefined : this.activeAt(slot)
+        // without sections): gates section-owned spans + moves the song mark.
+        // The rule is the rondo package's, the same one the live widgets and
+        // karaoke go by, so the views cannot disagree about who is playing.
+        const slot = slotAt(this.arrangement, ev.cycle)
+        const active = soundingAt(this.arrangement, ev.cycle)
         // loc-less events (patterns built from signals, not mini strings)
         // PULSE their channel's registered span instead of an atom flash;
         // automation (a sound, no note) lights only the notation it sampled
@@ -552,34 +549,6 @@ export class EventFlasher {
   dispose(): void {
     this.disposed = true
     this.clearPending()
-  }
-
-  /** Which arrangement slot is sounding at `cycle`, or undefined without an
-   *  arrangement. Mirrors arrange(): Euclidean mod over the total, then walk
-   *  the slot widths. */
-  private slotAt(cycle: number): number | undefined {
-    const arr = this.arrangement
-    if (arr === undefined || this.arrTotal <= 0) return undefined
-    const pos = ((Math.floor(cycle) % this.arrTotal) + this.arrTotal) % this.arrTotal
-    let offset = 0
-    for (let k = 0; k < arr.slots.length; k++) {
-      offset += arr.slots[k]!.len
-      if (pos < offset) return k
-    }
-    return arr.slots.length - 1
-  }
-
-  /** The section names sounding while `slot` plays: its own section plus
-   *  everything it plays `with`, transitively (precomputed by the compiler). */
-  private activeAt(slot: number): ReadonlySet<string> {
-    const cached = this.activeCache.get(slot)
-    if (cached !== undefined) return cached
-    const name = this.arrangement?.slots[slot]?.name
-    const set: ReadonlySet<string> = new Set(
-      name === undefined ? [] : this.arrangement?.included[name] ?? [name],
-    )
-    this.activeCache.set(slot, set)
-    return set
   }
 
   /** Keep the song line's CURRENT section name lit: one steady mark that

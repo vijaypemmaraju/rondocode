@@ -65,6 +65,9 @@ export interface NoteEv {
   sound?: string
   /** the event's control map (drives the live knob display). */
   controls?: Record<string, unknown>
+  /** the scheduler's global cycle the onset falls in: what places the event
+   *  in the song's arrangement (see owned.ts). */
+  cycle?: number
 }
 
 export interface Hooks {
@@ -77,8 +80,12 @@ export interface Hooks {
   cycleAt?: (timeSec: number) => number
   /** subscribe to note events; returns unsubscribe. When present, widgets go
    *  LIVE: the piano-roll lights with the playhead, the envelope fires its
-   *  marker per note, and a pattern-driven knob's dial follows the drive. */
-  onNoteEvents?: (fn: (evs: NoteEv[]) => void) => () => void
+   *  marker per note, and a pattern-driven knob's dial follows the drive.
+   *  `owner` is the widget's element: the feed is scoped to the section that
+   *  element sits in, so a widget only ever sees events its own part of the
+   *  song could have made (two sections with identical lines are otherwise
+   *  indistinguishable by text or synth). Pass it from every subscriber. */
+  onNoteEvents?: (fn: (evs: NoteEv[]) => void, owner?: object) => () => void
   /** That synth's CURRENT loudness, 0..1 — the same per-channel meter the
    *  shader visualizer reads as `lvl_`. Note events say a widget is active;
    *  this says how much is going through it, which for a filter written with
@@ -221,13 +228,14 @@ export function rollPreviewMidi(scaleShort: string | undefined, degree: number):
 /** SchedulerEvents → the reduced NoteEv shape widgets animate from (shared by
  *  the main editor and the docs page so the two feeds can't drift). */
 export function toNoteEvs(
-  evs: readonly { loc?: { src?: string; start: number }; timeSec: number; durSec: number; controls: Record<string, unknown> }[],
+  evs: readonly { loc?: { src?: string; start: number }; timeSec: number; durSec: number; controls: Record<string, unknown>; cycle?: number }[],
 ): NoteEv[] {
   const out: NoteEv[] = []
   for (const e of evs) {
     if (e.loc === undefined) continue
     const ev: NoteEv = { start: e.loc.start, timeSec: e.timeSec, durSec: e.durSec, controls: e.controls }
     if (e.loc.src !== undefined) ev.src = e.loc.src
+    if (typeof e.cycle === 'number') ev.cycle = e.cycle
     const sound = e.controls['sound']
     if (typeof sound === 'string') ev.sound = sound
     out.push(ev)
@@ -1244,7 +1252,7 @@ class QueryRollWidget extends WidgetType {
             if (this.raf === 0) this.raf = requestAnimationFrame(frame)
           })
         }
-      })
+      }, outer)
     }
 
     // EUCLID DRAG: with exactly one (pulses,steps[,rot]) group in the line,
@@ -1440,7 +1448,7 @@ export class RollOverviewWidget extends WidgetType {
             if (this.raf === 0) this.raf = requestAnimationFrame(frame)
           })
         }
-      })
+      }, outer)
     }
 
     // WHOLE-ROLL TRANSPOSE: the left grab strip writes the block's `add N`
@@ -1755,7 +1763,7 @@ class KnobWidget extends WidgetType {
           if (queue.length > 64) queue.splice(0, queue.length - 64)
           if (this.raf === 0) this.raf = requestAnimationFrame(frame)
         }
-      })
+      }, wrap)
     }
 
     attachGesture(wrap, this.drag, 'window', (e) => {
@@ -1980,7 +1988,7 @@ class EnvWidget extends WidgetType {
           this.timers.at((ev.timeSec - now()) * 1000, () => { if (!this.drag.active) animate(ev.durSec) })
           break // one fire per batch — the marker is monophonic
         }
-      })
+      }, wrap)
     }
 
     const svg = wrap.querySelector('svg') as SVGSVGElement
@@ -2473,7 +2481,7 @@ class PianoRollWidget extends WidgetType {
           const litMs = Math.min(Math.max(ev.durSec * 1000, LIT_MIN_MS), LIT_MAX_MS)
           this.timers.at((ev.timeSec - now()) * 1000, () => lightCol(col, litMs))
         }
-      })
+      }, grid)
     }
     const refresh = (c: number): void => {
       for (let r = 0; r < rows; r++) {
@@ -2722,7 +2730,7 @@ class BeatBlockWidget extends WidgetType {
             })
           }
         }
-      })
+      }, wrap)
     }
     // The doc write is DEFERRED to gesture end: toggling `kick` ↔ `~` changes
     // LINE LENGTHS, so a mid-gesture write would shift this widget under the

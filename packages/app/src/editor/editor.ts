@@ -5,8 +5,8 @@ import { EditorView, keymap } from '@codemirror/view'
 import { setDiagnostics } from '@codemirror/lint'
 import type { Diagnostic as CmDiagnostic } from '@codemirror/lint'
 import { javascript } from '@codemirror/lang-javascript'
-import { compile, decompile, formatRondo } from '@rondocode/rondo'
-import type { NoteSpan } from '@rondocode/rondo'
+import { compile, decompile, formatRondo, sectionRanges, soundsAt } from '@rondocode/rondo'
+import type { Arrangement, NoteSpan, SectionRange } from '@rondocode/rondo'
 import { clampMaxVoices, getWavetableBank, normalizeVoiceOpts } from '@rondocode/engine'
 import type { EngineEvent } from '@rondocode/engine'
 import type { SchedulerEvent } from '@rondocode/pattern'
@@ -41,7 +41,7 @@ import { isDesktop, openVirtualMidi } from '../desktop/bridge'
 import { NoteOut, toOutEvents } from '../desktop/midiout'
 import { JS_SCAN } from './widgets/jsscan'
 import { mountRondoPalette } from './rondo/palette'
-import { toNoteEvs } from './rondo/widgets'
+import { ownedNoteFeed } from './rondo/owned'
 import type { RondoWidgetHooks } from './rondo'
 import { synthMeters } from './meters'
 import { synthScopes } from './rondo/scope'
@@ -397,6 +397,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
    *  diagnostic finds its way back onto this buffer. Empty in JS mode, where
    *  positions already point at what you are looking at. */
   let rondoLineMap: number[] = []
+  /** The last good eval's `song`, if any: what decides which section is
+   *  sounding at a cycle, for every live view (flash, widgets, karaoke). */
+  let liveArrangement: Arrangement | undefined
   let dirtyVsGood = true
   // Synth/channel names of the current sing() vocals (for karaoke detection).
   let singSoundNames = new Set<string>()
@@ -422,7 +425,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     let rondoNotes: NoteSpan[] = []
     let rondoJsRegions: import('@rondocode/rondo').JsRegion[] = []
     let rondoPulses: import('@rondocode/rondo').PulseSpan[] = []
-    let rondoArrangement: import('@rondocode/rondo').Arrangement | undefined
+    let rondoArrangement: Arrangement | undefined
     if (lang === 'rondo') {
       const compiled = compile(source)
       if (!compiled.ok) {
@@ -448,6 +451,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     if (result.ok) {
       lastGood = source
       lastStagedJs = evalSource
+      liveArrangement = rondoArrangement
       // Note-play flash: rondocode maps onset events by scanning the source's
       // string literals; rondo can't (the eval'd source is transpiled JS), so
       // the compiler hands us each notation string + its buffer offset and we
@@ -708,6 +712,16 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Live-widget hooks: the audio clock + a note-event feed make the rondo
   // widgets ANIMATE — playhead lighting on the piano-roll, the envelope's
   // marker firing per note, pattern-driven knobs turning themselves.
+  let sectionRangesDoc: Text | undefined
+  let sectionRangesCache: SectionRange[] = []
+  const sectionRangesNow = (): SectionRange[] => {
+    const doc = view.state.doc
+    if (doc !== sectionRangesDoc) {
+      sectionRangesDoc = doc
+      sectionRangesCache = lang === 'rondo' ? sectionRanges(doc.toString()) : []
+    }
+    return sectionRangesCache
+  }
   const rondoWidgetHooks: RondoWidgetHooks = {
     requestEval,
     now: () => audio.currentTimeFrames / audio.sampleRate,
@@ -744,11 +758,20 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     level: (name) => chanLevel.get(name) ?? 0,
     masterLevel: () => masterLvl,
     duckLevel: () => duckLvl,
-    onNoteEvents: (fn) =>
-      subscribePatternEvents((evs) => {
-        const notes = toNoteEvs(evs)
-        if (notes.length > 0) fn(notes)
-      }),
+    // scoped to the subscribing widget's section (owned.ts): the section
+    // ranges are re-read when the document changes, the arrangement is the
+    // last good eval's
+    onNoteEvents: ownedNoteFeed({
+      subscribe: subscribePatternEvents,
+      posOf: (owner) => {
+        try {
+          return owner instanceof Node ? view.posAtDOM(owner) : undefined
+        } catch {
+          return undefined // not in this document
+        }
+      },
+      sounds: (pos, cycle) => soundsAt(sectionRangesNow(), liveArrangement, pos, cycle),
+    }),
     // wavetable ribbon: built-in + last-eval custom banks, injected so the
     // widget module never statically imports the engine (docs eager-graph
     // boundary — see wavetable.ts)
@@ -1123,6 +1146,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     },
     isSingSound: (snd) => singSoundNames.has(snd),
     getLang: () => lang,
+    soundsAt: (pos, cycle) => soundsAt(sectionRangesNow(), liveArrangement, pos, cycle),
   })
 
   const dispose = (): void => {

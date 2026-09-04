@@ -595,7 +595,7 @@ export class FilterCurveWidget extends WidgetType {
           dot.style.opacity = '1'
           break
         }
-      })
+      }, wrap)
     }
 
     /* Follow the level while the synth sounds. Redraw only when it MOVES

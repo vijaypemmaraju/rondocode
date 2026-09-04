@@ -39,7 +39,9 @@ export interface FireEv {
  *  satisfies it structurally. */
 export interface ActivationHooks {
   now?: () => number
-  onNoteEvents?: (fn: (evs: FireEv[]) => void) => () => void
+  /** `owner` scopes the feed to the section the element sits in (Hooks in
+   *  widgets.ts); activate() passes the element it lights. */
+  onNoteEvents?: (fn: (evs: FireEv[]) => void, owner?: object) => () => void
 }
 
 /** How long a note keeps a widget lit, in ms. Mirrors widgets.ts's LIT_MIN_MS
@@ -155,6 +157,7 @@ export function activate(
   // bare on/off the second note's end would black out a widget the third note
   // is still sounding through.
   let lit = 0
+  // the element is the owner: the feed drops what its section is not playing
   const unsub = onNoteEvents((evs) => {
     for (const f of scheduleFires(evs, now(), opts.synth)) {
       sched.at(f.delayMs, () => {
@@ -169,7 +172,7 @@ export function activate(
         })
       })
     }
-  })
+  }, el)
   return () => {
     unsub()
     sched.clear()

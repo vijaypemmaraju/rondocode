@@ -1,4 +1,5 @@
 import './style.css'
+import { measureToCycle } from '@rondocode/pattern'
 import { AudioSession } from './audio/AudioSession'
 import { mountEditor } from './editor/editor'
 import type { EditorHandle } from './editor/editor'
@@ -68,8 +69,18 @@ const startBridge = (editor: EditorHandle): void => {
       transport: (p) => {
         const q = obj(p)
         const cmd = str(q.cmd, 'cmd')
-        if (cmd !== 'play' && cmd !== 'stop') throw new TypeError(`cmd must be play|stop`)
-        session.transport(cmd, q.cps === undefined ? undefined : { cps: num(q.cps, 'cps') })
+        if (cmd !== 'play' && cmd !== 'stop' && cmd !== 'pause' && cmd !== 'resume') {
+          throw new TypeError(`cmd must be play|stop|pause|resume`)
+        }
+        // The wire speaks MEASURES, the way the tool's caller and the header
+        // field do; cycles start below this line (see measureToCycle).
+        const opts: { cps?: number; from?: number } = {}
+        if (q.cps !== undefined) opts.cps = num(q.cps, 'cps')
+        if (q.fromMeasure !== undefined) opts.from = measureToCycle(num(q.fromMeasure, 'fromMeasure'))
+        const done = session.transport(cmd, opts)
+        // pause on a stopped (or unfreezable) session is a no-op, not a
+        // failure: say so rather than reporting a hold that never happened.
+        return { ok: done, ...session.getState() }
       },
       getState: () => session.getState(),
     },

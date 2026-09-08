@@ -10,6 +10,7 @@ import {
   MidiClockSender,
   TICKS_PER_CYCLE,
   TICKS_PER_QUARTER,
+  clockTransition,
   parseClock,
 } from '../src/midi/clock'
 
@@ -314,6 +315,51 @@ describe('phase: staying in the bar, not just at the tempo', () => {
     f.start()
     feed(f, 8, 120)
     expect(f.targetCps(0)).toBeUndefined()
+  })
+})
+
+describe('what the outgoing clock says about a pause', () => {
+  /* The gear has to hear about a hold. Ours is a frozen audio clock; the
+   * tick sender counts in wall-clock ms and would otherwise play on through
+   * the pause and come back ahead of us. */
+  const held = { playing: true, paused: true }
+  const running = { playing: true, paused: false }
+  const stopped = { playing: false, paused: false }
+  const idle = { sending: false, heldByPause: false }
+
+  it('a pause stops the clock, and the resume CONTINUES rather than starting over', () => {
+    const go = clockTransition(idle, running)
+    expect(go).toEqual({ emit: 'start', sending: true, heldByPause: false })
+    const hold = clockTransition(go, held)
+    expect(hold).toEqual({ emit: 'stop', sending: false, heldByPause: true })
+    const back = clockTransition(hold, running)
+    // 0xFA would snap a drum machine to bar 1; 0xFB picks the take back up
+    expect(back).toEqual({ emit: 'continue', sending: true, heldByPause: false })
+  })
+
+  it('a real stop is a real stop: the next go starts from the top', () => {
+    const go = clockTransition(idle, running)
+    const end = clockTransition(go, stopped)
+    expect(end).toEqual({ emit: 'stop', sending: false, heldByPause: false })
+    expect(clockTransition(end, running).emit).toBe('start')
+  })
+
+  it('says nothing while nothing changes, however often it is polled', () => {
+    const go = clockTransition(idle, running)
+    expect(clockTransition(go, running).emit).toBeUndefined()
+    const hold = clockTransition(go, held)
+    expect(clockTransition(hold, held).emit).toBeUndefined()
+    expect(clockTransition(hold, held).heldByPause, 'and keeps remembering why').toBe(true)
+    expect(clockTransition(idle, stopped).emit).toBeUndefined()
+  })
+
+  it('a stop out of a pause is still a stop, so the take does not resume as a continue', () => {
+    const hold = clockTransition(clockTransition(idle, running), held)
+    const end = clockTransition(hold, stopped)
+    expect(end.sending).toBe(false)
+    expect(end.emit, 'the clock is already stopped; nothing new to say').toBeUndefined()
+    expect(end.heldByPause, 'no longer held, ended').toBe(false)
+    expect(clockTransition(end, running).emit).toBe('start')
   })
 })
 

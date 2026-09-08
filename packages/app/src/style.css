@@ -180,6 +180,52 @@ body {
   pointer-events: none;
 }
 
+/* Where a take starts, in measures. Sits beside the tempo because both are
+ * "how this run begins" — same pill chrome, quieter by default, and outlined
+ * in the accent as soon as it is set to anything but the top, so a remembered
+ * start point can never hide. */
+.startfrom {
+  display: inline-flex;
+  gap: 3px;
+  align-items: baseline;
+  min-height: var(--h-ctrl);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r);
+  background: var(--c-surface);
+  align-content: center;
+}
+.startfrom-label {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-meta);
+  color: var(--c-dim);
+}
+.startfrom-input {
+  /* 4 digits is every song anyone is editing ('9999') */
+  width: 4ch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-text);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: var(--fs-input);
+  font-weight: 600;
+  text-align: right;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.startfrom-input:focus {
+  outline: none;
+  color: var(--c-accent);
+}
+.startfrom:focus-within,
+.startfrom.set {
+  border-color: var(--c-accent);
+}
+.startfrom.set .startfrom-input {
+  color: var(--c-accent);
+}
+
 /* "+ sample" loader button */
 .sample-btn {
   white-space: nowrap;
@@ -799,6 +845,26 @@ body {
     border-color: var(--c-accent);
     color: #04120c;
   }
+}
+
+/* Pause: quiet like stop, and LIT while held — a held transport must not look
+ * like a stopped one, since the two differ only in what the next press does.
+ * Reserves its slot the same way stop does, so starting playback never
+ * reflows the header under someone's finger. */
+.pause-btn {
+  min-width: var(--h-ctrl);
+  padding: 0 var(--sp-3);
+  color: var(--c-dim);
+}
+.pause-btn.hidden {
+  visibility: hidden;
+}
+.pause-btn.held {
+  color: var(--c-accent);
+  border-color: var(--c-accent);
+}
+.pause-btn:active {
+  background: var(--c-raised);
 }
 
 /* Stop: quiet, icon-only; a red tint only on press. */
@@ -1788,7 +1854,8 @@ body.shaderviz-on .cm-content {
   display: inline; /* labels show in the menu (the bar hides them) */
 }
 /* the tempo pill spans the menu like the buttons do, value left-aligned */
-.more-pop .tempo {
+.more-pop .tempo,
+.more-pop .startfrom {
   width: 100%;
   justify-content: start;
 }

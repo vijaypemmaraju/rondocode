@@ -75,10 +75,26 @@ export interface AudioSessionLike {
   /** Sample names loaded so far. Optional: a host that cannot answer simply
    *  gets no missing-sample warnings, rather than a wrong list of them. */
   getSamples?(): { name: string }[]
+  /**
+   * Freeze and unfreeze the audio clock — what transport('pause') is made
+   * of. Suspending stops currentTimeFrames advancing, which stalls the
+   * scheduler's window on its own (see Scheduler's transport note) AND holds
+   * every sounding voice, tail and reverb exactly where it was, because the
+   * graph itself stops running. A host that cannot suspend (a test double, a
+   * shell with no real context) simply has no pause: transport('pause') is
+   * refused rather than faked as a stop, since a "pause" that dropped tails
+   * and lost position would be the wrong thing under the right name.
+   */
+  suspend?(): Promise<void>
+  resume?(): Promise<void>
 }
 
 export interface SessionState {
   playing: boolean
+  /** Playing, but with the audio clock frozen: the transport holds its
+   *  position and its sound instead of ending. Never true while stopped —
+   *  `playing && paused` is the held state, `playing && !paused` is running. */
+  paused: boolean
   cps: number
   /** The project's meter (4/4 unless the code says otherwise). A cycle is one
    *  BAR, so this is how many quarter notes a cycle spans — what the header
@@ -283,6 +299,11 @@ export class Session {
    *  getState(). */
   private timeSig: TimeSig = DEFAULT_TIME_SIG
   private playing = false
+  /** Audio clock frozen by transport('pause'). Only meaningful while
+   *  playing; stop and play both clear it (see setFrozen). */
+  private frozen = false
+  /** Serializes the async suspend/resume calls (see setFrozen). */
+  private ctxOp: Promise<void> = Promise.resolve()
   private lastGoodSource = ''
   private lastAttemptedSource = ''
   private lastError: string | undefined
@@ -1034,13 +1055,38 @@ export class Session {
     this.audio.send(msg)
   }
 
-  /** play: (re)start the scheduler at cycle 0 and begin ticking every 25ms.
-   *  stop: halt ticking and panic (allNotesOff). cps, when given, is
-   *  clamped to [0.05, 4] like setCps. */
-  transport(cmd: 'play' | 'stop', opts?: { cps?: number }): void {
+  /**
+   * play: (re)start the scheduler at cycle `from` (0 by default, i.e. the
+   *   top) and begin ticking every 25ms. A running transport is restarted,
+   *   and a paused one is unfrozen first, so play always means "from here,
+   *   moving".
+   * stop: halt ticking and panic (allNotesOff), and unfreeze the clock if a
+   *   pause left it frozen — a stopped session must be ready to play, not
+   *   silently suspended.
+   * pause: freeze the audio clock. Everything holds: the scheduler's window
+   *   stops advancing because its clock stopped, and the voices already
+   *   sounding hold their tails mid-air. No-op unless playing, and refused
+   *   (false) by a host whose audio cannot suspend.
+   * resume: unfreeze, continuing at the cycle and inside the notes where
+   *   pause caught it. No-op unless paused.
+   *
+   * Returns whether the command was carried out, so a caller that offered a
+   * pause button can tell the difference between "held" and "this host has
+   * no pause". cps, when given, is clamped to [0.05, 4] like setCps.
+   */
+  transport(cmd: 'play' | 'stop' | 'pause' | 'resume', opts?: { cps?: number; from?: number }): boolean {
     if (opts?.cps !== undefined) this.requestCps(clampCps(opts.cps))
     this.syncCps()
+    if (cmd === 'pause' || cmd === 'resume') {
+      const held = this.setFrozen(cmd === 'pause')
+      this.onState?.(this.getState())
+      return held
+    }
     if (cmd === 'play') {
+      // A play out of a pause has to unfreeze the clock, or the scheduler
+      // would be anchored to a time that never advances and the take would
+      // sit there silently. Nothing to restore: play re-anchors anyway.
+      this.setFrozen(false)
       // The slide sweep rides the scheduler's OWN timer rather than a second
       // one. It cannot live in dispatchEvents: the scheduler skips onEvents
       // entirely on a tick with no events (`if (evs.length === 0) return`),
@@ -1048,10 +1094,11 @@ export class Session {
       // exists to catch.
       const wrap = (si: SetIntervalImpl): SetIntervalImpl =>
         (fn, ms) => si(() => { this.releaseExpiredSlides(); fn() }, ms)
+      const from = opts?.from ?? 0
       if (this.setIntervalImpl !== undefined && this.clearIntervalImpl !== undefined) {
-        this.scheduler.start(wrap(this.setIntervalImpl), this.clearIntervalImpl)
+        this.scheduler.start(wrap(this.setIntervalImpl), this.clearIntervalImpl, from)
       } else {
-        this.scheduler.start(wrap((fn, ms) => setInterval(fn, ms)), (h) => clearInterval(h as ReturnType<typeof setInterval>))
+        this.scheduler.start(wrap((fn, ms) => setInterval(fn, ms)), (h) => clearInterval(h as ReturnType<typeof setInterval>), from)
       }
       this.playing = true
     } else {
@@ -1059,8 +1106,38 @@ export class Session {
       this.audio.send({ kind: 'silenceAll' }) // hard cut: also stops an in-flight sung vocal clip
       this.pendingSlide.clear() // deferred slide releases are moot after a panic
       this.playing = false
+      // A stop out of a pause leaves the context running: silenceAll has to
+      // reach a graph that is actually processing, and the next play must
+      // not need a second click to undo a freeze nobody can see.
+      this.setFrozen(false)
     }
     this.onState?.(this.getState())
+    return true
+  }
+
+  /**
+   * Freeze or unfreeze the audio clock, the whole of pause/resume. Returns
+   * whether the transport ended up in the requested state.
+   *
+   * The calls are serialized through one promise chain because suspend() and
+   * resume() are async and a double-tap on the button would otherwise race
+   * into "resumed then suspended" — the context and the flag disagreeing is
+   * the one failure that looks like a dead app. `frozen` is set here, up
+   * front, so state reads (and the button) follow the intent immediately
+   * rather than a round trip later.
+   */
+  private setFrozen(freeze: boolean): boolean {
+    if (freeze && (!this.playing || this.frozen)) return false
+    if (!freeze && !this.frozen) return false
+    const run = freeze ? this.audio.suspend?.bind(this.audio) : this.audio.resume?.bind(this.audio)
+    if (run === undefined) return false
+    this.frozen = freeze
+    this.ctxOp = this.ctxOp.then(run).catch((e: unknown) => {
+      // A context that refuses to change state is worth saying out loud, but
+      // not worth throwing into a click handler mid-performance.
+      console.warn(`[session] transport ${freeze ? 'pause' : 'resume'} failed:`, e)
+    })
+    return true
   }
 
   /** Set the tempo WITHOUT touching play/stop — the header's BPM field uses
@@ -1086,6 +1163,7 @@ export class Session {
   getState(): SessionState {
     const s: SessionState = {
       playing: this.playing,
+      paused: this.playing && this.frozen,
       cps: this.scheduler.cps,
       timeSig: this.timeSig,
       synths: [...this.liveSynths.keys()],
@@ -1105,6 +1183,7 @@ export class Session {
     this.audio.send({ kind: 'allNotesOff' })
     this.audio.onEvent = undefined
     this.playing = false
+    this.frozen = false // never hand back a suspended context
     if (this.rebuildTimer !== undefined) clearTimeout(this.rebuildTimer)
     this.rebuildTimer = undefined
     this.pendingRebuilds.clear()

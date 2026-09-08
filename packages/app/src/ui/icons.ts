@@ -22,6 +22,8 @@ const ICONS: Record<string, string> = {
   play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>',
   // stop (filled)
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
+  // pause (filled) — hold the transport where it is
+  pause: '<rect x="7" y="5" width="3.5" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.5" y="5" width="3.5" height="14" rx="1" fill="currentColor" stroke="none"/>',
   // refresh — update while playing
   refresh: '<path d="M3 12a9 9 0 0 1 15-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.4L3 16"/><path d="M3 21v-5h5"/>',
   // close

@@ -33,6 +33,7 @@ import { ghostCompletion } from './ghost'
 import { codeEditingExtensions, rondocodeAutocomplete } from './setup'
 import { diffChanges, formatJsSource, formatOnNewline } from './format'
 import { mountTempo } from './tempo'
+import { cursorStartCycle, mountStartFrom } from './startfrom'
 import { rondoLanguage, rondoAutocomplete, setLiveSampleNames } from './rondo'
 import { setLiveInputDeviceNames } from './complete'
 import { mapToRondo } from './rondomap'
@@ -279,6 +280,12 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   stopBtn.type = 'button'
   stopBtn.replaceChildren(iconEl('stop'))
   tooltip(stopBtn, 'stop (Cmd/Ctrl+.)')
+  // Pause holds the take where it is (see Session.transport); like stop it
+  // only appears once there is something to hold.
+  const pauseBtn = el('button', 'btn pause-btn hidden')
+  pauseBtn.type = 'button'
+  pauseBtn.replaceChildren(iconEl('pause'))
+  tooltip(pauseBtn, 'pause (Cmd/Ctrl+Shift+.)')
   const dirtyDot = el('span', 'dirty-dot')
   tooltip(dirtyDot, 'edited since last run')
   runBtn.append(dirtyDot) // the "edited since last run" hint lives on Run itself
@@ -292,7 +299,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   lockBtn.replaceChildren(iconEl('lock'), el('span', 'btn-label', 'lock'))
   lockBtn.setAttribute('aria-pressed', 'false')
   tooltip(lockBtn, 'performance lock: text frozen, widgets live')
-  controls.append(langBtn, sampleBtn, exportBtn, lockBtn, stopBtn, runBtn)
+  controls.append(langBtn, sampleBtn, exportBtn, lockBtn, pauseBtn, stopBtn, runBtn)
 
   topbar.append(logo, fileInput, controls, meter)
 
@@ -483,7 +490,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
         // First Run unlocks audio: resume() runs inside this click/keypress
         // gesture, which is exactly what browsers require. Idempotent after.
         void audio.resume()
-        session.transport('play')
+        // Where to come in from. Only a START reads it: Run while playing
+        // hot-swaps the code (`firstPlay` is false above), so a remembered
+        // measure never yanks a running take back to itself.
+        session.transport('play', { from: startFrom.cycle() })
       }
       if (needPreload) {
         // A first play that must bake a vocal. If the models aren't downloaded
@@ -589,6 +599,24 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     return true
   }
 
+  /* PAUSE is a toggle on one key and one button, because "hold this" and
+   * "carry on" are one thought. It holds the notes that are sounding rather
+   * than cutting them (Session.transport), so there is nothing for the DAW
+   * port or the flasher to clean up: nothing ended. */
+  const togglePause = (): boolean => {
+    const s = session.getState()
+    if (!s.playing) return false // nothing to hold; let the key fall through
+    session.transport(s.paused ? 'resume' : 'pause')
+    return true
+  }
+
+  /* "Run from here": the section under the cursor names the bar it starts
+   * at. Only rondo can answer, since sections are its blocks (see
+   * cursorStartCycle for when it cannot); the key then falls through to an
+   * ordinary Run from wherever the field is set, rather than starting
+   * somewhere the cursor did not mean. */
+  const runFromCursor = (): boolean => startFrom.fromCursor() || run()
+
   // ---- auto-format (Mod-Shift-F, the palette's { } chip) ----
   // Rondo formats synchronously (the pure @rondocode/rondo formatter); JS
   // lazy-loads prettier on first use (its chunk stays out of the eager page
@@ -640,6 +668,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
           keymap.of([
             { key: 'Mod-Enter', run },
             { key: 'Mod-.', run: stop },
+            { key: 'Mod-Shift-Enter', run: runFromCursor, preventDefault: true },
+            { key: 'Mod-Shift-.', run: togglePause, preventDefault: true },
             // auto-format the whole doc (both languages; see formatDoc above)
             { key: 'Mod-Shift-f', run: formatDoc, preventDefault: true },
           ]),
@@ -747,6 +777,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     cps: () => session.getState().cps,
     previewNote: (synth, midi) => {
       try {
+        // Held means held: a preview here would have to unfreeze the clock to
+        // be heard, and unfreezing behind the Session's back would leave it
+        // thinking it is still paused. Nothing sounds while the take is held.
+        if (session.getState().paused) return
         void audio.resume()
         const at = Math.round(audio.currentTimeFrames)
         audio.send({ kind: 'noteOn', synth, note: midi, velocity: 0.8, atFrame: at })
@@ -994,6 +1028,17 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     onDiagnostics: renderDiagnostics,
     onState: (s) => {
       stopBtn.classList.toggle('hidden', !s.playing) // no value when idle
+      pauseBtn.classList.toggle('hidden', !s.playing)
+      // Held: the button says what pressing it will do now, and stays lit so
+      // a paused transport can never be mistaken for a stopped one.
+      pauseBtn.classList.toggle('held', s.paused)
+      pauseBtn.setAttribute('aria-pressed', String(s.paused))
+      const pauseIcon = s.paused ? 'play' : 'pause'
+      if (pauseBtn.dataset.icon !== pauseIcon) {
+        pauseBtn.querySelector('svg.ico')?.replaceWith(iconEl(pauseIcon))
+        pauseBtn.dataset.icon = pauseIcon
+      }
+      tooltip(pauseBtn, s.paused ? 'resume (Cmd/Ctrl+Shift+.)' : 'pause (Cmd/Ctrl+Shift+.)')
       runBtn.classList.toggle('playing', s.playing)
       // While playing, Run hot-swaps the current code into the running program
       // rather than starting it — label it "update" (refresh icon) to say so.
@@ -1089,8 +1134,24 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   langListeners.add(() => tempo.refresh()) // the tempo line reads differently per language
   tempo.refresh()
 
+  /* Where a take starts, next to the tempo it starts at: both are "how this
+   * run begins", and neither is a tool. The cursor rule is the same one the
+   * live views use to decide what belongs to which section (rondo's
+   * sections.ts), so the bar this jumps to is the bar that lights up. */
+  const startFrom = mountStartFrom({
+    cursorCycle: () => cursorStartCycle(lang, sectionRangesNow(), liveArrangement, view.state.selection.main.head),
+    run: () => {
+      // Starting somewhere new means STARTING: a hot-swap would leave the
+      // transport where it already was and the new measure would do nothing.
+      stop()
+      run()
+    },
+  })
+  controls.insertBefore(startFrom.el, tempo.el.nextSibling)
+
   runBtn.addEventListener('click', () => run())
   stopBtn.addEventListener('click', () => stop())
+  pauseBtn.addEventListener('click', () => togglePause())
 
   // Replace the whole buffer (library: switch project, load example, restore a
   // version). Stop first — otherwise the old patterns keep running and Run

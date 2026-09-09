@@ -3945,6 +3945,90 @@ play cello
 cps .4
 `
 
+/** A chanting voice: the chant preset, one monk, gliding. */
+const chantRondo = `# CHANT: one voice, and the room it is standing in.
+#
+# The voice is the chant preset from the synth library, unchanged. What makes
+# a formant filter sound like a person rather than a filter is everything
+# around it: ONE voice (mono) that GLIDES between notes instead of restriking,
+# a vibrato that never stops, and breath under the tone.
+#
+# vowel: is a lane like any other, so the vowels are written beside the
+# melody. 0 is aah, .25 eh, .5 ee, .75 oh, 1 oo. They read most clearly from
+# c3 up; lower than that the voice becomes a drone, which is its own good
+# sound but is no longer a vowel.
+#
+# slide: 1 is what ties one note into the next. It needs BOTH the synth's
+# glide time and this lane: glide supplies the bend, slide picks the notes.
+
+bpm 56
+
+synth chant mono glide:.12
+  saw f
+  + air
+  formant vowel
+  svf 4200 res:.1
+  * env
+  * 1.5
+  env   = adsr .25 .4 .9 .8
+  lf    = lfo 5.4
+  vib   = lf -> .982..1.018
+  f     = note * vib
+  nz    = noise pink
+  air   = nz * .04
+  vowel = knob 0 0..1
+  post
+    reverb room:.85 mix:.3
+
+# The drone it sits on: two saws a hair apart, filtered dark, an octave under
+# the voice. ONE note per section rather than one per bar, so the three second
+# attack has somewhere to go and the seam between sections is a swell instead
+# of a hit.
+synth drone
+  saw
+  + saw note*1.004
+  svf 700 res:.12
+  * env
+  * .2
+  env = adsr 3 2 .9 4
+  post
+    reverb room:.9 mix:.25
+
+# A struck bowl to mark the phrases.
+synth bowl
+  modal note model:glass decay:.9 damp:.2
+  * .5
+  post
+    reverb room:.85 damp:.4 mix:.4
+
+section open 8
+  play drone
+    c2
+    dur: 8
+  play bowl
+    c5 ~ ~ ~ ~ ~ ~ ~
+  play chant
+    c3 ~ eb3 ~ f3 ~ eb3 ~
+    dur: 1.9
+    slide: 1
+    vowel: <0 .3 .5 .3>
+
+section turn 8 with open
+  play chant
+    g3 ~ f3 ~ eb3 ~ c3 ~
+    dur: 1.9
+    slide: 1
+    vowel: <.5 .3 0 .75>
+  play bowl
+    ~ ~ ~ ~ g4 ~ ~ ~
+
+song open turn
+
+master threshold:-16 ratio:2.2 attack:14 release:180
+
+level 5
+`
+
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
   { name: 'visuals', code: visuals, rondo: visualsRondo },
@@ -3977,6 +4061,7 @@ export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'auto wah', code: fromRondo(autoWahRondo), rondo: autoWahRondo },
   { name: 'harmoniser', code: fromRondo(harmoniserRondo), rondo: harmoniserRondo },
   { name: 'strings', code: fromRondo(stringsRondo), rondo: stringsRondo },
+  { name: 'chant', code: fromRondo(chantRondo), rondo: chantRondo },
   { name: 'real room', code: fromRondo(realRoomRondo), rondo: realRoomRondo },
   { name: 'tape', code: fromRondo(tapeRondo), rondo: tapeRondo },
   { name: 'moving modulation', code: fromRondo(movingModRondo), rondo: movingModRondo },

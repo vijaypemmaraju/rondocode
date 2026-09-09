@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { stageCode, runPatterns, renderMix } from '../../server/src/render-runner'
 import { compile, decompile } from '@rondocode/rondo'
 import { SYNTHS, presetFor } from '../src/editor/synthlib'
+import { EXAMPLES } from '../src/examples'
 import { highlightFor } from '../src/docs/highlight'
 
 /* Every preset in the synth library must EVAL and SOUND.
@@ -105,6 +106,25 @@ describe('a rondo project gets rondo', () => {
     const out = presetFor({ code: js }, 'rondo')
     expect(out).not.toBe(js)
     expect(compile(out).ok).toBe(true)
+  })
+})
+
+/* The `chant` example is the preset being USED, not a second patch that
+ * happens to resemble it. Two copies of the same instrument in two files is
+ * this repo's favourite way to grow a bug: improve the preset, and the
+ * example quietly goes on demonstrating the old one under the same name.
+ * So the example must contain the preset's rondo verbatim, and the way to
+ * change the instrument is to change the preset. */
+describe('the chant example plays the chant preset', () => {
+  it('embeds the library rondo exactly, so the two cannot drift', () => {
+    const preset = SYNTHS.find((s) => s.name === 'chant')!
+    expect(preset.rondo, 'the chant preset lost its rondo form').toBeDefined()
+    const example = EXAMPLES.find((e) => e.name === 'chant')!
+    expect(example.rondo, 'the chant example lost its rondo source').toBeDefined()
+    expect(
+      example.rondo!,
+      'the chant example no longer contains the preset verbatim: change the preset, not the copy',
+    ).toContain(preset.rondo!)
   })
 })
 

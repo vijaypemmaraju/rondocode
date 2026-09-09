@@ -353,6 +353,49 @@ const vox = synth(({ note, gate, adsr, lfo, saw, formant }) => {
     demoTail: `setCps(0.35)\np('demo', note('a3 c4 e4 c4').sound('vox').dur(0.9))`,
   },
   {
+    name: 'chant',
+    title: 'Chanting monk',
+    tags: 'vocal · formant · mono · glide',
+    code: `// vox with a throat behind it: ONE voice that glides between notes and
+// wobbles, which is most of what makes a formant filter sound like a person
+// rather than a filter. \`vowel\` is a per-note lane, so the vowels are written
+// with the melody: vowel: <0 .3 .6> chants a-e-i.
+//
+// What is NOT here, measured rather than assumed: no pulse mixed into the saw
+// (it phase-cancels and drags the peaks off the vowel), no dry signal blended
+// under (the fundamental drowns the formants), no saturation (it muddies
+// them). The saw alone puts its peaks within ~20 cents of the vowel table.
+const chant = synth(
+  ({ note, gate, param, adsr, lfo, saw, noise, formant, svf }) => {
+    const env = adsr(gate, { a: 0.25, d: 0.4, s: 0.9, r: 0.8 })
+    const vib = lfo(5.4).range(0.982, 1.018)
+    const f = note.freq.mul(vib)
+    const air = noise('pink').mul(0.04)
+    const vowel = param('vowel', 0, { min: 0, max: 1 })
+    return svf(formant(saw(f).add(air), vowel), 4200, { res: 0.1 }).mul(env).mul(1.5)
+  },
+  ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.85 }), 0.3),
+  { mono: true, glide: 0.12 },
+)`,
+    demoTail: `setCps(0.2)\np('demo', note('c3 eb3 f3 eb3').sound('chant').dur(0.95).slide(1).ctrl('vowel', '0 0.3 0.6 0.3'))`,
+    rondo: `synth chant mono glide:.12
+  saw f
+  + air
+  formant vowel
+  svf 4200 res:.1
+  * env
+  * 1.5
+  env   = adsr .25 .4 .9 .8
+  lf    = lfo 5.4
+  vib   = lf -> .982..1.018
+  f     = note * vib
+  nz    = noise pink
+  air   = nz * .04
+  vowel = knob 0 0..1
+  post
+    reverb room:.85 mix:.3`,
+  },
+  {
     name: 'bell',
     title: 'Modal bell',
     tags: 'perc · physical',

@@ -167,14 +167,29 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     'transport',
     {
       description:
-        "Start or stop playback. 'play' (re)starts the pattern scheduler from cycle 0 — nothing sounds until you play; 'stop' halts it and silences all notes. Optional cps sets tempo in cycles per second, clamped to 0.05..4 (0.5 cps at 4 beats per cycle = 120 bpm).",
+        "Control playback. 'play' (re)starts the pattern scheduler at fromMeasure (measure 1, the top, by default) — nothing sounds until you play; 'stop' halts it and silences all notes; 'pause' freezes the transport where it is, holding sounding notes and tails, and 'resume' continues from that exact point. Optional cps sets tempo in cycles per second, clamped to 0.05..4 (0.5 cps at 4 beats per cycle = 120 bpm). The reply carries the resulting state, with ok:false when the command was a no-op (pause while stopped, resume while running).",
       inputSchema: {
-        action: z.enum(['play', 'stop']).describe("'play' to start from cycle 0, 'stop' to halt and silence"),
+        action: z
+          .enum(['play', 'stop', 'pause', 'resume'])
+          .describe("'play' to start, 'stop' to halt and silence, 'pause' to freeze in place, 'resume' to continue"),
         cps: z.number().optional().describe('Tempo in cycles per second (clamped 0.05..4)'),
+        fromMeasure: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Measure to start playing at, counted from 1 like a score (one measure = one cycle = one bar). play only. A measure past the end of the song wraps, the way the song loops on its own.',
+          ),
       },
     },
-    ({ action, cps }) =>
-      viaBridge(() => bridge.call('transport', cps === undefined ? { cmd: action } : { cmd: action, cps })),
+    ({ action, cps, fromMeasure }) =>
+      viaBridge(() =>
+        bridge.call('transport', {
+          cmd: action,
+          ...(cps === undefined ? {} : { cps }),
+          ...(fromMeasure === undefined ? {} : { fromMeasure }),
+        }),
+      ),
   )
 
   server.registerTool(

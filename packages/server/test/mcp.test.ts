@@ -220,6 +220,19 @@ describe('mcp server tools', { timeout: SOCKET_TIMEOUT_MS }, () => {
     })
   })
 
+  it('transport carries pause/resume, and fromMeasure rides the wire as a measure', async () => {
+    // The tool speaks the musician's units all the way to the browser; the
+    // 1-based measure becomes a 0-based cycle in exactly one place, below
+    // the bridge (see measureToCycle), so nothing here may pre-convert it.
+    const { bridge, client } = await rig()
+    const { received } = await attachBrowser(bridge)
+    await client.callTool({ name: 'transport', arguments: { action: 'play', fromMeasure: 9 } })
+    await client.callTool({ name: 'transport', arguments: { action: 'pause' } })
+    await client.callTool({ name: 'transport', arguments: { action: 'resume' } })
+    const calls = received.filter((f) => f.method === 'transport').map((f) => f.params)
+    expect(calls).toEqual([{ cmd: 'play', fromMeasure: 9 }, { cmd: 'pause' }, { cmd: 'resume' }])
+  })
+
   it('get_diagnostics serves cached notifications with ageMs', async () => {
     const { bridge, client } = await rig()
     const { ws } = await attachBrowser(bridge)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compile } from '../src/compile'
-import { sectionAt, sectionRanges, slotAt, soundingAt, soundsAt } from '../src/sections'
+import { sectionAt, sectionRanges, sectionStartCycle, slotAt, soundingAt, soundsAt, startCycleAt } from '../src/sections'
 
 /* The one rule every live view shares: an event belongs to a widget iff the
  * section that owns the widget's position is sounding at the event's cycle.
@@ -113,6 +113,39 @@ describe('sectionRanges', () => {
     expect(sectionRanges('  section a 4\n    play x\n      c4')).toEqual([])
     expect(sectionRanges('sections 4\n  x')).toEqual([])
     expect(sectionRanges('')).toEqual([])
+  })
+})
+
+describe('sectionStartCycle / startCycleAt', () => {
+  it('is where the section first comes in: the slots before it, laid end to end', () => {
+    const arr = arrangementOf(SONG)
+    expect(sectionStartCycle(arr, 'build')).toBe(0)
+    expect(sectionStartCycle(arr, 'main')).toBe(4)
+    expect(sectionStartCycle(arr, 'drums')).toBe(8)
+    // one that plays twice starts at the FIRST of them
+    const twice = arrangementOf(SONG.replace('song build main drums', 'song build main build drums'))
+    expect(sectionStartCycle(twice, 'build')).toBe(0)
+    expect(sectionStartCycle(twice, 'drums')).toBe(12)
+  })
+
+  it('has no start for a section the song never plays, or without a song at all', () => {
+    const unplayed = arrangementOf(SONG.replace('song build main drums', 'song build main'))
+    expect(sectionStartCycle(unplayed, 'drums')).toBeUndefined()
+    expect(sectionStartCycle(undefined, 'build')).toBeUndefined()
+  })
+
+  it('turns a cursor position into the cycle to start playing at', () => {
+    const arr = arrangementOf(SONG)
+    const rs = sectionRanges(SONG)
+    expect(startCycleAt(rs, arr, SONG.indexOf('cutoff:'))).toBe(0) // inside build
+    expect(startCycleAt(rs, arr, SONG.indexOf('x . x .'))).toBe(8) // inside drums
+    expect(startCycleAt(rs, arr, SONG.indexOf('c4 e4 g4', SONG.indexOf('section main')))).toBe(4)
+    // a top-level line belongs to the whole song, and the song starts at the top
+    expect(startCycleAt(rs, arr, SONG.indexOf('saw'))).toBe(0)
+    expect(startCycleAt(rs, arr, SONG.indexOf('song build'))).toBe(0)
+    // a section the song leaves out has nowhere of its own to start
+    const unplayed = arrangementOf(SONG.replace('song build main drums', 'song build main'))
+    expect(startCycleAt(rs, unplayed, SONG.indexOf('x . x .'))).toBe(0)
   })
 })
 

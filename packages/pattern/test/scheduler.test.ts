@@ -385,6 +385,61 @@ describe('Scheduler transport', () => {
     expect(after.map((e) => e.cycle)).toEqual([0, 0]) // restarted at cycle 0
   })
 
+  /* Starting somewhere other than the top: the whole of "take it from bar 9"
+   * is that the anchor holds a cycle other than zero, and everything
+   * downstream reads the anchor. */
+  it('play(from) starts AT that cycle: the first window is [from, …) and events count from there', () => {
+    const { s, events, run, clock } = rig({ cps: 1 })
+    s.setPattern('a', n('0 1 2 3'))
+    clock.now = 5
+    s.play(8)
+    run(5, 5.2)
+    expect(events().map((e) => e.cycle)).toEqual([8, 8]) // not 0, and not 8 cycles late
+    expect(events().map((e) => e.timeSec)).toEqual([5, 5.25]) // it sounds NOW
+    expect(s.cycle).toBeCloseTo(8.2, 9)
+  })
+
+  it('play(from) fires the notes of that cycle, not the ones from the top', () => {
+    // The pattern differs per cycle, so the events themselves say which cycle
+    // is playing — an anchor that only moved the NUMBER would fail here.
+    const { s, events, run } = rig({ cps: 1 })
+    s.setPattern('a', n('<0 1 2 3>')) // one value per cycle, in turn
+    s.play(2)
+    run(0, 0.9, 1.9, 2.9)
+    expect(events().map((e) => (e.controls as ControlMap).n)).toEqual([2, 3, 0]) // and on round the pattern
+  })
+
+  it('play() with no argument still starts at the top, and a later play(from) re-anchors', () => {
+    const { s, events, run, clock } = rig({ cps: 1 })
+    s.setPattern('a', n('0'))
+    s.play()
+    run(0, 0.9, 1.9)
+    expect(events().map((e) => e.cycle)).toEqual([0, 1])
+    clock.now = 10
+    s.play(4)
+    run(10, 10.9, 11.9)
+    expect(events().slice(2).map((e) => e.cycle)).toEqual([4, 5])
+  })
+
+  it('a fractional or negative start is legal: mid-bar, and the cycles before zero', () => {
+    const { s, events, run } = rig({ cps: 1 })
+    s.setPattern('a', n('0 1 2 3'))
+    s.play(0.5) // half a bar in: the first two notes are already behind us
+    run(0, 0.4)
+    expect(events().map((e) => (e.controls as ControlMap).n)).toEqual([2, 3])
+    const back = rig({ cps: 1 })
+    back.s.setPattern('a', n('0'))
+    back.s.play(-2) // a count-in
+    back.run(0, 0.9, 1.9)
+    expect(back.events().map((e) => e.cycle)).toEqual([-2, -1])
+  })
+
+  it('refuses a start that is not a number, rather than anchoring to NaN', () => {
+    const { s } = rig({ cps: 1 })
+    expect(() => s.play(Number.NaN)).toThrow(RangeError)
+    expect(() => s.play(Number.POSITIVE_INFINITY)).toThrow(RangeError)
+  })
+
   it('dur control scales durSec (legato), timeSec unchanged', () => {
     const { s, events, run } = rig({ cps: 1 })
     s.setPattern('a', n('0 1').dur(0.5))

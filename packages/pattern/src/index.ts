@@ -53,6 +53,8 @@ export {
   bpmToCps,
   cpsToBpm,
   quartersPerBar,
+  measureToCycle,
+  cycleToMeasure,
   DEFAULT_TIME_SIG,
   midiNotesToPattern,
   midiNotesToVoices,

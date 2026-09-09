@@ -12,7 +12,7 @@ import { MidiMonitor, describeMidi } from '../midi/monitor'
 import { outlineOf } from './outline'
 import { synthListView } from '../midi/synthlist'
 import type { ParamRange } from '../midi/cc'
-import { CLOCK_BYTE, MidiClockFollower, MidiClockSender, parseClock } from '../midi/clock'
+import { CLOCK_BYTE, MidiClockFollower, MidiClockSender, clockTransition, parseClock } from '../midi/clock'
 import type { ClockMessage } from '../midi/clock'
 import { cpsToBpm, quartersPerBar } from '@rondocode/pattern'
 import type { TimeSig } from '@rondocode/pattern'
@@ -457,6 +457,11 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   let pushedCps = 0
   /** What the sender last told the world about our transport. */
   let sentPlaying = false
+  /** Whether the last thing that stopped the outgoing clock was a PAUSE, so
+   *  the gear is told to continue rather than to start over. MIDI has the
+   *  same two words we do (0xFB continue, 0xFA start) and means the same
+   *  thing by them. */
+  let heldByPause = false
 
   const outputs = (): MIDIOutput[] =>
     access ? Array.from((access.outputs as Map<string, MIDIOutput>).values()) : []
@@ -552,7 +557,13 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     void audio.resume()
     // 0xFA restarts from the top; 0xFB resumes, so a loop already running is
     // left alone rather than snapped back to cycle 0.
-    if (msg === 'start' || !session.getState().playing) session.transport('play')
+    const st = session.getState()
+    if (msg === 'start' || !st.playing) session.transport('play')
+    // ... and a loop that is HELD is not "already running": the master said
+    // go, so let go of it. Through the Session, never by resuming the
+    // context behind its back, or its idea of paused would outlive the
+    // freeze and the next pause press would do nothing.
+    else if (st.paused) session.transport('resume')
   }
 
   /** The one repeating job: schedule outgoing ticks and keep the readout
@@ -560,16 +571,15 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
   const clockPoll = (): void => {
     if (sync === 'send') {
       const now = performance.now()
-      const playing = session.getState().playing
-      if (playing !== sentPlaying) {
-        sentPlaying = playing
-        if (playing) {
-          sender.start(now)
-          emit(CLOCK_BYTE.start, now)
-        } else {
-          sender.stop()
-          emit(CLOCK_BYTE.stop, now)
-        }
+      const st = session.getState()
+      // start / continue / stop, and what to remember (see clockTransition)
+      const next = clockTransition({ sending: sentPlaying, heldByPause }, st)
+      sentPlaying = next.sending
+      heldByPause = next.heldByPause
+      if (next.emit !== undefined) {
+        if (next.emit === 'stop') sender.stop()
+        else sender.start(now)
+        emit(CLOCK_BYTE[next.emit], now)
       }
       for (const at of sender.due(now, session.getState().cps)) emit(CLOCK_BYTE.tick, at)
     }
@@ -595,6 +605,7 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     } else if (sync === 'send') {
       if (sentPlaying) emit(CLOCK_BYTE.stop, performance.now())
       sentPlaying = false
+      heldByPause = false // whatever we were holding, we are not sending now
       sender.stop()
     }
   }
@@ -605,6 +616,9 @@ export function mountMidi(editor: EditorHandle, audio: AudioSession): () => void
     sync = mode
     syncPick.value = mode
     if (mode === 'follow') {
+      // Handing the tempo to an external master means letting go of a hold:
+      // through the Session, so its idea of paused goes with the freeze.
+      session.transport('resume')
       void audio.resume()
       // Take the tempo now, at whatever we are playing, so an eval cannot grab
       // it back in the gap before the clock locks.

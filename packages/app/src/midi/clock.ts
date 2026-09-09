@@ -294,6 +294,49 @@ export interface SenderOpts {
   timeSig?: () => TimeSig
 }
 
+/** What the outgoing clock should do about a transport state, and what to
+ *  remember for next time. `emit` is undefined when nothing changed. */
+export interface ClockTransition {
+  emit?: 'start' | 'continue' | 'stop'
+  /** Whether the sender should be running after this. */
+  sending: boolean
+  /** Whether a PAUSE is what stopped it (so the next go says continue). */
+  heldByPause: boolean
+}
+
+/**
+ * The rule for turning our transport into the three transport bytes MIDI
+ * has. Two things make it more than a boolean:
+ *
+ * - A PAUSED transport must not keep sending ticks. Our clock is the audio
+ *   clock and a pause freezes it; the tick sender counts in wall-clock
+ *   milliseconds and would march the gear on through the hold, arriving back
+ *   a bar or more ahead of us.
+ * - Coming out of a pause is 0xFB CONTINUE, not 0xFA START. MIDI draws the
+ *   same distinction we do, and a drum machine takes start to mean bar 1.
+ *
+ * Written as a function rather than inline in the poll loop because it is a
+ * rule with cases, and a rule with cases needs a test more than it needs a
+ * home.
+ */
+export function clockTransition(
+  prev: { sending: boolean; heldByPause: boolean },
+  transport: { playing: boolean; paused: boolean },
+): ClockTransition {
+  const running = transport.playing && !transport.paused
+  if (running) {
+    if (prev.sending) return { sending: true, heldByPause: false }
+    return { emit: prev.heldByPause ? 'continue' : 'start', sending: true, heldByPause: false }
+  }
+  // Not running covers two different silences, and which one it is has to be
+  // re-read every poll rather than remembered from the transition that got us
+  // here: a pause followed by a stop is a stop, and the next play must start
+  // from the top rather than continue a take that ended.
+  const heldByPause = transport.paused
+  if (!prev.sending) return { sending: false, heldByPause }
+  return { emit: 'stop', sending: false, heldByPause }
+}
+
 /**
  * Generates the tick timestamps to hand to MIDIOutput.send, so other gear
  * follows rondocode. Pure: it knows nothing about ports.

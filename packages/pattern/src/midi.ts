@@ -224,6 +224,28 @@ export function ticksPerBar(ppq: number, timeSig: TimeSig): number {
   return ppq * quartersPerBar(timeSig)
 }
 
+/* A cycle is a bar, so a cycle number IS a bar number — but the two are
+ * counted from different ends. Cycles start at 0 because that is where the
+ * arrangement's arithmetic starts; musicians count bar 1 first, and every
+ * DAW, score and "take it from bar 9" agrees with them. The offset is one
+ * subtraction, which is exactly why it must live in one place: written out
+ * at each call site it becomes an off-by-one waiting for the one caller that
+ * forgets. Everything a person types or reads (the header field, the MCP
+ * tool, the docs) is in MEASURES; everything below Session.transport is in
+ * CYCLES, and these two functions are the only border crossing. */
+
+/** Measure (what a musician counts, from 1) → cycle (what the scheduler
+ *  counts, from 0). Measure 1 is cycle 0, measure 9 is cycle 8. */
+export function measureToCycle(measure: number): number {
+  return measure - 1
+}
+
+/** Cycle → the measure it falls in, the inverse of {@link measureToCycle}.
+ *  Floors, so anywhere inside bar 9 reads as 9. */
+export function cycleToMeasure(cycle: number): number {
+  return Math.floor(cycle) + 1
+}
+
 /** BPM → cps, the ONE tempo conversion in the codebase. A cycle is a BAR, so
  *  the only question is how many quarter notes that bar holds:
  *  {@link quartersPerBar} (4 by default, plain 4/4). barSeconds =

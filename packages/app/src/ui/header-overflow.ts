@@ -3,10 +3,11 @@ import { tooltip } from './tooltip'
 import { anchorPopover } from './viewport'
 
 /* The header gained enough tools to overflow a phone row. On narrow screens
- * this moves the SECONDARY controls (everything except run + stop) into a "⋯"
- * popover, and moves them back on wider screens. Run and stop always stay in
- * the bar; the recording pill (a status indicator) stays too. Call once, after
- * every module has added its header button. */
+ * this moves the SECONDARY controls (everything except the transport) into a
+ * "⋯" popover, and moves them back on wider screens. Run, pause and stop
+ * always stay in the bar — a transport button behind a menu is a transport
+ * button you cannot hit in time; the recording pill (a status indicator)
+ * stays too. Call once, after every module has added its header button. */
 export function mountHeaderOverflow(topbar: HTMLElement): () => void {
   const controls = topbar.querySelector('.hdr-controls') as HTMLElement | null
   if (!controls) return () => {}
@@ -24,6 +25,7 @@ export function mountHeaderOverflow(topbar: HTMLElement): () => void {
   const isPrimary = (elm: Element): boolean =>
     elm.classList.contains('run') ||
     elm.classList.contains('stop-btn') ||
+    elm.classList.contains('pause-btn') ||
     elm.classList.contains('rec-pill') ||
     elm === more
 

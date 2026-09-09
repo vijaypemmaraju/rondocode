@@ -12,16 +12,37 @@ import type { Diagnostic } from '../src/session/evalCode'
 const SYNTH_SRC = 'synth(({ sine, note, gate }) => sine(note.freq).mul(gate))'
 const GOOD_SRC = `const a = ${SYNTH_SRC}\np('pat', note('60 62').sound('a'))`
 
-const rig = (overrides?: { onPatternEvents?: (evs: SchedulerEvent[]) => void }) => {
+const rig = (overrides?: { onPatternEvents?: (evs: SchedulerEvent[]) => void; noFreeze?: boolean }) => {
   const sent: EngineMessage[] = []
+  /* The audio clock, modelled the way a real AudioContext behaves: while it
+   * is suspended its currentTime does not move, so writes to the frame clock
+   * are ignored rather than merely unobserved. That is what makes pause work
+   * at all, so the double has to have it or the tests would prove nothing. */
+  let frames = 0
+  const clock = { frozen: false }
   const audio = {
     sent,
     send(m: EngineMessage) {
       sent.push(m)
     },
     onEvent: undefined as ((ev: EngineEvent) => void) | undefined,
-    currentTimeFrames: 0,
+    get currentTimeFrames(): number {
+      return frames
+    },
+    set currentTimeFrames(v: number) {
+      if (!clock.frozen) frames = v
+    },
     sampleRate: 48000,
+    ...(overrides?.noFreeze === true
+      ? {}
+      : {
+          suspend: async (): Promise<void> => {
+            clock.frozen = true
+          },
+          resume: async (): Promise<void> => {
+            clock.frozen = false
+          },
+        }),
   }
   const intervals: { fn: () => void; ms: number; cleared: boolean }[] = []
   const diags: Diagnostic[][] = []
@@ -46,13 +67,17 @@ const rig = (overrides?: { onPatternEvents?: (evs: SchedulerEvent[]) => void }) 
       ;(h as { cleared: boolean }).cleared = true
     },
   })
+  /** Let the queued suspend/resume calls run: the Session serializes them on
+   *  a promise chain, so the flag is set at once but the context follows a
+   *  microtask later (a real one is async too). */
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
   /** Fire every live interval callback once (one scheduler tick). */
   const tick = () => {
     for (const i of intervals) if (!i.cleared) i.fn()
   }
   const ofKind = <K extends EngineMessage['kind']>(kind: K) =>
     sent.filter((m): m is Extract<EngineMessage, { kind: K }> => m.kind === kind)
-  return { audio, sent, intervals, diags, states, engineEvents, patternEvents, session, tick, ofKind }
+  return { audio, clock, settle, sent, intervals, diags, states, engineEvents, patternEvents, session, tick, ofKind }
 }
 
 describe('Session.evalCode: apply-on-ok', () => {
@@ -344,6 +369,27 @@ describe('Session.transport', () => {
     expect(session.getState().cps).toBe(4)
   })
 
+  it('play(from) hands the scheduler the cycle to start at, so the take begins at that bar', () => {
+    const { session, patternEvents, tick, audio } = rig()
+    session.evalCode(GOOD_SRC)
+    session.transport('play', { cps: 1, from: 8 })
+    tick()
+    audio.currentTimeFrames = 48000 // one bar later
+    tick()
+    const cycles = patternEvents.flat().map((e) => e.cycle)
+    expect(cycles.length).toBeGreaterThan(0)
+    expect(Math.min(...cycles), 'starts at bar 9, not at the top').toBe(8)
+    expect(session.cycle).toBeCloseTo(9, 6)
+  })
+
+  it('play with no `from` still starts at the top', () => {
+    const { session, patternEvents, tick } = rig()
+    session.evalCode(GOOD_SRC)
+    session.transport('play', { cps: 1 })
+    tick()
+    expect(patternEvents.flat().map((e) => e.cycle)).toEqual([0])
+  })
+
   it('setCps moves the tempo WITHOUT starting or stopping the transport', () => {
     // what the header's BPM field uses when the document has no tempo line
     const { session, ofKind } = rig()
@@ -356,6 +402,103 @@ describe('Session.transport', () => {
     expect(session.getState()).toMatchObject({ cps: 0.5, playing: true }) // still playing
     session.setCps(99)
     expect(session.getState().cps).toBe(4) // clamped like setCps
+  })
+})
+
+/* Pause is not a small stop: it is the audio clock standing still. Nothing
+ * about the scheduler changes for it — a frozen clock makes every tick a
+ * no-op, and the same frozen clock is what holds the sounding voices. These
+ * pin that the freeze reaches BOTH, and that the flag can never be left
+ * disagreeing with the context. */
+describe('Session.transport pause/resume', () => {
+  it('pause freezes the transport in place: no new events, and the position is kept', async () => {
+    const { session, patternEvents, tick, audio, clock, settle } = rig()
+    session.evalCode(GOOD_SRC)
+    session.transport('play', { cps: 1 })
+    tick()
+    const before = patternEvents.flat().length
+    expect(before).toBeGreaterThan(0)
+    const at = session.cycle
+
+    expect(session.transport('pause')).toBe(true)
+    await settle()
+    expect(clock.frozen).toBe(true)
+    expect(session.getState()).toMatchObject({ playing: true, paused: true })
+    // the world keeps turning; the transport does not
+    audio.currentTimeFrames = 48000 * 4
+    tick()
+    tick()
+    expect(patternEvents.flat().length, 'a frozen clock fires nothing').toBe(before)
+    expect(session.cycle, 'and holds its position').toBeCloseTo(at, 9)
+
+    expect(session.transport('resume')).toBe(true)
+    await settle()
+    expect(clock.frozen).toBe(false)
+    expect(session.getState()).toMatchObject({ playing: true, paused: false })
+    audio.currentTimeFrames = 48000 // a bar after where it was held
+    tick()
+    const after = patternEvents.flat()
+    expect(after.length, 'and picks up where it left off').toBeGreaterThan(before)
+    expect(after[after.length - 1]!.cycle, 'continuing the song, not restarting it').toBe(1)
+  })
+
+  it('pause is a no-op while stopped, and resume is a no-op while running', async () => {
+    const { session, clock, settle } = rig()
+    expect(session.transport('pause'), 'nothing to hold').toBe(false)
+    await settle()
+    expect(clock.frozen).toBe(false)
+    expect(session.getState().paused).toBe(false)
+    session.transport('play')
+    expect(session.transport('resume'), 'already running').toBe(false)
+    expect(session.transport('pause')).toBe(true)
+    expect(session.transport('pause'), 'held twice is still held once').toBe(false)
+    await settle()
+    expect(clock.frozen).toBe(true)
+  })
+
+  it('stop and play both unfreeze: a paused session never strands a suspended context', async () => {
+    const { session, clock, settle } = rig()
+    session.transport('play')
+    session.transport('pause')
+    session.transport('stop')
+    await settle()
+    expect(clock.frozen, 'stopped means ready to play, not silently suspended').toBe(false)
+    expect(session.getState()).toMatchObject({ playing: false, paused: false })
+
+    session.transport('play')
+    session.transport('pause')
+    session.transport('play')
+    await settle()
+    expect(clock.frozen, 'play out of a pause means moving').toBe(false)
+    expect(session.getState()).toMatchObject({ playing: true, paused: false })
+  })
+
+  it('paused is never true while stopped, so one flag cannot claim two states', () => {
+    const { session } = rig()
+    session.transport('play')
+    session.transport('pause')
+    session.dispose()
+    expect(session.getState().paused).toBe(false)
+  })
+
+  it('a host whose audio cannot suspend refuses the pause rather than faking it', () => {
+    // Faking it would mean a stop wearing pause's name: tails cut, position
+    // lost. Better to say no and leave the button off.
+    const { session } = rig({ noFreeze: true })
+    session.transport('play')
+    expect(session.transport('pause')).toBe(false)
+    expect(session.getState()).toMatchObject({ playing: true, paused: false })
+  })
+
+  it('a rapid pause/resume/pause ends where the last command asked, context and flag agreeing', async () => {
+    const { session, clock, settle } = rig()
+    session.transport('play')
+    session.transport('pause')
+    session.transport('resume')
+    session.transport('pause')
+    await settle()
+    expect(session.getState().paused).toBe(true)
+    expect(clock.frozen).toBe(true)
   })
 })
 

@@ -85,6 +85,39 @@ export function sectionAt(ranges: readonly SectionRange[], pos: number): string 
 }
 
 /**
+ * The cycle a section first starts at: the slots before its first occurrence
+ * laid end to end. Undefined without a `song`, and for a section the song
+ * never plays (one defined but left out of the arrangement, or only pulled in
+ * by another section's `with` — a layer has no start of its own, it starts
+ * when the section carrying it does).
+ *
+ * "First": a section named twice in a `song` line plays at several cycles,
+ * and the one to jump to is the first, the way a repeat is written once and
+ * read from the top.
+ */
+export function sectionStartCycle(arr: Arrangement | undefined, name: string): number | undefined {
+  if (arr === undefined) return undefined
+  let offset = 0
+  for (const s of arr.slots) {
+    if (s.name === name) return offset
+    offset += s.len
+  }
+  return undefined
+}
+
+/**
+ * Where playback should start for someone whose cursor is at `pos`: the
+ * first cycle of the section that owns that position, and cycle 0 for a
+ * position outside every section (a top-level line belongs to the whole
+ * song, and the whole song starts at the top).
+ */
+export function startCycleAt(ranges: readonly SectionRange[], arr: Arrangement | undefined, pos: number): number {
+  const name = sectionAt(ranges, pos)
+  if (name === undefined) return 0
+  return sectionStartCycle(arr, name) ?? 0
+}
+
+/**
  * Does something written at `pos` sound during `cycle`? Outside every
  * section, or without a `song`, always: those lines play throughout.
  * Inside one, only while the arrangement has that section sounding.

@@ -31,9 +31,17 @@ import type { Loc } from './mini'
  * (an app from its audio-clock callback, tests from a fake clock). start()
  * is a convenience that drives tick() from setInterval (injectable).
  *
- * Transport is v1-simple: play() (re)starts at cycle 0 anchored at
- * getTime() now; stop() halts and discards the window state, so
- * stop→play restarts from cycle 0 rather than resuming.
+ * Transport: play(from) (re)starts at cycle `from` (0 by default) anchored
+ * at getTime() now; stop() halts and discards the window state, so
+ * stop→play restarts rather than resuming. A cycle is one BAR, so `from` is
+ * how a host starts a take at a later measure; everything downstream reads
+ * the anchor, so arrangement, flash and playheads follow for free.
+ *
+ * There is deliberately no pause() here. Freezing a transport means freezing
+ * the sound with it, and the only clock that can do that is the host's audio
+ * clock: a host that suspends its context stops getTime() advancing, which
+ * stalls the window on its own — the ticks that arrive meanwhile are no-ops
+ * and nothing re-fires when it starts moving again. See Session.transport.
  * ------------------------------------------------------------------------- */
 
 export interface SchedulerEvent {
@@ -187,17 +195,31 @@ export class Scheduler {
     this._cps = cps
   }
 
-  /** Start (or restart) at cycle 0, anchored `startLead` seconds ahead of
-   *  getTime() now (default 0) so the first onset lands in the future. */
-  play(): void {
+  /**
+   * Start (or restart) at cycle `from` (default 0), anchored `startLead`
+   * seconds ahead of getTime() now (default 0) so the first onset lands in
+   * the future.
+   *
+   * `from` is a position, not an offset: it is written straight into the
+   * anchor, so the first window queried is [from, …) and every event's
+   * `cycle` counts from there. A song shorter than `from` simply wraps, the
+   * same way it wraps on its own after playing past its end (arrange() takes
+   * the cycle modulo the song's length), so "start at bar 9" means the same
+   * thing whether the song is 8 bars long or 80. Negative is legal and runs
+   * the cycles before zero — a count-in, if a host wants one.
+   */
+  play(from = 0): void {
+    if (!Number.isFinite(from)) throw new RangeError(`play(): from must be a finite cycle, got ${from}`)
+    const at = Fraction.fromNumber(from)
     this.anchorTime = this.getTime() + this.startLead
-    this.anchorCycle = Fraction.ZERO
-    this.queried = Fraction.ZERO
+    this.anchorCycle = at
+    this.queried = at
     this.playing = true
   }
 
   /** Halt: no further events; discards the window state (play() restarts
-   *  from cycle 0). Also clears any timer installed by start(). */
+   *  from its `from`, not from where this stopped). Also clears any timer
+   *  installed by start(). */
   stop(): void {
     this.playing = false
     if (this.timerHandle !== undefined) {
@@ -208,7 +230,7 @@ export class Scheduler {
   }
 
   /**
-   * Convenience self-driving mode: play(), then tick() every `interval`
+   * Convenience self-driving mode: play(from), then tick() every `interval`
    * seconds via the given setInterval (globalThis.setInterval by default).
    * stop() clears the timer. The injectable impls exist for tests and for
    * hosts with their own timer abstraction.
@@ -216,9 +238,10 @@ export class Scheduler {
   start(
     setIntervalImpl: SetIntervalImpl = defaultTimers().setInterval,
     clearIntervalImpl: ClearIntervalImpl = defaultTimers().clearInterval,
+    from = 0,
   ): void {
     this.stop() // never two timers
-    this.play()
+    this.play(from)
     this.timerClear = clearIntervalImpl
     this.timerHandle = setIntervalImpl(() => this.tick(), Math.round(this.interval * 1000))
   }

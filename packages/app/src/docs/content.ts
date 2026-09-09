@@ -664,6 +664,28 @@ cps .5`,
 p('pad', chord('<Cmaj7 Am7>').sound('pad').dur(0.95))
 setCps(0.4)`,
       ),
+      p("A formant filter on its own sounds like a filter. What makes it sound like a PERSON is everything around it: one voice rather than a chord, a glide from note to note instead of a restrike, a vibrato that never stops, and breath under the tone. That is the `chant` preset in the synth library, and the four parts are worth knowing separately because each one is a lever. `mono` with a `glide` time gives the portamento (and `slide:` picks which notes take it, so a phrase can step cleanly and then swoop); an LFO on the frequency is the vibrato; a little pink noise added to the saw is the breath; and `vowel` is an ordinary param, so the vowels are written in a lane beside the melody rather than performed with a mouse."),
+      p('Two things about vowels are worth measuring rather than guessing. Vowels read most clearly from about c3 up: at bass-monk pitches the upper formants sit above where a saw still has harmonics, and the voice turns into a drone, which is its own good sound but is not a vowel any more. And the things you are tempted to add to thicken it mostly destroy it. Mixing a pulse into the saw phase-cancels and drags the peaks off the vowel; blending dry signal underneath lets the fundamental drown the formants; saturating the source muddies them. The plain saw is what puts the peaks within about twenty cents of where the vowel says they should be.'),
+      code(
+        'One voice, gliding: vowel is a lane, so the vowels are written with the melody.',
+        `const chant = synth(
+  ({ note, gate, param, adsr, lfo, saw, noise, formant, svf }) => {
+    const env = adsr(gate, { a: 0.25, d: 0.4, s: 0.9, r: 0.8 })
+    const vib = lfo(5.4).range(0.982, 1.018)      // the wobble that sells it
+    const air = noise('pink').mul(0.04)           // breath under the tone
+    const vowel = param('vowel', 0, { min: 0, max: 1 })
+    return svf(formant(saw(note.freq.mul(vib)).add(air), vowel), 4200, { res: 0.1 })
+      .mul(env).mul(1.5)
+  },
+  ({ input, reverb }) => input.mix(reverb(input, { roomSize: 0.85 }), 0.3),
+  { mono: true, glide: 0.12 },   // one voice, and it bends between notes
+)
+
+setCps(0.2)
+// slide picks which notes glide; vowel writes the vowels: 0 aah, .5 ee, 1 oo
+p('monk', note('c3 eb3 f3 eb3').sound('chant').dur(0.95)
+  .slide(1).ctrl('vowel', '0 0.3 0.6 0.3'))`,
+      ),
       code(
         'A detuned supersaw lead through a phaser, over a talking formant pad.',
         `const lead = synth(({ note, gate, adsr, supersaw, phaser }) => {

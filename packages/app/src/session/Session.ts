@@ -1066,7 +1066,10 @@ export class Session {
    * pause: freeze the audio clock. Everything holds: the scheduler's window
    *   stops advancing because its clock stopped, and the voices already
    *   sounding hold their tails mid-air. No-op unless playing, and refused
-   *   (false) by a host whose audio cannot suspend.
+   *   (false) by a host whose audio cannot suspend. The freeze LANDS at the
+   *   next render quantum rather than on the press, so a few milliseconds of
+   *   audio still go by (measured at ~5ms in Chrome); it is a pause, not an
+   *   edit point, and nothing downstream needs it to be sample-accurate.
    * resume: unfreeze, continuing at the cycle and inside the notes where
    *   pause caught it. No-op unless paused.
    *

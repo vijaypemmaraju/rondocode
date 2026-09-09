@@ -112,8 +112,12 @@ export function mountStartFrom(opts: StartFromOpts): StartFromHandle {
   root.append(label, field)
 
   let measure = 1
-  const refresh = (): void => {
-    if (document.activeElement !== field) field.value = String(measure)
+  /** Repaint. `force` is for a COMMIT: the guard below exists so a background
+   *  refresh cannot fight the hands that are typing, but a commit IS those
+   *  hands, and a field still reading `` after committing 1 would be lying
+   *  about where Run starts. */
+  const refresh = (force = false): void => {
+    if (force || document.activeElement !== field) field.value = String(measure)
     // The pill only looks "set" when it actually changes where Run starts, so
     // the default state is quiet and a non-default one is impossible to miss.
     root.classList.toggle('set', measure !== 1)
@@ -134,12 +138,11 @@ export function mountStartFrom(opts: StartFromOpts): StartFromHandle {
 
   const commit = (): void => {
     const typed = parseMeasure(field.value)
-    if (typed === null) {
-      refresh() // unreadable: snap back to what Run will actually do
-      return
-    }
-    set(typed)
-    refresh()
+    // Either way the field ends up showing the value Run will actually use:
+    // an unreadable entry snaps back to it, and a good one is echoed as the
+    // number it was read as ('' becomes 1, ' 09 ' becomes 9).
+    if (typed !== null) set(typed)
+    refresh(true)
   }
 
   field.addEventListener('blur', commit)
@@ -151,7 +154,7 @@ export function mountStartFrom(opts: StartFromOpts): StartFromHandle {
       opts.run()
     } else if (e.key === 'Escape') {
       e.preventDefault()
-      refresh() // abandon the edit
+      refresh(true) // abandon the edit
       field.blur()
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       // Nudging a bar at a time is what this field is for; the keyboard is
@@ -159,7 +162,7 @@ export function mountStartFrom(opts: StartFromOpts): StartFromHandle {
       e.preventDefault()
       const now = parseMeasure(field.value) ?? measure
       set(Math.max(1, now + (e.key === 'ArrowUp' ? 1 : -1)))
-      refresh()
+      refresh(true)
     }
   })
 

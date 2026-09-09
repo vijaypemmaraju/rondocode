@@ -42,6 +42,15 @@ describe('parseMeasure', () => {
     expect(parseMeasure('   ')).toBe(1)
   })
 
+  it('reads what a person actually types, so the field can echo it back', () => {
+    // The field repaints itself with whatever this returns, so a value read
+    // one way and shown another would leave the header lying about where Run
+    // starts. A browser run caught exactly that: an empty field committed as
+    // measure 1 and went on showing nothing.
+    expect(parseMeasure('09')).toBe(9)
+    expect(parseMeasure(' 5 ')).toBe(5)
+  })
+
   it('refuses what is not a measure, so the last good value stands', () => {
     // null means "keep what Run will actually do" — never silently start
     // somewhere the person did not ask for.

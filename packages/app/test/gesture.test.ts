@@ -164,4 +164,30 @@ describe('attachGesture (single-flight, pointer filter, lifecycle)', () => {
     el.fire('pointerdown', { pointerId: 1 })
     expect(drag.active).toBe(false)
   })
+
+  /* The piano roll writes its first note FROM begin() — the tap is the edit.
+   * With the claim taken after begin() returned, that write reached the
+   * decoration plugin as an ordinary doc change, which rebuilt the widgets
+   * and tore the grid out from under the finger; the pointerup had nowhere
+   * to land and drag.active stayed true, locking out every widget in the
+   * editor from then on. So begin() must already be inside the gesture. */
+  it('claims the gesture BEFORE begin() runs, so a write there maps instead of rebuilding', () => {
+    const el = fakeEl()
+    const drag: Drag = { active: false, ended: false }
+    let activeInBegin: boolean | null = null
+    attachGesture(el, drag, 'element', () => {
+      activeInBegin = drag.active
+      return {}
+    })
+    el.fire('pointerdown', { pointerId: 1 })
+    expect(activeInBegin).toBe(true)
+  })
+
+  it('releases the claim when begin() throws, instead of wedging every widget', () => {
+    const el = fakeEl()
+    const drag: Drag = { active: false, ended: false }
+    attachGesture(el, drag, 'element', () => { throw new Error('boom') })
+    expect(() => el.fire('pointerdown', { pointerId: 1 })).toThrow('boom')
+    expect(drag.active).toBe(false)
+  })
 })

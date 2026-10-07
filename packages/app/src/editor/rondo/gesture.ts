@@ -14,10 +14,12 @@
  *     be exactly what the gesture last wrote (or first read). Any concurrent
  *     edit (scrub, live typing, another gesture that slipped through) aborts
  *     the remaining writes instead of splicing blind.
- *  4. LIFECYCLE — `drag.active` spans exactly the gesture (the decoration
- *     plugin suppresses rebuilds while it is set and maps ranges instead);
- *     listeners always detach; a gesture that changed the doc sets
- *     `drag.ended` so the next update rebuilds ONCE with fresh ranges.
+ *  4. LIFECYCLE — `drag.active` spans exactly the gesture, INCLUDING begin()
+ *     (the decoration plugin suppresses rebuilds while it is set and maps
+ *     ranges instead); listeners always detach; a gesture that changed the
+ *     doc sets `drag.ended` so the next update rebuilds ONCE with fresh
+ *     ranges. begin() counts because a tap on a grid writes from begin(),
+ *     and a rebuild there destroys the element the gesture binds to.
  *
  * attachGesture() owns 1, 2, and 4's plumbing. LiveWriter / verifiedChanges
  * own 3 for the two write shapes (live per-move rewrites, and deferred
@@ -52,8 +54,35 @@ export function attachGesture(
 ): void {
   el.addEventListener('pointerdown', (e) => {
     if (drag.active) return // single-flight, across every widget
-    const h = begin(e)
-    if (h === null) return
+    /* CLAIM THE GESTURE BEFORE begin() RUNS. A grid's begin() writes its
+     * first note immediately — the tap IS an edit — and with drag.active
+     * still false that write reached the decoration plugin as an ordinary
+     * doc change, which REBUILT every widget and destroyed `el` before the
+     * listeners below were on it. The pointerup then had nowhere to land,
+     * so drag.active stayed true forever and every later tap on any widget
+     * was rejected by the single-flight check above: the field report was
+     * "the note buttons work the first time I click, then the piano roll
+     * stops responding, while the music plays on and ctrl-enter still
+     * works". Claiming first makes that write MAP the decorations instead,
+     * which is the same path every mid-drag write already takes.
+     *
+     * The knobs and envelopes hid the bug: they listen on `window`, so
+     * their pointerup arrived even after their DOM was swapped out.
+     *
+     * A begin() that REJECTS must not have written — it only inspects the
+     * target — so clearing the claim here needs no rebuild. */
+    drag.active = true
+    let h: GestureHandlers | null
+    try {
+      h = begin(e)
+    } catch (err) {
+      drag.active = false
+      throw err
+    }
+    if (h === null) {
+      drag.active = false
+      return
+    }
     e.preventDefault()
     e.stopPropagation()
     try {
@@ -61,7 +90,6 @@ export function attachGesture(
     } catch {
       // capture is best-effort; the listeners below carry the drag regardless
     }
-    drag.active = true
     const tgt: EventTarget = target === 'window' ? window : el
     const pid = e.pointerId
     const move = (ev: Event): void => {

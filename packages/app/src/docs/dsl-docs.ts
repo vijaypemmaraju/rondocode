@@ -548,6 +548,12 @@ const SYNTH_CTX: DocEntry[] = [
     'The chiptune noise channel (NES/Game Boy): a 15-bit shift register clocked at freq, so freq is the noise "pitch", low is a coarse rumble, high a bright hiss. mode white (default) is classic hiss; periodic is a short 93-step loop that buzzes into a metallic pitched tone. 1-bit output, shape it with an ADSR for chip drums, hats and zaps.',
     "lfsr(8000).mul(adsr(gate, { d: 0.08, s: 0, r: 0.02 }))",
   ),
+  sc(
+    'bytebeat',
+    "bytebeat(expression: string, opts?: { rate?: Sig | number; mode?: 'byte' | 'signed' | 'float' })",
+    'Formula audio: t is an integer tick counter starting at zero for each voice, clocked at rate Hz (default 8000, clamped to 0–192000; 0 pauses). Values are held between ticks. byte wraps to 0–255 and maps to [-1, 1); signed wraps to -128–127; float clips directly to [-1, 1]. Non-finite results become silence. Supports numbers (decimal, hex, binary), t, PI, parentheses, + - * / %, bitwise & | ^ ~ << >> >>>, comparisons, ! and ?:; sin/cos/tan/abs/floor/ceil/round/sqrt/log/exp and two-argument min/max/pow. No arbitrary JavaScript, arrays, assignments or loops; max 2048 characters / 256 tokens. Use an ADSR to release the voice and .slow(16).dur(1) for a long evolving phrase. Pitch comes from the clock, not the note. Rondo: bytebeat "t*(t>>8)" rate:8000 mode:byte. See the three bytebeat examples for audio-reactive visuals.',
+    'bytebeat("t * ((t >> 10) & 7)", { rate: 8000 }).mul(adsr(gate, { a: 0.01, s: 1, r: 0.02 })).mul(0.3)',
+  ),
   sc('supersaw', 'supersaw(freq, opts?: { detune?, mix? })', 'The fat trance/EDM lead: 7 detuned sawtooths in one oscillator. detune (0..1, def 0.2) spreads them apart; mix (0..1, def 0.7) is how loud the 6 side saws are versus the centre. Anti-aliased, so it stays clean up high.', "supersaw(note.freq, { detune: 0.3, mix: 0.8 })"),
   sc(
     'sample',

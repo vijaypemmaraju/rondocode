@@ -260,6 +260,7 @@ export const OPTIONS: RondoOption[] = [
   c('mod', 'function', 'mod x', 'Remainder, FLOORED: it takes the sign of the divisor, so `-0.1 mod 1` is 0.9. Wraps a rising ramp back to the start, which is how you build a phasor out of anything. Modulo 0 is 0.'),
   c('fold', 'function', 'fold', 'Wave folding: reflects the signal back on itself past ±1 instead of clipping it, adding harmonics rather than flattening.'),
   c('syncsaw', 'function', 'syncsaw freq ratio', 'Hard-synced sawtooth: a second oscillator restarted by the first, for the classic sync tear. The ratio is POSITIONAL, not a named argument: `syncsaw note 2`.', 'syncsaw note 2'),
+  c('bytebeat', 'function', 'bytebeat "FORMULA" rate:8000 mode:byte', 'Formula audio: integer t ticks at rate Hz. Modes: byte, signed, float. Restarts per voice.'),
   c('lfsr', 'function', 'lfsr freq mode:white|periodic', 'Linear-feedback shift register -- the chiptune noise channel. `periodic` is the short, pitched rattle.'),
   c('curvedef', 'keyword', 'curvedef NAME frac lvl frac lvl', "Name a curve SHAPE. Fractions are relative segment lengths, not durations -- the shape is scaled where it is used, so one definition serves both a synth's env (seconds) and a lane (cycles). A level may carry its own bend as `1:3`, exactly as in env."),
   c('curve', 'keyword', 'curve cyc lvl cyc lvl', 'A breakpoint automation lane on a play modifier, measured in CYCLES: `cut: curve 8 1 8 .2 300..6000` opens over 8 bars and falls over 8. Takes the same range/slow/fast suffixes every signal value does.'),

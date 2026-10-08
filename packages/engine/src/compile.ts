@@ -1,3 +1,4 @@
+import { BytebeatKernel, type BytebeatConfig } from './dsp/bytebeat'
 import { GraphError, validateGraph } from './graph'
 import type { GraphSpec, NodeSpec, NodeType, ParamSpec } from './graph'
 import type { DspContext, Kernel } from './dsp/types'
@@ -167,6 +168,7 @@ export const PORTS: Record<NodeType, { name: string; def?: number }[]> = {
   syncsaw: [{ name: 'freq' }, { name: 'ratio', def: 2 }],
   fm: [{ name: 'freq' }, { name: 'mod', def: 0 }, { name: 'feedback', def: 0 }],
   supersaw: [{ name: 'freq' }, { name: 'detune', def: 0.2 }, { name: 'mix', def: 0.7 }],
+  bytebeat: [{ name: 'rate', def: 8000 }],
   lfsr: [{ name: 'freq', def: 4000 }],
   // warpAmt defaults to 0.5 so `warp:'sync'` alone is audibly warped (0 would
   // make every mode the identity transfer — a silent no-op reads as broken)
@@ -276,6 +278,7 @@ const REGISTRY: Partial<Record<NodeType, (config: Record<string, unknown>, ctx: 
   ),
   noise: (c) => new NoiseKernel(typeof c['seed'] === 'number' ? c['seed'] : undefined, typeof c['color'] === 'string' ? c['color'] : undefined),
   supersaw: () => new SuperSawKernel(),
+  bytebeat: (c) => new BytebeatKernel(c as unknown as BytebeatConfig),
   lfsr: (c) => new LFSRKernel(typeof c['mode'] === 'string' ? c['mode'] : undefined),
   // ctx carries the shared sample bank the kernel resolves `name` against each
   // block (so samples loaded after compile still play).

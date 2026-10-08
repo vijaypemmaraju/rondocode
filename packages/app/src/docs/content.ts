@@ -725,6 +725,22 @@ p('hats', note('c5*8').sound('hat'))`,
     ],
   },
   {
+    id: 'bytebeat',
+    group: 'sound design',
+    title: 'Bytebeat & floatbeat',
+    blocks: [
+      p('bytebeat() makes audio from a formula and an integer clock, t. At the default rate of 8000 Hz, t advances 8000 times per second, independent of your audio device. Bit shifts and masks turn that clock into repeating rhythms and melodies. Every voice starts at t = 0: use a long note to let the formula unfold. The clock controls pitch and speed together; note pitch does not transpose it.'),
+      p('The default mode, byte, wraps the result to 0–255 and centers it around silence. mode: signed wraps to -128–127; mode: float reads -1–1 directly and clips larger values. Invalid numeric results become silence. Formulas accept arithmetic, bitwise operators, comparisons, ternaries, t, PI and functions such as sin, floor, min, max and pow. These are expressions, with no JavaScript statements, arrays or assignments. See the reference for the full vocabulary.'),
+      p('In Rondo, write `bytebeat "t * ((t >> 10) & 7)" rate:8000 mode:byte` inside a synth. Change the rate with a knob for tape-speed bends. Open Neon Circuit, Bit Rot or Orbital Bloom in the examples menu and enable visuals for their waveform and spectrum displays.'),
+      code('A sixteen-cycle formula phrase with a gentle envelope.',
+        `const bits = synth(({ bytebeat, gate, adsr, svf }) =>
+  svf(bytebeat('t * (3 + ((t >> 12) & 3))', { rate: 8192 }), 35, { mode: 'hp' })
+    .mul(adsr(gate, { a: 0.01, d: 0.01, s: 1, r: 0.03 })).mul(0.3))
+p('bits', note('c3').sound('bits').slow(16).dur(1))
+setCps(1)`),
+    ],
+  },
+  {
     id: 'arrange',
     group: 'patterns & form',
     title: 'Layering & tempo',

@@ -34,6 +34,9 @@ load (or record, or resample) a sample.
   voice through a supersaw, live.
 - **Singing**: `sing()` bakes neural vocals from lyrics + melody, offline in
   the browser.
+- **Bytebeat**: `bytebeat("t * ((t >> 10) & 7)")` turns a clock formula into
+  audio, with byte, signed and float modes. Three built-in examples pair it
+  with audio-reactive visuals.
 - **Visuals**: `visual()` attaches an audio-driven WGSL fragment shader.
 - **Custom tunings**: `defineScale()` with floats, cents or ratios; any
   `<n>edo` by name; every mode plus chromatic built in. Fractional midi renders

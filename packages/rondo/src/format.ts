@@ -216,18 +216,23 @@ function analyze(src: string): { lines: string[]; plans: Plan[] } {
 
 /* ---- interior transforms ---------------------------------------------------- */
 
-/** Split a line's content into js{ … } spans (protected, byte-preserved) and
+/** Split a line's content into js{ … } / quoted spans (byte-preserved) and
  *  free text, using the lexer's own balanced/string-aware scan. */
 function mapUnprotected(core: string, fn: (s: string) => string): string {
   let out = ''
   let i = 0
-  const re = /\bjs[ \t]*\{/g
+  const re = /\bjs[ \t]*\{|"(?:\\.|[^"\\])*"/g
   for (;;) {
     re.lastIndex = i
     const m = re.exec(core)
     if (m === null) {
       out += fn(core.slice(i))
       return out
+    }
+    if (m[0].startsWith('"')) {
+      out += fn(core.slice(i, m.index)) + m[0]
+      i = m.index + m[0].length
+      continue
     }
     const open = core.indexOf('{', m.index)
     const close = scanBalanced(core, open)

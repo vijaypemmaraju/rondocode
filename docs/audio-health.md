@@ -157,3 +157,28 @@ reverb or delay simply did not exist in the file it wrote. On `club` that moved
 the spectral centroid from 265 Hz to 315 Hz -- the missing tail, measurable
 rather than a matter of opinion. `render-local.ts` had always passed them. Both
 scripts now do.
+
+## Bytebeat arrangements
+
+The original bytebeat sketches passed the non-silence check but were too quiet:
+Neon Circuit measured -21.4 LUFS, Bit Rot -20.2, and Orbital Bloom -28.4 over
+16 cycles. Orbital Bloom also concentrated its energy in the bass and sent its
+whole output through reverb, leaving little clear foreground sound.
+
+The revised examples each have five instruments and a 24-bar form: four bars
+establishing the parts, eight with the full groove, four of breakdown, and an
+eight-bar return with an added counterline. Orbital Bloom now blends reverb
+under dry floatbeat chords, bells and bass, with a light percussion groove.
+The revised visuals respond to the individual instrument onsets too.
+
+Measured over the complete 24-cycle arrangement at 48 kHz, including the staged
+master gain, compression and sidechain:
+
+| example | peak dBFS | LUFS | crest dB | normalization dB |
+| --- | --- | --- | --- | --- |
+| bytebeat — neon circuit | -1.3 | -14.0 | 13.6 | 0 |
+| bytebeat — bit rot | -1.7 | -13.2 | 11.6 | 0 |
+| bytebeat — orbital bloom | -2.4 | -13.4 | 12.5 | 0 |
+
+All three pass `pnpm tsx scripts/measure-audio.ts --examples=bytebeat --cycles=24 --strict`.
+No non-finite samples, clipping, or automatic peak normalization was needed.

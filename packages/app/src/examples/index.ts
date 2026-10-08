@@ -5,6 +5,7 @@
  * self-documenting tutorial. */
 
 import { compile } from '@rondocode/rondo'
+import { BYTEBEAT_EXAMPLES } from './bytebeat'
 import { loadLocalExamples } from './local-loader'
 
 export interface Example {
@@ -4031,6 +4032,7 @@ level 5
 
 export const SHIPPED_EXAMPLES: Example[] = [
   { name: 'acid', code: acid, rondo: acidRondo },
+  ...BYTEBEAT_EXAMPLES,
   { name: 'visuals', code: visuals, rondo: visualsRondo },
   { name: 'techno', code: techno, rondo: technoRondo },
   { name: 'dubstep', code: dubstep, rondo: dubstepRondo },

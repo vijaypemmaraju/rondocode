@@ -702,7 +702,11 @@ function rExprRaw(n: Node, closed = false): R | null {
     for (let i = 0; i < rest.length; i++) {
       const kind = spec.pos[i]
       if (kind === undefined) return null
-      if (kind === 'enum') {
+      if (kind === 'string') {
+        const sv = strValue(rest[i]!)
+        if (sv === undefined) return null
+        pos.push(JSON.stringify(sv))
+      } else if (kind === 'enum') {
         const sv = strValue(rest[i]!)
         if (sv === undefined || !/^[a-zA-Z_]\w*$/.test(sv)) return null
         pos.push(sv)

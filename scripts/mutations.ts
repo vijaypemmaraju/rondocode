@@ -26,6 +26,13 @@ export interface Mutation {
 }
 
 export const MUTATIONS: Mutation[] = [
+  {
+    label: 'bytebeat: the formula clock runs at device rate instead of its own rate',
+    file: 'packages/engine/src/dsp/bytebeat.ts',
+    find: 'this.fraction += (Number.isFinite(hz) ? Math.max(0, Math.min(192000, hz)) : 0) / ctx.sampleRate',
+    replace: 'this.fraction += 1',
+    tests: 'packages/engine/test/bytebeat.test.ts',
+  },
   /* ---- chords: data where a mistake is SILENT ---------------------------- */
   {
     label: 'chord: add2 loses its second',

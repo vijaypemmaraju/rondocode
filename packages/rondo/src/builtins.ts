@@ -12,10 +12,10 @@
  *   sigop — a Sig method on the running signal (`tanh`, `clip -1 1`).
  *
  * Positional kinds: 'sig' = expression; 'enum' = a bare word emitted quoted
- * ('pink', 'tri'); named kinds add 'num' (plain number) and 'bool'
+ * ('pink', 'tri'); 'string' = a double-quoted literal; named kinds add 'num' (plain number) and 'bool'
  * (`loop:1` → `loop: true`). `alias` renames rondo arg → JS opts key. */
 
-export type PosKind = 'sig' | 'enum'
+export type PosKind = 'sig' | 'enum' | 'string'
 export type NamedKind = 'sig' | 'num' | 'enum' | 'bool'
 
 export interface BuiltinSpec {
@@ -56,6 +56,7 @@ export const BUILTINS: Record<string, BuiltinSpec> = {
   },
   supersaw: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { detune: 'sig', mix: 'sig' } },
   noise: { kind: 'osc', pos: ['enum'] },
+  bytebeat: { kind: 'osc', pos: ['string'], named: { rate: 'sig', mode: 'enum' } },
   lfsr: { kind: 'osc', pos: ['sig'], freqDefault: true, named: { mode: 'enum' } },
   // `sync:1` re-reads the rate as a length in transport CYCLES (1 = one sweep
   // per cycle, .25 = a quarter note) instead of Hz — it follows the tempo

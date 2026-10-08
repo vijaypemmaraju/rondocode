@@ -195,6 +195,9 @@ export interface SynthCtx {
   /** Noise. `color`: 'white' (default), 'pink' (warmer, −3 dB/oct) or 'brown'
    *  (deep, −6 dB/oct). */
   noise(color?: 'white' | 'pink' | 'brown'): Sig
+  /** Formula source: integer t at rate Hz (default 8000), restarting per voice.
+   * byte wraps to unsigned 8-bit, signed to signed 8-bit, float clips to [-1,1]. */
+  bytebeat(expression: string, opts?: { rate?: SigIn; mode?: 'byte' | 'signed' | 'float' }): Sig
   /** NES/Game-Boy LFSR noise (the chiptune noise channel). `freq` is the clock
    *  rate in Hz (the noise "pitch": low = coarse, high = bright). `mode`
    *  'white' (default) is hiss; 'periodic' is a buzzy, metallic pitched tone.
@@ -1244,6 +1247,7 @@ const makeCtx = (b: Builder): SynthCtx => {
       return b.node('supersaw', inputs)
     },
     noise: (color) => b.node('noise', {}, definedConfig({ color })),
+    bytebeat: (expression, opts) => b.node('bytebeat', { rate: src(opts?.rate ?? 8000, 'bytebeat rate') }, definedConfig({ expression, mode: opts?.mode })),
     lfsr: (freq, opts) => b.node('lfsr', { freq: src(freq, 'lfsr freq') }, definedConfig({ mode: opts?.mode })),
 
     sample: (gate, name, opts) => {

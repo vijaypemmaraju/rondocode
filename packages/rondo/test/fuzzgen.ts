@@ -116,7 +116,7 @@ function genCall(r: R, ctx: ExprCtx, depth = 1): string {
     // codegen rejects a constant there ('220.fold()' is not valid JS), so a
     // number would only generate programs that never compile.
     parts.push(r.chance(0.4) ? 'note' : genClosedCall(r))
-    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, depth))
+    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'string' ? JSON.stringify(r.pick(['t*(t>>8)', 'sin(t / 32)', 't   &   127'])) : genSigArg(r, ctx, depth))
     return parts.join(' ')
   }
   if (name === 'lfo') {
@@ -124,7 +124,7 @@ function genCall(r: R, ctx: ExprCtx, depth = 1): string {
   } else if (spec.freqDefault && r.chance(0.5)) {
     // bare source plays the note
   } else {
-    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, depth))
+    for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'string' ? JSON.stringify(r.pick(['t*(t>>8)', 'sin(t / 32)', 't   &   127'])) : genSigArg(r, ctx, depth))
   }
   for (const [k, kind] of Object.entries(spec.named ?? {})) {
     if (!r.chance(0.3)) continue
@@ -222,7 +222,7 @@ function genTransformLine(r: R, ctx: ExprCtx): string {
   const name = r.pick(procs)
   const spec = BUILTINS[name]!
   const parts = [name]
-  for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : genSigArg(r, ctx, 1))
+  for (const kind of spec.pos) parts.push(kind === 'enum' ? r.pick(ENUM_WORDS) : kind === 'string' ? JSON.stringify(r.pick(['t*(t>>8)', 'sin(t / 32)', 't   &   127'])) : genSigArg(r, ctx, 1))
   for (const [k, kind] of Object.entries(spec.named ?? {})) {
     if (!r.chance(0.35)) continue
     const v = kind === 'enum' ? r.pick(ENUM_WORDS)

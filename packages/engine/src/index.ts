@@ -34,3 +34,5 @@ export * from './dsp/physical'
 export * from './dsp/ddsp'
 export * from './dsp/midside'
 export * from './demo-samples'
+
+export * from './dsp/bytebeat'

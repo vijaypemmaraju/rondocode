@@ -50,6 +50,7 @@ export const ENUM_VALUE_TABLE: Record<string, EnumArgLists> = {
   // follow.ts FollowConfig.mode
   follow: { named: { mode: ['peak', 'rms'] } },
   // osc.ts LFSR_MODES
+  bytebeat: { named: { mode: ['byte', 'signed', 'float'] } },
   lfsr: { named: { mode: ['white', 'periodic'] } },
   // osc.ts FM_WAVES
   fm: { named: { wave: ['sine', 'tri', 'saw', 'square'] } },

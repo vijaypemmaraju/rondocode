@@ -13,6 +13,7 @@ import type { Pos, RondoError } from './ast'
 
 export type Tok =
   | { k: 'num'; v: number; text: string; pos: Pos; sp: boolean }
+  | { k: 'string'; v: string; pos: Pos; sp: boolean }
   | { k: 'ident'; v: string; pos: Pos; sp: boolean }
   | { k: 'op'; v: '+' | '-' | '*' | '/' | '^'; pos: Pos; sp: boolean }
   | { k: 'lparen'; pos: Pos; sp: boolean }
@@ -97,6 +98,26 @@ function tokenizeLine(text: string, lineNo: number, base: number, off: number, e
       }
       toks.push({ k: 'jsexpr', v: text.slice(open + 1, close).trim(), pos, sp, from: off + open + 1, to: off + close })
       i = close + 1
+      continue
+    }
+    // Quoted source arguments, e.g. a bytebeat formula. Keep operators inside
+    // the string out of the surrounding signal-expression token stream.
+    if (ch === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === '\\') j++
+        j++
+      }
+      if (j >= text.length) {
+        errors.push({ message: 'unterminated string', line: lineNo, col: base + i })
+        break
+      }
+      try {
+        toks.push({ k: 'string', v: JSON.parse(text.slice(i, j + 1)) as string, pos, sp })
+      } catch {
+        errors.push({ message: 'invalid string escape', line: lineNo, col: base + i })
+      }
+      i = j + 1
       continue
     }
     // two-char tokens

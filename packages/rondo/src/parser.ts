@@ -144,7 +144,7 @@ function parseExpr(c: Cursor, minPrec: number): Expr {
 /** True if the next token can begin a space-separated argument. */
 function canStartArg(c: Cursor): boolean {
   const t = c.peek()
-  return !!t && t.sp && (t.k === 'num' || t.k === 'jsexpr' || t.k === 'lparen' || (t.k === 'ident' && !c.atNamedArg()))
+  return !!t && t.sp && (t.k === 'num' || t.k === 'string' || t.k === 'jsexpr' || t.k === 'lparen' || (t.k === 'ident' && !c.atNamedArg()))
 }
 
 /** Parse named args (`res:.85 mode:hp`). Enum-kind named values (per the
@@ -182,14 +182,19 @@ function parseNamed(c: Cursor, spec?: BuiltinSpec, by = '?'): Record<string, Exp
 }
 
 /** Parse a builtin's declared positionals (space-separated). Enum positionals
- *  take a bare word; sig positionals a tight expression. Stops early when the
+ *  take a bare word, string positionals a quoted literal, sigs a tight expression.
+ *  Stops early when the
  *  next token can't start an argument (optional trailing positionals). */
 function parsePositionals(c: Cursor, spec: BuiltinSpec): Expr[] {
   const args: Expr[] = []
   for (const kind of spec.pos) {
     if (!canStartArg(c)) break
     const t = c.peek()!
-    if (kind === 'enum') {
+    if (kind === 'string') {
+      if (t.k !== 'string') { c.err('expected a double-quoted formula', t.pos); break }
+      c.next()
+      args.push({ t: 'js', code: JSON.stringify(t.v), pos: t.pos })
+    } else if (kind === 'enum') {
       if (t.k !== 'ident') break // a number here belongs to something else
       c.next()
       args.push({ t: 'enum', name: (t as Tok & { v: string }).v, pos: t.pos })

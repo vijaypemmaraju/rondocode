@@ -176,9 +176,9 @@ master gain, compression and sidechain:
 
 | example | peak dBFS | LUFS | crest dB | normalization dB |
 | --- | --- | --- | --- | --- |
-| bytebeat — neon circuit | -1.3 | -14.0 | 13.6 | 0 |
-| bytebeat — bit rot | -1.7 | -13.2 | 11.6 | 0 |
-| bytebeat — orbital bloom | -2.4 | -13.4 | 12.5 | 0 |
+| bytebeat: neon circuit | -1.3 | -14.0 | 13.6 | 0 |
+| bytebeat: bit rot | -1.7 | -13.2 | 11.6 | 0 |
+| bytebeat: orbital bloom | -2.4 | -13.4 | 12.5 | 0 |
 
 All three pass `pnpm tsx scripts/measure-audio.ts --examples=bytebeat --cycles=24 --strict`.
 No non-finite samples, clipping, or automatic peak normalization was needed.

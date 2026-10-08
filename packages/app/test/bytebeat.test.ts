@@ -37,7 +37,15 @@ play bits
         const converted = evalCode(roundTrip.code, baseScope)
         expect(converted.diagnostics).toEqual([])
         expect(converted.visual).toBe(staged.visual)
-        expect([...converted.synths.values()].map(s => s.graph)).toEqual([...staged.synths.values()].map(s => s.graph))
+        // Decompilation may reorder independent graph nodes. Compare sound,
+        // including the post chain, instead of implementation-specific IDs.
+        for (const [name, def] of staged.synths) {
+          const events = [{ type: 'noteOn' as const, time: 0, note: 60 }]
+          const original = renderOffline(def, events, 0.5)
+          const twin = renderOffline(converted.synths.get(name)!, events, 0.5)
+          expect(twin.left).toEqual(original.left)
+          expect(twin.right).toEqual(original.right)
+        }
       }
       for (const def of staged.synths.values()) {
         const audio = renderOffline(def, [{ type: 'noteOn', time: 0, note: 60 }], 2)

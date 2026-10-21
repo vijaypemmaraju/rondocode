@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "ws": "^8.18.0",
     "zod": "^3"
   },

@@ -10,7 +10,7 @@
     "@anthropic-ai/sdk": "^0.112.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ws": "^8.18.0",
-    "zod": "^3"
+    "zod": "^4"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

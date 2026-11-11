@@ -68,6 +68,9 @@ const rig = async (): Promise<{ bridge: Bridge; client: Client }> => {
   return { bridge, client }
 }
 
+/** The fake editor buffer: `c2` occurs twice on purpose, `e1` once. */
+const FAKE_DOC = 'bpm 120\nplay kick\n  c2 c2\nplay sub\n  e1\n'
+
 /** A fake browser session: records every request and answers like the
  *  handler map in packages/app/src/main.ts would. */
 const attachBrowser = async (bridge: Bridge): Promise<{ ws: WebSocket; received: BrowserFrame[] }> => {
@@ -90,6 +93,15 @@ const attachBrowser = async (bridge: Bridge): Promise<{ ws: WebSocket; received:
         break
       case 'getCode':
         respond({ code: "p('bass', silence)", lastAttempted: 'broken(' })
+        break
+      case 'getDoc':
+        respond({ text: FAKE_DOC, lang: 'rondo' })
+        break
+      case 'setMacro':
+        respond({ ok: true, sites: 4 })
+        break
+      case 'evalDoc':
+        respond({ ok: true, diagnostics: [] })
         break
       case 'getState':
         respond(FAKE_STATE)
@@ -128,7 +140,9 @@ describe('mcp server tools', { timeout: SOCKET_TIMEOUT_MS }, () => {
     for (const name of [
       'get_code',
       'eval_code',
+      'edit_code',
       'set_param',
+      'set_macro',
       'set_channel',
       'transport',
       'get_state',
@@ -151,7 +165,10 @@ describe('mcp server tools', { timeout: SOCKET_TIMEOUT_MS }, () => {
     const calls: [string, Record<string, unknown>][] = [
       ['get_code', {}],
       ['eval_code', { code: 'setCps(1)' }],
+      ['eval_code', { code: 'bpm 120', lang: 'rondo' }],
+      ['edit_code', { edits: [{ old: 'a', new: 'b' }] }],
       ['set_param', { synth: 'acid', name: 'cutoff', value: 1200 }],
+      ['set_macro', { name: 'energy', value: 0.5 }],
       ['set_channel', { synth: 'acid', gain: 0.8 }],
       ['transport', { action: 'play' }],
       ['get_state', {}],
@@ -187,11 +204,96 @@ describe('mcp server tools', { timeout: SOCKET_TIMEOUT_MS }, () => {
     expect(evalReq?.params).toEqual({ source: "p('bass', silence)" })
   })
 
+  it('eval_code with lang goes through the editor, in that language', async () => {
+    const { bridge, client } = await rig()
+    const { received } = await attachBrowser(bridge)
+    const r = (await client.callTool({
+      name: 'eval_code',
+      arguments: { code: 'bpm 96', lang: 'rondo' },
+    })) as CallToolResult
+    expect(asJson(r)).toEqual({ ok: true, diagnostics: [] })
+    expect(received.find((f) => f.method === 'evalDoc')?.params).toEqual({ source: 'bpm 96', lang: 'rondo' })
+    // the session-only path was not ALSO taken
+    expect(received.some((f) => f.method === 'evalCode')).toBe(false)
+  })
+
+  it('edit_code applies its edits in order to the editor text and evals the result', async () => {
+    const { bridge, client } = await rig()
+    const { received } = await attachBrowser(bridge)
+    const r = (await client.callTool({
+      name: 'edit_code',
+      arguments: { edits: [{ old: 'e1', new: 'g1' }, { old: 'bpm 120\n', new: '' }, { old: 'g1', new: 'g1 ~' }] },
+    })) as CallToolResult
+    expect(asJson(r)).toEqual({ ok: true, diagnostics: [] })
+    expect(received.find((f) => f.method === 'evalDoc')?.params).toEqual({
+      source: 'play kick\n  c2 c2\nplay sub\n  g1 ~\n',
+      lang: 'rondo',
+    })
+  })
+
+  it('edit_code writes NOTHING when an edit is missing or ambiguous, and says which', async () => {
+    const { bridge, client } = await rig()
+    const { received } = await attachBrowser(bridge)
+    const missing = (await client.callTool({
+      name: 'edit_code',
+      arguments: { edits: [{ old: 'e1', new: 'g1' }, { old: 'nope', new: 'x' }] },
+    })) as CallToolResult
+    expect(missing.isError).toBe(true)
+    expect(asText(missing)).toContain('edit 2')
+    expect(asText(missing)).toContain('not found')
+    const twice = (await client.callTool({
+      name: 'edit_code',
+      arguments: { edits: [{ old: 'c2', new: 'd2' }] },
+    })) as CallToolResult
+    expect(twice.isError).toBe(true)
+    expect(asText(twice)).toContain('more than once')
+    expect(received.some((f) => f.method === 'evalDoc')).toBe(false)
+  })
+
+  it('set_macro relays name, value and the ramp, and reports the sites reached', async () => {
+    const { bridge, client } = await rig()
+    const { received } = await attachBrowser(bridge)
+    const eased = (await client.callTool({
+      name: 'set_macro',
+      arguments: { name: 'energy', value: 0.9, rampMs: 8000 },
+    })) as CallToolResult
+    expect(asJson(eased)).toEqual({ ok: true, sites: 4 })
+    await client.callTool({ name: 'set_macro', arguments: { name: 'grit', value: 0.2 } })
+    const reqs = received.filter((f) => f.method === 'setMacro').map((f) => f.params)
+    // no rampMs key at all when none was given: absent means "jump"
+    expect(reqs).toEqual([{ name: 'energy', value: 0.9, rampMs: 8000 }, { name: 'grit', value: 0.2 }])
+  })
+
+  it('quantize rides to the browser on eval, edit and macro calls, and is absent when not asked for', async () => {
+    const { bridge, client } = await rig()
+    const { received } = await attachBrowser(bridge)
+    const calls: [string, Record<string, unknown>, string][] = [
+      ['eval_code', { code: 'bpm 96', lang: 'rondo', quantize: 8 }, 'evalDoc'],
+      ['edit_code', { edits: [{ old: 'e1', new: 'g1' }], quantize: 4 }, 'evalDoc'],
+      ['set_macro', { name: 'energy', value: 1, rampMs: 500, quantize: 1 }, 'setMacro'],
+    ]
+    for (const [name, args, method] of calls) {
+      received.length = 0
+      const r = (await client.callTool({ name, arguments: args })) as CallToolResult
+      expect(r.isError, name).not.toBe(true)
+      const sent = received.find((f) => f.method === method)?.params as Record<string, unknown>
+      expect(sent.quantize, name).toBe(args.quantize)
+    }
+    // an unquantized call carries no quantize key at all: absent means "now"
+    received.length = 0
+    await client.callTool({ name: 'set_macro', arguments: { name: 'energy', value: 1 } })
+    expect(received.find((f) => f.method === 'setMacro')?.params).toEqual({ name: 'energy', value: 1 })
+  })
+
   it('get_code and get_state relay the session truth', async () => {
     const { bridge, client } = await rig()
     await attachBrowser(bridge)
     const code = (await client.callTool({ name: 'get_code', arguments: {} })) as CallToolResult
-    expect(asJson(code)).toEqual({ code: "p('bass', silence)", lastAttempted: 'broken(' })
+    expect(asJson(code)).toEqual({
+      code: "p('bass', silence)",
+      lastAttempted: 'broken(',
+      editor: { text: FAKE_DOC, lang: 'rondo' },
+    })
     const state = (await client.callTool({ name: 'get_state', arguments: {} })) as CallToolResult
     expect(asJson(state)).toEqual({ connected: true, state: FAKE_STATE })
   })

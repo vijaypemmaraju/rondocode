@@ -54,7 +54,21 @@ const AGENT_GUIDE_URL = new URL('../../../docs/reference/agent-guide.md', import
 interface EvalRelay {
   ok: boolean
   diagnostics: Diagnostic[]
+  /** The measure a quantized call landed on; absent when it was not held. */
+  measure?: number
 }
+
+/** A quantized call is HELD in the browser until its boundary, so the bridge
+ *  must wait longer than its usual 5 s. Two minutes covers a 32-bar phrase at
+ *  the slowest tempo anyone plays; a transport that stops mid-wait does not
+ *  strand the call, because the browser's timer fires regardless. */
+const QUANTIZE_TIMEOUT_MS = 125_000
+
+const QUANTIZE_DOC =
+  'Hold this call until the next boundary that is a multiple of this many bars, then apply it there: 1 lands on the next bar line, 4 or 8 on the next phrase. The reply comes back when it has landed and carries `measure`, the bar it landed on. Ignored (applied at once) while the transport is stopped.'
+
+const relay = (r: EvalRelay): EvalRelay =>
+  r.measure === undefined ? { ok: r.ok, diagnostics: r.diagnostics } : { ok: r.ok, diagnostics: r.diagnostics, measure: r.measure }
 
 interface CachedNotify {
   payload: unknown
@@ -108,25 +122,73 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     'get_code',
     {
       description:
-        'Read the program currently in the live rondocode session: `code` is the last source that evaluated successfully (the running program), `lastAttempted` is the last source handed to eval even if it failed. Call this before eval_code — evals replace the whole program, so start from what is already playing.',
+        'Read the program currently in the live rondocode session: `code` is the last source that evaluated successfully (the running program, always JavaScript), `lastAttempted` is the last source handed to eval even if it failed, and `editor` is the text in the human\'s editor with the language it is in (`rondo` or `rondocode`) — the buffer edit_code edits, including any slider or knob they have dragged. Call this before eval_code — evals replace the whole program, so start from what is already playing.',
       inputSchema: {},
     },
-    () => viaBridge(() => bridge.call('getCode')),
+    () =>
+      viaBridge(async () => {
+        const code = (await bridge.call('getCode')) as Record<string, unknown>
+        // The buffer the human is looking at, in the language it is in. It is
+        // what edit_code edits, and it carries every slider they have moved.
+        const doc = (await bridge.call('getDoc')) as { text: string; lang: string }
+        return { ...code, editor: doc }
+      }),
   )
 
   server.registerTool(
     'eval_code',
     {
       description:
-        'Evaluate a COMPLETE rondocode program in the live browser session and return { ok, diagnostics }. The source defines instruments (top-level `const x = synth(ctx => ...)`), registers patterns (`p(\'name\', n(\'0 3 5\').scale(\'a minor\').sound(\'x\'))`), and sets tempo (`setCps(0.5)`) — see the rondocode://docs resources first. Each eval replaces the entire program: anything omitted stops playing. On failure (ok: false) NOTHING changes — the previous program keeps playing and diagnostics carry line/col/message. Known v1 limitation: this evals into the session but does NOT rewrite the human\'s editor text; their editor keeps its own document, and if they press run, their text replaces your program.',
+        'Evaluate a COMPLETE rondocode program in the live browser session and return { ok, diagnostics }. The source defines instruments (top-level `const x = synth(ctx => ...)`), registers patterns (`p(\'name\', n(\'0 3 5\').scale(\'a minor\').sound(\'x\'))`), and sets tempo (`setCps(0.5)`) — see the rondocode://docs resources first. Each eval replaces the entire program: anything omitted stops playing. On failure (ok: false) NOTHING changes — the previous program keeps playing and diagnostics carry line/col/message. Pass `lang` to eval THROUGH THE EDITOR: the source becomes the human\'s editor text in that language (`rondo` for the terse language, `rondocode` for the JavaScript DSL) and evals on the same path as their Run button, so they see your program, its sliders and knobs are theirs to drag, and edit_code can then change it a line at a time. On that path a failed eval still leaves the SOUND untouched, but your text is in their buffer. Without `lang` the source must be JavaScript and evals into the session only: their editor keeps its own document, and if they press run, their text replaces your program.',
       inputSchema: {
-        code: z.string().describe('Full rondocode source to evaluate (a whole program, not a diff)'),
+        code: z.string().describe('Full source to evaluate (a whole program, not a diff)'),
+        lang: z
+          .enum(['rondo', 'rondocode'])
+          .optional()
+          .describe("Language of `code`. Setting it writes the program into the human's editor; omit for a session-only JavaScript eval"),
+        quantize: z.number().positive().optional().describe(QUANTIZE_DOC),
       },
     },
-    ({ code }) =>
+    ({ code, lang, quantize }) =>
       viaBridge(async () => {
-        const r = (await bridge.call('evalCode', { source: code })) as EvalRelay
-        return { ok: r.ok, diagnostics: r.diagnostics } satisfies EvalRelay
+        const params = { source: code, ...(lang === undefined ? {} : { lang }), ...(quantize === undefined ? {} : { quantize }) }
+        const timeout = quantize === undefined ? undefined : QUANTIZE_TIMEOUT_MS
+        return relay((await bridge.call(lang === undefined ? 'evalCode' : 'evalDoc', params, timeout)) as EvalRelay)
+      }),
+  )
+
+  server.registerTool(
+    'edit_code',
+    {
+      description:
+        "Change the program a piece at a time: apply exact find-and-replace edits to the text in the human's editor, then eval the result on their Run path. This is the fast way to iterate while something plays — send the one line that changes instead of the whole program. Each `old` must occur EXACTLY ONCE in the text as it stands after the edits before it (get_code's `editor.text` is that text); an empty `new` deletes. All or nothing: if any edit does not match, nothing is written and the reply says which one. The language is whatever the editor is in. Returns { ok, diagnostics } like eval_code; on a failed eval the sound keeps the last good program while the editor holds your edited text.",
+      inputSchema: {
+        edits: z
+          .array(
+            z.object({
+              old: z.string().min(1).describe('Exact text to find; must occur exactly once'),
+              new: z.string().describe('Its replacement (empty deletes)'),
+            }),
+          )
+          .min(1)
+          .describe('Edits, applied in order'),
+        quantize: z.number().positive().optional().describe(QUANTIZE_DOC),
+      },
+    },
+    ({ edits, quantize }) =>
+      viaBridge(async () => {
+        const doc = (await bridge.call('getDoc')) as { text: string; lang: string }
+        let text = doc.text
+        for (const [i, e] of edits.entries()) {
+          const first = text.indexOf(e.old)
+          if (first === -1) throw new Error(`edit ${i + 1}: \`old\` not found in the editor text; nothing was changed`)
+          if (text.indexOf(e.old, first + 1) !== -1) {
+            throw new Error(`edit ${i + 1}: \`old\` occurs more than once; add surrounding text to make it unique. Nothing was changed`)
+          }
+          text = text.slice(0, first) + e.new + text.slice(first + e.old.length)
+        }
+        const params = { source: text, lang: doc.lang, ...(quantize === undefined ? {} : { quantize }) }
+        return relay((await bridge.call('evalDoc', params, quantize === undefined ? undefined : QUANTIZE_TIMEOUT_MS)) as EvalRelay)
       }),
   )
 
@@ -145,6 +207,28 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     ({ synth, name, value, rampMs }) =>
       viaBridge(() =>
         bridge.call('setParam', rampMs === undefined ? { addr: `${synth}.${name}`, value } : { addr: `${synth}.${name}`, value, rampMs }),
+      ),
+  )
+
+  server.registerTool(
+    'set_macro',
+    {
+      description:
+        "Move a project-wide macro (declared with macro() / rondo `macro NAME`) on EVERY synth that reads it, at once. rampMs glides there instead of jumping, which is how to ease a whole track open or closed from one number: a build is one call with a long ramp. Returns { ok, sites }: sites is how many synths the macro reached, and ok is false when that is zero (no such macro, or nothing uses it). The written value in the editor is NOT changed, so the next eval returns the macro to the number in the text: once a ramp has landed, write the same value with edit_code to keep it.",
+      inputSchema: {
+        name: z.string().describe("Macro name, e.g. 'energy'"),
+        value: z.number().describe("New value, in the macro's own range"),
+        rampMs: z.number().optional().describe('Glide time in milliseconds (default: immediate)'),
+        quantize: z.number().positive().optional().describe(QUANTIZE_DOC),
+      },
+    },
+    ({ name, value, rampMs, quantize }) =>
+      viaBridge(() =>
+        bridge.call(
+          'setMacro',
+          { name, value, ...(rampMs === undefined ? {} : { rampMs }), ...(quantize === undefined ? {} : { quantize }) },
+          quantize === undefined ? undefined : QUANTIZE_TIMEOUT_MS,
+        ),
       ),
   )
 
@@ -196,7 +280,7 @@ export function createMcpServer(bridge: Bridge, opts?: McpServerOpts): McpServer
     'get_state',
     {
       description:
-        'Get the live session state: playing (bool), cps (tempo), registered synth and pattern names, lastError if any, plus connected (browser link up). Use it to discover what exists before eval_code and to confirm what a tool call did.',
+        'Get the live session state: playing (bool), cps (tempo), registered synth and pattern names, lastError if any, plus connected (browser link up). While playing it also carries `position`: the measure the transport is in (counted from 1) and `phase`, how far through that bar it is (0..1), which is how to know where in a phrase a change will land. Use it to discover what exists before eval_code and to confirm what a tool call did.',
       inputSchema: {},
     },
     () =>

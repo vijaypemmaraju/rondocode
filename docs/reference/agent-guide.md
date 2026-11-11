@@ -64,21 +64,56 @@ you (MCP client) ── stdio ──> mcp server ── ws :6070 ──> browser
 5. Registration is synchronous only: `p()`/`defineSynth()`/`setCps()` called
    from a timer or promise throws.
 
-### Known v1 limitation: your code does not appear in the human's editor
+### Into the editor, or around it
 
-`eval_code` evaluates into the live **Session**, but the text in the human's
-editor is a separate document and is *not* rewritten. Consequences:
+`eval_code` with only `code` evaluates JavaScript into the live **Session**.
+The text in the human's editor is a separate document and is *not* rewritten:
 
 - The human hears your changes but does not see them in their editor.
 - If the human presses run, **their** text evaluates and replaces your program
   entirely (whole-program semantics, rule 1 above).
-- `get_code` returns the Session's truth: `code` is the last successfully
-  applied source (possibly yours), `lastAttempted` the last one tried (theirs
-  or yours, even if it failed). Use it to detect that the human has taken over.
 
-Treat the session as shared and last-writer-wins. When collaborating with an
-active human, prefer the non-destructive tools (`set_param`, `set_channel`,
-`transport`) or tell the human what code to paste.
+Pass `lang` (`'rondo'` or `'rondocode'`) and the eval goes THROUGH the editor
+instead: your source becomes the editor's text in that language and evaluates
+on the same path as their Run button. They see the program, and every knob,
+slider and macro in it is theirs to move. This is the path to prefer when a
+human is watching, and the only way to send rondo.
+
+Once a program is in the editor, iterate with `edit_code`: a list of
+`{ old, new }` find-and-replace edits applied to the editor text and then
+evaluated. Each `old` must match exactly once; if any edit misses, nothing is
+written. Change one line, hear it, change the next.
+
+`get_code` returns both truths: `code` is the last successfully applied
+JavaScript, `lastAttempted` the last source tried, and `editor` the editor's
+text and language, which includes any value the human has dragged since.
+
+### Macros, eased
+
+`set_macro {name, value, rampMs?}` moves a project-wide macro on every synth
+that reads it, and `rampMs` glides there instead of jumping. One call with a
+long ramp is a build. While it glides, the macro's number in the editor follows
+it, so the human sees the dial move and the next eval starts from where the
+sound already is. It answers `{ ok, sites }`: `sites` is how many synths it
+reached, and `ok` is false when that is zero.
+
+A design that never cuts: give every part its own macro as a level
+(`* thump` at the end of the kick's chain), leave every pattern playing, and
+perform the arrangement with ramps. Nothing is switched, so nothing can click.
+
+### Landing on the bar
+
+Your calls arrive whenever your tool call happens to, which is never on a bar
+line. `eval_code`, `edit_code` and `set_macro` take `quantize: N`: the call is
+held in the browser and lands on the next cycle that is a multiple of N (1 is
+the next bar, 8 the next eight-bar phrase). The reply comes back when it has
+landed and carries `measure`. A program swap is applied 150 ms early, because
+the scheduler queues notes about 100 ms ahead and a swap made on the boundary
+would miss its own downbeat. While the transport is stopped there is no
+boundary, and the call applies at once.
+
+`get_state` reports `position` while playing: the measure the transport is in
+and `phase`, how far through that bar it is.
 
 ## Typical workflow
 

@@ -111,7 +111,7 @@ driven, and the second one you open takes control.
 
 | tools | browser tab |
 |---|---|
-| `get_code`, `eval_code`, `set_param`, `set_channel`, `transport`, `get_state`, `get_diagnostics` | required |
+| `get_code`, `eval_code`, `edit_code`, `set_param`, `set_macro`, `set_channel`, `transport`, `get_state`, `get_diagnostics` | required |
 | `render_code`, `render_synth`, `compare_renders` | not required |
 
 The live tools talk to the running Session. Without a tab they return an error beginning
@@ -195,8 +195,16 @@ browser -> server   { notify: 'diagnostics' | 'state' | 'hello', payload }   (no
 `packages/app/src/session/bridge-client.ts` the browser half; between them the
 header comments carry the details this page leaves out.
 
-## One known limitation
+## Into the editor, or around it
 
-`eval_code` evaluates into the **session**, not into the human's editor text.
-Their document is unchanged, so if they press Run, their text replaces the
-agent's program. Worth knowing before you wonder where your changes went.
+`eval_code` has two paths, chosen by whether it is given a `lang`.
+
+Without one, the source is JavaScript and evaluates into the **session** only.
+The human's document is unchanged, so if they press Run, their text replaces
+the agent's program. Worth knowing before you wonder where your changes went.
+
+With `lang: 'rondo'` or `lang: 'rondocode'`, the source becomes the editor's
+text in that language and evaluates on the same path as the Run button. The
+human sees the program, its knobs and sliders are theirs to drag, and
+`edit_code` can then change it with small find-and-replace edits instead of
+resending the whole thing. Neither path touches the transport.

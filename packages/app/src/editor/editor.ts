@@ -14,6 +14,7 @@ import { Session } from '../session/Session'
 import type { SessionState, ProbeTarget } from '../session/Session'
 import { synthsMicDevices, synthsUseMic } from '../session/evalCode'
 import type { Diagnostic } from '../session/evalCode'
+import { findMacroNumber, formatMacroNumber } from './macrotext'
 import type { AudioSession } from '../audio/AudioSession'
 import { builtInSamples } from '../audio/demo-samples'
 import { mountOutline } from './outlinepanel'
@@ -207,6 +208,21 @@ export interface EditorHandle {
    *  stops the transport first — like loading an example — so Run starts the
    *  new program cleanly from cycle 0 rather than hot-swapping mid-cycle. */
   loadCode(code: string): void
+  /** Put `code` in the buffer (switching language first when `lang` is given)
+   *  and eval it on the Run path, WITHOUT touching the transport. This is how
+   *  an agent's program becomes the text the human is looking at, with its
+   *  widgets live, instead of a second program the editor knows nothing of. */
+  evalDoc(code: string, lang?: EditorLang): { ok: boolean; diagnostics: Diagnostic[] }
+  /** The number written for a project macro (`macro NAME 0.4 ...` in rondo,
+   *  `macro('NAME', 0.4, ...)` in JavaScript), or undefined when the buffer
+   *  declares no such macro. */
+  readMacro(name: string): number | undefined
+  /** Rewrite that number IN THE TEXT ONLY: no eval. For a macro that is being
+   *  moved by something other than the buffer (an eased set_macro), so the
+   *  dial on screen follows the sound and the next eval finds the value the
+   *  sound is already at instead of snapping back to a stale one. Returns
+   *  false when the macro is not declared in the buffer. */
+  writeMacro(name: string, value: number): boolean
   /** The editor language: 'rondocode' (the JS DSL) or 'rondo' (the terse
    *  language that transpiles to it). Drives highlighting, intellisense, and
    *  whether Run transpiles first. */
@@ -411,6 +427,10 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   // Synth/channel names of the current sing() vocals (for karaoke detection).
   let singSoundNames = new Set<string>()
   let dirtyVsAttempted = true
+  /** What the most recent applyDoc came to, compile failures included. The
+   *  bridge's evalDoc reads it back, because applyDoc itself answers the
+   *  keymap ("handled"), not the caller who wants to know if it worked. */
+  let lastApply: { ok: boolean; diagnostics: Diagnostic[] } = { ok: true, diagnostics: [] }
 
   const updateDirty = (doc: string): void => {
     dirtyVsGood = doc !== lastGood
@@ -421,7 +441,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
   /** Eval the current doc (the Run path and the widget re-eval path share
    *  this). Only the ▶ path auto-starts the transport — dragging a slider
    *  while stopped stages the change silently. */
-  const applyDoc = (autoplay: boolean): boolean => {
+  const applyDoc = (autoplay: boolean, opts?: { live?: boolean }): boolean => {
     const source = view.state.doc.toString()
     saveDoc(source, SAVE_ON_EVAL_MS) // good or bad: the text is worth keeping
     lastAttempted = source
@@ -440,6 +460,7 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
           line: e.line, col: e.col, message: e.message, severity: 'error', source: 'eval',
         }))
         view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc, diags)))
+        lastApply = { ok: false, diagnostics: diags }
         updateDirty(source)
         if (autoplay) emitEval(source, false)
         return true
@@ -454,7 +475,8 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // live = a widget/scrub re-eval (not an explicit Run): lets the Session
     // hot-patch constants continuously and coalesce rebuilds, so sweeping a
     // synth number glides instead of stuttering.
-    const result = session.evalCode(evalSource, { live: !autoplay }) // diagnostics arrive via callback
+    const result = session.evalCode(evalSource, { live: opts?.live ?? !autoplay }) // diagnostics arrive via callback
+    lastApply = { ok: result.ok, diagnostics: result.diagnostics }
     if (result.ok) {
       lastGood = source
       lastStagedJs = evalSource
@@ -1164,6 +1186,47 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     // buffer replaced; press Run to play it from the top
   }
 
+  /* An agent's eval, through the EDITOR instead of around it. The text lands
+   * in the buffer (minimal change, so the cursor and scroll survive a small
+   * edit) and evals on the same path as Run, which is what makes its widgets,
+   * note flash and rondo line map real. Unlike loadCode it does not stop the
+   * transport, and unlike Run it does not start it: a hot swap while playing,
+   * a silent stage while stopped, the eval_code contract either way. */
+  /* A project macro's written default (see macrotext.ts), read and rewritten
+   * in whichever language the buffer is in. */
+  const readMacro = (name: string): number | undefined =>
+    findMacroNumber(view.state.doc.toString(), name, lang)?.value
+  const writeMacro = (name: string, value: number): boolean => {
+    const at = findMacroNumber(view.state.doc.toString(), name, lang)
+    if (at === undefined) return false
+    const text = formatMacroNumber(value)
+    if (view.state.sliceDoc(at.from, at.to) !== text) {
+      view.dispatch({ changes: { from: at.from, to: at.to, insert: text } })
+    }
+    return true
+  }
+
+  const evalDoc = (code: string, nextLang?: EditorLang): { ok: boolean; diagnostics: Diagnostic[] } => {
+    const cur = view.state.doc.toString()
+    if (cur !== code) {
+      let from = 0
+      const max = Math.min(cur.length, code.length)
+      while (from < max && cur.charCodeAt(from) === code.charCodeAt(from)) from++
+      let endCur = cur.length
+      let endNew = code.length
+      while (endCur > from && endNew > from && cur.charCodeAt(endCur - 1) === code.charCodeAt(endNew - 1)) {
+        endCur--
+        endNew--
+      }
+      view.dispatch({ changes: { from, to: endCur, insert: code.slice(from, endNew) } })
+    }
+    // setLang re-lints with a LIVE eval; the explicit one below is the one
+    // whose result is reported, so the answer never depends on the toggle.
+    if (nextLang !== undefined) setLang(nextLang)
+    applyDoc(false, { live: false })
+    return lastApply
+  }
+
   // samples popover: lists loaded samples (built-in + user), inserts
   // sample(gate, 'name') at the cursor, and loads audio files.
   const disposeSamples = mountSamplesPopover({
@@ -1244,6 +1307,9 @@ export function mountEditor(root: HTMLElement, audio: AudioSession): EditorHandl
     onProbeTargets: subscribeProbes,
     getDoc: () => view.state.doc.toString(),
     loadCode,
+    evalDoc,
+    readMacro,
+    writeMacro,
     getLang: () => lang,
     setLang,
     onLang: (fn) => {
